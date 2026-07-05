@@ -24,6 +24,8 @@ struct ReclaimerCLI {
             try overview(args: args)
         case "history":
             try history(args: args)
+        case "duplicates":
+            try duplicates(args: args)
         case "scan":
             try scan(args: args)
         case "plan":
@@ -121,6 +123,20 @@ struct ReclaimerCLI {
             }
         default:
             throw CLIError.message("Unknown history subcommand: \(subcommand)")
+        }
+    }
+
+    static func duplicates(args: [String]) throws {
+        let options = ParsedOptions(args)
+        guard options.hasPath else {
+            throw CLIError.message("duplicates requires at least one explicit --path because it hashes file contents locally.")
+        }
+        let report = try DuplicateReviewScanner()
+            .scan(scopes: options.scopes(), options: options.duplicateOptions)
+        if options.json {
+            printJSON(report)
+        } else {
+            printDuplicateReview(report, options: options)
         }
     }
 
@@ -277,6 +293,8 @@ struct ReclaimerCLI {
               history record [--json] [--path PATH ...] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
+              duplicates [--json] --path PATH ... [--min-size BYTES] [--max-depth N] [--limit N]
+                         [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
               plan [--json] [--path PATH ...] [--review-all] [--save-audit]
               explain PATH [--json]
               execute --dry-run [--json] [--path PATH ...] [--save-audit]
@@ -311,6 +329,9 @@ struct ParsedOptions {
     var includeOpenFiles: Bool { args.contains("--include-open-files") }
     var includeMissingScopes: Bool { args.contains("--include-missing-scopes") }
     var noLsof: Bool { args.contains("--no-lsof") }
+    var hasPath: Bool { !values(after: "--path").isEmpty }
+    var includePreserve: Bool { args.contains("--include-preserve") }
+    var showExcluded: Bool { args.contains("--show-excluded") }
     var hour: Int { Int(value(after: "--hour") ?? "") ?? 9 }
     var minute: Int { Int(value(after: "--minute") ?? "") ?? 30 }
     var limit: Int { max(1, Int(value(after: "--limit") ?? "") ?? 80) }
@@ -320,6 +341,7 @@ struct ParsedOptions {
     var review: String { value(after: "--review") ?? "all" }
     var largeThreshold: Int64 { Int64(value(after: "--large-threshold") ?? "") ?? 5_000_000_000 }
     var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
+    var maxFilesToHash: Int { max(1, Int(value(after: "--max-files") ?? "") ?? 5_000) }
 
     func values(after flag: String) -> [String] {
         var values: [String] = []
@@ -361,6 +383,18 @@ struct ParsedOptions {
             includeOpenFileStatus: includeOpenFiles,
             largeFileThreshold: largeThreshold,
             oldFileAgeDays: oldDays
+        )
+    }
+
+    var duplicateOptions: DuplicateReviewOptions {
+        let minSize = Int64(value(after: "--min-size") ?? "") ?? 1_000_000
+        let maxDepth = Int(value(after: "--max-depth") ?? "") ?? 6
+        return DuplicateReviewOptions(
+            minimumFileSize: minSize,
+            maximumDepth: maxDepth,
+            maximumFilesToHash: maxFilesToHash,
+            includeHidden: !args.contains("--skip-hidden"),
+            includePreserveByDefault: includePreserve
         )
     }
 
@@ -537,6 +571,55 @@ func printGrowthDeltas(
         let sign = delta.deltaAllocatedSize > 0 ? "+" : ""
         let deltaText = sign + ByteFormat.string(delta.deltaAllocatedSize)
         print("\(pad(deltaText, 12)) \(pad(ByteFormat.string(delta.currentAllocatedSize), 12)) \(pad(ByteFormat.string(delta.previousAllocatedSize), 12)) \(pad("\(delta.currentCount)", 10)) \(delta.name)")
+    }
+}
+
+func printDuplicateReview(_ report: DuplicateReview, options: ParsedOptions) {
+    print("Ryddi duplicate review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Scanned roots: \(report.scannedRoots.count)")
+    print("Duplicate groups: \(report.groups.count)")
+    print("Duplicate files: \(report.duplicateFileCount)")
+    print("Apparent duplicate bytes: \(ByteFormat.string(report.apparentDuplicateBytes))")
+    print("\nNotes")
+    for note in report.notes {
+        print("- \(note)")
+    }
+
+    if report.groups.isEmpty {
+        print("\nNo duplicate groups found with the current options.")
+    } else {
+        print("\nGroups")
+        print("\(pad("Apparent", 12)) \(pad("Files", 7)) \(pad("Each", 12)) \(pad("Safety", 22)) \(pad("Category", 18)) ID")
+        for group in report.groups.prefix(options.limit) {
+            let safety = group.files.map(\.safetyClass).max { $0.riskRank < $1.riskRank } ?? .reviewRequired
+            let category = Dictionary(grouping: group.files, by: \.category)
+                .max { lhs, rhs in lhs.value.count < rhs.value.count }?.key ?? "Unmatched"
+            print("\(pad(ByteFormat.string(group.apparentDuplicateBytes), 12)) \(pad("\(group.files.count)", 7)) \(pad(ByteFormat.string(group.logicalSize), 12)) \(pad(safety.label, 22)) \(pad(category, 18)) \(group.id)")
+            for file in group.files.prefix(8) {
+                let modified = file.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "-"
+                print("  - \(ByteFormat.string(file.allocatedSize)) \(file.safetyClass.label) \(modified) \(file.path)")
+            }
+            if group.files.count > 8 {
+                print("  ... \(group.files.count - 8) more file(s)")
+            }
+            for note in group.notes.prefix(1) {
+                print("  note: \(note)")
+            }
+        }
+        if report.groups.count > options.limit {
+            print("... \(report.groups.count - options.limit) more duplicate group(s)")
+        }
+    }
+
+    if options.showExcluded, !report.skipped.isEmpty {
+        print("\nExcluded or skipped")
+        for line in report.skipped.prefix(options.limit) {
+            print("- \(line)")
+        }
+        if report.skipped.count > options.limit {
+            print("... \(report.skipped.count - options.limit) more skipped item(s)")
+        }
     }
 }
 

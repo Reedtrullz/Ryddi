@@ -37,6 +37,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - permission/degraded-scan coverage and APFS accounting notes
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - large-file and old-file review signals
+- duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
 - Xcode DerivedData and developer cache review
@@ -82,6 +83,7 @@ swift run --scratch-path .build reclaimer history diff --group category
 swift run --scratch-path .build reclaimer scan
 swift run --scratch-path .build reclaimer scan --sort category --group category --limit 40
 swift run --scratch-path .build reclaimer scan --review large --large-threshold 1000000000
+swift run --scratch-path .build reclaimer duplicates --path ~/Downloads --min-size 10000000
 swift run --scratch-path .build reclaimer plan --json
 swift run --scratch-path .build reclaimer explain ~/.codex
 swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Caches/Codex
@@ -143,7 +145,7 @@ Scripts/                     Packaging and notarization helpers
 
 ## Non-Goals For v1
 
-- duplicate-file detection
+- automatic duplicate cleanup, smart duplicate selection, or Photos/Music duplicate management
 - malware scanning
 - RAM cleaning or "optimizer" features
 - root helper/system-wide cleanup

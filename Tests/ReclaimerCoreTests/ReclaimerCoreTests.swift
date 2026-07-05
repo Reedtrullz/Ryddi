@@ -248,6 +248,79 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.latestGrowthDeltas().first { $0.name == "Codex" }?.deltaAllocatedSize, 40)
     }
 
+    func testDuplicateReviewGroupsOnlySameContent() throws {
+        let duplicatesRoot = tempRoot.appendingPathComponent("Duplicates", isDirectory: true)
+        try FileManager.default.createDirectory(at: duplicatesRoot, withIntermediateDirectories: true)
+        let duplicateBytes = Data([1, 2, 3, 4, 5, 6])
+        try duplicateBytes.write(to: duplicatesRoot.appendingPathComponent("a.bin"))
+        try duplicateBytes.write(to: duplicatesRoot.appendingPathComponent("b.bin"))
+        try Data([6, 5, 4, 3, 2, 1]).write(to: duplicatesRoot.appendingPathComponent("same-size-different.bin"))
+
+        let report = try DuplicateReviewScanner().scan(
+            scopes: [ScanScope(name: "fixture", root: duplicatesRoot)],
+            options: DuplicateReviewOptions(minimumFileSize: 1, maximumDepth: 2)
+        )
+
+        XCTAssertEqual(report.groups.count, 1)
+        let group = try XCTUnwrap(report.groups.first)
+        XCTAssertEqual(group.files.map(\.displayName).sorted(), ["a.bin", "b.bin"])
+        XCTAssertEqual(group.logicalSize, Int64(duplicateBytes.count))
+        XCTAssertEqual(group.apparentDuplicateBytes, try XCTUnwrap(group.files.map(\.allocatedSize).min()))
+        XCTAssertTrue(group.files.allSatisfy { $0.safetyClass == .reviewRequired })
+        XCTAssertTrue(group.files.allSatisfy { $0.actionKind == .openGuidance })
+    }
+
+    func testDuplicateReviewSkipsNeverTouchAndSymlinkFiles() throws {
+        let root = tempRoot.appendingPathComponent("Protected", isDirectory: true)
+        let codex = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codex, withIntermediateDirectories: true)
+        let bytes = Data("secret-ish".utf8)
+        let regular = root.appendingPathComponent("copy.txt")
+        let auth = codex.appendingPathComponent("auth.json")
+        try bytes.write(to: regular)
+        try bytes.write(to: auth)
+
+        let target = root.appendingPathComponent("target.bin")
+        try Data("symlink target only".utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("target-link.bin"),
+            withDestinationURL: target
+        )
+
+        let report = try DuplicateReviewScanner().scan(
+            scopes: [ScanScope(name: "fixture", root: root)],
+            options: DuplicateReviewOptions(minimumFileSize: 1, maximumDepth: 4)
+        )
+
+        XCTAssertTrue(report.groups.isEmpty)
+        XCTAssertTrue(report.skipped.contains { $0.contains("auth.json") })
+        XCTAssertFalse(report.groups.flatMap(\.files).contains { $0.path.hasSuffix("target-link.bin") })
+    }
+
+    func testDuplicateReviewExcludesPreserveByDefaultUnlessRequested() throws {
+        let documents = tempRoot.appendingPathComponent("Documents", isDirectory: true)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        let bytes = Data("valuable duplicate draft".utf8)
+        try bytes.write(to: documents.appendingPathComponent("draft-a.txt"))
+        try bytes.write(to: documents.appendingPathComponent("draft-b.txt"))
+
+        let scanner = try DuplicateReviewScanner()
+        let defaultReport = scanner.scan(
+            scopes: [ScanScope(name: "documents", root: documents)],
+            options: DuplicateReviewOptions(minimumFileSize: 1, maximumDepth: 2)
+        )
+        XCTAssertTrue(defaultReport.groups.isEmpty)
+        XCTAssertTrue(defaultReport.skipped.contains { $0.contains("preserve-by-default") })
+
+        let includedReport = scanner.scan(
+            scopes: [ScanScope(name: "documents", root: documents)],
+            options: DuplicateReviewOptions(minimumFileSize: 1, maximumDepth: 2, includePreserveByDefault: true)
+        )
+        let group = try XCTUnwrap(includedReport.groups.first)
+        XCTAssertEqual(group.files.count, 2)
+        XCTAssertTrue(group.files.allSatisfy { $0.safetyClass == .preserveByDefault })
+    }
+
     func testExpandedDeveloperRulesStayConservative() throws {
         let engine = try RuleEngine.bundled()
 

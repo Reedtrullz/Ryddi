@@ -15,6 +15,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
 | Explain decisions | Every finding carries rule matches, evidence, recovery notes, and conditions. | `Finding`, `Evidence`, app detail view, `reclaimer explain` |
 | Review large/old files | Size and age create review-only signals, never automatic cleanup permission. | dynamic scanner review signals |
+| Review duplicates | Size-bucketed local content hashing groups identical regular files as manual review signals; no delete action or plan item is emitted. | `DuplicateReviewScanner`, `reclaimer duplicates`, app Duplicate Review |
 | Inspect in native tools | Copy path, reveal in Finder, Quick Look, and open Terminal for reviewed findings. | app finding action buttons |
 | Protect valuable data | Default preserve/never-touch for user documents, creative assets, credentials, browser profiles, VM/container state, and Codex history. | rule pack and executor protected-class checks |
 | Handle active files | Check open handles before planning/execution and skip active paths. | `LsofOpenFileChecker`, `PlanBuilder`, `ReclaimerExecutor` |
@@ -39,12 +40,13 @@ Included:
 - Local scan history and growth deltas.
 - Browser cache versus browser profile distinction.
 - Large-file and old-file review-only signals.
+- Duplicate-file review for explicit CLI paths and bounded app scans, with preserve-by-default files excluded unless requested.
 - Stale temp/scratch classification.
 - App overview, top offenders, permission coverage, APFS notes, review queues, item detail, feature matrix, dry-run plan, audit history, and settings copy.
 
 Deferred:
 
-- Duplicate detection.
+- Automatic duplicate cleanup, smart duplicate selection, similar-file matching, and Photos/Music duplicate management.
 - Malware scanning.
 - App updater.
 - RAM/performance optimizer features.
@@ -64,5 +66,7 @@ Deferred:
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, and APFS notes.
 - `reclaimer history record/list/diff` stores local scan snapshots and reports category/scope/safety deltas.
+- `reclaimer duplicates --path FIXTURE --min-size 1` groups same-content regular files, skips protected paths, and emits review-only `openGuidance` candidates.
 - Visual map accounting does not double-count nested directory findings.
 - Large/old file signals remain review-only and are not selected by an auto-safe plan.
+- Duplicate review findings remain outside `PlanBuilder` and `ReclaimerExecutor`.

@@ -29,6 +29,8 @@ struct DashboardView: View {
         } detail: {
             if selectedSection == "Features" {
                 CapabilityMatrixView()
+            } else if selectedSection == "Duplicates" {
+                DuplicateReviewView(model: model)
             } else if selectedSection == "Audit" {
                 AuditHistoryView(model: model)
             } else if selectedSection == "Holding" {
@@ -95,6 +97,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Features"
                 }
+                Button("Duplicate Review") {
+                    selectedFinding = nil
+                    selectedSection = "Duplicates"
+                }
                 Button("Audit History") {
                     selectedFinding = nil
                     selectedSection = "Audit"
@@ -157,6 +163,7 @@ struct OverviewView: View {
                 MetricTile(title: "Protected", value: ByteFormat.string(model.totalBytes(for: .neverTouch) + model.totalBytes(for: .preserveByDefault)))
                 MetricTile(title: "Audit receipts", value: "\(model.recentReceipts.count)")
                 MetricTile(title: "Snapshots", value: "\(model.scanSnapshots.count)")
+                MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
             }
 
             if let overview = model.overview {
@@ -212,6 +219,7 @@ struct CapabilityMatrixView: View {
         ("Find space offenders", "Bounded Swift scanner over developer/agent scopes with size and permission evidence."),
         ("Classify safety", "Versioned JSON rules produce Auto-safe, Safe after condition, Review required, Preserve by default, and Never touch."),
         ("Explain every item", "Finding detail shows owner hints, rule matches, evidence, recovery, and conditions."),
+        ("Review duplicates", "Local content hashes group identical regular files as manual review signals, never cleanup actions."),
         ("Protect active files", "Plan/executor run open-file checks and skip active paths."),
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
@@ -322,6 +330,137 @@ struct HoldingView: View {
                 }
             }
             .padding(24)
+        }
+    }
+}
+
+struct DuplicateReviewView: View {
+    let model: DashboardModel
+    @State private var includePreserveByDefault = false
+    @State private var showSkipped = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Duplicate Review")
+                            .font(.largeTitle.bold())
+                        Text("Identical regular files are grouped with local content hashes. Ryddi does not choose winners, delete duplicates, or add them to reclaim plans.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.scanDuplicates(includePreserveByDefault: includePreserveByDefault) }
+                    } label: {
+                        Label("Scan Duplicates", systemImage: "rectangle.on.rectangle")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                Toggle("Include preserve-by-default files", isOn: $includePreserveByDefault)
+                    .toggleStyle(.switch)
+                    .help("Include documents, media, and other protected review data. Credentials and never-touch paths remain excluded.")
+
+                if let report = model.duplicateReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Groups", value: "\(report.groups.count)")
+                        MetricTile(title: "Files", value: "\(report.duplicateFileCount)")
+                        MetricTile(title: "Apparent review bytes", value: ByteFormat.string(report.apparentDuplicateBytes))
+                        MetricTile(title: "Skipped", value: "\(report.skipped.count)")
+                    }
+
+                    SectionBox(title: "Review Notes") {
+                        ForEach(report.notes, id: \.self) { note in
+                            Text(note)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if report.groups.isEmpty {
+                        ContentUnavailableView("No duplicate groups", systemImage: "checkmark.circle", description: Text("No identical-file groups matched the current duplicate review options."))
+                    } else {
+                        ForEach(report.groups.prefix(20)) { group in
+                            DuplicateGroupBox(group: group)
+                        }
+                    }
+
+                    Toggle("Show skipped paths", isOn: $showSkipped)
+                        .toggleStyle(.switch)
+                    if showSkipped {
+                        SectionBox(title: "Skipped Or Excluded") {
+                            if report.skipped.isEmpty {
+                                Text("No skipped paths were reported.")
+                            } else {
+                                ForEach(report.skipped.prefix(80), id: \.self) { line in
+                                    Text(line)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No duplicate review yet", systemImage: "rectangle.on.rectangle", description: Text("Run a duplicate scan to build a review-only list of identical regular files."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct DuplicateGroupBox: View {
+    let group: DuplicateGroup
+
+    var body: some View {
+        SectionBox(title: "Duplicate Group") {
+            HStack {
+                Text(ByteFormat.string(group.apparentDuplicateBytes))
+                    .font(.headline)
+                Text("apparent duplicate bytes")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(group.files.count) files")
+                Text(ByteFormat.string(group.logicalSize))
+            }
+            Text(group.id)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            ForEach(group.notes, id: \.self) { note in
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(group.files) { file in
+                    Divider()
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(file.displayName)
+                                .lineLimit(1)
+                            Text(file.path)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .textSelection(.enabled)
+                        }
+                        Spacer()
+                        Text(ByteFormat.string(file.allocatedSize))
+                            .monospacedDigit()
+                        SafetyBadge(safetyClass: file.safetyClass)
+                        DuplicateFileActionButtons(file: file)
+                    }
+                    .padding(.vertical, 7)
+                }
+            }
         }
     }
 }
@@ -777,6 +916,43 @@ struct FindingActionButtons: View {
     }
 }
 
+struct DuplicateFileActionButtons: View {
+    let file: DuplicateFile
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button {
+                PathActions.copyPath(file.path)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .help("Copy path")
+
+            Button {
+                PathActions.revealInFinder(file.path)
+            } label: {
+                Image(systemName: "folder")
+            }
+            .help("Reveal in Finder")
+
+            Button {
+                PathActions.quickLook(file.path)
+            } label: {
+                Image(systemName: "eye")
+            }
+            .help("Quick Look")
+
+            Button {
+                PathActions.openTerminal(at: file.path, isDirectory: false)
+            } label: {
+                Image(systemName: "terminal")
+            }
+            .help("Open Terminal here")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
 enum PathActions {
     static func copyPath(_ path: String) {
         #if os(macOS)
@@ -894,6 +1070,7 @@ final class DashboardModel {
     var recentPlans: [ReclaimPlan] = []
     var recentReceipts: [ExecutionReceipt] = []
     var heldItems: [HeldItem] = []
+    var duplicateReview: DuplicateReview?
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
@@ -1076,6 +1253,30 @@ final class DashboardModel {
         let store = ScanHistoryStore()
         scanSnapshots = store.recent(limit: 8)
         growthDeltas = store.latestGrowthDeltas(group: .category, limit: 8)
+    }
+
+    func scanDuplicates(includePreserveByDefault: Bool = false) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let currentScopes = scanScopes.isEmpty
+                ? DefaultScopes.developerAgentBloat(includeUnavailable: false)
+                : scanScopes
+            duplicateReview = try await Task.detached {
+                try DuplicateReviewScanner().scan(
+                    scopes: currentScopes,
+                    options: DuplicateReviewOptions(
+                        minimumFileSize: 5_000_000,
+                        maximumDepth: 5,
+                        maximumFilesToHash: 2_000,
+                        includePreserveByDefault: includePreserveByDefault
+                    )
+                )
+            }.value
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     func restoreHeldItem(_ item: HeldItem) {

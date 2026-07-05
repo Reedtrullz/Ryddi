@@ -20,7 +20,7 @@ Users will still expect the basics from mature disk tools:
 - Trash-first behavior for user-visible files;
 - clear Full Disk Access onboarding and degraded-mode labeling;
 - app uninstaller or at least app-support leftovers guidance;
-- duplicate/large/old file review eventually;
+- large/old file review plus conservative duplicate review;
 - scheduled maintenance that reports first;
 - signed/notarized builds and a strong privacy statement.
 
@@ -35,7 +35,7 @@ Ryddi's defensible differentiation is the evidence layer: rule matches, why a pa
 | App uninstallers | AppCleaner, Pearcleaner, Nektony App Cleaner & Uninstaller, Hazel App Sweep | Remove apps plus related support files | App inventory, related files, leftovers, launch agents, containers, bulk uninstall, deselection, Trash | Add an Apps module later. In v1, label app-support findings as review/guidance unless tied to an uninstalled app. |
 | Developer cleaners | DevCleaner, Spacie smart categories, macOS dev-cache cleaners, Megacleaner-style projects | Reclaim Xcode, package-manager, container, and build cache bloat | Xcode DerivedData/Archives/DeviceSupport, simulators, Homebrew, npm/pnpm/yarn, Gradle, Maven, Docker, node_modules | This is Ryddi's beachhead. Go deeper and safer here than the broad suites. |
 | Automation/rules | Hazel | Keep folders tidy over time with user-defined rules | Folder watchers, schedules, Trash management, app sweep, rule preview, notifications | Ryddi automation should be report-first. Allow unattended cleanup only for tight, explainable allowlists. |
-| Duplicate specialists | Gemini 2, Nektony Duplicate File Finder | Find duplicate/similar files and prevent future clutter | Smart selection, Photos/Music awareness, external drives, duplicate monitoring | Keep duplicates out of the first safety-critical MVP. Add later with conservative hashing and never-touch library semantics. |
+| Duplicate specialists | Gemini 2, Nektony Duplicate File Finder | Find duplicate/similar files and prevent future clutter | Smart selection, Photos/Music awareness, external drives, duplicate monitoring | Ryddi now has a conservative review-only duplicate slice. Do not compete with specialist smart selection, similar-photo matching, or library management until the safety model is much deeper. |
 
 ## Notable Product Signals
 
@@ -108,7 +108,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Full Disk Access onboarding | Expected for any serious disk scanner | Missing/partial | Add permission coverage meter, exact steps, and degraded scan labels. |
 | APFS physical accounting | Expected by expert users; DaisyDisk/Spacie benchmark this | Missing/partial | Distinguish logical size, allocated size, clone/hardlink behavior, purgeable/snapshots caveats. |
 | Large file review | Baseline | Missing/partial | Add large files and old files as review-required queues. |
-| Duplicate finder | Common suite feature | Out of scope | Keep out of v1. Later: size, partial hash, full hash, review-only default. |
+| Duplicate finder | Common suite feature | Experimental review-only slice | Keep local hashing explicit and bounded. No smart selection, no automatic deletion, no Photos/Music/iCloud duplicate management. |
 | App uninstaller | Common suite/app-cleaner feature | Out of scope | Add later as "Apps & Leftovers" module, never mixed into safe maintenance. |
 | Developer cache packs | Ryddi beachhead | Partial | Go deeper on Xcode, SwiftPM, node_modules, JetBrains, VS Code, Android/Flutter, Docker/Colima. |
 | Docker/Colima cleanup | Risky but important for target user | Partial | Integrate native inspect/prune commands and receipts. Never raw-delete VM disks automatically. |
@@ -156,7 +156,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 ### Later Modules
 
 1. Apps & Leftovers: uninstalled app support data, launch agents, containers, preferences, caches, with strict review.
-2. Duplicates: conservative hashing and review-only default, with Photos/Music/iCloud protections.
+2. Duplicate depth: partial-hash prefiltering, volume/hardlink accounting, external-drive flows, and richer review UX while keeping Photos/Music/iCloud protections.
 3. Folder automation: Hazel-like custom report rules, not arbitrary delete rules.
 4. Menu bar assistant: disk pressure and scheduled scan status.
 5. Growth history: first local category/scope/safety snapshot deltas exist; richer trend charts and longer history views remain future work.
@@ -182,6 +182,7 @@ The first public release should have:
 - Trash/holding-area cleanup for safe selections.
 - Active-file checks before action.
 - Full Disk Access guidance and degraded-mode labels.
+- Review-only duplicate grouping with local hashes and no automatic cleanup.
 - Safety tests for never-touch paths.
 - GitHub CI.
 - Privacy documentation.

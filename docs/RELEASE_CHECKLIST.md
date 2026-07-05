@@ -11,7 +11,9 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer overview --json --path Tests --limit 5` includes bounded `mapNodes`.
 - [ ] `reclaimer history record --path Tests --limit 5` saves a local-only snapshot.
 - [ ] `reclaimer history list --limit 5` and `reclaimer history diff --group category --limit 5` read local-only snapshots.
+- [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
 - [ ] App Visual Map and Growth History render without changing reclaim gates.
+- [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] README states that the build is unsigned if `CODESIGN_IDENTITY` is unset.
 - [ ] Release notes list non-claims: no notarization, no Full Disk Access guarantee, no real cleanup performed by packaging.
 
@@ -30,4 +32,5 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `docs/COMPETITIVE_RESEARCH.md` does not overclaim implemented features.
 - [ ] CI is green on the release commit.
 - [ ] Release notes say automation is report-first.
+- [ ] Release notes say duplicate review uses local hashes and does not automatically select or delete duplicates.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

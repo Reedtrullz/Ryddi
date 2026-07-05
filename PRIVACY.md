@@ -12,6 +12,8 @@ Scans run on your Mac. Plans, receipts, and holding-area metadata are written lo
 
 Ryddi reads filesystem metadata such as path, file type, size, allocated size, modification date, and readability. When requested by a plan or action, it can run open-file checks so active files are skipped.
 
+Duplicate review is different from normal metadata scanning: it reads regular file bytes to compute local SHA-256 content hashes for same-size candidates. File contents are not stored, uploaded, or sent to any remote service. The duplicate CLI requires explicit `--path` roots, and preserve-by-default files are excluded unless the user explicitly opts into that review.
+
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
 ## What Ryddi Writes
