@@ -27,7 +27,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Prefer native cleanup | Report Docker/Colima/package-manager cleanup as native-tool guidance rather than deleting stores directly. | rule pack `nativeToolCommand` findings |
 | Automate conservatively | Scheduled job writes report plans only; unattended destructive cleanup is not enabled in v1. | `LaunchAgentManager`, `ReclaimerAgent`, `schedule install` |
 | Keep local audit trail | Save plans and receipts under Application Support with local-only JSON. | `AuditStore`, app Audit History |
-| Package for direct distribution | Build an unsigned `.app` bundle locally, with optional signing/notarization scripts for direct distribution. | `Scripts/package-app.sh`, `Scripts/notarize-app.sh` |
+| Package for direct distribution | Build an unsigned developer preview or signed app bundle, verify release-shaped artifacts, create checksum/manifest output, and leave notarization as an explicit credentialed step. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, release-preview workflow |
 | Stay private | No telemetry, cloud upload, or remote AI analysis. | architecture and README policy |
 
 ## MVP Feature Boundaries
@@ -68,6 +68,7 @@ Deferred:
 - App Reclaim is disabled until a successful dry-run receipt exists for the current plan.
 - `reclaimer holding restore` restores a held fixture, and `holding expire` is dry-run unless `--yes` is supplied.
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
+- `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records signing state, and creates a zip/checksum/manifest.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, and APFS notes.
 - `reclaimer status --json` reports disk pressure and free-space notes without scanning content.

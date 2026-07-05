@@ -4,8 +4,12 @@ This project is intended for direct macOS distribution outside the Mac App Store
 
 ## Developer Preview
 
+- [ ] `Scripts/release-check.sh` passes and produces a zip, checksum, and release manifest.
 - [ ] `swift test --scratch-path "$PWD/.build"` passes.
 - [ ] `Scripts/package-app.sh` produces `dist/Ryddi.app`.
+- [ ] `dist/Ryddi-developer-preview.zip` exists and preserves `Ryddi.app` as its parent item.
+- [ ] `dist/Ryddi-developer-preview.zip.sha256` exists and matches the generated zip.
+- [ ] `dist/Ryddi-release-manifest.txt` records bundle id, version, rules resource path, signing state, performed verification, and non-claims.
 - [ ] App launches locally.
 - [ ] `reclaimer status --json` reports disk pressure/free-space metadata without scanning content.
 - [ ] `reclaimer overview --path Tests --limit 5` prints a bounded overview.
@@ -18,6 +22,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App Apps & Leftovers review scans bounded app roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App menu bar status item shows disk pressure and report-only scan controls without enabling cleanup actions.
+- [ ] Manual GitHub Actions workflow `Release Preview Artifact` uploads the unsigned preview zip, checksum, and manifest when run.
 - [ ] README states that the build is unsigned if `CODESIGN_IDENTITY` is unset.
 - [ ] Release notes list non-claims: no notarization, no Full Disk Access guarantee, no real cleanup performed by packaging.
 
