@@ -8,6 +8,8 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | --- | --- | --- |
 | Find large offenders | Bounded filesystem scanner over known developer/agent roots, with explicit custom `--path` support. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
 | Show top offenders | Shared overview analytics with category, safety, scope, age, logical size, allocated size, and top finding summaries. | `FindingAnalytics`, `reclaimer overview`, app Top Offenders |
+| Visualize space | Proportional category map from non-overlapping allocated-size findings; informational only, not a cleanup selector. | `DiskMapNode`, app Visual Map, `overview` map nodes |
+| Track growth | Local scan snapshots compare category/scope/safety growth between the latest two scans. | `ScanHistoryStore`, `reclaimer history`, app Growth History |
 | Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, and provide a direct Full Disk Access settings shortcut. | `ScanOverview`, app Permission Coverage |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
@@ -33,6 +35,8 @@ Included:
 - Docker/Colima reporting and native cleanup guidance.
 - Xcode and package-manager cache classification.
 - SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter developer cache review.
+- Proportional visual map by category.
+- Local scan history and growth deltas.
 - Browser cache versus browser profile distinction.
 - Large-file and old-file review-only signals.
 - Stale temp/scratch classification.
@@ -59,4 +63,6 @@ Deferred:
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, and APFS notes.
+- `reclaimer history record/list/diff` stores local scan snapshots and reports category/scope/safety deltas.
+- Visual map accounting does not double-count nested directory findings.
 - Large/old file signals remain review-only and are not selected by an auto-safe plan.

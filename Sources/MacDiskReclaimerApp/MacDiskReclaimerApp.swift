@@ -79,6 +79,7 @@ struct DashboardView: View {
             }
             model.loadAudit()
             model.loadHolding()
+            model.loadHistory()
             model.refreshAutomation()
         }
     }
@@ -155,12 +156,14 @@ struct OverviewView: View {
                 MetricTile(title: "Automation", value: model.launchAgentInstalled ? "Plist installed" : "Off")
                 MetricTile(title: "Protected", value: ByteFormat.string(model.totalBytes(for: .neverTouch) + model.totalBytes(for: .preserveByDefault)))
                 MetricTile(title: "Audit receipts", value: "\(model.recentReceipts.count)")
-                MetricTile(title: "Held items", value: "\(model.heldItems.count)")
+                MetricTile(title: "Snapshots", value: "\(model.scanSnapshots.count)")
             }
 
             if let overview = model.overview {
                 PermissionCoverageView(overview: overview)
                 AccountingNotesView(notes: overview.accountingNotes)
+                DiskMapView(nodes: overview.mapNodes)
+                GrowthHistoryView(snapshots: model.scanSnapshots, deltas: model.growthDeltas)
                 TopOffendersView(findings: model.findings, plan: model.plan)
             }
 
@@ -552,6 +555,91 @@ struct AccountingNotesView: View {
     }
 }
 
+struct DiskMapView: View {
+    let nodes: [DiskMapNode]
+
+    private var total: Int64 {
+        max(1, nodes.reduce(0) { $0 + $1.allocatedSize })
+    }
+
+    var body: some View {
+        SectionBox(title: "Visual Map") {
+            Text("Category sizes use allocated bytes. Map nodes are informational; cleanup still requires review, dry run, and receipts.")
+                .foregroundStyle(.secondary)
+
+            GeometryReader { proxy in
+                let width = max(proxy.size.width, 1)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(nodes.prefix(10)) { node in
+                        HStack(spacing: 10) {
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(.quaternary.opacity(0.35))
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(color(for: node).opacity(0.75))
+                                    .frame(width: max(6, width * CGFloat(Double(node.allocatedSize) / Double(total))))
+                            }
+                            .frame(height: 24)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(node.name)
+                                    .lineLimit(1)
+                                Text("\(ByteFormat.string(node.allocatedSize)) • \(node.count) item(s)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(width: 210, alignment: .leading)
+                        }
+                    }
+                }
+            }
+            .frame(height: CGFloat(min(nodes.count, 10)) * 36)
+        }
+    }
+
+    private func color(for node: DiskMapNode) -> Color {
+        if node.isReclaimable { return .green }
+        switch node.safetyClass {
+        case .autoSafe: return .green
+        case .safeAfterCondition: return .blue
+        case .reviewRequired: return .orange
+        case .preserveByDefault: return .purple
+        case .neverTouch: return .red
+        case nil: return .gray
+        }
+    }
+}
+
+struct GrowthHistoryView: View {
+    let snapshots: [ScanSnapshot]
+    let deltas: [BucketGrowthDelta]
+
+    var body: some View {
+        SectionBox(title: "Growth History") {
+            if snapshots.count < 2 {
+                Text("Run another scan to compare growth. Snapshots are local-only and stored under Application Support.")
+                    .foregroundStyle(.secondary)
+            } else {
+                let current = snapshots[0]
+                let previous = snapshots[1]
+                Text("Compared \(previous.createdAt.formatted()) to \(current.createdAt.formatted()).")
+                    .foregroundStyle(.secondary)
+                ForEach(deltas.prefix(8)) { delta in
+                    HStack {
+                        Text(delta.name)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(delta.deltaAllocatedSize >= 0 ? "+\(ByteFormat.string(delta.deltaAllocatedSize))" : ByteFormat.string(delta.deltaAllocatedSize))
+                            .foregroundStyle(delta.deltaAllocatedSize >= 0 ? .orange : .green)
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+    }
+}
+
 struct TopOffendersView: View {
     let findings: [Finding]
     let plan: ReclaimPlan?
@@ -806,6 +894,8 @@ final class DashboardModel {
     var recentPlans: [ReclaimPlan] = []
     var recentReceipts: [ExecutionReceipt] = []
     var heldItems: [HeldItem] = []
+    var scanSnapshots: [ScanSnapshot] = []
+    var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
     var lastScanDate: Date?
     var launchAgentInstalled = false
@@ -876,6 +966,8 @@ final class DashboardModel {
             scanScopes = result.0
             findings = result.1
             overview = result.2
+            _ = try ScanHistoryStore().save(overview: result.2)
+            loadHistory()
             plan = nil
             lastDryRunReceipt = nil
             lastExecutionReceipt = nil
@@ -960,6 +1052,8 @@ final class DashboardModel {
             scanScopes = refreshed.0
             findings = refreshed.1
             overview = refreshed.2
+            _ = try ScanHistoryStore().save(overview: refreshed.2)
+            loadHistory()
             plan = nil
             lastDryRunReceipt = nil
             lastScanDate = Date()
@@ -976,6 +1070,12 @@ final class DashboardModel {
 
     func loadHolding() {
         heldItems = HoldingStore().list()
+    }
+
+    func loadHistory() {
+        let store = ScanHistoryStore()
+        scanSnapshots = store.recent(limit: 8)
+        growthDeltas = store.latestGrowthDeltas(group: .category, limit: 8)
     }
 
     func restoreHeldItem(_ item: HeldItem) {

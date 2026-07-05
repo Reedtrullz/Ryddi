@@ -30,6 +30,38 @@ public struct ScopeAccessSummary: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public struct DiskMapNode: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { "\(group):\(name)" }
+    public let group: String
+    public let name: String
+    public let allocatedSize: Int64
+    public let logicalSize: Int64
+    public let count: Int
+    public let safetyClass: SafetyClass?
+    public let actionKind: ActionKind?
+    public let isReclaimable: Bool
+
+    public init(
+        group: String,
+        name: String,
+        allocatedSize: Int64,
+        logicalSize: Int64,
+        count: Int,
+        safetyClass: SafetyClass?,
+        actionKind: ActionKind?,
+        isReclaimable: Bool
+    ) {
+        self.group = group
+        self.name = name
+        self.allocatedSize = allocatedSize
+        self.logicalSize = logicalSize
+        self.count = count
+        self.safetyClass = safetyClass
+        self.actionKind = actionKind
+        self.isReclaimable = isReclaimable
+    }
+}
+
 public struct ScanOverview: Codable, Hashable, Sendable {
     public let generatedAt: Date
     public let findingCount: Int
@@ -40,7 +72,9 @@ public struct ScanOverview: Codable, Hashable, Sendable {
     public let protectedBytes: Int64
     public let safetySummaries: [BucketSummary]
     public let categorySummaries: [BucketSummary]
+    public let scopeSizeSummaries: [BucketSummary]
     public let scopeSummaries: [ScopeAccessSummary]
+    public let mapNodes: [DiskMapNode]
     public let topFindings: [Finding]
     public let accountingNotes: [String]
 
@@ -54,7 +88,9 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         protectedBytes: Int64,
         safetySummaries: [BucketSummary],
         categorySummaries: [BucketSummary],
+        scopeSizeSummaries: [BucketSummary],
         scopeSummaries: [ScopeAccessSummary],
+        mapNodes: [DiskMapNode],
         topFindings: [Finding],
         accountingNotes: [String]
     ) {
@@ -67,9 +103,96 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         self.protectedBytes = protectedBytes
         self.safetySummaries = safetySummaries
         self.categorySummaries = categorySummaries
+        self.scopeSizeSummaries = scopeSizeSummaries
         self.scopeSummaries = scopeSummaries
+        self.mapNodes = mapNodes
         self.topFindings = topFindings
         self.accountingNotes = accountingNotes
+    }
+}
+
+public enum GrowthGroup: String, Codable, CaseIterable, Hashable, Sendable {
+    case category
+    case scope
+    case safety
+
+    public var label: String {
+        switch self {
+        case .category: "Category"
+        case .scope: "Scope"
+        case .safety: "Safety"
+        }
+    }
+}
+
+public struct ScanSnapshot: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let createdAt: Date
+    public let findingCount: Int
+    public let totalLogicalSize: Int64
+    public let totalAllocatedSize: Int64
+    public let expectedAutoSafeBytes: Int64
+    public let reviewBytes: Int64
+    public let protectedBytes: Int64
+    public let categorySummaries: [BucketSummary]
+    public let safetySummaries: [BucketSummary]
+    public let scopeBuckets: [BucketSummary]
+    public let scopeSummaries: [ScopeAccessSummary]
+    public let topFindingPaths: [String]
+
+    public init(
+        id: String = UUID().uuidString,
+        createdAt: Date,
+        findingCount: Int,
+        totalLogicalSize: Int64,
+        totalAllocatedSize: Int64,
+        expectedAutoSafeBytes: Int64,
+        reviewBytes: Int64,
+        protectedBytes: Int64,
+        categorySummaries: [BucketSummary],
+        safetySummaries: [BucketSummary],
+        scopeBuckets: [BucketSummary],
+        scopeSummaries: [ScopeAccessSummary],
+        topFindingPaths: [String]
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.findingCount = findingCount
+        self.totalLogicalSize = totalLogicalSize
+        self.totalAllocatedSize = totalAllocatedSize
+        self.expectedAutoSafeBytes = expectedAutoSafeBytes
+        self.reviewBytes = reviewBytes
+        self.protectedBytes = protectedBytes
+        self.categorySummaries = categorySummaries
+        self.safetySummaries = safetySummaries
+        self.scopeBuckets = scopeBuckets
+        self.scopeSummaries = scopeSummaries
+        self.topFindingPaths = topFindingPaths
+    }
+}
+
+public struct BucketGrowthDelta: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let previousAllocatedSize: Int64
+    public let currentAllocatedSize: Int64
+    public let deltaAllocatedSize: Int64
+    public let previousCount: Int
+    public let currentCount: Int
+
+    public init(
+        name: String,
+        previousAllocatedSize: Int64,
+        currentAllocatedSize: Int64,
+        previousCount: Int,
+        currentCount: Int
+    ) {
+        self.name = name
+        self.previousAllocatedSize = previousAllocatedSize
+        self.currentAllocatedSize = currentAllocatedSize
+        self.deltaAllocatedSize = currentAllocatedSize - previousAllocatedSize
+        self.previousCount = previousCount
+        self.currentCount = currentCount
     }
 }
 
@@ -81,15 +204,16 @@ public enum FindingAnalytics {
         now: Date = Date(),
         fileManager: FileManager = .default
     ) -> ScanOverview {
-        let totalLogical = findings.reduce(0) { $0 + $1.logicalSize }
-        let totalAllocated = findings.reduce(0) { $0 + $1.allocatedSize }
-        let autoSafe = findings
+        let accountingFindings = nonOverlappingFindings(findings)
+        let totalLogical = accountingFindings.reduce(0) { $0 + $1.logicalSize }
+        let totalAllocated = accountingFindings.reduce(0) { $0 + $1.allocatedSize }
+        let autoSafe = accountingFindings
             .filter { $0.safetyClass == .autoSafe }
             .reduce(0) { $0 + $1.allocatedSize }
-        let review = findings
+        let review = accountingFindings
             .filter { [.safeAfterCondition, .reviewRequired].contains($0.safetyClass) }
             .reduce(0) { $0 + $1.allocatedSize }
-        let protected = findings
+        let protected = accountingFindings
             .filter { [.preserveByDefault, .neverTouch].contains($0.safetyClass) }
             .reduce(0) { $0 + $1.allocatedSize }
 
@@ -101,12 +225,106 @@ public enum FindingAnalytics {
             expectedAutoSafeBytes: autoSafe,
             reviewBytes: review,
             protectedBytes: protected,
-            safetySummaries: bucket(findings, by: { $0.safetyClass.label }),
-            categorySummaries: bucket(findings, by: { $0.primaryCategory }),
+            safetySummaries: bucket(accountingFindings, by: { $0.safetyClass.label }),
+            categorySummaries: bucket(accountingFindings, by: { $0.primaryCategory }),
+            scopeSizeSummaries: bucket(accountingFindings, by: { $0.scopeName }),
             scopeSummaries: scopeSummaries(scopes: scopes, fileManager: fileManager),
+            mapNodes: mapNodes(from: accountingFindings),
             topFindings: Array(findings.sorted(by: sortByAllocatedThenPath).prefix(topLimit)),
             accountingNotes: accountingNotes(logicalSize: totalLogical, allocatedSize: totalAllocated)
         )
+    }
+
+    public static func mapNodes(from findings: [Finding], limit: Int = 18) -> [DiskMapNode] {
+        let grouped = Dictionary(grouping: findings) { finding in
+            finding.primaryCategory
+        }
+        return grouped.map { category, items in
+            let allocated = items.reduce(0) { $0 + $1.allocatedSize }
+            let logical = items.reduce(0) { $0 + $1.logicalSize }
+            let dominant = items.sorted {
+                if $0.allocatedSize == $1.allocatedSize {
+                    return $0.path < $1.path
+                }
+                return $0.allocatedSize > $1.allocatedSize
+            }.first
+            let reclaimable = items.contains {
+                $0.safetyClass == .autoSafe && [.deleteCache, .trash].contains($0.actionKind)
+            }
+            return DiskMapNode(
+                group: "category",
+                name: category,
+                allocatedSize: allocated,
+                logicalSize: logical,
+                count: items.count,
+                safetyClass: dominant?.safetyClass,
+                actionKind: dominant?.actionKind,
+                isReclaimable: reclaimable
+            )
+        }
+        .sorted {
+            if $0.allocatedSize == $1.allocatedSize {
+                return $0.name < $1.name
+            }
+            return $0.allocatedSize > $1.allocatedSize
+        }
+        .prefix(limit)
+        .map { $0 }
+    }
+
+    public static func snapshot(from overview: ScanOverview, id: String = UUID().uuidString) -> ScanSnapshot {
+        ScanSnapshot(
+            id: id,
+            createdAt: overview.generatedAt,
+            findingCount: overview.findingCount,
+            totalLogicalSize: overview.totalLogicalSize,
+            totalAllocatedSize: overview.totalAllocatedSize,
+            expectedAutoSafeBytes: overview.expectedAutoSafeBytes,
+            reviewBytes: overview.reviewBytes,
+            protectedBytes: overview.protectedBytes,
+            categorySummaries: overview.categorySummaries,
+            safetySummaries: overview.safetySummaries,
+            scopeBuckets: overview.scopeSizeSummaries,
+            scopeSummaries: overview.scopeSummaries,
+            topFindingPaths: overview.topFindings.map(\.path)
+        )
+    }
+
+    public static func growthDeltas(
+        previous: ScanSnapshot,
+        current: ScanSnapshot,
+        group: GrowthGroup = .category
+    ) -> [BucketGrowthDelta] {
+        let previousBuckets = buckets(in: previous, group: group)
+        let currentBuckets = buckets(in: current, group: group)
+        let names = Set(previousBuckets.map(\.name)).union(currentBuckets.map(\.name))
+        return names.map { name in
+            let previousBucket = previousBuckets.first { $0.name == name }
+            let currentBucket = currentBuckets.first { $0.name == name }
+            return BucketGrowthDelta(
+                name: name,
+                previousAllocatedSize: previousBucket?.allocatedSize ?? 0,
+                currentAllocatedSize: currentBucket?.allocatedSize ?? 0,
+                previousCount: previousBucket?.count ?? 0,
+                currentCount: currentBucket?.count ?? 0
+            )
+        }
+        .sorted {
+            let leftMagnitude = abs($0.deltaAllocatedSize)
+            let rightMagnitude = abs($1.deltaAllocatedSize)
+            if leftMagnitude == rightMagnitude {
+                return $0.name < $1.name
+            }
+            return leftMagnitude > rightMagnitude
+        }
+    }
+
+    private static func buckets(in snapshot: ScanSnapshot, group: GrowthGroup) -> [BucketSummary] {
+        switch group {
+        case .category: snapshot.categorySummaries
+        case .scope: snapshot.scopeBuckets
+        case .safety: snapshot.safetySummaries
+        }
     }
 
     private static func bucket(_ findings: [Finding], by key: (Finding) -> String) -> [BucketSummary] {
@@ -172,5 +390,35 @@ public enum FindingAnalytics {
             return lhs.path < rhs.path
         }
         return lhs.allocatedSize > rhs.allocatedSize
+    }
+
+    private static func nonOverlappingFindings(_ findings: [Finding]) -> [Finding] {
+        let nonRoot = findings.filter { finding in
+            !finding.evidence.contains { $0.kind == "scope" }
+        }
+        let candidates = nonRoot.isEmpty ? findings : nonRoot
+        let ordered = candidates.sorted { lhs, rhs in
+            let lhsDepth = URL(fileURLWithPath: lhs.path).standardizedFileURL.pathComponents.count
+            let rhsDepth = URL(fileURLWithPath: rhs.path).standardizedFileURL.pathComponents.count
+            if lhsDepth == rhsDepth {
+                return lhs.path < rhs.path
+            }
+            return lhsDepth < rhsDepth
+        }
+        var selected: [Finding] = []
+        var selectedPaths: [String] = []
+        for finding in ordered {
+            let path = URL(fileURLWithPath: finding.path).standardizedFileURL.path
+            guard !selectedPaths.contains(where: { isDescendant(path, of: $0) }) else { continue }
+            selected.append(finding)
+            selectedPaths.append(path)
+        }
+        return selected
+    }
+
+    private static func isDescendant(_ path: String, of ancestor: String) -> Bool {
+        guard path != ancestor else { return false }
+        let ancestorWithSlash = ancestor.hasSuffix("/") ? ancestor : ancestor + "/"
+        return path.hasPrefix(ancestorWithSlash)
     }
 }

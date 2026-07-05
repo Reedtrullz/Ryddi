@@ -8,6 +8,10 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `Scripts/package-app.sh` produces `dist/Ryddi.app`.
 - [ ] App launches locally.
 - [ ] `reclaimer overview --path Tests --limit 5` prints a bounded overview.
+- [ ] `reclaimer overview --json --path Tests --limit 5` includes bounded `mapNodes`.
+- [ ] `reclaimer history record --path Tests --limit 5` saves a local-only snapshot.
+- [ ] `reclaimer history list --limit 5` and `reclaimer history diff --group category --limit 5` read local-only snapshots.
+- [ ] App Visual Map and Growth History render without changing reclaim gates.
 - [ ] README states that the build is unsigned if `CODESIGN_IDENTITY` is unset.
 - [ ] Release notes list non-claims: no notarization, no Full Disk Access guarantee, no real cleanup performed by packaging.
 

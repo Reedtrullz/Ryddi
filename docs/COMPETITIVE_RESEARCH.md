@@ -99,7 +99,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Feature | Market Expectation | Ryddi Status | Recommendation |
 | --- | --- | --- | --- |
 | Top offenders overview | Baseline for all disk analyzers | Partial | Add a sortable, scannable table grouped by category, safety, and reclaim estimate. |
-| Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Missing | Add treemap/sunburst after table-first MVP, or use a lightweight proportional bar/tree view first. |
+| Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Partial | First slice has non-overlapping proportional category map nodes; a full treemap/sunburst with drill-down remains future work. |
 | Evidence details | Rare in broad cleaners, central to Ryddi | Partial | Make every finding answer: what is this, why matched, risk, recovery path, exact action. |
 | Dry-run plan | Strong differentiator | Partial | Keep as default. Add plan diff, receipt export, and selected/blocked/skipped counts. |
 | Active-file guard | Strong safety differentiator | Exists/partial | Surface it in UI with "Quit app first" queue and exact process names when available. |
@@ -159,7 +159,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 2. Duplicates: conservative hashing and review-only default, with Photos/Music/iCloud protections.
 3. Folder automation: Hazel-like custom report rules, not arbitrary delete rules.
 4. Menu bar assistant: disk pressure and scheduled scan status.
-5. Growth history: show which categories grew since the last scan using local snapshots.
+5. Growth history: first local category/scope/safety snapshot deltas exist; richer trend charts and longer history views remain future work.
 
 ## Product Principles To Keep
 

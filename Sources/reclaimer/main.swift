@@ -22,6 +22,8 @@ struct ReclaimerCLI {
         switch command {
         case "overview":
             try overview(args: args)
+        case "history":
+            try history(args: args)
         case "scan":
             try scan(args: args)
         case "plan":
@@ -64,10 +66,61 @@ struct ReclaimerCLI {
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
         let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        if options.saveHistory {
+            let url = try ScanHistoryStore().save(overview: overview)
+            FileHandle.standardError.write(Data("saved scan snapshot: \(url.path)\n".utf8))
+        }
         if options.json {
             printJSON(overview)
         } else {
             printOverview(overview)
+        }
+    }
+
+    static func history(args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.message("history requires record, list, or diff")
+        }
+        let options = ParsedOptions(Array(args.dropFirst()))
+        let store = ScanHistoryStore()
+        switch subcommand {
+        case "record":
+            let scopes = options.scopes(includeUnavailable: true)
+            let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+            let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
+            let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+            let snapshot = FindingAnalytics.snapshot(from: overview)
+            let url = try store.save(snapshot: snapshot)
+            if options.json {
+                printJSON(snapshot)
+            } else {
+                print("saved scan snapshot: \(url.path)")
+                printSnapshot(snapshot)
+            }
+        case "list":
+            let snapshots = store.recent(limit: options.limit)
+            if options.json {
+                printJSON(snapshots)
+            } else {
+                printSnapshots(snapshots)
+            }
+        case "diff":
+            let snapshots = store.recent(limit: 2)
+            guard snapshots.count == 2 else {
+                throw CLIError.message("history diff requires at least two saved scan snapshots")
+            }
+            let deltas = FindingAnalytics.growthDeltas(
+                previous: snapshots[1],
+                current: snapshots[0],
+                group: options.growthGroup
+            )
+            if options.json {
+                printJSON(deltas)
+            } else {
+                printGrowthDeltas(deltas, group: options.growthGroup, current: snapshots[0], previous: snapshots[1], limit: options.limit)
+            }
+        default:
+            throw CLIError.message("Unknown history subcommand: \(subcommand)")
         }
     }
 
@@ -220,7 +273,10 @@ struct ReclaimerCLI {
               scan [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes]
-              overview [--json] [--path PATH ...] [--limit N]
+              overview [--json] [--path PATH ...] [--limit N] [--save-history]
+              history record [--json] [--path PATH ...] [--limit N]
+              history list [--json] [--limit N]
+              history diff [--json] [--group category|safety|scope] [--limit N]
               plan [--json] [--path PATH ...] [--review-all] [--save-audit]
               explain PATH [--json]
               execute --dry-run [--json] [--path PATH ...] [--save-audit]
@@ -251,6 +307,7 @@ struct ParsedOptions {
     var yes: Bool { args.contains("--yes") }
     var reviewAll: Bool { args.contains("--review-all") }
     var saveAudit: Bool { args.contains("--save-audit") }
+    var saveHistory: Bool { args.contains("--save-history") }
     var includeOpenFiles: Bool { args.contains("--include-open-files") }
     var includeMissingScopes: Bool { args.contains("--include-missing-scopes") }
     var noLsof: Bool { args.contains("--no-lsof") }
@@ -259,6 +316,7 @@ struct ParsedOptions {
     var limit: Int { max(1, Int(value(after: "--limit") ?? "") ?? 80) }
     var sort: String { value(after: "--sort") ?? "size" }
     var group: String? { value(after: "--group") }
+    var growthGroup: GrowthGroup { GrowthGroup(rawValue: group ?? "category") ?? .category }
     var review: String { value(after: "--review") ?? "all" }
     var largeThreshold: Int64 { Int64(value(after: "--large-threshold") ?? "") ?? 5_000_000_000 }
     var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
@@ -426,12 +484,59 @@ func printOverview(_ overview: ScanOverview) {
         print("- \(pad(summary.name, 22)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.count) item(s)")
     }
 
+    print("\nVisual map nodes")
+    for node in overview.mapNodes.prefix(10) {
+        let reclaim = node.isReclaimable ? "reclaimable" : "review"
+        print("- \(pad(node.name, 22)) \(pad(ByteFormat.string(node.allocatedSize), 10)) \(reclaim)")
+    }
+
     print("\nTop offenders")
     printFindingRows(overview.topFindings)
 
     print("\nAPFS/accounting notes")
     for note in overview.accountingNotes {
         print("- \(note)")
+    }
+}
+
+func printSnapshots(_ snapshots: [ScanSnapshot]) {
+    if snapshots.isEmpty {
+        print("No saved scan snapshots.")
+        return
+    }
+    print("\(pad("Created", 22)) \(pad("Allocated", 12)) \(pad("Logical", 12)) \(pad("Findings", 10)) ID")
+    for snapshot in snapshots {
+        print("\(pad(snapshot.createdAt.formatted(), 22)) \(pad(ByteFormat.string(snapshot.totalAllocatedSize), 12)) \(pad(ByteFormat.string(snapshot.totalLogicalSize), 12)) \(pad("\(snapshot.findingCount)", 10)) \(snapshot.id)")
+    }
+}
+
+func printSnapshot(_ snapshot: ScanSnapshot) {
+    print("Created: \(snapshot.createdAt.formatted())")
+    print("Allocated scanned: \(ByteFormat.string(snapshot.totalAllocatedSize))")
+    print("Logical scanned: \(ByteFormat.string(snapshot.totalLogicalSize))")
+    print("Findings: \(snapshot.findingCount)")
+    print("Top categories:")
+    for category in snapshot.categorySummaries.prefix(8) {
+        print("- \(pad(category.name, 22)) \(pad(ByteFormat.string(category.allocatedSize), 10)) \(category.count) item(s)")
+    }
+}
+
+func printGrowthDeltas(
+    _ deltas: [BucketGrowthDelta],
+    group: GrowthGroup,
+    current: ScanSnapshot,
+    previous: ScanSnapshot,
+    limit: Int
+) {
+    print("Growth since previous scan")
+    print("Group: \(group.label)")
+    print("Previous: \(previous.createdAt.formatted())")
+    print("Current: \(current.createdAt.formatted())")
+    print("\(pad("Delta", 12)) \(pad("Current", 12)) \(pad("Previous", 12)) \(pad("Items", 10)) Name")
+    for delta in deltas.prefix(limit) {
+        let sign = delta.deltaAllocatedSize > 0 ? "+" : ""
+        let deltaText = sign + ByteFormat.string(delta.deltaAllocatedSize)
+        print("\(pad(deltaText, 12)) \(pad(ByteFormat.string(delta.currentAllocatedSize), 12)) \(pad(ByteFormat.string(delta.previousAllocatedSize), 12)) \(pad("\(delta.currentCount)", 10)) \(delta.name)")
     }
 }
 

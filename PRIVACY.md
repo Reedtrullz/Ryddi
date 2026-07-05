@@ -19,6 +19,7 @@ Ryddi works without Full Disk Access, but scan coverage can be incomplete. If ma
 Ryddi can write:
 
 - saved dry-run plans and receipts;
+- compact local scan-history snapshots for growth comparisons;
 - app-managed holding-area metadata;
 - a per-user LaunchAgent plist if you install report scheduling;
 - cleanup changes only after explicit confirmation.
@@ -39,6 +40,7 @@ Ryddi data is expected under:
 
 ```text
 ~/Library/Application Support/Ryddi
+~/Library/Application Support/Ryddi/ScanHistory
 ~/Library/LaunchAgents/com.reidar.ryddi.agent.plist
 ```
 

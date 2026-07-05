@@ -32,6 +32,8 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 ## What It Handles
 
 - top-offender overview with category, safety, age, logical size, and allocated size
+- proportional visual map nodes by category, using non-overlapping allocated-size accounting
+- local scan history snapshots and category growth deltas
 - permission/degraded-scan coverage and APFS accounting notes
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - large-file and old-file review signals
@@ -74,6 +76,9 @@ swift run --scratch-path .build reclaimer help
 
 ```bash
 swift run --scratch-path .build reclaimer overview
+swift run --scratch-path .build reclaimer overview --save-history --path Tests --limit 5
+swift run --scratch-path .build reclaimer history list
+swift run --scratch-path .build reclaimer history diff --group category
 swift run --scratch-path .build reclaimer scan
 swift run --scratch-path .build reclaimer scan --sort category --group category --limit 40
 swift run --scratch-path .build reclaimer scan --review large --large-threshold 1000000000

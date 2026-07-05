@@ -110,9 +110,142 @@ final class ReclaimerCoreTests: XCTestCase {
         let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: 3)
 
         XCTAssertEqual(overview.scopeSummaries.first { $0.name == "missing" }?.permissionState, .missing)
-        XCTAssertTrue(overview.categorySummaries.contains { $0.name == "Codex" && $0.allocatedSize > 0 })
+        XCTAssertGreaterThan(overview.totalAllocatedSize, 0)
+        XCTAssertFalse(overview.categorySummaries.isEmpty)
+        XCTAssertFalse(overview.mapNodes.isEmpty)
         XCTAssertLessThanOrEqual(overview.topFindings.count, 3)
         XCTAssertFalse(overview.accountingNotes.isEmpty)
+    }
+
+    func testVisualMapUsesNonOverlappingAllocatedSizes() throws {
+        let root = Finding(
+            scopeName: "fixture",
+            path: tempRoot.path,
+            displayName: tempRoot.lastPathComponent,
+            logicalSize: 200,
+            allocatedSize: 200,
+            isDirectory: true,
+            safetyClass: .reviewRequired,
+            actionKind: .reportOnly,
+            ruleMatches: [],
+            evidence: [Evidence(kind: "scope", message: "Scan root: fixture.")]
+        )
+        let parent = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 100,
+            isDirectory: true,
+            category: "Codex Cache"
+        )
+        let child = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex/blob").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 40,
+            category: "Codex Cache"
+        )
+
+        let overview = FindingAnalytics.overview(
+            findings: [root, child, parent],
+            scopes: [ScanScope(name: "fixture", root: tempRoot)]
+        )
+
+        XCTAssertEqual(overview.totalAllocatedSize, 100)
+        XCTAssertEqual(overview.mapNodes.reduce(0) { $0 + $1.allocatedSize }, 100)
+        XCTAssertEqual(overview.mapNodes.first?.name, "Codex Cache")
+        XCTAssertEqual(overview.mapNodes.first?.isReclaimable, true)
+    }
+
+    func testVisualMapKeepsProtectedNodesInformationalOnly() throws {
+        let protected = finding(
+            path: tempRoot.appendingPathComponent(".codex/sessions/rollout.jsonl").path,
+            safety: .preserveByDefault,
+            action: .compress,
+            open: false,
+            allocatedSize: 800,
+            category: "Codex History"
+        )
+        let cache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 200,
+            isDirectory: true,
+            category: "Codex Cache"
+        )
+
+        let nodes = FindingAnalytics.overview(
+            findings: [protected, cache],
+            scopes: [ScanScope(name: "fixture", root: tempRoot)]
+        ).mapNodes
+
+        let protectedNode = try XCTUnwrap(nodes.first { $0.allocatedSize == 800 })
+        XCTAssertEqual(protectedNode.safetyClass, .preserveByDefault)
+        XCTAssertFalse(protectedNode.isReclaimable)
+        XCTAssertTrue(nodes.contains { $0.isReclaimable })
+    }
+
+    func testGrowthDeltasCoverCategoryScopeAndSafety() throws {
+        let previous = snapshot(
+            category: [
+                BucketSummary(name: "Codex", count: 1, logicalSize: 100, allocatedSize: 100),
+                BucketSummary(name: "Xcode", count: 1, logicalSize: 80, allocatedSize: 80)
+            ],
+            scope: [
+                BucketSummary(name: "Codex state", count: 1, logicalSize: 100, allocatedSize: 100)
+            ],
+            safety: [
+                BucketSummary(name: SafetyClass.autoSafe.label, count: 1, logicalSize: 100, allocatedSize: 100)
+            ]
+        )
+        let current = snapshot(
+            category: [
+                BucketSummary(name: "Codex", count: 2, logicalSize: 150, allocatedSize: 150),
+                BucketSummary(name: "Browser", count: 1, logicalSize: 20, allocatedSize: 20)
+            ],
+            scope: [
+                BucketSummary(name: "Codex state", count: 2, logicalSize: 150, allocatedSize: 150)
+            ],
+            safety: [
+                BucketSummary(name: SafetyClass.autoSafe.label, count: 2, logicalSize: 150, allocatedSize: 150)
+            ]
+        )
+
+        let categoryDeltas = FindingAnalytics.growthDeltas(previous: previous, current: current, group: .category)
+        XCTAssertEqual(categoryDeltas.first { $0.name == "Codex" }?.deltaAllocatedSize, 50)
+        XCTAssertEqual(categoryDeltas.first { $0.name == "Xcode" }?.deltaAllocatedSize, -80)
+        XCTAssertEqual(categoryDeltas.first { $0.name == "Browser" }?.deltaAllocatedSize, 20)
+
+        let scopeDeltas = FindingAnalytics.growthDeltas(previous: previous, current: current, group: .scope)
+        XCTAssertEqual(scopeDeltas.first { $0.name == "Codex state" }?.deltaAllocatedSize, 50)
+
+        let safetyDeltas = FindingAnalytics.growthDeltas(previous: previous, current: current, group: .safety)
+        XCTAssertEqual(safetyDeltas.first { $0.name == SafetyClass.autoSafe.label }?.deltaAllocatedSize, 50)
+    }
+
+    func testScanHistoryStoreSavesRecentSnapshotsAndDeltas() throws {
+        let historyRoot = tempRoot.appendingPathComponent("History", isDirectory: true)
+        let store = ScanHistoryStore(root: historyRoot)
+        let older = snapshot(
+            id: "older",
+            createdAt: Date(timeIntervalSince1970: 10),
+            category: [BucketSummary(name: "Codex", count: 1, logicalSize: 100, allocatedSize: 100)]
+        )
+        let newer = snapshot(
+            id: "newer",
+            createdAt: Date(timeIntervalSince1970: 20),
+            category: [BucketSummary(name: "Codex", count: 1, logicalSize: 140, allocatedSize: 140)]
+        )
+
+        try store.save(snapshot: older, keepLimit: 5)
+        try store.save(snapshot: newer, keepLimit: 5)
+
+        XCTAssertEqual(store.recent(limit: 2).map(\.id), ["newer", "older"])
+        XCTAssertEqual(store.latestGrowthDeltas().first { $0.name == "Codex" }?.deltaAllocatedSize, 40)
     }
 
     func testExpandedDeveloperRulesStayConservative() throws {
@@ -414,13 +547,14 @@ final class ReclaimerCoreTests: XCTestCase {
         open: Bool,
         conditions: [String] = [],
         allocatedSize: Int64 = 128,
-        isDirectory: Bool = false
+        isDirectory: Bool = false,
+        category: String = "Fixture"
     ) -> Finding {
-        let matches = conditions.isEmpty ? [] : [
+        let matches = [
             RuleMatch(
                 ruleID: "fixture.rule",
                 title: "Fixture rule",
-                category: "Fixture",
+                category: category,
                 safetyClass: safety,
                 actionKind: action,
                 evidence: ["Fixture evidence."],
@@ -439,6 +573,30 @@ final class ReclaimerCoreTests: XCTestCase {
             ruleMatches: matches,
             evidence: matches.flatMap { $0.evidence.map { Evidence(kind: "fixture", message: $0) } },
             openFileStatus: OpenFileStatus(isOpen: open, processSummary: open ? ["fixture"] : [])
+        )
+    }
+
+    private func snapshot(
+        id: String = UUID().uuidString,
+        createdAt: Date = Date(),
+        category: [BucketSummary],
+        scope: [BucketSummary] = [],
+        safety: [BucketSummary] = []
+    ) -> ScanSnapshot {
+        ScanSnapshot(
+            id: id,
+            createdAt: createdAt,
+            findingCount: category.reduce(0) { $0 + $1.count },
+            totalLogicalSize: category.reduce(0) { $0 + $1.logicalSize },
+            totalAllocatedSize: category.reduce(0) { $0 + $1.allocatedSize },
+            expectedAutoSafeBytes: 0,
+            reviewBytes: 0,
+            protectedBytes: 0,
+            categorySummaries: category,
+            safetySummaries: safety,
+            scopeBuckets: scope,
+            scopeSummaries: [],
+            topFindingPaths: []
         )
     }
 }
