@@ -5,17 +5,23 @@ public struct ScanOptions: Hashable, Sendable {
     public let maximumFindingDepth: Int
     public let measurementDepth: Int
     public let includeOpenFileStatus: Bool
+    public let largeFileThreshold: Int64
+    public let oldFileAgeDays: Int
 
     public init(
         minimumFindingSize: Int64 = 1_000_000,
         maximumFindingDepth: Int = 2,
         measurementDepth: Int = 8,
-        includeOpenFileStatus: Bool = false
+        includeOpenFileStatus: Bool = false,
+        largeFileThreshold: Int64 = 5_000_000_000,
+        oldFileAgeDays: Int = 180
     ) {
         self.minimumFindingSize = minimumFindingSize
         self.maximumFindingDepth = maximumFindingDepth
         self.measurementDepth = measurementDepth
         self.includeOpenFileStatus = includeOpenFileStatus
+        self.largeFileThreshold = largeFileThreshold
+        self.oldFileAgeDays = oldFileAgeDays
     }
 }
 
@@ -117,8 +123,31 @@ public final class FileScanner: @unchecked Sendable {
         let classification = ruleEngine.classify(path: url.path, isDirectory: isDirectory, isSymbolicLink: isSymbolicLink)
         let openStatus = options.includeOpenFileStatus ? openFileChecker.status(for: url) : nil
 
+        var safetyClass = classification.safetyClass
+        var actionKind = classification.actionKind
+        var matches = classification.matches
         var evidence = classification.evidence
+        let reviewSignals = dynamicReviewSignals(
+            path: url.path,
+            depth: depth,
+            measurement: measurement,
+            modificationDate: values?.contentModificationDate,
+            classification: classification,
+            options: options
+        )
+        if !reviewSignals.isEmpty {
+            matches.append(contentsOf: reviewSignals)
+            evidence.append(contentsOf: reviewSignals.flatMap { signal in
+                signal.evidence.map { Evidence(kind: signal.ruleID, message: $0) }
+            })
+            if classification.matches.isEmpty {
+                safetyClass = .reviewRequired
+                actionKind = .openGuidance
+            }
+        }
         evidence.append(Evidence(kind: "size", message: "Allocated size: \(ByteFormat.string(measurement.allocatedSize)); logical size: \(ByteFormat.string(measurement.logicalSize))."))
+        evidence.append(Evidence(kind: "accounting", message: storageAccountingNote(logicalSize: measurement.logicalSize, allocatedSize: measurement.allocatedSize)))
+        evidence.append(Evidence(kind: "items", message: "Measured \(measurement.itemCount) item(s) within the configured scan depth."))
         if isSymbolicLink {
             evidence.append(Evidence(kind: "symlink", message: "Symbolic link was not followed."))
         }
@@ -136,12 +165,61 @@ public final class FileScanner: @unchecked Sendable {
             isSymbolicLink: isSymbolicLink,
             modificationDate: values?.contentModificationDate,
             ownerHint: ownerHint(for: url.path),
-            safetyClass: classification.safetyClass,
-            actionKind: classification.actionKind,
-            ruleMatches: classification.matches,
+            safetyClass: safetyClass,
+            actionKind: actionKind,
+            ruleMatches: matches,
             evidence: evidence,
             openFileStatus: openStatus
         )
+    }
+
+    private func dynamicReviewSignals(
+        path: String,
+        depth: Int,
+        measurement: FileMeasurement,
+        modificationDate: Date?,
+        classification: Classification,
+        options: ScanOptions
+    ) -> [RuleMatch] {
+        guard depth > 0 else { return [] }
+        guard classification.safetyClass == .reviewRequired || classification.matches.isEmpty else { return [] }
+
+        var signals: [RuleMatch] = []
+        if measurement.allocatedSize >= options.largeFileThreshold {
+            signals.append(
+                RuleMatch(
+                    ruleID: "dynamic.large-item.review",
+                    title: "Large item review",
+                    category: "Large files",
+                    safetyClass: .reviewRequired,
+                    actionKind: .openGuidance,
+                    evidence: ["This item is larger than \(ByteFormat.string(options.largeFileThreshold)); inspect it before deciding whether it is valuable or removable."],
+                    conditions: ["Manual review only; use Finder or Quick Look before removing."],
+                    recovery: "Move to Trash only after confirming it is not unique work, app state, or project data."
+                )
+            )
+        }
+
+        if let modificationDate {
+            let age = Date().timeIntervalSince(modificationDate)
+            let threshold = TimeInterval(options.oldFileAgeDays * 24 * 60 * 60)
+            if age >= threshold, measurement.allocatedSize >= options.minimumFindingSize {
+                signals.append(
+                    RuleMatch(
+                        ruleID: "dynamic.old-item.review",
+                        title: "Old item review",
+                        category: "Old files",
+                        safetyClass: .reviewRequired,
+                        actionKind: .openGuidance,
+                        evidence: ["This item has not been modified for at least \(options.oldFileAgeDays) days."],
+                        conditions: ["Manual review only; age is a signal, not permission to delete."],
+                        recovery: "Move to Trash or archive only after confirming it is no longer needed."
+                    )
+                )
+            }
+        }
+
+        return signals
     }
 
     private func permissionFinding(scope: ScanScope, state: PermissionState, message: String) -> Finding {
@@ -211,6 +289,16 @@ public final class FileScanner: @unchecked Sendable {
     }
 }
 
+private func storageAccountingNote(logicalSize: Int64, allocatedSize: Int64) -> String {
+    if allocatedSize == logicalSize {
+        return "Allocated and logical size are currently the same for this item."
+    }
+    if allocatedSize < logicalSize {
+        return "Allocated size is lower than logical size; APFS clones, sparse files, compression, and purgeable data can make apparent size differ from immediate reclaim."
+    }
+    return "Allocated size is higher than logical size because physical blocks and filesystem metadata can add overhead."
+}
+
 private let resourceKeys: [URLResourceKey] = [
     .isDirectoryKey,
     .isSymbolicLinkKey,
@@ -234,7 +322,10 @@ private func ownerHint(for path: String) -> String? {
 }
 
 public enum DefaultScopes {
-    public static func developerAgentBloat(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [ScanScope] {
+    public static func developerAgentBloat(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        includeUnavailable: Bool = false
+    ) -> [ScanScope] {
         let paths: [(String, URL)] = [
             ("Codex state", home.appendingPathComponent(".codex")),
             ("Codex desktop logs", home.appendingPathComponent("Library/Logs/com.openai.codex")),
@@ -248,10 +339,25 @@ public enum DefaultScopes {
             ("Yarn cache", home.appendingPathComponent("Library/Caches/Yarn")),
             ("Cargo cache", home.appendingPathComponent(".cargo")),
             ("Go modules", home.appendingPathComponent("go/pkg/mod")),
+            ("Gradle cache", home.appendingPathComponent(".gradle/caches")),
+            ("Maven cache", home.appendingPathComponent(".m2/repository")),
+            ("CocoaPods cache", home.appendingPathComponent("Library/Caches/CocoaPods")),
+            ("SwiftPM cache", home.appendingPathComponent("Library/Caches/org.swift.swiftpm")),
+            ("VS Code caches", home.appendingPathComponent("Library/Application Support/Code")),
+            ("Cursor caches", home.appendingPathComponent("Library/Application Support/Cursor")),
+            ("Windsurf caches", home.appendingPathComponent("Library/Application Support/Windsurf")),
+            ("JetBrains caches", home.appendingPathComponent("Library/Caches/JetBrains")),
+            ("Android Studio caches", home.appendingPathComponent("Library/Caches/Google/AndroidStudio")),
+            ("Android SDK", home.appendingPathComponent("Library/Android/sdk")),
+            ("Flutter pub cache", home.appendingPathComponent(".pub-cache")),
+            ("Playwright browsers", home.appendingPathComponent("Library/Caches/ms-playwright")),
             ("Private temp", URL(fileURLWithPath: "/private/tmp"))
         ]
         return paths.compactMap { name, url in
-            FileManager.default.fileExists(atPath: url.path) ? ScanScope(name: name, root: url, permissionState: .unknown) : nil
+            if includeUnavailable || FileManager.default.fileExists(atPath: url.path) {
+                return ScanScope(name: name, root: url, permissionState: .unknown)
+            }
+            return nil
         }
     }
 }

@@ -1,5 +1,8 @@
 import SwiftUI
 import ReclaimerCore
+#if os(macOS)
+import AppKit
+#endif
 
 @main
 struct MacDiskReclaimerApp: App {
@@ -153,6 +156,12 @@ struct OverviewView: View {
                 MetricTile(title: "Protected", value: ByteFormat.string(model.totalBytes(for: .neverTouch) + model.totalBytes(for: .preserveByDefault)))
                 MetricTile(title: "Audit receipts", value: "\(model.recentReceipts.count)")
                 MetricTile(title: "Held items", value: "\(model.heldItems.count)")
+            }
+
+            if let overview = model.overview {
+                PermissionCoverageView(overview: overview)
+                AccountingNotesView(notes: overview.accountingNotes)
+                TopOffendersView(findings: model.findings, plan: model.plan)
             }
 
             if let error = model.error {
@@ -356,6 +365,8 @@ struct FindingDetailView: View {
                     Text("Scope: \(finding.scopeName)")
                     Text(finding.ownerHint ?? "Unknown owner")
                     Text("Logical: \(ByteFormat.string(finding.logicalSize)); allocated: \(ByteFormat.string(finding.allocatedSize))")
+                    Text(finding.storageAccountingNote)
+                        .foregroundStyle(.secondary)
                     if let date = finding.modificationDate {
                         Text("Modified: \(date.formatted())")
                     }
@@ -367,6 +378,10 @@ struct FindingDetailView: View {
                     ForEach(finding.ruleMatches, id: \.ruleID) { match in
                         Text("\(match.category): \(match.title) (\(match.ruleID))")
                     }
+                }
+
+                SectionBox(title: "Actions") {
+                    FindingActionButtons(finding: finding)
                 }
 
                 SectionBox(title: "Why this classification") {
@@ -476,6 +491,232 @@ struct MetricTile: View {
     }
 }
 
+enum TopOffenderSort: String, CaseIterable, Identifiable {
+    case allocated = "Allocated"
+    case logical = "Logical"
+    case age = "Age"
+    case risk = "Risk"
+    case category = "Category"
+    case scope = "Scope"
+
+    var id: String { rawValue }
+}
+
+struct PermissionCoverageView: View {
+    let overview: ScanOverview
+
+    private var readable: Int {
+        overview.scopeSummaries.filter { $0.permissionState == .readable }.count
+    }
+
+    private var blocked: [ScopeAccessSummary] {
+        overview.scopeSummaries.filter { [.denied, .missing].contains($0.permissionState) }
+    }
+
+    var body: some View {
+        SectionBox(title: "Permission Coverage") {
+            HStack {
+                Text("\(readable) of \(overview.scopeSummaries.count) expected scopes readable")
+                    .font(.headline)
+                Spacer()
+                Text(blocked.isEmpty ? "Full scan coverage for configured scopes" : "\(blocked.count) unavailable")
+                    .foregroundStyle(blocked.isEmpty ? .green : .orange)
+            }
+            Text("Ryddi works in degraded mode when some paths are missing or restricted. Full Disk Access can improve coverage, but cleanup still remains local and review-driven.")
+                .foregroundStyle(.secondary)
+            ForEach(blocked.prefix(6)) { scope in
+                Text("\(scope.permissionState.rawValue): \(scope.name) - \(scope.message)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct AccountingNotesView: View {
+    let notes: [String]
+
+    var body: some View {
+        SectionBox(title: "APFS Accounting") {
+            ForEach(notes, id: \.self) { note in
+                Text(note)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct TopOffendersView: View {
+    let findings: [Finding]
+    let plan: ReclaimPlan?
+    @State private var sort = TopOffenderSort.allocated
+
+    private var sortedFindings: [Finding] {
+        findings.sorted { lhs, rhs in
+            switch sort {
+            case .logical:
+                return compare(lhs.logicalSize, rhs.logicalSize, lhs.path, rhs.path)
+            case .age:
+                return compare(Int64(lhs.ageInDays() ?? -1), Int64(rhs.ageInDays() ?? -1), lhs.path, rhs.path)
+            case .risk:
+                if lhs.safetyClass.riskRank == rhs.safetyClass.riskRank {
+                    return lhs.allocatedSize > rhs.allocatedSize
+                }
+                return lhs.safetyClass.riskRank < rhs.safetyClass.riskRank
+            case .category:
+                if lhs.primaryCategory == rhs.primaryCategory {
+                    return lhs.allocatedSize > rhs.allocatedSize
+                }
+                return lhs.primaryCategory < rhs.primaryCategory
+            case .scope:
+                if lhs.scopeName == rhs.scopeName {
+                    return lhs.allocatedSize > rhs.allocatedSize
+                }
+                return lhs.scopeName < rhs.scopeName
+            case .allocated:
+                return compare(lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+            }
+        }
+    }
+
+    var body: some View {
+        SectionBox(title: "Top Offenders") {
+            Picker("Sort", selection: $sort) {
+                ForEach(TopOffenderSort.allCases) { option in
+                    Text(option.rawValue).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Size").frame(width: 92, alignment: .leading)
+                    Text("Safety").frame(width: 150, alignment: .leading)
+                    Text("Category").frame(width: 130, alignment: .leading)
+                    Text("Age").frame(width: 56, alignment: .leading)
+                    Text("Path")
+                    Spacer()
+                    Text("Actions").frame(width: 132, alignment: .trailing)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 6)
+
+                ForEach(sortedFindings.prefix(14)) { finding in
+                    Divider()
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(ByteFormat.string(finding.allocatedSize))
+                            Text(ByteFormat.string(finding.logicalSize))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(width: 92, alignment: .leading)
+                        SafetyBadge(safetyClass: finding.safetyClass)
+                            .frame(width: 150, alignment: .leading)
+                        Text(finding.primaryCategory)
+                            .frame(width: 130, alignment: .leading)
+                        Text(finding.ageInDays().map { "\($0)d" } ?? "-")
+                            .frame(width: 56, alignment: .leading)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(finding.displayName)
+                                .lineLimit(1)
+                            Text(finding.path)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        FindingActionButtons(finding: finding)
+                            .frame(width: 132, alignment: .trailing)
+                    }
+                    .padding(.vertical, 7)
+                }
+            }
+        }
+    }
+
+    private func compare(_ lhsValue: Int64, _ rhsValue: Int64, _ lhsPath: String, _ rhsPath: String) -> Bool {
+        if lhsValue == rhsValue {
+            return lhsPath < rhsPath
+        }
+        return lhsValue > rhsValue
+    }
+}
+
+struct FindingActionButtons: View {
+    let finding: Finding
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button {
+                PathActions.copyPath(finding.path)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .help("Copy path")
+
+            Button {
+                PathActions.revealInFinder(finding.path)
+            } label: {
+                Image(systemName: "folder")
+            }
+            .help("Reveal in Finder")
+
+            Button {
+                PathActions.quickLook(finding.path)
+            } label: {
+                Image(systemName: "eye")
+            }
+            .help("Quick Look")
+
+            Button {
+                PathActions.openTerminal(at: finding.path, isDirectory: finding.isDirectory)
+            } label: {
+                Image(systemName: "terminal")
+            }
+            .help("Open Terminal here")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+enum PathActions {
+    static func copyPath(_ path: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(path, forType: .string)
+        #endif
+    }
+
+    static func revealInFinder(_ path: String) {
+        #if os(macOS)
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        #endif
+    }
+
+    static func quickLook(_ path: String) {
+        #if os(macOS)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/qlmanage")
+        process.arguments = ["-p", path]
+        try? process.run()
+        #endif
+    }
+
+    static func openTerminal(at path: String, isDirectory: Bool) {
+        #if os(macOS)
+        let target = isDirectory ? path : URL(fileURLWithPath: path).deletingLastPathComponent().path
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "Terminal", target]
+        try? process.run()
+        #endif
+    }
+}
+
 struct SafetyBadge: View {
     let safetyClass: SafetyClass
 
@@ -543,6 +784,8 @@ struct QueueSummary: Identifiable {
 @Observable
 final class DashboardModel {
     var findings: [Finding] = []
+    var scanScopes: [ScanScope] = []
+    var overview: ScanOverview?
     var plan: ReclaimPlan?
     var lastDryRunReceipt: ExecutionReceipt?
     var lastExecutionReceipt: ExecutionReceipt?
@@ -610,10 +853,15 @@ final class DashboardModel {
         isWorking = true
         defer { isWorking = false }
         do {
-            findings = try await Task.detached {
+            let result = try await Task.detached {
+                let scopes = DefaultScopes.developerAgentBloat(includeUnavailable: true)
                 let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
-                return scanner.scan(scopes: DefaultScopes.developerAgentBloat(), options: ScanOptions(includeOpenFileStatus: false))
+                let findings = scanner.scan(scopes: scopes, options: ScanOptions(includeOpenFileStatus: false))
+                return (scopes, findings, FindingAnalytics.overview(findings: findings, scopes: scopes))
             }.value
+            scanScopes = result.0
+            findings = result.1
+            overview = result.2
             plan = nil
             lastDryRunReceipt = nil
             lastExecutionReceipt = nil
@@ -689,10 +937,15 @@ final class DashboardModel {
             loadAudit()
             loadHolding()
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
-            findings = try await Task.detached {
+            let refreshed = try await Task.detached {
+                let scopes = DefaultScopes.developerAgentBloat(includeUnavailable: true)
                 let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
-                return scanner.scan(scopes: DefaultScopes.developerAgentBloat(), options: ScanOptions(includeOpenFileStatus: false))
+                let findings = scanner.scan(scopes: scopes, options: ScanOptions(includeOpenFileStatus: false))
+                return (scopes, findings, FindingAnalytics.overview(findings: findings, scopes: scopes))
             }.value
+            scanScopes = refreshed.0
+            findings = refreshed.1
+            overview = refreshed.2
             plan = nil
             lastDryRunReceipt = nil
             lastScanDate = Date()

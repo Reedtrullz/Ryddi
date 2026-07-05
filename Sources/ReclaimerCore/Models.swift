@@ -37,7 +37,7 @@ public enum SafetyClass: String, Codable, CaseIterable, Hashable, Sendable {
         }
     }
 
-    var riskRank: Int {
+    public var riskRank: Int {
         switch self {
         case .autoSafe: 0
         case .safeAfterCondition: 1
@@ -179,6 +179,29 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
         self.ruleMatches = ruleMatches
         self.evidence = evidence
         self.openFileStatus = openFileStatus
+    }
+}
+
+public extension Finding {
+    var primaryCategory: String {
+        ruleMatches.first?.category ?? ownerHint ?? "Unknown"
+    }
+
+    func ageInDays(referenceDate: Date = Date()) -> Int? {
+        guard let modificationDate else { return nil }
+        let seconds = referenceDate.timeIntervalSince(modificationDate)
+        guard seconds >= 0 else { return 0 }
+        return Int(seconds / (24 * 60 * 60))
+    }
+
+    var storageAccountingNote: String {
+        if allocatedSize == logicalSize {
+            return "Allocated and logical size are currently the same for this item."
+        }
+        if allocatedSize < logicalSize {
+            return "Allocated size is lower than logical size, which can happen with sparse files, compression, clones, or APFS accounting."
+        }
+        return "Allocated size is higher than logical size because filesystem blocks and metadata can consume extra physical space."
     }
 }
 

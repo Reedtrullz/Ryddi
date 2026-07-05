@@ -20,6 +20,8 @@ struct ReclaimerCLI {
 
         let args = Array(arguments.dropFirst())
         switch command {
+        case "overview":
+            try overview(args: args)
         case "scan":
             try scan(args: args)
         case "plan":
@@ -44,11 +46,28 @@ struct ReclaimerCLI {
     static func scan(args: [String]) throws {
         let options = ParsedOptions(args)
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let findings = scanner.scan(scopes: options.scopes(), options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
+        let findings = scanner.scan(
+            scopes: options.scopes(includeUnavailable: options.includeMissingScopes),
+            options: options.scanOptions(includeOpenFiles: options.includeOpenFiles)
+        )
+        let preparedFindings = options.prepare(findings)
         if options.json {
-            printJSON(findings)
+            printJSON(preparedFindings)
         } else {
-            printFindings(findings)
+            printFindings(preparedFindings, options: options)
+        }
+    }
+
+    static func overview(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let scopes = options.scopes(includeUnavailable: true)
+        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
+        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        if options.json {
+            printJSON(overview)
+        } else {
+            printOverview(overview)
         }
     }
 
@@ -199,6 +218,9 @@ struct ReclaimerCLI {
 
             Commands:
               scan [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--include-open-files]
+                   [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
+                   [--review large|old|all] [--limit N] [--include-missing-scopes]
+              overview [--json] [--path PATH ...] [--limit N]
               plan [--json] [--path PATH ...] [--review-all] [--save-audit]
               explain PATH [--json]
               execute --dry-run [--json] [--path PATH ...] [--save-audit]
@@ -230,9 +252,16 @@ struct ParsedOptions {
     var reviewAll: Bool { args.contains("--review-all") }
     var saveAudit: Bool { args.contains("--save-audit") }
     var includeOpenFiles: Bool { args.contains("--include-open-files") }
+    var includeMissingScopes: Bool { args.contains("--include-missing-scopes") }
     var noLsof: Bool { args.contains("--no-lsof") }
     var hour: Int { Int(value(after: "--hour") ?? "") ?? 9 }
     var minute: Int { Int(value(after: "--minute") ?? "") ?? 30 }
+    var limit: Int { max(1, Int(value(after: "--limit") ?? "") ?? 80) }
+    var sort: String { value(after: "--sort") ?? "size" }
+    var group: String? { value(after: "--group") }
+    var review: String { value(after: "--review") ?? "all" }
+    var largeThreshold: Int64 { Int64(value(after: "--large-threshold") ?? "") ?? 5_000_000_000 }
+    var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
 
     func values(after flag: String) -> [String] {
         var values: [String] = []
@@ -256,12 +285,12 @@ struct ParsedOptions {
         return args[index + 1]
     }
 
-    func scopes() -> [ScanScope] {
+    func scopes(includeUnavailable: Bool = false) -> [ScanScope] {
         let paths = values(after: "--path")
         if !paths.isEmpty {
             return paths.map { ScanScope(name: URL(fileURLWithPath: $0).lastPathComponent, root: URL(fileURLWithPath: $0)) }
         }
-        return DefaultScopes.developerAgentBloat()
+        return DefaultScopes.developerAgentBloat(includeUnavailable: includeUnavailable)
     }
 
     func scanOptions(includeOpenFiles: Bool) -> ScanOptions {
@@ -271,8 +300,55 @@ struct ParsedOptions {
             minimumFindingSize: minSize,
             maximumFindingDepth: maxDepth,
             measurementDepth: maxDepth + 4,
-            includeOpenFileStatus: includeOpenFiles
+            includeOpenFileStatus: includeOpenFiles,
+            largeFileThreshold: largeThreshold,
+            oldFileAgeDays: oldDays
         )
+    }
+
+    func prepare(_ findings: [Finding]) -> [Finding] {
+        let filtered = findings.filter { finding in
+            switch review {
+            case "large":
+                finding.ruleMatches.contains { $0.ruleID == "dynamic.large-item.review" }
+            case "old":
+                finding.ruleMatches.contains { $0.ruleID == "dynamic.old-item.review" }
+            default:
+                true
+            }
+        }
+        return filtered.sorted { lhs, rhs in
+            switch sort {
+            case "logical":
+                return sort(lhs.logicalSize, rhs.logicalSize, lhs.path, rhs.path)
+            case "age":
+                return sort(Int64(lhs.ageInDays() ?? -1), Int64(rhs.ageInDays() ?? -1), lhs.path, rhs.path)
+            case "risk":
+                if lhs.safetyClass.riskRank == rhs.safetyClass.riskRank {
+                    return lhs.allocatedSize > rhs.allocatedSize
+                }
+                return lhs.safetyClass.riskRank < rhs.safetyClass.riskRank
+            case "category":
+                if lhs.primaryCategory == rhs.primaryCategory {
+                    return lhs.allocatedSize > rhs.allocatedSize
+                }
+                return lhs.primaryCategory < rhs.primaryCategory
+            case "scope":
+                if lhs.scopeName == rhs.scopeName {
+                    return lhs.allocatedSize > rhs.allocatedSize
+                }
+                return lhs.scopeName < rhs.scopeName
+            default:
+                return sort(lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+            }
+        }
+    }
+
+    private func sort(_ lhsValue: Int64, _ rhsValue: Int64, _ lhsPath: String, _ rhsPath: String) -> Bool {
+        if lhsValue == rhsValue {
+            return lhsPath < rhsPath
+        }
+        return lhsValue > rhsValue
     }
 }
 
@@ -294,12 +370,68 @@ func printJSON<T: Encodable>(_ value: T) {
     print(String(data: data, encoding: .utf8)!)
 }
 
-func printFindings(_ findings: [Finding]) {
-    for finding in findings.prefix(80) {
-        print("\(ByteFormat.string(finding.allocatedSize).padding(toLength: 10, withPad: " ", startingAt: 0)) \(finding.safetyClass.label.padding(toLength: 22, withPad: " ", startingAt: 0)) \(finding.path)")
+func printFindings(_ findings: [Finding], options: ParsedOptions) {
+    let limited = Array(findings.prefix(options.limit))
+    if let group = options.group {
+        let groups = Dictionary(grouping: limited) { finding -> String in
+            switch group {
+            case "safety": finding.safetyClass.label
+            case "scope": finding.scopeName
+            default: finding.primaryCategory
+            }
+        }
+        for key in groups.keys.sorted() {
+            let items = groups[key] ?? []
+            let total = items.reduce(0) { $0 + $1.allocatedSize }
+            print("\n\(key) - \(items.count) item(s), \(ByteFormat.string(total))")
+            printFindingRows(items)
+        }
+    } else {
+        printFindingRows(limited)
     }
-    if findings.count > 80 {
-        print("... \(findings.count - 80) more findings")
+    if findings.count > options.limit {
+        print("... \(findings.count - options.limit) more findings")
+    }
+}
+
+func printFindingRows(_ findings: [Finding]) {
+    print(
+        "\(pad("Allocated", 11)) \(pad("Logical", 11)) \(pad("Age", 6)) \(pad("Safety", 22)) \(pad("Category", 18)) \(pad("Action", 16)) Path"
+    )
+    for finding in findings {
+        let age = finding.ageInDays().map { "\($0)d" } ?? "-"
+        print(
+            "\(pad(ByteFormat.string(finding.allocatedSize), 11)) \(pad(ByteFormat.string(finding.logicalSize), 11)) \(pad(age, 6)) \(pad(finding.safetyClass.label, 22)) \(pad(finding.primaryCategory, 18)) \(pad(finding.actionKind.label, 16)) \(finding.path)"
+        )
+    }
+}
+
+func printOverview(_ overview: ScanOverview) {
+    print("Ryddi overview")
+    print("Generated: \(overview.generatedAt.formatted())")
+    print("Findings: \(overview.findingCount)")
+    print("Allocated scanned: \(ByteFormat.string(overview.totalAllocatedSize))")
+    print("Logical scanned: \(ByteFormat.string(overview.totalLogicalSize))")
+    print("Auto-safe bytes: \(ByteFormat.string(overview.expectedAutoSafeBytes))")
+    print("Review bytes: \(ByteFormat.string(overview.reviewBytes))")
+    print("Protected bytes: \(ByteFormat.string(overview.protectedBytes))")
+
+    print("\nPermission coverage")
+    for scope in overview.scopeSummaries {
+        print("- \(scope.permissionState.rawValue): \(scope.name) - \(scope.path)")
+    }
+
+    print("\nBy category")
+    for summary in overview.categorySummaries.prefix(12) {
+        print("- \(pad(summary.name, 22)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.count) item(s)")
+    }
+
+    print("\nTop offenders")
+    printFindingRows(overview.topFindings)
+
+    print("\nAPFS/accounting notes")
+    for note in overview.accountingNotes {
+        print("- \(note)")
     }
 }
 
@@ -353,4 +485,11 @@ func printHeldItems(_ items: [HeldItem]) {
         print("  Original: \(original)")
         print("  Date: \(heldAt)")
     }
+}
+
+func pad(_ value: String, _ length: Int) -> String {
+    if value.count >= length {
+        return String(value.prefix(max(0, length - 1))) + " "
+    }
+    return value.padding(toLength: length, withPad: " ", startingAt: 0)
 }

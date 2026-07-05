@@ -172,6 +172,40 @@
       "recovery": "Xcode rebuilds DerivedData; the next build may be slower."
     },
     {
+      "id": "xcode.module-doc-cache.safe-condition",
+      "title": "Xcode module or documentation cache",
+      "category": "Developer cache",
+      "priority": 685,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "deleteCache",
+      "match": {
+        "containsAny": ["/library/developer/xcode/modulecache", "/library/developer/xcode/documentationcache", "/library/developer/xcode/products"],
+        "suffixAny": [],
+        "basenameAny": ["modulecache.noindex", "documentationcache"],
+        "pathExtensionAny": []
+      },
+      "evidence": ["Xcode module, product, and documentation caches are rebuildable developer cache data."],
+      "conditions": ["Quit Xcode and skip open build/index files."],
+      "recovery": "Xcode rebuilds these caches; the next documentation lookup or build may be slower."
+    },
+    {
+      "id": "xcode.simulator-logs.safe-condition",
+      "title": "Simulator and device logs",
+      "category": "Developer cache",
+      "priority": 682,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "trash",
+      "match": {
+        "containsAny": ["/library/logs/coresimulator", "/library/developer/coresimulator/logs", "/library/developer/xcode/userdata/previews/simulator devices"],
+        "suffixAny": [".log"],
+        "basenameAny": [],
+        "pathExtensionAny": ["log"]
+      },
+      "evidence": ["Old simulator and device logs are diagnostic history rather than app source or project state."],
+      "conditions": ["Quit Simulator/Xcode and keep recent diagnostic logs if actively debugging."],
+      "recovery": "Logs are not generally recoverable after deletion."
+    },
+    {
       "id": "xcode.archives.review",
       "title": "Xcode archive or device support",
       "category": "Developer cache",
@@ -189,6 +223,23 @@
       "recovery": "Some symbols or archives may be difficult to recreate."
     },
     {
+      "id": "package.swiftpm.native",
+      "title": "SwiftPM cache",
+      "category": "Developer cache",
+      "priority": 665,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "nativeToolCommand",
+      "match": {
+        "containsAny": ["/library/caches/org.swift.swiftpm", "/.swiftpm/cache", "/.build/repositories", "/.build/checkouts", "/.build/artifacts"],
+        "suffixAny": [],
+        "basenameAny": [],
+        "pathExtensionAny": []
+      },
+      "evidence": ["SwiftPM dependency caches and build artifacts are usually reproducible from package manifests."],
+      "conditions": ["Prefer project-level clean/build commands and skip active builds."],
+      "recovery": "SwiftPM can fetch and rebuild dependencies when online."
+    },
+    {
       "id": "package.caches.native",
       "title": "Package-manager cache",
       "category": "Developer cache",
@@ -204,6 +255,91 @@
       "evidence": ["Package-manager caches are usually rebuildable, but native prune commands know their stores best."],
       "conditions": ["Prefer native cleanup commands; skip active installs/builds."],
       "recovery": "Packages can be re-downloaded when online."
+    },
+    {
+      "id": "package.node-modules.review",
+      "title": "node_modules dependency tree",
+      "category": "Developer cache",
+      "priority": 645,
+      "safetyClass": "reviewRequired",
+      "actionKind": "openGuidance",
+      "match": {
+        "containsAny": [],
+        "suffixAny": ["/node_modules"],
+        "basenameAny": ["node_modules"],
+        "pathExtensionAny": []
+      },
+      "evidence": ["node_modules is rebuildable from lockfiles in many projects, but deleting it can interrupt local development and offline work."],
+      "conditions": ["Review the project and package manager before removal."],
+      "recovery": "Run the project package-manager install command if the lockfile and registry access are available."
+    },
+    {
+      "id": "package.playwright-browsers.safe-condition",
+      "title": "Playwright browser cache",
+      "category": "Developer cache",
+      "priority": 642,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "deleteCache",
+      "match": {
+        "containsAny": ["/library/caches/ms-playwright"],
+        "suffixAny": [],
+        "basenameAny": ["ms-playwright"],
+        "pathExtensionAny": []
+      },
+      "evidence": ["Playwright browser binaries are large and reproducible from Playwright install commands."],
+      "conditions": ["Skip active test runs and expect the next Playwright install/test setup to re-download browsers."],
+      "recovery": "Run `npx playwright install` or the project's documented Playwright install command."
+    },
+    {
+      "id": "ide.editor-caches.safe-condition",
+      "title": "Editor cache",
+      "category": "Developer cache",
+      "priority": 640,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "deleteCache",
+      "match": {
+        "containsAny": ["/library/application support/code/cache", "/library/application support/code/cacheddata", "/library/application support/code/cachedextensionvsixs", "/library/application support/cursor/cache", "/library/application support/cursor/cacheddata", "/library/application support/windsurf/cache", "/library/application support/windsurf/cacheddata", "/library/caches/jetbrains", "/library/logs/jetbrains"],
+        "suffixAny": [],
+        "basenameAny": ["cachedextensionvsixs", "cacheddata"],
+        "pathExtensionAny": []
+      },
+      "evidence": ["Editor caches and downloaded extension packages are usually rebuildable, unlike settings, keybindings, projects, and workspaces."],
+      "conditions": ["Quit the editor and skip open files before removal."],
+      "recovery": "The editor can regenerate caches; extensions may need to be re-downloaded."
+    },
+    {
+      "id": "android.flutter.caches.native",
+      "title": "Android or Flutter cache",
+      "category": "Developer cache",
+      "priority": 638,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "nativeToolCommand",
+      "match": {
+        "containsAny": ["/library/caches/google/androidstudio", "/.gradle/caches", "/.pub-cache"],
+        "suffixAny": [],
+        "basenameAny": [".pub-cache"],
+        "pathExtensionAny": []
+      },
+      "evidence": ["Android Studio, Gradle, and Flutter package caches are often rebuildable but are best cleaned through native tooling."],
+      "conditions": ["Skip active builds and prefer Gradle/Flutter/Android Studio cleanup commands."],
+      "recovery": "Packages and build artifacts can usually be re-downloaded when online."
+    },
+    {
+      "id": "android.sdk.review",
+      "title": "Android SDK or emulator image",
+      "category": "Developer cache",
+      "priority": 636,
+      "safetyClass": "reviewRequired",
+      "actionKind": "openGuidance",
+      "match": {
+        "containsAny": ["/library/android/sdk", "/.android/avd"],
+        "suffixAny": [],
+        "basenameAny": [],
+        "pathExtensionAny": []
+      },
+      "evidence": ["Android SDKs and emulator images can be large, but removing them may break installed toolchains and device targets."],
+      "conditions": ["Review installed SDK platforms/emulators in Android Studio or sdkmanager before removal."],
+      "recovery": "Reinstall SDK platforms and emulator images through Android Studio or sdkmanager."
     },
     {
       "id": "browser.cache.safe-condition",

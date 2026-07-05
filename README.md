@@ -1,5 +1,7 @@
 # Ryddi
 
+[![CI](https://github.com/Reedtrullz/Ryddi/actions/workflows/ci.yml/badge.svg)](https://github.com/Reedtrullz/Ryddi/actions/workflows/ci.yml)
+
 Ryddi is a local-first macOS disk reclaim assistant for developer and AI-agent storage growth.
 
 It is named from Norwegian **ryddig** / **rydde**: tidy, orderly, to clean up. The goal is not to be a scary one-click cleaner. Ryddi scans, explains, plans, and only then helps you reclaim space with receipts and guardrails.
@@ -25,12 +27,18 @@ Ryddi is an early MVP. It has a shared Swift core, a CLI, and a SwiftUI app shel
 
 No telemetry, path uploads, remote analysis, root helper, or Mac App Store sandboxing in v1.
 
+See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi should never touch automatically.
+
 ## What It Handles
 
+- top-offender overview with category, safety, age, logical size, and allocated size
+- permission/degraded-scan coverage and APFS accounting notes
+- Finder, Quick Look, Terminal, and copy-path actions in the app
+- large-file and old-file review signals
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
 - Xcode DerivedData and developer cache review
-- Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, and CocoaPods cache rules
+- Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
 - Browser cache versus browser profile separation
 - Stale temp/scratch review
 - App-managed holding area for reversible quarantine moves
@@ -65,7 +73,10 @@ swift run --scratch-path .build reclaimer help
 ## CLI Quick Start
 
 ```bash
+swift run --scratch-path .build reclaimer overview
 swift run --scratch-path .build reclaimer scan
+swift run --scratch-path .build reclaimer scan --sort category --group category --limit 40
+swift run --scratch-path .build reclaimer scan --review large --large-threshold 1000000000
 swift run --scratch-path .build reclaimer plan --json
 swift run --scratch-path .build reclaimer explain ~/.codex
 swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Caches/Codex
@@ -123,6 +134,7 @@ Scripts/                     Packaging and notarization helpers
 ## Product Research
 
 - [Competitive research snapshot](docs/COMPETITIVE_RESEARCH.md) - competitor lanes, expected features, and suggested Ryddi roadmap.
+- [Release checklist](docs/RELEASE_CHECKLIST.md) - developer preview versus signed/notarized release gates.
 
 ## Non-Goals For v1
 

@@ -64,6 +64,85 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(findings.contains { $0.path.hasSuffix("/Library/Caches/Codex/link") && $0.isSymbolicLink && $0.safetyClass == .reviewRequired })
     }
 
+    func testScannerAddsLargeAndOldReviewSignalsWithoutSelectingForCleanup() throws {
+        let reviewFile = tempRoot.appendingPathComponent("Downloads/old-large.bin")
+        try FileManager.default.createDirectory(at: reviewFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 6, count: 256).write(to: reviewFile)
+        let oldDate = Date().addingTimeInterval(-90 * 24 * 60 * 60)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: reviewFile.path)
+
+        let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+        let findings = scanner.scan(
+            scopes: [ScanScope(name: "fixture", root: tempRoot)],
+            options: ScanOptions(
+                minimumFindingSize: 0,
+                maximumFindingDepth: 3,
+                includeOpenFileStatus: false,
+                largeFileThreshold: 100,
+                oldFileAgeDays: 30
+            )
+        )
+
+        let finding = try XCTUnwrap(findings.first { $0.path.hasSuffix("/Downloads/old-large.bin") })
+        XCTAssertEqual(finding.safetyClass, .reviewRequired)
+        XCTAssertEqual(finding.actionKind, .openGuidance)
+        XCTAssertTrue(finding.ruleMatches.contains { $0.ruleID == "dynamic.large-item.review" })
+        XCTAssertTrue(finding.ruleMatches.contains { $0.ruleID == "dynamic.old-item.review" })
+
+        let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: [finding], mode: .autoSafeOnly)
+        XCTAssertFalse(plan.items.first?.selected ?? true)
+    }
+
+    func testScanOverviewReportsScopeCoverageAndBuckets() throws {
+        let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 128).write(to: cache)
+
+        let scopes = [
+            ScanScope(name: "fixture", root: tempRoot),
+            ScanScope(name: "missing", root: tempRoot.appendingPathComponent("missing"))
+        ]
+        let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+        let findings = scanner.scan(
+            scopes: scopes,
+            options: ScanOptions(minimumFindingSize: 0, maximumFindingDepth: 4, includeOpenFileStatus: false)
+        )
+        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: 3)
+
+        XCTAssertEqual(overview.scopeSummaries.first { $0.name == "missing" }?.permissionState, .missing)
+        XCTAssertTrue(overview.categorySummaries.contains { $0.name == "Codex" && $0.allocatedSize > 0 })
+        XCTAssertLessThanOrEqual(overview.topFindings.count, 3)
+        XCTAssertFalse(overview.accountingNotes.isEmpty)
+    }
+
+    func testExpandedDeveloperRulesStayConservative() throws {
+        let engine = try RuleEngine.bundled()
+
+        let nodeModules = engine.classify(
+            path: "/Users/test/Project/node_modules",
+            isDirectory: true,
+            isSymbolicLink: false
+        )
+        XCTAssertEqual(nodeModules.safetyClass, .reviewRequired)
+        XCTAssertEqual(nodeModules.actionKind, .openGuidance)
+
+        let playwright = engine.classify(
+            path: "/Users/test/Library/Caches/ms-playwright/chromium-123",
+            isDirectory: true,
+            isSymbolicLink: false
+        )
+        XCTAssertEqual(playwright.safetyClass, .safeAfterCondition)
+        XCTAssertEqual(playwright.actionKind, .deleteCache)
+
+        let androidSDK = engine.classify(
+            path: "/Users/test/Library/Android/sdk/platforms/android-35",
+            isDirectory: true,
+            isSymbolicLink: false
+        )
+        XCTAssertEqual(androidSDK.safetyClass, .reviewRequired)
+        XCTAssertEqual(androidSDK.actionKind, .openGuidance)
+    }
+
     func testPlanBuilderSelectsOnlyAutoSafeClosedFindings() throws {
         let open = finding(path: tempRoot.appendingPathComponent("Library/Caches/Codex/open").path, safety: .autoSafe, action: .deleteCache, open: true)
         let closed = finding(path: tempRoot.appendingPathComponent("Library/Caches/Codex/closed").path, safety: .autoSafe, action: .deleteCache, open: false)

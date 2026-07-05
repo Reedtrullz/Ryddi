@@ -7,8 +7,13 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Feature | Best MVP solution | Implemented |
 | --- | --- | --- |
 | Find large offenders | Bounded filesystem scanner over known developer/agent roots, with explicit custom `--path` support. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
+| Show top offenders | Shared overview analytics with category, safety, scope, age, logical size, allocated size, and top finding summaries. | `FindingAnalytics`, `reclaimer overview`, app Top Offenders |
+| Explain scan coverage | Report missing/restricted/readable scopes and degraded scan behavior. | `ScanOverview`, app Permission Coverage |
+| Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
 | Explain decisions | Every finding carries rule matches, evidence, recovery notes, and conditions. | `Finding`, `Evidence`, app detail view, `reclaimer explain` |
+| Review large/old files | Size and age create review-only signals, never automatic cleanup permission. | dynamic scanner review signals |
+| Inspect in native tools | Copy path, reveal in Finder, Quick Look, and open Terminal for reviewed findings. | app finding action buttons |
 | Protect valuable data | Default preserve/never-touch for user documents, creative assets, credentials, browser profiles, VM/container state, and Codex history. | rule pack and executor protected-class checks |
 | Handle active files | Check open handles before planning/execution and skip active paths. | `LsofOpenFileChecker`, `PlanBuilder`, `ReclaimerExecutor` |
 | Avoid blind deletes | Build a dry-run plan first; UI exposes dry-run receipts and enables reclaim only after a clean dry run. | `ReclaimPlan`, `ExecutionReceipt`, app Dry Run/Reclaim |
@@ -27,9 +32,11 @@ Included:
 - Codex storage policy: caches/temp/logs versus sessions/state/credentials.
 - Docker/Colima reporting and native cleanup guidance.
 - Xcode and package-manager cache classification.
+- SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter developer cache review.
 - Browser cache versus browser profile distinction.
+- Large-file and old-file review-only signals.
 - Stale temp/scratch classification.
-- App overview, review queues, item detail, feature matrix, dry-run plan, audit history, and settings copy.
+- App overview, top offenders, permission coverage, APFS notes, review queues, item detail, feature matrix, dry-run plan, audit history, and settings copy.
 
 Deferred:
 
@@ -40,7 +47,7 @@ Deferred:
 - Root helper or system-wide cleanup.
 - Mac App Store sandbox packaging.
 - Automatic deletion of safe-after-condition or review-required items.
-- Full Disk Access onboarding beyond reduced-mode behavior.
+- Full Disk Access onboarding beyond coverage/degraded-mode copy.
 
 ## Acceptance Criteria
 
@@ -51,3 +58,5 @@ Deferred:
 - `reclaimer holding restore` restores a held fixture, and `holding expire` is dry-run unless `--yes` is supplied.
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
+- `reclaimer overview` reports top offenders, permission coverage, category summaries, and APFS notes.
+- Large/old file signals remain review-only and are not selected by an auto-safe plan.

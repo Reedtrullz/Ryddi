@@ -75,9 +75,55 @@ public enum CleanupGuidance {
             ]
         }
 
+        if path.contains("/library/caches/org.swift.swiftpm") || path.contains("/.swiftpm/cache") || path.contains("/.build/") {
+            return [
+                "Prefer project-local cleanup first: swift package clean",
+                "For build loops, keep scratch bounded with: swift build --scratch-path .build"
+            ]
+        }
+
         if path.contains("/library/caches/cocoapods") {
             return [
                 "Clean CocoaPods cache selectively: pod cache clean --all"
+            ]
+        }
+
+        if path.contains("/node_modules") {
+            return [
+                "Review the project lockfile and package manager before removal.",
+                "Reinstall with the project command, for example: npm ci, pnpm install, or yarn install"
+            ]
+        }
+
+        if path.contains("/library/caches/ms-playwright") {
+            return [
+                "Reinstall browser binaries later with: npx playwright install"
+            ]
+        }
+
+        if path.contains("/library/application support/code")
+            || path.contains("/library/application support/cursor")
+            || path.contains("/library/application support/windsurf")
+            || path.contains("/library/caches/jetbrains")
+            || path.contains("/library/logs/jetbrains") {
+            return [
+                "Quit the editor first.",
+                "Remove only cache/log folders; keep settings, keybindings, extensions, projects, and workspace state unless reviewed."
+            ]
+        }
+
+        if path.contains("/library/caches/google/androidstudio")
+            || path.contains("/.pub-cache") {
+            return [
+                "Prefer native cleanup after active builds finish.",
+                "Flutter packages can be repaired with: flutter pub get"
+            ]
+        }
+
+        if path.contains("/library/android/sdk") || path.contains("/.android/avd") {
+            return [
+                "Review installed SDK platforms and emulator images in Android Studio or sdkmanager.",
+                "Remove only versions/images you know projects no longer target."
             ]
         }
 
