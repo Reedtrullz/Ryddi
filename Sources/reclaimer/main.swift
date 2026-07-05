@@ -26,6 +26,8 @@ struct ReclaimerCLI {
             try overview(args: args)
         case "report":
             try report(args: args)
+        case "permissions":
+            try permissions(args: args)
         case "history":
             try history(args: args)
         case "duplicates":
@@ -132,6 +134,16 @@ struct ReclaimerCLI {
             printJSON(report)
         } else if options.outputPath == nil {
             print(report.markdown)
+        }
+    }
+
+    static func permissions(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let report = PermissionAdvisor.report(scopes: options.scopes(includeUnavailable: true))
+        if options.json {
+            printJSON(report)
+        } else {
+            printPermissionAdvisorReport(report)
         }
     }
 
@@ -435,6 +447,7 @@ struct ReclaimerCLI {
               overview [--json] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy]
               report [--json] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
                      [--title TEXT] [--include-missing-scopes] [--ignore-user-policy]
+              permissions [--json] [--path PATH ...] [--include-missing-scopes]
               history record [--json] [--path PATH ...] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
@@ -741,6 +754,35 @@ func printDiskStatus(_ snapshot: DiskStatusSnapshot) {
     }
     print("Notes")
     for note in snapshot.notes {
+        print("- \(note)")
+    }
+}
+
+func printPermissionAdvisorReport(_ report: PermissionAdvisorReport) {
+    print("Ryddi permission advisor")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Coverage: \(report.coverageLevel.label)")
+    print("Readable scopes: \(report.readableCount)/\(report.totalCount)")
+    print("Denied: \(report.deniedCount)")
+    print("Missing: \(report.missingCount)")
+    print("Unknown: \(report.unknownCount)")
+    print("Full Disk Access settings: \(report.fullDiskAccessSettingsURL)")
+
+    print("\nRecommended actions")
+    for action in report.recommendedActions {
+        print("- \(action)")
+    }
+
+    if !report.unavailableScopes.isEmpty {
+        print("\nUnavailable scopes")
+        for scope in report.unavailableScopes {
+            print("- \(scope.permissionState.rawValue): \(scope.name) - \(scope.path)")
+            print("  \(scope.message)")
+        }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
         print("- \(note)")
     }
 }

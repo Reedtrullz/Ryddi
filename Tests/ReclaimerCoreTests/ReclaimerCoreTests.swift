@@ -357,6 +357,43 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(snapshot.statusLine.contains("free"))
     }
 
+    func testPermissionAdvisorReportsCompleteCoverage() {
+        let report = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Caches", path: "/fixture/Library/Caches", permissionState: .readable, message: "Directory is readable.")
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.coverageLevel, .complete)
+        XCTAssertEqual(report.readableCount, 2)
+        XCTAssertEqual(report.readableFraction, 1)
+        XCTAssertFalse(report.needsFullDiskAccessReview)
+        XCTAssertTrue(report.recommendedActions.contains { $0.contains("Coverage is complete") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("does not mean any item is safe") })
+    }
+
+    func testPermissionAdvisorSeparatesDeniedAndMissingScopes() {
+        let report = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Mail", path: "/fixture/Library/Mail", permissionState: .denied, message: "Path exists but is not readable."),
+                ScopeAccessSummary(name: "Colima", path: "/fixture/.colima", permissionState: .missing, message: "Path is not present.")
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.coverageLevel, .degraded)
+        XCTAssertEqual(report.deniedCount, 1)
+        XCTAssertEqual(report.missingCount, 1)
+        XCTAssertTrue(report.needsFullDiskAccessReview)
+        XCTAssertEqual(report.unavailableScopes.map(\.name), ["Mail", "Colima"])
+        XCTAssertTrue(report.recommendedActions.contains { $0.contains("Grant Full Disk Access") })
+        XCTAssertTrue(report.recommendedActions.contains { $0.contains("missing roots") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("cannot prove macOS Full Disk Access") })
+    }
+
     func testDuplicateReviewGroupsOnlySameContent() throws {
         let duplicatesRoot = tempRoot.appendingPathComponent("Duplicates", isDirectory: true)
         try FileManager.default.createDirectory(at: duplicatesRoot, withIntermediateDirectories: true)

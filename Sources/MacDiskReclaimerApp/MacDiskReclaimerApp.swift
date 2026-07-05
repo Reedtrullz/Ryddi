@@ -43,6 +43,8 @@ struct DashboardView: View {
                 DuplicateReviewView(model: model)
             } else if selectedSection == "Containers" {
                 ContainerInventoryView(model: model)
+            } else if selectedSection == "Permissions" {
+                PermissionOnboardingView(model: model)
             } else if selectedSection == "Policy" {
                 UserPathPolicyView(model: model)
             } else if selectedSection == "Audit" {
@@ -104,6 +106,7 @@ struct DashboardView: View {
             model.loadHistory()
             model.loadUserPolicy()
             model.refreshAutomation()
+            model.refreshPermissions()
         }
     }
 
@@ -129,6 +132,10 @@ struct DashboardView: View {
                 Button("Container Inventory") {
                     selectedFinding = nil
                     selectedSection = "Containers"
+                }
+                Button("Permissions") {
+                    selectedFinding = nil
+                    selectedSection = "Permissions"
                 }
                 Button("Protections & Exclusions") {
                     selectedFinding = nil
@@ -209,7 +216,7 @@ struct OverviewView: View {
             }
 
             if let overview = model.overview {
-                PermissionCoverageView(overview: overview)
+                PermissionCoverageView(report: model.permissionReport)
                 AccountingNotesView(notes: overview.accountingNotes)
                 DiskMapView(nodes: overview.mapNodes)
                 GrowthHistoryView(snapshots: model.scanSnapshots, deltas: model.growthDeltas)
@@ -264,6 +271,7 @@ struct CapabilityMatrixView: View {
         ("Review duplicates", "Local content hashes group identical regular files as manual review signals, never cleanup actions."),
         ("Review apps & leftovers", "Installed app support files and orphan candidates are surfaced as guidance, not uninstall actions."),
         ("Inventory containers", "Read-only Docker and Colima inspection records images, volumes, build cache estimates, profiles, and command outcomes."),
+        ("Explain permissions", "Coverage advisor shows readable, denied, missing, and unknown scopes with Full Disk Access guidance and non-claims."),
         ("Honor user policy", "Local exclusions hide noisy paths from scans; protections keep paths visible but blocked from cleanup."),
         ("Export reports", "Local Markdown evidence reports capture scan coverage, top findings, user policy, accounting notes, and non-claims."),
         ("Protect active files", "Plan/executor run open-file checks and skip active paths."),
@@ -1171,26 +1179,18 @@ enum TopOffenderSort: String, CaseIterable, Identifiable {
 }
 
 struct PermissionCoverageView: View {
-    let overview: ScanOverview
-
-    private var readable: Int {
-        overview.scopeSummaries.filter { $0.permissionState == .readable }.count
-    }
-
-    private var blocked: [ScopeAccessSummary] {
-        overview.scopeSummaries.filter { [.denied, .missing].contains($0.permissionState) }
-    }
+    let report: PermissionAdvisorReport
 
     var body: some View {
         SectionBox(title: "Permission Coverage") {
             HStack {
-                Text("\(readable) of \(overview.scopeSummaries.count) expected scopes readable")
+                Text("\(report.readableCount) of \(report.totalCount) expected scopes readable")
                     .font(.headline)
                 Spacer()
-                Text(blocked.isEmpty ? "Full scan coverage for configured scopes" : "\(blocked.count) unavailable")
-                    .foregroundStyle(blocked.isEmpty ? .green : .orange)
+                Text(report.coverageLevel.label)
+                    .foregroundStyle(permissionColor(report.coverageLevel))
             }
-            Text("Ryddi works in degraded mode when some paths are missing or restricted. Full Disk Access can improve coverage, but cleanup still remains local and review-driven.")
+            Text(report.recommendedActions.first ?? "Ryddi works in degraded mode when some paths are missing or restricted.")
                 .foregroundStyle(.secondary)
             Button {
                 PathActions.openFullDiskAccessSettings()
@@ -1198,12 +1198,85 @@ struct PermissionCoverageView: View {
                 Label("Open Full Disk Access Settings", systemImage: "lock.shield")
             }
             .help("Open macOS Privacy & Security settings for Full Disk Access")
-            ForEach(blocked.prefix(6)) { scope in
+            ForEach(report.unavailableScopes.prefix(6)) { scope in
                 Text("\(scope.permissionState.rawValue): \(scope.name) - \(scope.message)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+struct PermissionOnboardingView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Permissions")
+                    .font(.largeTitle.bold())
+                Text("Ryddi can still scan in degraded mode. This page shows what macOS currently lets it read and what evidence is missing.")
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 16) {
+                    MetricTile(title: "Coverage", value: model.permissionReport.coverageLevel.label)
+                    MetricTile(title: "Readable", value: "\(model.permissionReport.readableCount)/\(model.permissionReport.totalCount)")
+                    MetricTile(title: "Denied", value: "\(model.permissionReport.deniedCount)")
+                    MetricTile(title: "Missing", value: "\(model.permissionReport.missingCount)")
+                }
+
+                SectionBox(title: "Next Steps") {
+                    ForEach(model.permissionReport.recommendedActions, id: \.self) { action in
+                        Text(action)
+                    }
+                    Button {
+                        PathActions.openFullDiskAccessSettings()
+                    } label: {
+                        Label("Open Full Disk Access Settings", systemImage: "lock.shield")
+                    }
+                    .help("Open macOS Privacy & Security settings for Full Disk Access")
+                }
+
+                SectionBox(title: "Scope Readback") {
+                    ForEach(model.permissionReport.scopeSummaries) { scope in
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(scope.permissionState.rawValue)
+                                .font(.caption.bold())
+                                .foregroundStyle(scope.permissionState == .readable ? .green : .orange)
+                                .frame(width: 78, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(scope.name)
+                                    .font(.headline)
+                                Text(scope.path)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .textSelection(.enabled)
+                                Text(scope.message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        Divider()
+                    }
+                }
+
+                SectionBox(title: "Non-claims") {
+                    ForEach(model.permissionReport.nonClaims, id: \.self) { note in
+                        Text(note)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+func permissionColor(_ level: PermissionCoverageLevel) -> Color {
+    switch level {
+    case .complete: .green
+    case .degraded: .orange
+    case .blocked: .red
     }
 }
 
@@ -1817,6 +1890,7 @@ final class DashboardModel {
     var containerInventory: ContainerInventoryReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
+    var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.developerAgentBloat(includeUnavailable: true))
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
@@ -1888,12 +1962,14 @@ final class DashboardModel {
                     scopes: scopes,
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
                 )
-                return (scopes, findings, FindingAnalytics.overview(findings: findings, scopes: scopes), policy)
+                let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
+                return (scopes, findings, overview, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
             }.value
             scanScopes = result.0
             findings = result.1
             overview = result.2
             userPathPolicy = result.3
+            permissionReport = result.4
             _ = try ScanHistoryStore().save(overview: result.2)
             loadHistory()
             plan = nil
@@ -1987,12 +2063,14 @@ final class DashboardModel {
                     scopes: scopes,
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
                 )
-                return (scopes, findings, FindingAnalytics.overview(findings: findings, scopes: scopes), policy)
+                let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
+                return (scopes, findings, overview, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
             }.value
             scanScopes = refreshed.0
             findings = refreshed.1
             overview = refreshed.2
             userPathPolicy = refreshed.3
+            permissionReport = refreshed.4
             _ = try ScanHistoryStore().save(overview: refreshed.2)
             loadHistory()
             plan = nil
@@ -2052,6 +2130,14 @@ final class DashboardModel {
 
     func loadUserPolicy() {
         userPathPolicy = UserPathPolicyStore().load()
+    }
+
+    func refreshPermissions() {
+        if let overview {
+            permissionReport = PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries)
+        } else {
+            permissionReport = PermissionAdvisor.report(scopes: DefaultScopes.developerAgentBloat(includeUnavailable: true))
+        }
     }
 
     func addUserPathRule(path: String, kind: UserPathPolicyKind, reason: String) async {

@@ -35,7 +35,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
 - local scan history snapshots and category growth deltas
 - menu bar disk-pressure status with report-only scan shortcut
-- permission/degraded-scan coverage and APFS accounting notes
+- permission/degraded-scan coverage, Full Disk Access guidance, and APFS accounting notes
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - local user protections and exclusions for paths Ryddi should preserve or ignore
@@ -84,6 +84,7 @@ swift run --scratch-path .build reclaimer help
 ```bash
 swift run --scratch-path .build reclaimer overview
 swift run --scratch-path .build reclaimer status
+swift run --scratch-path .build reclaimer permissions
 swift run --scratch-path .build reclaimer overview --save-history --path Tests --limit 5
 swift run --scratch-path .build reclaimer report --path Tests --limit 10 --output ryddi-report.md
 swift run --scratch-path .build reclaimer history list
@@ -104,6 +105,17 @@ swift run --scratch-path .build reclaimer holding list
 ```
 
 Execution is dry-run unless `--yes` is supplied. Even with `--yes`, the executor refuses protected classes, revalidates the path, reclassifies it, and skips open files.
+
+## Permission Coverage
+
+Ryddi can summarize current scan coverage before you review cleanup candidates:
+
+```bash
+swift run --scratch-path .build reclaimer permissions
+swift run --scratch-path .build reclaimer permissions --json --path ~/Library
+```
+
+The permission advisor reports readable, denied, missing, and unknown scopes; recommends when to review Full Disk Access; and keeps explicit non-claims because path readability is not cleanup permission.
 
 ## Protections And Exclusions
 

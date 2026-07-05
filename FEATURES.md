@@ -11,7 +11,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Visualize space | Proportional category map from non-overlapping allocated-size findings; informational only, not a cleanup selector. | `DiskMapNode`, app Visual Map, `overview` map nodes |
 | Track growth | Local scan snapshots compare category/scope/safety growth between the latest two scans. | `ScanHistoryStore`, `reclaimer history`, app Growth History |
 | Watch disk pressure | Menu bar status item and CLI status report current free space using explicit warning/critical thresholds. | `DiskStatusReader`, `reclaimer status`, app menu bar |
-| Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, and provide a direct Full Disk Access settings shortcut. | `ScanOverview`, app Permission Coverage |
+| Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, Full Disk Access guidance, and explicit permission non-claims. | `PermissionAdvisor`, `reclaimer permissions`, app Permissions |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Export evidence reports | Produce local Markdown reports with disk status, scan coverage, safety/category buckets, top findings, user policy, accounting notes, and explicit non-claims. | `EvidenceReportBuilder`, `ReportStore`, `reclaimer report`, app Export Report |
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
@@ -48,6 +48,7 @@ Included:
 - Local scan history and growth deltas.
 - Menu bar disk-pressure status with report-only scan shortcut.
 - Exportable local Markdown evidence reports.
+- Permission advisor for readable/denied/missing scope coverage and Full Disk Access guidance.
 - Browser cache versus browser profile distinction.
 - Large-file and old-file review-only signals.
 - Duplicate-file review for explicit CLI paths and bounded app scans, with preserve-by-default files excluded unless requested.
@@ -66,7 +67,7 @@ Deferred:
 - Mac App Store sandbox packaging.
 - Automatic deletion of safe-after-condition or review-required items.
 - Automatic execution of native Docker/Colima/Homebrew/package-manager cleanup commands.
-- Full Disk Access onboarding beyond coverage/degraded-mode copy.
+- Full Disk Access onboarding beyond the current advisor, settings shortcut, and degraded-mode labels.
 
 ## Acceptance Criteria
 
@@ -79,6 +80,7 @@ Deferred:
 - `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records signing state, and creates a zip/checksum/manifest.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, and APFS notes.
+- `reclaimer permissions --json --path FIXTURE` reports coverage level, readable/denied/missing counts, recommended actions, and non-claims.
 - `reclaimer report --path FIXTURE --limit 5 --output REPORT.md` writes a local Markdown report with top findings, policy, accounting notes, and non-claims without executing cleanup.
 - `reclaimer status --json` reports disk pressure and free-space notes without scanning content.
 - `reclaimer history record/list/diff` stores local scan snapshots and reports category/scope/safety deltas.
