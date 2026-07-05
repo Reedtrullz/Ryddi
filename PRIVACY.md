@@ -12,6 +12,8 @@ Scans run on your Mac. Plans, receipts, and holding-area metadata are written lo
 
 Ryddi reads filesystem metadata such as path, file type, size, allocated size, modification date, and readability. When requested by a plan or action, it can run open-file checks so active files are skipped.
 
+Disk status and the menu bar item read local volume capacity/free-space metadata. They do not inspect file contents or send disk pressure information anywhere.
+
 Duplicate review is different from normal metadata scanning: it reads regular file bytes to compute local SHA-256 content hashes for same-size candidates. File contents are not stored, uploaded, or sent to any remote service. The duplicate CLI requires explicit `--path` roots, and preserve-by-default files are excluded unless the user explicitly opts into that review.
 
 Apps & Leftovers review reads installed app bundle metadata from local `Info.plist` files and checks common user Library locations for related support files, caches, logs, preferences, containers, launch agents, and heuristic orphan candidates. It does not upload app inventory or uninstall apps.

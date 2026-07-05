@@ -248,6 +248,32 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.latestGrowthDeltas().first { $0.name == "Codex" }?.deltaAllocatedSize, 40)
     }
 
+    func testDiskStatusPressureThresholdsAndFormatting() {
+        let thresholds = DiskStatusThresholds(
+            warningFreeBytes: 50,
+            criticalFreeBytes: 20,
+            warningFreeFraction: 0.20,
+            criticalFreeFraction: 0.05
+        )
+
+        XCTAssertEqual(DiskStatusReader.pressure(freeBytes: nil, totalBytes: 100, thresholds: thresholds), .unknown)
+        XCTAssertEqual(DiskStatusReader.pressure(freeBytes: 10, totalBytes: 1_000, thresholds: thresholds), .critical)
+        XCTAssertEqual(DiskStatusReader.pressure(freeBytes: 100, totalBytes: 1_000, thresholds: thresholds), .warning)
+        XCTAssertEqual(DiskStatusReader.pressure(freeBytes: 400, totalBytes: 1_000, thresholds: thresholds), .healthy)
+
+        let snapshot = DiskStatusSnapshot(
+            path: "/fixture",
+            totalBytes: 1_000,
+            freeBytes: 100,
+            importantFreeBytes: nil,
+            availableBytes: nil,
+            pressure: .warning,
+            notes: []
+        )
+        XCTAssertEqual(snapshot.freeFraction, 0.1)
+        XCTAssertTrue(snapshot.statusLine.contains("free"))
+    }
+
     func testDuplicateReviewGroupsOnlySameContent() throws {
         let duplicatesRoot = tempRoot.appendingPathComponent("Duplicates", isDirectory: true)
         try FileManager.default.createDirectory(at: duplicatesRoot, withIntermediateDirectories: true)

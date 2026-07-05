@@ -20,6 +20,8 @@ struct ReclaimerCLI {
 
         let args = Array(arguments.dropFirst())
         switch command {
+        case "status":
+            try status(args: args)
         case "overview":
             try overview(args: args)
         case "history":
@@ -61,6 +63,17 @@ struct ReclaimerCLI {
             printJSON(preparedFindings)
         } else {
             printFindings(preparedFindings, options: options)
+        }
+    }
+
+    static func status(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let path = options.values(after: "--path").first ?? "/System/Volumes/Data"
+        let snapshot = DiskStatusReader().snapshot(for: URL(fileURLWithPath: path))
+        if options.json {
+            printJSON(snapshot)
+        } else {
+            printDiskStatus(snapshot)
         }
     }
 
@@ -298,6 +311,7 @@ struct ReclaimerCLI {
             Ryddi
 
             Commands:
+              status [--json] [--path PATH]
               scan [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes]
@@ -559,6 +573,27 @@ func printOverview(_ overview: ScanOverview) {
 
     print("\nAPFS/accounting notes")
     for note in overview.accountingNotes {
+        print("- \(note)")
+    }
+}
+
+func printDiskStatus(_ snapshot: DiskStatusSnapshot) {
+    print("Ryddi disk status")
+    print("Generated: \(snapshot.createdAt.formatted())")
+    print("Path: \(snapshot.path)")
+    if let volumeName = snapshot.volumeName {
+        print("Volume: \(volumeName)")
+    }
+    print("Pressure: \(snapshot.pressure.label)")
+    print("Free: \(snapshot.statusLine)")
+    if let totalBytes = snapshot.totalBytes {
+        print("Total: \(ByteFormat.string(totalBytes))")
+    }
+    if let freeBytes = snapshot.freeBytes {
+        print("Filesystem free: \(ByteFormat.string(freeBytes))")
+    }
+    print("Notes")
+    for note in snapshot.notes {
         print("- \(note)")
     }
 }

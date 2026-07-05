@@ -114,7 +114,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Docker/Colima cleanup | Risky but important for target user | Partial | Integrate native inspect/prune commands and receipts. Never raw-delete VM disks automatically. |
 | Codex/AI-agent cleanup | Ryddi-specific differentiator | Partial | Keep sessions/memories/config protected. Classify cache/tmp/logs separately from valuable transcripts. |
 | Scheduled maintenance | Expected from automation tools | Partial | LaunchAgent should report first. Only allow unattended cleanup for explicit allowlisted classes. |
-| Menu bar/status item | Common in Sensei/Cleaner One/BuhoCleaner | Missing | Add later for scan reminders and "disk pressure" status, not RAM cleaning. |
+| Menu bar/status item | Common in Sensei/Cleaner One/BuhoCleaner | Exists/partial | Disk-pressure status and report-only scan controls exist; reminders/notifications remain future work. |
 | Notarized releases | Expected for trust | Planned | Add signed/notarized release process and GitHub release artifacts. |
 | CI/test badge | Expected for open-source trust | Exists | GitHub Actions runs Swift build/test on `main`. |
 | Privacy page | Expected for cleaners | Exists | `PRIVACY.md` documents no telemetry, no uploads, local receipts, duplicate hashing, and app-review reads. |
@@ -158,7 +158,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 1. Apps & Leftovers depth: real app uninstall flow, deselection, Trash staging, launch-agent/background-item detail, and stronger orphan ownership evidence.
 2. Duplicate depth: partial-hash prefiltering, volume/hardlink accounting, external-drive flows, and richer review UX while keeping Photos/Music/iCloud protections.
 3. Folder automation: Hazel-like custom report rules, not arbitrary delete rules.
-4. Menu bar assistant: disk pressure and scheduled scan status.
+4. Menu bar assistant depth: scan reminders, notification summaries, and richer scheduled-scan status.
 5. Growth history: first local category/scope/safety snapshot deltas exist; richer trend charts and longer history views remain future work.
 
 ## Product Principles To Keep
@@ -183,6 +183,7 @@ The first public release should have:
 - Active-file checks before action.
 - Full Disk Access guidance and degraded-mode labels.
 - Review-only duplicate grouping with local hashes and no automatic cleanup.
+- Menu bar disk-pressure status with report-only scan shortcut.
 - Safety tests for never-touch paths.
 - GitHub CI.
 - Privacy documentation.

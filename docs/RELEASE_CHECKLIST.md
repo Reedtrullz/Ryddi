@@ -7,6 +7,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `swift test --scratch-path "$PWD/.build"` passes.
 - [ ] `Scripts/package-app.sh` produces `dist/Ryddi.app`.
 - [ ] App launches locally.
+- [ ] `reclaimer status --json` reports disk pressure/free-space metadata without scanning content.
 - [ ] `reclaimer overview --path Tests --limit 5` prints a bounded overview.
 - [ ] `reclaimer overview --json --path Tests --limit 5` includes bounded `mapNodes`.
 - [ ] `reclaimer history record --path Tests --limit 5` saves a local-only snapshot.
@@ -16,6 +17,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] App Visual Map and Growth History render without changing reclaim gates.
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App Apps & Leftovers review scans bounded app roots and does not enable Reclaim or modify the dry-run plan.
+- [ ] App menu bar status item shows disk pressure and report-only scan controls without enabling cleanup actions.
 - [ ] README states that the build is unsigned if `CODESIGN_IDENTITY` is unset.
 - [ ] Release notes list non-claims: no notarization, no Full Disk Access guarantee, no real cleanup performed by packaging.
 
@@ -34,6 +36,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `docs/COMPETITIVE_RESEARCH.md` does not overclaim implemented features.
 - [ ] CI is green on the release commit.
 - [ ] Release notes say automation is report-first.
+- [ ] Release notes say menu bar status is disk-pressure/report-only, not RAM cleaning or performance optimization.
 - [ ] Release notes say duplicate review uses local hashes and does not automatically select or delete duplicates.
 - [ ] Release notes say Apps & Leftovers is review-only and does not uninstall apps or delete app support files.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

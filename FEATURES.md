@@ -10,6 +10,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Show top offenders | Shared overview analytics with category, safety, scope, age, logical size, allocated size, and top finding summaries. | `FindingAnalytics`, `reclaimer overview`, app Top Offenders |
 | Visualize space | Proportional category map from non-overlapping allocated-size findings; informational only, not a cleanup selector. | `DiskMapNode`, app Visual Map, `overview` map nodes |
 | Track growth | Local scan snapshots compare category/scope/safety growth between the latest two scans. | `ScanHistoryStore`, `reclaimer history`, app Growth History |
+| Watch disk pressure | Menu bar status item and CLI status report current free space using explicit warning/critical thresholds. | `DiskStatusReader`, `reclaimer status`, app menu bar |
 | Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, and provide a direct Full Disk Access settings shortcut. | `ScanOverview`, app Permission Coverage |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
@@ -39,6 +40,7 @@ Included:
 - SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter developer cache review.
 - Proportional visual map by category.
 - Local scan history and growth deltas.
+- Menu bar disk-pressure status with report-only scan shortcut.
 - Browser cache versus browser profile distinction.
 - Large-file and old-file review-only signals.
 - Duplicate-file review for explicit CLI paths and bounded app scans, with preserve-by-default files excluded unless requested.
@@ -68,6 +70,7 @@ Deferred:
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, and APFS notes.
+- `reclaimer status --json` reports disk pressure and free-space notes without scanning content.
 - `reclaimer history record/list/diff` stores local scan snapshots and reports category/scope/safety deltas.
 - `reclaimer duplicates --path FIXTURE --min-size 1` groups same-content regular files, skips protected paths, and emits review-only `openGuidance` candidates.
 - `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1` reports installed app support files and orphan candidates without creating plan items.
