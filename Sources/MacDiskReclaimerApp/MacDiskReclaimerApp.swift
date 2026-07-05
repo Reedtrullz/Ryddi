@@ -43,6 +43,8 @@ struct DashboardView: View {
                 DuplicateReviewView(model: model)
             } else if selectedSection == "Containers" {
                 ContainerInventoryView(model: model)
+            } else if selectedSection == "Policy" {
+                UserPathPolicyView(model: model)
             } else if selectedSection == "Audit" {
                 AuditHistoryView(model: model)
             } else if selectedSection == "Holding" {
@@ -94,6 +96,7 @@ struct DashboardView: View {
             model.loadAudit()
             model.loadHolding()
             model.loadHistory()
+            model.loadUserPolicy()
             model.refreshAutomation()
         }
     }
@@ -120,6 +123,10 @@ struct DashboardView: View {
                 Button("Container Inventory") {
                     selectedFinding = nil
                     selectedSection = "Containers"
+                }
+                Button("Protections & Exclusions") {
+                    selectedFinding = nil
+                    selectedSection = "Policy"
                 }
                 Button("Audit History") {
                     selectedFinding = nil
@@ -244,6 +251,7 @@ struct CapabilityMatrixView: View {
         ("Review duplicates", "Local content hashes group identical regular files as manual review signals, never cleanup actions."),
         ("Review apps & leftovers", "Installed app support files and orphan candidates are surfaced as guidance, not uninstall actions."),
         ("Inventory containers", "Read-only Docker and Colima inspection records images, volumes, build cache estimates, profiles, and command outcomes."),
+        ("Honor user policy", "Local exclusions hide noisy paths from scans; protections keep paths visible but blocked from cleanup."),
         ("Protect active files", "Plan/executor run open-file checks and skip active paths."),
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
@@ -491,6 +499,114 @@ struct CommandOutcomeRow: View {
             }
         }
         .padding(.vertical, 3)
+    }
+}
+
+struct UserPathPolicyView: View {
+    let model: DashboardModel
+    @State private var path = ""
+    @State private var reason = ""
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Protections & Exclusions")
+                    .font(.largeTitle.bold())
+
+                SectionBox(title: "Add Rule") {
+                    TextField("Path", text: $path)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Reason", text: $reason)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button {
+                            add(.protect)
+                        } label: {
+                            Label("Protect", systemImage: "lock.shield")
+                        }
+                        .disabled(trimmedPath.isEmpty || model.isWorking)
+
+                        Button {
+                            add(.exclude)
+                        } label: {
+                            Label("Exclude", systemImage: "eye.slash")
+                        }
+                        .disabled(trimmedPath.isEmpty || model.isWorking)
+                    }
+                }
+
+                HStack(spacing: 16) {
+                    MetricTile(title: "Protected", value: "\(model.userPathPolicy.rules(kind: .protect).count)")
+                    MetricTile(title: "Excluded", value: "\(model.userPathPolicy.rules(kind: .exclude).count)")
+                    MetricTile(title: "Policy file", value: UserPathPolicyStore().policyURL.lastPathComponent)
+                }
+
+                policySection(kind: .protect)
+                policySection(kind: .exclude)
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+
+    private var trimmedPath: String {
+        path.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedReason: String {
+        reason.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func add(_ kind: UserPathPolicyKind) {
+        let newPath = trimmedPath
+        let newReason = trimmedReason
+        path = ""
+        reason = ""
+        Task {
+            await model.addUserPathRule(path: newPath, kind: kind, reason: newReason)
+        }
+    }
+
+    @ViewBuilder
+    private func policySection(kind: UserPathPolicyKind) -> some View {
+        SectionBox(title: kind.label) {
+            let rules = model.userPathPolicy.rules(kind: kind)
+            if rules.isEmpty {
+                Text("No entries.")
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(rules) { rule in
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(rule.path)
+                                    .font(.system(.body, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .textSelection(.enabled)
+                                if let reason = rule.reason {
+                                    Text(reason)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                Task { await model.removeUserPathRule(rule) }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .help("Remove rule")
+                            .disabled(model.isWorking)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1685,6 +1801,7 @@ final class DashboardModel {
     var duplicateReview: DuplicateReview?
     var appReview: AppReviewReport?
     var containerInventory: ContainerInventoryReport?
+    var userPathPolicy: UserPathPolicy = .empty
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
@@ -1750,13 +1867,18 @@ final class DashboardModel {
         do {
             let result = try await Task.detached {
                 let scopes = DefaultScopes.developerAgentBloat(includeUnavailable: true)
+                let policy = UserPathPolicyStore().load()
                 let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
-                let findings = scanner.scan(scopes: scopes, options: ScanOptions(includeOpenFileStatus: false))
-                return (scopes, findings, FindingAnalytics.overview(findings: findings, scopes: scopes))
+                let findings = scanner.scan(
+                    scopes: scopes,
+                    options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
+                )
+                return (scopes, findings, FindingAnalytics.overview(findings: findings, scopes: scopes), policy)
             }.value
             scanScopes = result.0
             findings = result.1
             overview = result.2
+            userPathPolicy = result.3
             _ = try ScanHistoryStore().save(overview: result.2)
             loadHistory()
             plan = nil
@@ -1792,7 +1914,11 @@ final class DashboardModel {
             guard let plan else { return }
             let receipt = try await Task.detached {
                 let ruleVersion = try RuleEngine.bundled().version
-                return ReclaimerExecutor(openFileChecker: LsofOpenFileChecker())
+                let policy = UserPathPolicyStore().load()
+                return ReclaimerExecutor(
+                    openFileChecker: LsofOpenFileChecker(),
+                    configuration: ExecutorConfiguration(userPathPolicy: policy)
+                )
                     .execute(
                     plan: plan,
                     mode: .dryRun,
@@ -1821,7 +1947,11 @@ final class DashboardModel {
         do {
             let receipt = try await Task.detached {
                 let ruleVersion = try RuleEngine.bundled().version
-                return ReclaimerExecutor(openFileChecker: LsofOpenFileChecker())
+                let policy = UserPathPolicyStore().load()
+                return ReclaimerExecutor(
+                    openFileChecker: LsofOpenFileChecker(),
+                    configuration: ExecutorConfiguration(userPathPolicy: policy)
+                )
                     .execute(
                         plan: currentPlan,
                         mode: .perform,
@@ -1836,13 +1966,18 @@ final class DashboardModel {
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
             let refreshed = try await Task.detached {
                 let scopes = DefaultScopes.developerAgentBloat(includeUnavailable: true)
+                let policy = UserPathPolicyStore().load()
                 let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
-                let findings = scanner.scan(scopes: scopes, options: ScanOptions(includeOpenFileStatus: false))
-                return (scopes, findings, FindingAnalytics.overview(findings: findings, scopes: scopes))
+                let findings = scanner.scan(
+                    scopes: scopes,
+                    options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
+                )
+                return (scopes, findings, FindingAnalytics.overview(findings: findings, scopes: scopes), policy)
             }.value
             scanScopes = refreshed.0
             findings = refreshed.1
             overview = refreshed.2
+            userPathPolicy = refreshed.3
             _ = try ScanHistoryStore().save(overview: refreshed.2)
             loadHistory()
             plan = nil
@@ -1869,6 +2004,44 @@ final class DashboardModel {
         let store = ScanHistoryStore()
         scanSnapshots = store.recent(limit: 8)
         growthDeltas = store.latestGrowthDeltas(group: .category, limit: 8)
+    }
+
+    func loadUserPolicy() {
+        userPathPolicy = UserPathPolicyStore().load()
+    }
+
+    func addUserPathRule(path: String, kind: UserPathPolicyKind, reason: String) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            _ = try UserPathPolicyStore().add(path: path, kind: kind, reason: reason)
+            userPathPolicy = UserPathPolicyStore().load()
+            error = nil
+            if !findings.isEmpty {
+                isWorking = false
+                await scan()
+                isWorking = true
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func removeUserPathRule(_ rule: UserPathRule) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            _ = try UserPathPolicyStore().remove(path: rule.path, kind: rule.kind)
+            userPathPolicy = UserPathPolicyStore().load()
+            error = nil
+            if !findings.isEmpty {
+                isWorking = false
+                await scan()
+                isWorking = true
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     func scanDuplicates(includePreserveByDefault: Bool = false) async {

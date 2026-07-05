@@ -34,6 +34,8 @@ struct ReclaimerCLI {
             try native(args: args)
         case "containers":
             try containers(args: args)
+        case "policy":
+            try policy(args: args)
         case "scan":
             try scan(args: args)
         case "plan":
@@ -199,6 +201,49 @@ struct ReclaimerCLI {
         }
     }
 
+    static func policy(args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.message("policy requires list, protect, exclude, or remove")
+        }
+        let options = ParsedOptions(Array(args.dropFirst()))
+        let store = UserPathPolicyStore()
+        switch subcommand {
+        case "list":
+            let policy = store.load()
+            if options.json {
+                printJSON(policy)
+            } else {
+                printUserPathPolicy(policy)
+            }
+        case "protect", "exclude":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("policy \(subcommand) requires a path")
+            }
+            let kind: UserPathPolicyKind = subcommand == "protect" ? .protect : .exclude
+            let policy = try store.add(path: args[1], kind: kind, reason: options.reason)
+            if options.json {
+                printJSON(policy)
+            } else {
+                print("saved \(kind.label): \(UserPathPolicy.standardizedPath(args[1]))")
+                printUserPathPolicy(policy)
+            }
+        case "remove":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("policy remove requires a path")
+            }
+            let kind = options.policyKind
+            let policy = try store.remove(path: args[1], kind: kind)
+            if options.json {
+                printJSON(policy)
+            } else {
+                print("removed policy entries for: \(UserPathPolicy.standardizedPath(args[1]))")
+                printUserPathPolicy(policy)
+            }
+        default:
+            throw CLIError.message("Unknown policy subcommand: \(subcommand)")
+        }
+    }
+
     static func plan(args: [String]) throws {
         let options = ParsedOptions(args)
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
@@ -243,7 +288,10 @@ struct ReclaimerCLI {
         let findings = scanner.scan(scopes: options.scopes(), options: options.scanOptions(includeOpenFiles: false))
         let builder = PlanBuilder(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let plan = builder.buildPlan(from: findings, mode: options.reviewAll ? .reviewAll : .autoSafeOnly)
-        let receipt = ReclaimerExecutor(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let receipt = ReclaimerExecutor(
+            openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker(),
+            configuration: ExecutorConfiguration(userPathPolicy: options.userPathPolicy)
+        )
             .execute(
                 plan: plan,
                 mode: options.dryRun ? .dryRun : .perform,
@@ -348,8 +396,8 @@ struct ReclaimerCLI {
               status [--json] [--path PATH]
               scan [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
-                   [--review large|old|all] [--limit N] [--include-missing-scopes]
-              overview [--json] [--path PATH ...] [--limit N] [--save-history]
+                   [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy]
+              overview [--json] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy]
               history record [--json] [--path PATH ...] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
@@ -359,10 +407,14 @@ struct ReclaimerCLI {
                    [--include-system-apps] [--no-orphans] [--show-excluded]
               native [--json] [--path PATH ...] [--limit N] [--save-audit]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
-              plan [--json] [--path PATH ...] [--review-all] [--save-audit]
+              policy list [--json]
+              policy protect PATH [--reason TEXT]
+              policy exclude PATH [--reason TEXT]
+              policy remove PATH [--kind protect|exclude]
+              plan [--json] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
               explain PATH [--json]
-              execute --dry-run [--json] [--path PATH ...] [--save-audit]
-              execute --yes [--path PATH ...] [--review-all] [--save-audit]
+              execute --dry-run [--json] [--path PATH ...] [--save-audit] [--ignore-user-policy]
+              execute --yes [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
               archive [--json] [--path PATH ...]   # review/compression-oriented plan only
               schedule install [--hour H] [--minute M] [--load]
               schedule uninstall [--unload]
@@ -398,6 +450,7 @@ struct ParsedOptions {
     var showExcluded: Bool { args.contains("--show-excluded") }
     var includeSystemApps: Bool { args.contains("--include-system-apps") }
     var includeOrphans: Bool { !args.contains("--no-orphans") }
+    var ignoreUserPolicy: Bool { args.contains("--ignore-user-policy") }
     var hour: Int { Int(value(after: "--hour") ?? "") ?? 9 }
     var minute: Int { Int(value(after: "--minute") ?? "") ?? 30 }
     var limit: Int { max(1, Int(value(after: "--limit") ?? "") ?? 80) }
@@ -408,6 +461,15 @@ struct ParsedOptions {
     var largeThreshold: Int64 { Int64(value(after: "--large-threshold") ?? "") ?? 5_000_000_000 }
     var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
     var maxFilesToHash: Int { max(1, Int(value(after: "--max-files") ?? "") ?? 5_000) }
+    var reason: String? { value(after: "--reason") }
+    var policyKind: UserPathPolicyKind? {
+        switch value(after: "--kind") {
+        case "protect": .protect
+        case "exclude": .exclude
+        case nil: nil
+        default: nil
+        }
+    }
     var timeoutSeconds: TimeInterval {
         let value = Double(value(after: "--timeout") ?? "") ?? 5
         return max(1, min(value, 60))
@@ -452,8 +514,13 @@ struct ParsedOptions {
             measurementDepth: maxDepth + 4,
             includeOpenFileStatus: includeOpenFiles,
             largeFileThreshold: largeThreshold,
-            oldFileAgeDays: oldDays
+            oldFileAgeDays: oldDays,
+            userPathPolicy: userPathPolicy
         )
+    }
+
+    var userPathPolicy: UserPathPolicy {
+        ignoreUserPolicy ? .empty : UserPathPolicyStore().load()
     }
 
     var duplicateOptions: DuplicateReviewOptions {
@@ -934,6 +1001,23 @@ func printContainerInventoryReport(_ report: ContainerInventoryReport, options: 
     print("\nNon-claims")
     for note in report.nonClaims {
         print("- \(note)")
+    }
+}
+
+func printUserPathPolicy(_ policy: UserPathPolicy) {
+    print("Ryddi user path policy")
+    if policy.rules.isEmpty {
+        print("No user exclusions or protections configured.")
+        return
+    }
+    for kind in UserPathPolicyKind.allCases {
+        let rules = policy.rules(kind: kind)
+        guard !rules.isEmpty else { continue }
+        print("\n\(kind.label)")
+        for rule in rules {
+            let reason = rule.reason.map { " - \($0)" } ?? ""
+            print("- \(rule.path)\(reason)")
+        }
     }
 }
 

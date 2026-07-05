@@ -15,6 +15,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
 | Explain decisions | Every finding carries rule matches, evidence, recovery notes, and conditions. | `Finding`, `Evidence`, app detail view, `reclaimer explain` |
+| Honor user path policy | User protections keep paths visible but blocked from cleanup; user exclusions hide noisy paths from scans and parent measurements. | `UserPathPolicyStore`, `reclaimer policy`, app Protections & Exclusions |
 | Review large/old files | Size and age create review-only signals, never automatic cleanup permission. | dynamic scanner review signals |
 | Review duplicates | Size-bucketed local content hashing groups identical regular files as manual review signals; no delete action or plan item is emitted. | `DuplicateReviewScanner`, `reclaimer duplicates`, app Duplicate Review |
 | Review apps & leftovers | Parse installed `.app` bundles and related Library files, then surface support data and orphan candidates as review-only guidance. | `AppReviewScanner`, `reclaimer apps`, app Apps & Leftovers |
@@ -39,6 +40,7 @@ Included:
 - Docker/Colima reporting and native cleanup guidance.
 - Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, with no automatic command execution.
 - Read-only Docker/Colima live inventory for native storage estimates and profile/object context.
+- Local user protections and exclusions.
 - Xcode and package-manager cache classification.
 - SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter developer cache review.
 - Proportional visual map by category.
@@ -81,6 +83,7 @@ Deferred:
 - `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1` reports installed app support files and orphan candidates without creating plan items.
 - `reclaimer native --path FIXTURE --json` emits preview-only native-tool receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
 - `reclaimer containers --json --timeout 2` emits a read-only Docker/Colima inventory, classifies missing versus not-running tools, and never emits prune/delete/stop/reset commands.
+- `reclaimer policy protect/exclude/list/remove` writes local-only path policy, protects configured paths from cleanup selection, and excludes configured paths from scan output.
 - Visual map accounting does not double-count nested directory findings.
 - Large/old file signals remain review-only and are not selected by an auto-safe plan.
 - Duplicate review findings remain outside `PlanBuilder` and `ReclaimerExecutor`.

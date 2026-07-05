@@ -22,6 +22,8 @@ Native-tool reports read scan findings and generate local command preview receip
 
 Container inventory can run read-only Docker and Colima inspection commands. The resulting local reports can include Docker image names, container names, volume names, context endpoints, Colima profile names, command exit states, and short command-output previews. Ryddi does not upload this inventory and does not run prune, delete, stop, reset, or raw VM-disk commands.
 
+User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
+
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
 ## What Ryddi Writes
@@ -31,6 +33,7 @@ Ryddi can write:
 - saved dry-run plans and receipts;
 - saved native-tool preview reports;
 - saved container inventory reports;
+- saved user path policy for protections and exclusions;
 - compact local scan-history snapshots for growth comparisons;
 - app-managed holding-area metadata;
 - a per-user LaunchAgent plist if you install report scheduling;
@@ -52,6 +55,7 @@ Ryddi data is expected under:
 
 ```text
 ~/Library/Application Support/Ryddi
+~/Library/Application Support/Ryddi/Config/user-path-policy.json
 ~/Library/Application Support/Ryddi/ScanHistory
 ~/Library/LaunchAgents/com.reidar.ryddi.agent.plist
 ```

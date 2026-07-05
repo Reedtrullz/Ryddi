@@ -105,6 +105,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Active-file guard | Strong safety differentiator | Exists/partial | Surface it in UI with "Quit app first" queue and exact process names when available. |
 | Trash-first cleanup | Expected safety behavior | Exists/partial | Use Trash for uncertain/user-visible data. Direct delete only for allowlisted caches. |
 | App-managed holding area | Strong differentiator | Exists/partial | Make restore and expiry visible in UI. Show "held until" and original path. |
+| User exclusions/protections | Expected from Hazel-like automation and serious cleanup tools | Exists/partial | Local path policy now supports scan exclusions and cleanup protections. Future work should add import/export and richer rule conditions. |
 | Full Disk Access onboarding | Expected for any serious disk scanner | Exists/partial | Permission coverage and settings shortcut exist; richer first-run onboarding remains future work. |
 | APFS physical accounting | Expected by expert users; DaisyDisk/Spacie benchmark this | Exists/partial | Logical/allocated notes and non-overlap accounting exist; clone/hardlink/purgeable/snapshot depth remains future work. |
 | Large file review | Baseline | Exists | Large and old files are review-required signals, not automatic cleanup permission. |
@@ -136,6 +137,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 3. Add review queues that mirror user intent: Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, Unknown.
 4. Add large-file and old-file review mode, explicitly non-automatic.
 5. Add Finder, Quick Look, Terminal, copy-path, and exclude actions.
+6. Add local protection/exclusion management so users can tune noisy or sensitive paths.
 
 ### Safety Depth
 

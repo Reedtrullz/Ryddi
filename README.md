@@ -37,6 +37,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - menu bar disk-pressure status with report-only scan shortcut
 - permission/degraded-scan coverage and APFS accounting notes
 - Finder, Quick Look, Terminal, and copy-path actions in the app
+- local user protections and exclusions for paths Ryddi should preserve or ignore
 - large-file and old-file review signals
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
@@ -92,6 +93,8 @@ swift run --scratch-path .build reclaimer duplicates --path ~/Downloads --min-si
 swift run --scratch-path .build reclaimer apps --min-size 10000000
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
+swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
+swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch
 swift run --scratch-path .build reclaimer plan --json
 swift run --scratch-path .build reclaimer explain ~/.codex
 swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Caches/Codex
@@ -99,6 +102,19 @@ swift run --scratch-path .build reclaimer holding list
 ```
 
 Execution is dry-run unless `--yes` is supplied. Even with `--yes`, the executor refuses protected classes, revalidates the path, reclassifies it, and skips open files.
+
+## Protections And Exclusions
+
+Ryddi stores local user path policy under Application Support:
+
+```bash
+swift run --scratch-path .build reclaimer policy list
+swift run --scratch-path .build reclaimer policy protect ~/Projects/KeepMe --reason "active work"
+swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch --reason "ignore churn"
+swift run --scratch-path .build reclaimer policy remove ~/Downloads/NoisyScratch --kind exclude
+```
+
+Protected paths stay visible but are forced to preserve-by-default/report-only and cannot be selected by cleanup plans. Excluded paths are skipped during scans and excluded from parent directory measurement. Use `--ignore-user-policy` only for debugging or fixture verification.
 
 Holding-area expiry is also dry-run unless confirmed:
 

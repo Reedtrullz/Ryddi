@@ -629,6 +629,101 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(runner.commands, ["docker system df", "colima list --json"])
     }
 
+    func testUserPathPolicyStoreRoundTripsRules() throws {
+        let store = UserPathPolicyStore(root: tempRoot.appendingPathComponent("Config", isDirectory: true))
+        let protected = tempRoot.appendingPathComponent("Projects/valuable", isDirectory: true)
+        let excluded = tempRoot.appendingPathComponent("Caches/noisy", isDirectory: true)
+
+        _ = try store.add(path: protected.path, kind: .protect, reason: "fixture value")
+        _ = try store.add(path: excluded.path, kind: .exclude, reason: "too noisy")
+
+        let loaded = store.load()
+        XCTAssertEqual(loaded.rules(kind: .protect).first?.path, protected.standardizedFileURL.path)
+        XCTAssertEqual(loaded.rules(kind: .protect).first?.reason, "fixture value")
+        XCTAssertEqual(loaded.rules(kind: .exclude).first?.path, excluded.standardizedFileURL.path)
+
+        _ = try store.remove(path: excluded.path, kind: .exclude)
+        XCTAssertTrue(store.load().rules(kind: .exclude).isEmpty)
+    }
+
+    func testScannerAppliesUserExclusionsAndDoesNotMeasureExcludedDescendants() throws {
+        let include = tempRoot.appendingPathComponent("Root/include.bin")
+        let excluded = tempRoot.appendingPathComponent("Root/Excluded/excluded.bin")
+        try FileManager.default.createDirectory(at: include.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: excluded.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 100).write(to: include)
+        try Data(repeating: 2, count: 1_000).write(to: excluded)
+
+        let policy = UserPathPolicy(rules: [
+            UserPathRule(kind: .exclude, path: excluded.deletingLastPathComponent().path, reason: "fixture")
+        ])
+        let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+        let findings = scanner.scan(
+            scopes: [ScanScope(name: "fixture", root: tempRoot.appendingPathComponent("Root"))],
+            options: ScanOptions(minimumFindingSize: 0, maximumFindingDepth: 3, includeOpenFileStatus: false, userPathPolicy: policy)
+        )
+
+        XCTAssertFalse(findings.contains { $0.path.contains("/Excluded") })
+        let root = try XCTUnwrap(findings.first { $0.path.hasSuffix("/Root") })
+        XCTAssertEqual(root.logicalSize, 100)
+    }
+
+    func testScannerAppliesUserProtectionBeforePlanning() throws {
+        let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 3, count: 128).write(to: cache)
+        let policy = UserPathPolicy(rules: [
+            UserPathRule(kind: .protect, path: cache.deletingLastPathComponent().path, reason: "keep this cache")
+        ])
+
+        let findings = try FileScanner(openFileChecker: NoOpenFilesChecker()).scan(
+            scopes: [ScanScope(name: "fixture", root: tempRoot.appendingPathComponent("Library/Caches/Codex"))],
+            options: ScanOptions(minimumFindingSize: 0, maximumFindingDepth: 1, includeOpenFileStatus: false, userPathPolicy: policy)
+        )
+
+        let protected = try XCTUnwrap(findings.first { $0.path.hasSuffix("/Library/Caches/Codex") })
+        XCTAssertEqual(protected.safetyClass, .preserveByDefault)
+        XCTAssertEqual(protected.actionKind, .reportOnly)
+        XCTAssertEqual(protected.ruleMatches.first?.ruleID, "user.path.protected")
+        XCTAssertTrue(protected.evidence.contains { $0.message.contains("keep this cache") })
+
+        let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: findings, mode: .reviewAll)
+        XCTAssertFalse(plan.items.contains { $0.selected })
+    }
+
+    func testExecutorBlocksStalePlanWhenUserProtectsPath() throws {
+        let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 4, count: 128).write(to: cache)
+        let plannedFinding = finding(path: cache.path, safety: .autoSafe, action: .deleteCache, open: false)
+        let plan = ReclaimPlan(
+            mode: "test",
+            items: [
+                ReclaimPlanItem(
+                    finding: plannedFinding,
+                    selected: true,
+                    proposedAction: .deleteCache,
+                    conditions: [PlanCondition(message: "fixture", isSatisfied: true)],
+                    estimatedImmediateReclaim: 128
+                )
+            ],
+            dryRunSummary: []
+        )
+        let policy = UserPathPolicy(rules: [
+            UserPathRule(kind: .protect, path: cache.path, reason: "late protection")
+        ])
+
+        let receipt = ReclaimerExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: ExecutorConfiguration(userPathPolicy: policy)
+        )
+        .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
+        XCTAssertEqual(receipt.actions.first?.status, "skipped")
+        XCTAssertTrue(receipt.actions.first?.message.contains("user protection") ?? false)
+    }
+
     func testPlanBuilderSelectsOnlyAutoSafeClosedFindings() throws {
         let open = finding(path: tempRoot.appendingPathComponent("Library/Caches/Codex/open").path, safety: .autoSafe, action: .deleteCache, open: true)
         let closed = finding(path: tempRoot.appendingPathComponent("Library/Caches/Codex/closed").path, safety: .autoSafe, action: .deleteCache, open: false)

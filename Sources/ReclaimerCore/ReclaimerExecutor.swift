@@ -7,12 +7,15 @@ public enum ExecutionMode: String, Sendable {
 
 public struct ExecutorConfiguration: Sendable {
     public let holdingRoot: URL
+    public let userPathPolicy: UserPathPolicy
 
     public init(
         holdingRoot: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Ryddi/Holding")
+            .appendingPathComponent("Library/Application Support/Ryddi/Holding"),
+        userPathPolicy: UserPathPolicy = .empty
     ) {
         self.holdingRoot = holdingRoot
+        self.userPathPolicy = userPathPolicy
     }
 }
 
@@ -68,6 +71,12 @@ public final class ReclaimerExecutor: @unchecked Sendable {
         let finding = item.finding
         let url = URL(fileURLWithPath: finding.path)
 
+        if let rule = configuration.userPathPolicy.matchingRule(for: finding.path, kind: .exclude) {
+            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Blocked by user exclusion rule at \(rule.path).")
+        }
+        if let rule = configuration.userPathPolicy.matchingRule(for: finding.path, kind: .protect) {
+            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Blocked by user protection rule at \(rule.path).")
+        }
         guard item.conditions.allSatisfy(\.isSatisfied) else {
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Plan conditions were not satisfied.")
         }
@@ -143,6 +152,12 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             || (values.isSymbolicLink ?? false)
         guard !currentIsSymbolicLink else {
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Path changed into a symbolic link after planning.")
+        }
+        if let rule = configuration.userPathPolicy.matchingRule(for: url.path, kind: .exclude) {
+            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Path is now covered by a user exclusion rule at \(rule.path).")
+        }
+        if let rule = configuration.userPathPolicy.matchingRule(for: url.path, kind: .protect) {
+            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Path is now covered by a user protection rule at \(rule.path).")
         }
         guard currentIsDirectory == finding.isDirectory else {
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Path type changed after planning.")

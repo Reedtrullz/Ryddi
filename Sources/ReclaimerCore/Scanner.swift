@@ -7,6 +7,7 @@ public struct ScanOptions: Hashable, Sendable {
     public let includeOpenFileStatus: Bool
     public let largeFileThreshold: Int64
     public let oldFileAgeDays: Int
+    public let userPathPolicy: UserPathPolicy
 
     public init(
         minimumFindingSize: Int64 = 1_000_000,
@@ -14,7 +15,8 @@ public struct ScanOptions: Hashable, Sendable {
         measurementDepth: Int = 8,
         includeOpenFileStatus: Bool = false,
         largeFileThreshold: Int64 = 5_000_000_000,
-        oldFileAgeDays: Int = 180
+        oldFileAgeDays: Int = 180,
+        userPathPolicy: UserPathPolicy = .empty
     ) {
         self.minimumFindingSize = minimumFindingSize
         self.maximumFindingDepth = maximumFindingDepth
@@ -22,6 +24,7 @@ public struct ScanOptions: Hashable, Sendable {
         self.includeOpenFileStatus = includeOpenFileStatus
         self.largeFileThreshold = largeFileThreshold
         self.oldFileAgeDays = oldFileAgeDays
+        self.userPathPolicy = userPathPolicy
     }
 }
 
@@ -58,6 +61,10 @@ public final class FileScanner: @unchecked Sendable {
 
     private func scan(scope: ScanScope, options: ScanOptions) -> [Finding] {
         let root = scope.root.standardizedFileURL
+        if options.userPathPolicy.matchingRule(for: root.path, kind: .exclude) != nil {
+            return []
+        }
+
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) else {
             return [
@@ -92,6 +99,10 @@ public final class FileScanner: @unchecked Sendable {
     }
 
     private func collectFindings(scope: ScanScope, url: URL, depth: Int, options: ScanOptions, findings: inout [Finding]) {
+        if options.userPathPolicy.matchingRule(for: url.path, kind: .exclude) != nil {
+            return
+        }
+
         let finding = makeFinding(scope: scope, url: url, depth: depth, options: options)
         let shouldInclude = depth <= options.maximumFindingDepth
             || finding.allocatedSize >= options.minimumFindingSize
@@ -119,7 +130,7 @@ public final class FileScanner: @unchecked Sendable {
         let values = try? url.resourceValues(forKeys: Set(resourceKeys))
         let isDirectory = values?.isDirectory ?? false
         let isSymbolicLink = values?.isSymbolicLink ?? false
-        let measurement = measure(url: url, maxDepth: options.measurementDepth)
+        let measurement = measure(url: url, maxDepth: options.measurementDepth, userPathPolicy: options.userPathPolicy)
         let classification = ruleEngine.classify(path: url.path, isDirectory: isDirectory, isSymbolicLink: isSymbolicLink)
         let openStatus = options.includeOpenFileStatus ? openFileChecker.status(for: url) : nil
 
@@ -127,6 +138,19 @@ public final class FileScanner: @unchecked Sendable {
         var actionKind = classification.actionKind
         var matches = classification.matches
         var evidence = classification.evidence
+        let isUserProtected: Bool
+        if let protectedRule = options.userPathPolicy.matchingRule(for: url.path, kind: .protect) {
+            isUserProtected = true
+            let ruleMatch = userProtectedRuleMatch(for: protectedRule)
+            matches.insert(ruleMatch, at: 0)
+            evidence.insert(contentsOf: ruleMatch.evidence.map { Evidence(kind: ruleMatch.ruleID, message: $0) }, at: 0)
+            if safetyClass != .neverTouch {
+                safetyClass = .preserveByDefault
+                actionKind = .reportOnly
+            }
+        } else {
+            isUserProtected = false
+        }
         let reviewSignals = dynamicReviewSignals(
             path: url.path,
             depth: depth,
@@ -140,7 +164,7 @@ public final class FileScanner: @unchecked Sendable {
             evidence.append(contentsOf: reviewSignals.flatMap { signal in
                 signal.evidence.map { Evidence(kind: signal.ruleID, message: $0) }
             })
-            if classification.matches.isEmpty {
+            if classification.matches.isEmpty && !isUserProtected {
                 safetyClass = .reviewRequired
                 actionKind = .openGuidance
             }
@@ -170,6 +194,20 @@ public final class FileScanner: @unchecked Sendable {
             ruleMatches: matches,
             evidence: evidence,
             openFileStatus: openStatus
+        )
+    }
+
+    private func userProtectedRuleMatch(for rule: UserPathRule) -> RuleMatch {
+        let reason = rule.reason.map { " Reason: \($0)" } ?? ""
+        return RuleMatch(
+            ruleID: "user.path.protected",
+            title: "User-protected path",
+            category: "User protection",
+            safetyClass: .preserveByDefault,
+            actionKind: .reportOnly,
+            evidence: ["This path is covered by a user protection rule at \(rule.path).\(reason)"],
+            conditions: ["Remove the user protection rule before cleanup can be considered."],
+            recovery: "Protected paths stay visible for review but are not selected for cleanup."
         )
     }
 
@@ -237,7 +275,7 @@ public final class FileScanner: @unchecked Sendable {
         )
     }
 
-    private func measure(url: URL, maxDepth: Int) -> FileMeasurement {
+    private func measure(url: URL, maxDepth: Int, userPathPolicy: UserPathPolicy) -> FileMeasurement {
         guard maxDepth >= 0 else {
             return FileMeasurement(logicalSize: 0, allocatedSize: 0, itemCount: 0)
         }
@@ -273,6 +311,10 @@ public final class FileScanner: @unchecked Sendable {
         }
 
         for case let child as URL in enumerator {
+            if userPathPolicy.matchingRule(for: child.path, kind: .exclude) != nil {
+                enumerator.skipDescendants()
+                continue
+            }
             count += 1
             guard let childValues = try? child.resourceValues(forKeys: Set(resourceKeys)) else { continue }
             if childValues.isSymbolicLink == true {
