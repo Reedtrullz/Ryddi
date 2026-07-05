@@ -1,0 +1,211 @@
+# Ryddi Competitive Research Snapshot
+
+Date: 2026-07-05
+
+This is a product research snapshot for Ryddi, based on current public product pages, GitHub projects, Apple platform guidance, and the MVP scope in this repository. It is not exhaustive, but it is enough to set feature expectations for a credible first public release.
+
+## Executive Takeaways
+
+Ryddi should not try to look like a generic one-click optimizer. That market is crowded, trust-sensitive, and often bundled with performance, malware, RAM, and update claims that are not central to Ryddi's thesis.
+
+The stronger position is:
+
+> DaisyDisk-level space understanding + DevCleaner-style developer specificity + Hazel-like auditability, with explicit safety classes and no mystery cleanup.
+
+Users will still expect the basics from mature disk tools:
+
+- a visual or at least highly scannable map of where space is going;
+- top offenders ranked by actual reclaim value;
+- file preview, reveal-in-Finder, open-in-Terminal, and copy-path actions;
+- Trash-first behavior for user-visible files;
+- clear Full Disk Access onboarding and degraded-mode labeling;
+- app uninstaller or at least app-support leftovers guidance;
+- duplicate/large/old file review eventually;
+- scheduled maintenance that reports first;
+- signed/notarized builds and a strong privacy statement.
+
+Ryddi's defensible differentiation is the evidence layer: rule matches, why a path is safe or unsafe, what would happen if removed, native-tool recommendations, active-file checks, dry-run receipts, and local audit history.
+
+## Competitor Lanes
+
+| Lane | Examples | What They Promise | Expected Features | Ryddi Implication |
+| --- | --- | --- | --- | --- |
+| Broad cleaner suites | CleanMyMac, Cleaner One Pro, BuhoCleaner, Sensei, MacCleaner Pro | Simple cleanup, optimization, app management, sometimes malware/privacy/performance | Smart scan, junk cleanup, big files, duplicates, app uninstall, menu bar status, reminders, subscriptions, polished onboarding | Do not compete on fake speed/optimizer breadth. Borrow polish, onboarding, menu bar/reporting, and clear packaging. |
+| Visual disk analyzers | DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie, OmniDiskSweeper | Help users understand what uses space and decide what to remove | Treemap/sunburst/list, drill-down, Quick Look, Finder reveal, Trash/drop zone, all volumes, physical-size correctness | Ryddi needs a visual/scannable evidence map. Even a strong rules engine will feel incomplete without this. |
+| App uninstallers | AppCleaner, Pearcleaner, Nektony App Cleaner & Uninstaller, Hazel App Sweep | Remove apps plus related support files | App inventory, related files, leftovers, launch agents, containers, bulk uninstall, deselection, Trash | Add an Apps module later. In v1, label app-support findings as review/guidance unless tied to an uninstalled app. |
+| Developer cleaners | DevCleaner, Spacie smart categories, macOS dev-cache cleaners, Megacleaner-style projects | Reclaim Xcode, package-manager, container, and build cache bloat | Xcode DerivedData/Archives/DeviceSupport, simulators, Homebrew, npm/pnpm/yarn, Gradle, Maven, Docker, node_modules | This is Ryddi's beachhead. Go deeper and safer here than the broad suites. |
+| Automation/rules | Hazel | Keep folders tidy over time with user-defined rules | Folder watchers, schedules, Trash management, app sweep, rule preview, notifications | Ryddi automation should be report-first. Allow unattended cleanup only for tight, explainable allowlists. |
+| Duplicate specialists | Gemini 2, Nektony Duplicate File Finder | Find duplicate/similar files and prevent future clutter | Smart selection, Photos/Music awareness, external drives, duplicate monitoring | Keep duplicates out of the first safety-critical MVP. Add later with conservative hashing and never-touch library semantics. |
+
+## Notable Product Signals
+
+### CleanMyMac
+
+[CleanMyMac](https://macpaw.com/cleanmymac) positions itself as an all-in-one cleaner and maintenance app covering junk, duplicates, malware, and performance issues. It emphasizes Smart Care, broad polish, a huge installed base, and Apple notarization.
+
+Ryddi should learn from the trust packaging: notarization, clear privacy, high-quality screenshots, and an understandable first-run experience. It should not inherit broad claims like "optimize everything" unless Ryddi can prove them locally and safely.
+
+### DaisyDisk
+
+[DaisyDisk](https://daisydiskapp.com/) is the clearest benchmark for disk understanding. It emphasizes fast scans, hidden-space visibility, admin scanning, user-decided deletion, and safeguards around system files. It also discusses physical-size correctness, hard links, APFS clones, snapshots, cloud storage, and privacy.
+
+Ryddi should treat APFS accounting as a first-class feature, not a footnote. Users with developer machines often see confusing gaps between logical size, allocated size, purgeable space, VM images, local snapshots, and cloud placeholders.
+
+### GrandPerspective and OmniDiskSweeper
+
+[GrandPerspective](https://grandperspectiv.sourceforge.net/) and [OmniDiskSweeper](https://www.omnigroup.com/more) show that a simple, durable disk analyzer can remain useful for years. Their core strength is directness: show what is large, let the user inspect it, reveal it, and delete or trash it.
+
+Ryddi needs this plain mode alongside rule-based cleanup. A user should always be able to answer: "What are my largest folders and files right now?"
+
+### SquirrelDisk, DiskPilot, and Spacie
+
+[SquirrelDisk](https://www.squirreldisk.com/) emphasizes spatial navigation, internal/external drives, and direct removal. [DiskPilot](https://mhkasif.github.io/DiskPilot/) emphasizes open-source, local/no telemetry, multi-platform scanning, allocated usage, hardlink deduplication, multiple views, and keyboard-first workflows. [Spacie](https://github.com/AlexGladkov/Spacie) is especially relevant: it combines native macOS UI, treemap/sunburst, APFS-aware accounting, large/old/duplicate files, smart categories, FSEvents-backed cache, staged deletion, SIP blocklists, dotfile warnings, and graceful behavior without Full Disk Access.
+
+Spacie is the closest open-source reference for "modern native macOS disk analyzer plus smart categories." Ryddi's differentiator must be deeper safety/explanation, developer/AI-agent rules, receipts, and command-aware cleanup.
+
+### AppCleaner, Pearcleaner, and Nektony
+
+[AppCleaner](https://freemacsoft.net/appcleaner/) set the expectation that uninstalling an app includes related files. [Pearcleaner](https://github.com/alienator88/Pearcleaner) shows strong open-source interest in this category. [Nektony App Cleaner & Uninstaller](https://nektony.com/mac-app-cleaner) has expanded the category into app updates, startup items, extensions, leftovers, and app security signals.
+
+Ryddi should not auto-delete app support data in v1. But it should eventually detect app leftovers and separate:
+
+- installed app support data;
+- support data for removed apps;
+- high-value user assets;
+- recoverable caches/logs;
+- launch agents/background items;
+- dangerous state databases.
+
+### DevCleaner
+
+[DevCleaner](https://github.com/vashpan/xcode-dev-cleaner) is a focused Xcode cleanup app. It treats Device Support, Archives, DerivedData, documentation cache, simulator logs, and old logs as distinct categories with different risk profiles.
+
+This is exactly the right shape for Ryddi rule packs: a category is not just a folder path; it needs age, version, owner, regeneration story, and "what breaks if removed."
+
+### Hazel
+
+[Hazel](https://www.noodlesoft.com/) and its [manual](https://www.noodlesoft.com/manual/hazel/hazel-overview/) set expectations for trusted automation: user-defined rules, folder watching, moving/renaming/tagging/archiving, Trash management, and App Sweep.
+
+Ryddi should borrow the rule-preview and audit mindset, not broad unattended deletion. Scheduled Ryddi should start as "scan and report." Later, allow "clean only these exact auto-safe classes older than N days."
+
+### Apple Platform Requirements
+
+Apple's privacy guidance makes Full Disk Access and Files & Folders access explicit user-controlled permissions: [Apple Privacy & Security settings](https://support.apple.com/guide/mac-help/change-privacy-security-settings-on-mac-mchl211c911f/mac). Apple's launchd guidance distinguishes per-user agents for background work: [Creating launchd jobs](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html). `FileManager.trashItem` provides the platform-native Trash path for uncertain user-visible removals: [FileManager trashItem](https://developer.apple.com/documentation/foundation/filemanager/trashitem%28at%3Aresultingitemurl%3A%29).
+
+Ryddi should make permission state visible, avoid root/helper behavior in v1, use a per-user LaunchAgent for scheduled reports, and prefer Trash or an app-managed holding area over direct deletion except for allowlisted reproducible caches.
+
+## Feature Expectation Matrix
+
+| Feature | Market Expectation | Ryddi Status | Recommendation |
+| --- | --- | --- | --- |
+| Top offenders overview | Baseline for all disk analyzers | Partial | Add a sortable, scannable table grouped by category, safety, and reclaim estimate. |
+| Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Missing | Add treemap/sunburst after table-first MVP, or use a lightweight proportional bar/tree view first. |
+| Evidence details | Rare in broad cleaners, central to Ryddi | Partial | Make every finding answer: what is this, why matched, risk, recovery path, exact action. |
+| Dry-run plan | Strong differentiator | Partial | Keep as default. Add plan diff, receipt export, and selected/blocked/skipped counts. |
+| Active-file guard | Strong safety differentiator | Exists/partial | Surface it in UI with "Quit app first" queue and exact process names when available. |
+| Trash-first cleanup | Expected safety behavior | Exists/partial | Use Trash for uncertain/user-visible data. Direct delete only for allowlisted caches. |
+| App-managed holding area | Strong differentiator | Exists/partial | Make restore and expiry visible in UI. Show "held until" and original path. |
+| Full Disk Access onboarding | Expected for any serious disk scanner | Missing/partial | Add permission coverage meter, exact steps, and degraded scan labels. |
+| APFS physical accounting | Expected by expert users; DaisyDisk/Spacie benchmark this | Missing/partial | Distinguish logical size, allocated size, clone/hardlink behavior, purgeable/snapshots caveats. |
+| Large file review | Baseline | Missing/partial | Add large files and old files as review-required queues. |
+| Duplicate finder | Common suite feature | Out of scope | Keep out of v1. Later: size, partial hash, full hash, review-only default. |
+| App uninstaller | Common suite/app-cleaner feature | Out of scope | Add later as "Apps & Leftovers" module, never mixed into safe maintenance. |
+| Developer cache packs | Ryddi beachhead | Partial | Go deeper on Xcode, SwiftPM, node_modules, JetBrains, VS Code, Android/Flutter, Docker/Colima. |
+| Docker/Colima cleanup | Risky but important for target user | Partial | Integrate native inspect/prune commands and receipts. Never raw-delete VM disks automatically. |
+| Codex/AI-agent cleanup | Ryddi-specific differentiator | Partial | Keep sessions/memories/config protected. Classify cache/tmp/logs separately from valuable transcripts. |
+| Scheduled maintenance | Expected from automation tools | Partial | LaunchAgent should report first. Only allow unattended cleanup for explicit allowlisted classes. |
+| Menu bar/status item | Common in Sensei/Cleaner One/BuhoCleaner | Missing | Add later for scan reminders and "disk pressure" status, not RAM cleaning. |
+| Notarized releases | Expected for trust | Planned | Add signed/notarized release process and GitHub release artifacts. |
+| CI/test badge | Expected for open-source trust | Missing | Add GitHub Actions for `swift test --scratch-path .build`. |
+| Privacy page | Expected for cleaners | Missing | Add a short `PRIVACY.md`: no telemetry, no uploads, local receipts, permission model. |
+
+## Suggested Ryddi Roadmap
+
+### Release Credibility
+
+1. Add GitHub Actions CI for Swift build/test.
+2. Add signed/notarized release workflow notes and a first downloadable artifact.
+3. Add `PRIVACY.md` and a short "What Ryddi never touches" section.
+4. Add screenshots or a short GIF of the app and CLI.
+5. Add issue templates for false positives, new rule packs, and safety concerns.
+
+### Product Core
+
+1. Improve overview with a sortable offender table: path, size, category, safety, age, action, confidence.
+2. Add drill-down detail pages that explain evidence and recovery.
+3. Add review queues that mirror user intent: Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, Unknown.
+4. Add large-file and old-file review mode, explicitly non-automatic.
+5. Add Finder, Quick Look, Terminal, copy-path, and exclude actions.
+
+### Safety Depth
+
+1. Add a permission coverage meter for Full Disk Access and restricted folders.
+2. Add APFS size model: logical, allocated, clone/hardlink caveat, purgeable/snapshot explanation.
+3. Add final re-stat and reclassification immediately before action.
+4. Add restore UX for Trash and holding-area moves where possible.
+5. Add receipt export with before/after disk stats, skipped active files, errors, and non-claims.
+
+### Developer/AI Niche
+
+1. Codex rule pack: cache/tmp/logs as reclaimable; sessions/transcripts as valuable review; auth/config/memories/state as never-touch.
+2. Container rule pack: Docker/Colima inventory, volumes/images/build cache, native prune guidance, VM disk warnings.
+3. Xcode rule pack: DerivedData, ModuleCache, DeviceSupport, Archives, simulator logs, old runtimes with version/age gates.
+4. Package manager rule packs: Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM.
+5. IDE/mobile packs: JetBrains, VS Code/Cursor/Windsurf, Android Studio/Gradle, Flutter, Playwright browsers.
+
+### Later Modules
+
+1. Apps & Leftovers: uninstalled app support data, launch agents, containers, preferences, caches, with strict review.
+2. Duplicates: conservative hashing and review-only default, with Photos/Music/iCloud protections.
+3. Folder automation: Hazel-like custom report rules, not arbitrary delete rules.
+4. Menu bar assistant: disk pressure and scheduled scan status.
+5. Growth history: show which categories grew since the last scan using local snapshots.
+
+## Product Principles To Keep
+
+- Never market "speed boost" unless the app measures and proves a specific local effect.
+- Never make "clean all" the hero.
+- Never raw-delete VM disks, browser profiles, Photos libraries, Music libraries, GarageBand/Logic assets, Codex memories, credentials, or unknown app state.
+- Treat user documents and creative assets as preserve-by-default even if large.
+- Prefer native cleanup commands for tools that own complex state.
+- Make every destructive action reviewable, dry-runnable, and receipted.
+- Use privacy as a product feature: local-only scan, no path upload, no telemetry by default.
+
+## First Public Release Bar
+
+The first public release should have:
+
+- CLI commands for scan, plan, explain, dry-run, execute, holding, and schedule.
+- SwiftUI app with overview, queues, details, plan builder, and audit history.
+- Rules for Codex, Docker/Colima, Xcode, package caches, browser caches, temp dirs, and large-file review.
+- Dry-run receipts and local audit history.
+- Trash/holding-area cleanup for safe selections.
+- Active-file checks before action.
+- Full Disk Access guidance and degraded-mode labels.
+- Safety tests for never-touch paths.
+- GitHub CI.
+- Privacy documentation.
+- A signed/notarized direct-distribution build or a clearly labeled unsigned developer preview.
+
+## Source Links
+
+- [CleanMyMac](https://macpaw.com/cleanmymac)
+- [Cleaner One Pro](https://www.trendmicro.com/en_us/forHome/products/cleaner-one-mac.html)
+- [BuhoCleaner](https://www.drbuho.com/buhocleaner)
+- [Sensei](https://cindori.com/sensei)
+- [DaisyDisk](https://daisydiskapp.com/)
+- [GrandPerspective](https://grandperspectiv.sourceforge.net/)
+- [OmniDiskSweeper](https://www.omnigroup.com/more)
+- [SquirrelDisk](https://www.squirreldisk.com/)
+- [DiskPilot](https://mhkasif.github.io/DiskPilot/)
+- [Spacie](https://github.com/AlexGladkov/Spacie)
+- [AppCleaner](https://freemacsoft.net/appcleaner/)
+- [Pearcleaner](https://github.com/alienator88/Pearcleaner)
+- [Nektony App Cleaner & Uninstaller](https://nektony.com/mac-app-cleaner)
+- [Gemini 2](https://macpaw.com/gemini)
+- [DevCleaner](https://github.com/vashpan/xcode-dev-cleaner)
+- [Hazel](https://www.noodlesoft.com/)
+- [Hazel manual](https://www.noodlesoft.com/manual/hazel/hazel-overview/)
+- [Apple privacy and security settings](https://support.apple.com/guide/mac-help/change-privacy-security-settings-on-mac-mchl211c911f/mac)
+- [Apple launchd jobs](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
+- [FileManager trashItem](https://developer.apple.com/documentation/foundation/filemanager/trashitem%28at%3Aresultingitemurl%3A%29)

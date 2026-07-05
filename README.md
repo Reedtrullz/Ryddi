@@ -120,6 +120,10 @@ Tests/ReclaimerCoreTests/    Safety and fixture tests
 Scripts/                     Packaging and notarization helpers
 ```
 
+## Product Research
+
+- [Competitive research snapshot](docs/COMPETITIVE_RESEARCH.md) - competitor lanes, expected features, and suggested Ryddi roadmap.
+
 ## Non-Goals For v1
 
 - duplicate-file detection
