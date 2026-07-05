@@ -30,6 +30,8 @@ struct ReclaimerCLI {
             try duplicates(args: args)
         case "apps":
             try apps(args: args)
+        case "native":
+            try native(args: args)
         case "scan":
             try scan(args: args)
         case "plan":
@@ -162,6 +164,22 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printAppReview(report, options: options)
+        }
+    }
+
+    static func native(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let findings = scanner.scan(scopes: options.scopes(), options: options.scanOptions(includeOpenFiles: false))
+        let report = NativeToolGuidance.report(for: findings, ruleVersion: try RuleEngine.bundled().version)
+        if options.saveAudit {
+            let url = try AuditStore().save(nativeToolReport: report)
+            FileHandle.standardError.write(Data("saved native-tool report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printNativeToolReport(report, options: options)
         }
     }
 
@@ -323,6 +341,7 @@ struct ReclaimerCLI {
                          [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
+              native [--json] [--path PATH ...] [--limit N] [--save-audit]
               plan [--json] [--path PATH ...] [--review-all] [--save-audit]
               explain PATH [--json]
               execute --dry-run [--json] [--path PATH ...] [--save-audit]
@@ -776,6 +795,38 @@ func printFindingDetail(_ finding: Finding) {
         print("Native guidance:")
         for line in guidance {
             print("- \(line)")
+        }
+    }
+}
+
+func printNativeToolReport(_ report: NativeToolReport, options: ParsedOptions) {
+    print("Native tool report \(report.id)")
+    print("Rule version: \(report.ruleVersion)")
+    print("Previewed native-tool bytes: \(ByteFormat.string(report.totalBytesUnderNativeReview))")
+    if report.receipts.isEmpty {
+        print("No native-tool cleanup candidates found.")
+    }
+    for receipt in report.receipts.prefix(options.limit) {
+        print("\n\(receipt.displayName)")
+        print("Path: \(receipt.findingPath)")
+        print("Category: \(receipt.category)")
+        print("Status: \(receipt.status)")
+        print("Size under review: \(ByteFormat.string(receipt.allocatedSize))")
+        print(receipt.message)
+        for command in receipt.commands {
+            let review = command.requiresReview ? "review first" : "inspect"
+            print("- [\(command.risk.label), \(review)] \(command.command)")
+            print("  \(command.purpose)")
+            print("  Expected effect: \(command.expectedEffect)")
+        }
+    }
+    if report.receipts.count > options.limit {
+        print("\n... \(report.receipts.count - options.limit) more native-tool candidate(s)")
+    }
+    if !report.nonClaims.isEmpty {
+        print("\nNon-claims")
+        for note in report.nonClaims {
+            print("- \(note)")
         }
     }
 }

@@ -24,7 +24,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Avoid blind deletes | Build a dry-run plan first; UI exposes dry-run receipts and enables reclaim only after a clean dry run. | `ReclaimPlan`, `ExecutionReceipt`, app Dry Run/Reclaim |
 | Reclaim safely | Use Trash for uncertain/user-visible data, direct delete only for allowlisted caches, compression only for cold files, holding area for reversible moves, with app confirmation before execution. | `ReclaimerExecutor`, app Reclaim confirmation |
 | Restore held items | Store holding metadata so held items can be listed, restored, or expired after review. | `HoldingStore`, `reclaimer holding`, app Holding Area |
-| Prefer native cleanup | Report Docker/Colima/package-manager cleanup as native-tool guidance rather than deleting stores directly. | rule pack `nativeToolCommand` findings |
+| Prefer native cleanup | Report Docker/Colima/package-manager cleanup as preview-only native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims rather than deleting stores directly. | `NativeToolGuidance`, `reclaimer native`, app native receipt preview |
 | Automate conservatively | Scheduled job writes report plans only; unattended destructive cleanup is not enabled in v1. | `LaunchAgentManager`, `ReclaimerAgent`, `schedule install` |
 | Keep local audit trail | Save plans and receipts under Application Support with local-only JSON. | `AuditStore`, app Audit History |
 | Package for direct distribution | Build an unsigned developer preview or signed app bundle, verify release-shaped artifacts, create checksum/manifest output, and leave notarization as an explicit credentialed step. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, release-preview workflow |
@@ -36,6 +36,7 @@ Included:
 
 - Codex storage policy: caches/temp/logs versus sessions/state/credentials.
 - Docker/Colima reporting and native cleanup guidance.
+- Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, with no automatic command execution.
 - Xcode and package-manager cache classification.
 - SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter developer cache review.
 - Proportional visual map by category.
@@ -58,6 +59,7 @@ Deferred:
 - Root helper or system-wide cleanup.
 - Mac App Store sandbox packaging.
 - Automatic deletion of safe-after-condition or review-required items.
+- Automatic execution of native Docker/Colima/Homebrew/package-manager cleanup commands.
 - Full Disk Access onboarding beyond coverage/degraded-mode copy.
 
 ## Acceptance Criteria
@@ -75,6 +77,7 @@ Deferred:
 - `reclaimer history record/list/diff` stores local scan snapshots and reports category/scope/safety deltas.
 - `reclaimer duplicates --path FIXTURE --min-size 1` groups same-content regular files, skips protected paths, and emits review-only `openGuidance` candidates.
 - `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1` reports installed app support files and orphan candidates without creating plan items.
+- `reclaimer native --path FIXTURE --json` emits preview-only native-tool receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
 - Visual map accounting does not double-count nested directory findings.
 - Large/old file signals remain review-only and are not selected by an auto-safe plan.
 - Duplicate review findings remain outside `PlanBuilder` and `ReclaimerExecutor`.

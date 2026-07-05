@@ -312,6 +312,112 @@ public struct ExecutionReceipt: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public enum NativeToolRisk: String, Codable, CaseIterable, Hashable, Sendable {
+    case inspect
+    case reclaim
+    case destructive
+
+    public var label: String {
+        switch self {
+        case .inspect: "Inspect"
+        case .reclaim: "Reclaim"
+        case .destructive: "Destructive"
+        }
+    }
+}
+
+public struct NativeToolCommand: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let command: String
+    public let purpose: String
+    public let risk: NativeToolRisk
+    public let requiresReview: Bool
+    public let expectedEffect: String
+
+    public init(
+        id: String,
+        command: String,
+        purpose: String,
+        risk: NativeToolRisk,
+        requiresReview: Bool,
+        expectedEffect: String
+    ) {
+        self.id = id
+        self.command = command
+        self.purpose = purpose
+        self.risk = risk
+        self.requiresReview = requiresReview
+        self.expectedEffect = expectedEffect
+    }
+}
+
+public struct NativeToolReceipt: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let generatedAt: Date
+    public let findingPath: String
+    public let displayName: String
+    public let category: String
+    public let allocatedSize: Int64
+    public let safetyClass: SafetyClass
+    public let actionKind: ActionKind
+    public let status: String
+    public let message: String
+    public let commands: [NativeToolCommand]
+    public let nonClaims: [String]
+
+    public init(
+        id: String = UUID().uuidString,
+        generatedAt: Date = Date(),
+        findingPath: String,
+        displayName: String,
+        category: String,
+        allocatedSize: Int64,
+        safetyClass: SafetyClass,
+        actionKind: ActionKind,
+        status: String,
+        message: String,
+        commands: [NativeToolCommand],
+        nonClaims: [String]
+    ) {
+        self.id = id
+        self.generatedAt = generatedAt
+        self.findingPath = findingPath
+        self.displayName = displayName
+        self.category = category
+        self.allocatedSize = allocatedSize
+        self.safetyClass = safetyClass
+        self.actionKind = actionKind
+        self.status = status
+        self.message = message
+        self.commands = commands
+        self.nonClaims = nonClaims
+    }
+}
+
+public struct NativeToolReport: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let createdAt: Date
+    public let ruleVersion: String
+    public let receipts: [NativeToolReceipt]
+    public let totalBytesUnderNativeReview: Int64
+    public let nonClaims: [String]
+
+    public init(
+        id: String = UUID().uuidString,
+        createdAt: Date = Date(),
+        ruleVersion: String,
+        receipts: [NativeToolReceipt],
+        nonClaims: [String]
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.ruleVersion = ruleVersion
+        self.receipts = receipts
+        self.totalBytesUnderNativeReview = receipts.reduce(0) { $0 + $1.allocatedSize }
+        self.nonClaims = nonClaims
+    }
+}
+
 public enum ByteFormat {
     public static func string(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)

@@ -18,6 +18,8 @@ Duplicate review is different from normal metadata scanning: it reads regular fi
 
 Apps & Leftovers review reads installed app bundle metadata from local `Info.plist` files and checks common user Library locations for related support files, caches, logs, preferences, containers, launch agents, and heuristic orphan candidates. It does not upload app inventory or uninstall apps.
 
+Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Ryddi does not upload these reports and does not execute the native commands automatically.
+
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
 ## What Ryddi Writes
@@ -25,6 +27,7 @@ Ryddi works without Full Disk Access, but scan coverage can be incomplete. If ma
 Ryddi can write:
 
 - saved dry-run plans and receipts;
+- saved native-tool preview reports;
 - compact local scan-history snapshots for growth comparisons;
 - app-managed holding-area metadata;
 - a per-user LaunchAgent plist if you install report scheduling;

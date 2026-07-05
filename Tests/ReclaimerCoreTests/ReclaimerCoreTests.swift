@@ -445,6 +445,80 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(androidSDK.actionKind, .openGuidance)
     }
 
+    func testNativeToolGuidanceBuildsPreviewReceipts() throws {
+        let docker = finding(
+            path: "/Users/test/.colima/default/disk.img",
+            safety: .reviewRequired,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 2_000,
+            isDirectory: false,
+            category: "Containers"
+        )
+        let homebrew = finding(
+            path: "/Users/test/Library/Caches/Homebrew",
+            safety: .safeAfterCondition,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 1_000,
+            isDirectory: true,
+            category: "Developer cache"
+        )
+
+        let report = NativeToolGuidance.report(for: [docker, homebrew], ruleVersion: "test")
+
+        XCTAssertEqual(report.receipts.count, 2)
+        XCTAssertEqual(report.totalBytesUnderNativeReview, 3_000)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("No native cleanup command was executed") })
+        XCTAssertTrue(report.receipts.flatMap(\.commands).contains { $0.command == "colima list" && $0.risk == .inspect })
+        XCTAssertTrue(report.receipts.flatMap(\.commands).contains { $0.command == "colima delete <profile>" && $0.risk == .destructive && $0.requiresReview })
+        XCTAssertTrue(report.receipts.flatMap(\.commands).contains { $0.command == "brew cleanup -n" && $0.risk == .inspect })
+        XCTAssertTrue(report.receipts.allSatisfy { $0.status == "preview-only" })
+    }
+
+    func testNativeToolReportDeduplicatesNestedReceipts() throws {
+        let rootPath = "/Users/test/Library/Caches/Homebrew"
+        let root = finding(
+            path: rootPath,
+            safety: .safeAfterCondition,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 1_000,
+            isDirectory: true,
+            category: "Developer cache"
+        )
+        let child = finding(
+            path: "\(rootPath)/downloads/bottle.tar.gz",
+            safety: .safeAfterCondition,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 200,
+            category: "Developer cache"
+        )
+
+        let report = NativeToolGuidance.report(for: [child, root], ruleVersion: "test")
+
+        XCTAssertEqual(report.receipts.map(\.findingPath), [rootPath])
+        XCTAssertEqual(report.totalBytesUnderNativeReview, 1_000)
+    }
+
+    func testNativeToolFindingsStayOutOfExecutionPlans() throws {
+        let docker = finding(
+            path: "/Users/test/.docker",
+            safety: .reviewRequired,
+            action: .nativeToolCommand,
+            open: false,
+            category: "Containers"
+        )
+
+        let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: [docker], mode: .reviewAll)
+        let receipt = ReclaimerExecutor(openFileChecker: NoOpenFilesChecker())
+            .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
+
+        XCTAssertFalse(plan.items.first?.selected ?? true)
+        XCTAssertTrue(receipt.actions.isEmpty)
+    }
+
     func testPlanBuilderSelectsOnlyAutoSafeClosedFindings() throws {
         let open = finding(path: tempRoot.appendingPathComponent("Library/Caches/Codex/open").path, safety: .autoSafe, action: .deleteCache, open: true)
         let closed = finding(path: tempRoot.appendingPathComponent("Library/Caches/Codex/closed").path, safety: .autoSafe, action: .deleteCache, open: false)
@@ -701,12 +775,26 @@ final class ReclaimerCoreTests: XCTestCase {
             ],
             userConfirmed: false
         )
+        let nativeReport = NativeToolGuidance.report(
+            for: [
+                finding(
+                    path: "/Users/test/Library/Caches/Homebrew",
+                    safety: .safeAfterCondition,
+                    action: .nativeToolCommand,
+                    open: false,
+                    category: "Developer cache"
+                )
+            ],
+            ruleVersion: "test"
+        )
 
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
+        _ = try store.save(nativeToolReport: nativeReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.recentReceipts().first?.id, receipt.id)
+        XCTAssertEqual(store.recentNativeToolReports().first?.id, nativeReport.id)
     }
 
     private func finding(

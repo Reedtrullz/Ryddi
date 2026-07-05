@@ -293,6 +293,16 @@ struct AuditHistoryView: View {
                         }
                     }
                 }
+
+                SectionBox(title: "Native Tool Reports") {
+                    if model.recentNativeToolReports.isEmpty {
+                        Text("No native-tool reports yet.")
+                    } else {
+                        ForEach(model.recentNativeToolReports) { report in
+                            Text("\(report.createdAt.formatted()) - \(report.receipts.count) candidate(s) - \(ByteFormat.string(report.totalBytesUnderNativeReview))")
+                        }
+                    }
+                }
             }
             .padding(24)
         }
@@ -731,13 +741,34 @@ struct FindingDetailView: View {
                     }
                 }
 
-                let guidance = CleanupGuidance.commands(for: finding)
-                if !guidance.isEmpty {
-                    SectionBox(title: "Native guidance") {
-                        ForEach(guidance, id: \.self) { line in
-                            Text(line)
-                                .font(.system(.body, design: .monospaced))
-                                .textSelection(.enabled)
+                if let nativeReceipt = NativeToolGuidance.receipt(for: finding) {
+                    SectionBox(title: "Native tool receipt preview") {
+                        Text(nativeReceipt.message)
+                            .foregroundStyle(.secondary)
+                        ForEach(nativeReceipt.commands) { command in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(command.command)
+                                    .font(.system(.body, design: .monospaced))
+                                    .textSelection(.enabled)
+                                Text("\(command.risk.label) • \(command.requiresReview ? "review first" : "inspect")")
+                                    .font(.caption)
+                                    .foregroundStyle(command.risk == .destructive ? .red : .secondary)
+                                Text(command.purpose)
+                                Text("Expected effect: \(command.expectedEffect)")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                } else {
+                    let guidance = CleanupGuidance.commands(for: finding)
+                    if !guidance.isEmpty {
+                        SectionBox(title: "Guidance") {
+                            ForEach(guidance, id: \.self) { line in
+                                Text(line)
+                                    .font(.system(.body, design: .monospaced))
+                                    .textSelection(.enabled)
+                            }
                         }
                     }
                 }
@@ -1463,6 +1494,7 @@ final class DashboardModel {
     var lastExecutionReceipt: ExecutionReceipt?
     var recentPlans: [ReclaimPlan] = []
     var recentReceipts: [ExecutionReceipt] = []
+    var recentNativeToolReports: [NativeToolReport] = []
     var heldItems: [HeldItem] = []
     var duplicateReview: DuplicateReview?
     var appReview: AppReviewReport?
@@ -1638,6 +1670,7 @@ final class DashboardModel {
         let store = AuditStore()
         recentPlans = store.recentPlans()
         recentReceipts = store.recentReceipts()
+        recentNativeToolReports = store.recentNativeToolReports()
     }
 
     func loadHolding() {

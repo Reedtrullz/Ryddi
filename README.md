@@ -42,6 +42,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
+- native-tool command preview receipts for Docker/Colima/Homebrew/package-manager cleanup
 - Xcode DerivedData and developer cache review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
 - Browser cache versus browser profile separation
@@ -88,6 +89,7 @@ swift run --scratch-path .build reclaimer scan --sort category --group category 
 swift run --scratch-path .build reclaimer scan --review large --large-threshold 1000000000
 swift run --scratch-path .build reclaimer duplicates --path ~/Downloads --min-size 10000000
 swift run --scratch-path .build reclaimer apps --min-size 10000000
+swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer plan --json
 swift run --scratch-path .build reclaimer explain ~/.codex
 swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Caches/Codex
@@ -141,6 +143,16 @@ reclaimer plan --json --save-audit
 
 It does not run destructive cleanup unattended.
 
+## Native Tool Reports
+
+Ryddi treats container runtimes and package-manager stores as tool-owned state. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use:
+
+```bash
+swift run --scratch-path .build reclaimer native --json --path ~/.colima
+```
+
+The report is a preview receipt: command, purpose, risk, expected effect, and non-claims. It can be saved with `--save-audit`, but Ryddi does not run these commands automatically and does not raw-delete VM disks, volumes, or package stores.
+
 ## Repository Layout
 
 ```text
@@ -166,6 +178,7 @@ Scripts/                     Packaging and notarization helpers
 - root helper/system-wide cleanup
 - automatic deletion of review-required items
 - raw deletion of Docker/Colima VM disks or volumes
+- automatic execution of Docker/Colima/Homebrew/package-manager prune/reset commands
 - Mac App Store sandbox distribution
 
 ## GitHub About
