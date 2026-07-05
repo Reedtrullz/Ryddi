@@ -8,7 +8,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | --- | --- | --- |
 | Find large offenders | Bounded filesystem scanner over known developer/agent roots, with explicit custom `--path` support. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
 | Show top offenders | Shared overview analytics with category, safety, scope, age, logical size, allocated size, and top finding summaries. | `FindingAnalytics`, `reclaimer overview`, app Top Offenders |
-| Explain scan coverage | Report missing/restricted/readable scopes and degraded scan behavior. | `ScanOverview`, app Permission Coverage |
+| Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, and provide a direct Full Disk Access settings shortcut. | `ScanOverview`, app Permission Coverage |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
 | Explain decisions | Every finding carries rule matches, evidence, recovery notes, and conditions. | `Finding`, `Evidence`, app detail view, `reclaimer explain` |

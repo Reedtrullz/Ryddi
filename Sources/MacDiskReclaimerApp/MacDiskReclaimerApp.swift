@@ -524,6 +524,12 @@ struct PermissionCoverageView: View {
             }
             Text("Ryddi works in degraded mode when some paths are missing or restricted. Full Disk Access can improve coverage, but cleanup still remains local and review-driven.")
                 .foregroundStyle(.secondary)
+            Button {
+                PathActions.openFullDiskAccessSettings()
+            } label: {
+                Label("Open Full Disk Access Settings", systemImage: "lock.shield")
+            }
+            .help("Open macOS Privacy & Security settings for Full Disk Access")
             ForEach(blocked.prefix(6)) { scope in
                 Text("\(scope.permissionState.rawValue): \(scope.name) - \(scope.message)")
                     .font(.caption)
@@ -713,6 +719,14 @@ enum PathActions {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "Terminal", target]
         try? process.run()
+        #endif
+    }
+
+    static func openFullDiskAccessSettings() {
+        #if os(macOS)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+            NSWorkspace.shared.open(url)
+        }
         #endif
     }
 }
