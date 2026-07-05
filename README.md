@@ -42,6 +42,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
+- read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
 - native-tool command preview receipts for Docker/Colima/Homebrew/package-manager cleanup
 - Xcode DerivedData and developer cache review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
@@ -90,6 +91,7 @@ swift run --scratch-path .build reclaimer scan --review large --large-threshold 
 swift run --scratch-path .build reclaimer duplicates --path ~/Downloads --min-size 10000000
 swift run --scratch-path .build reclaimer apps --min-size 10000000
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
+swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
 swift run --scratch-path .build reclaimer plan --json
 swift run --scratch-path .build reclaimer explain ~/.codex
 swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Caches/Codex
@@ -152,6 +154,16 @@ swift run --scratch-path .build reclaimer native --json --path ~/.colima
 ```
 
 The report is a preview receipt: command, purpose, risk, expected effect, and non-claims. It can be saved with `--save-audit`, but Ryddi does not run these commands automatically and does not raw-delete VM disks, volumes, or package stores.
+
+## Container Inventory
+
+For Docker and Colima, Ryddi can also run read-only inspection commands:
+
+```bash
+swift run --scratch-path .build reclaimer containers --json --timeout 5 --save-audit
+```
+
+This records Docker storage buckets, images, containers, volumes, contexts, Colima profiles, command exit states, and missing/not-running tool states. It does not run prune, delete, stop, reset, or raw VM-disk commands.
 
 ## Repository Layout
 

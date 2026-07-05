@@ -111,7 +111,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Duplicate finder | Common suite feature | Experimental review-only slice | Keep local hashing explicit and bounded. No smart selection, no automatic deletion, no Photos/Music/iCloud duplicate management. |
 | App uninstaller | Common suite/app-cleaner feature | Review-only Apps & Leftovers slice | Keep app inventory/support/orphan review separate from cleanup plans. Actual uninstall, bulk deletion, and smart leftover deletion remain future work. |
 | Developer cache packs | Ryddi beachhead | Partial | Go deeper on Xcode, SwiftPM, node_modules, JetBrains, VS Code, Android/Flutter, Docker/Colima. |
-| Docker/Colima cleanup | Risky but important for target user | Exists/partial | Native-tool preview receipts now describe inspect/prune/reset commands, risk, and non-claims. Future work is command execution under explicit user control with before/after receipts. Never raw-delete VM disks automatically. |
+| Docker/Colima cleanup | Risky but important for target user | Exists/partial | Native-tool preview receipts describe inspect/prune/reset commands, risk, and non-claims; read-only inventory now adds Docker storage buckets, objects, Colima profiles, and command outcomes. Future work is explicit user-controlled native cleanup with before/after receipts. Never raw-delete VM disks automatically. |
 | Codex/AI-agent cleanup | Ryddi-specific differentiator | Partial | Keep sessions/memories/config protected. Classify cache/tmp/logs separately from valuable transcripts. |
 | Scheduled maintenance | Expected from automation tools | Partial | LaunchAgent should report first. Only allow unattended cleanup for explicit allowlisted classes. |
 | Menu bar/status item | Common in Sensei/Cleaner One/BuhoCleaner | Exists/partial | Disk-pressure status and report-only scan controls exist; reminders/notifications remain future work. |
@@ -148,7 +148,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 ### Developer/AI Niche
 
 1. Codex rule pack: cache/tmp/logs as reclaimable; sessions/transcripts as valuable review; auth/config/memories/state as never-touch.
-2. Container rule pack: Docker/Colima inventory, volumes/images/build cache, native prune guidance, VM disk warnings. First preview receipts exist; future work should add richer live inventory and explicit before/after native command receipts.
+2. Container rule pack: Docker/Colima inventory, volumes/images/build cache, native prune guidance, VM disk warnings. First preview receipts and read-only live inventory exist; future work should add explicit before/after native command receipts under user control.
 3. Xcode rule pack: DerivedData, ModuleCache, DeviceSupport, Archives, simulator logs, old runtimes with version/age gates.
 4. Package manager rule packs: Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM.
 5. IDE/mobile packs: JetBrains, VS Code/Cursor/Windsurf, Android Studio/Gradle, Flutter, Playwright browsers.

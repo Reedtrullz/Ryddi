@@ -32,6 +32,8 @@ struct ReclaimerCLI {
             try apps(args: args)
         case "native":
             try native(args: args)
+        case "containers":
+            try containers(args: args)
         case "scan":
             try scan(args: args)
         case "plan":
@@ -180,6 +182,20 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printNativeToolReport(report, options: options)
+        }
+    }
+
+    static func containers(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let report = ContainerInventoryScanner(timeout: options.timeoutSeconds).inspect()
+        if options.saveAudit {
+            let url = try AuditStore().save(containerInventoryReport: report)
+            FileHandle.standardError.write(Data("saved container inventory report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printContainerInventoryReport(report, options: options)
         }
     }
 
@@ -342,6 +358,7 @@ struct ReclaimerCLI {
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
               native [--json] [--path PATH ...] [--limit N] [--save-audit]
+              containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
               plan [--json] [--path PATH ...] [--review-all] [--save-audit]
               explain PATH [--json]
               execute --dry-run [--json] [--path PATH ...] [--save-audit]
@@ -391,6 +408,10 @@ struct ParsedOptions {
     var largeThreshold: Int64 { Int64(value(after: "--large-threshold") ?? "") ?? 5_000_000_000 }
     var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
     var maxFilesToHash: Int { max(1, Int(value(after: "--max-files") ?? "") ?? 5_000) }
+    var timeoutSeconds: TimeInterval {
+        let value = Double(value(after: "--timeout") ?? "") ?? 5
+        return max(1, min(value, 60))
+    }
 
     func values(after flag: String) -> [String] {
         var values: [String] = []
@@ -828,6 +849,91 @@ func printNativeToolReport(_ report: NativeToolReport, options: ParsedOptions) {
         for note in report.nonClaims {
             print("- \(note)")
         }
+    }
+}
+
+func printContainerInventoryReport(_ report: ContainerInventoryReport, options: ParsedOptions) {
+    print("Container inventory \(report.id)")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Docker: \(report.docker.status.state.label) - \(report.docker.status.message)")
+    if let reclaimable = report.dockerReclaimableBytes {
+        print("Docker native reclaimable estimate: \(ByteFormat.string(reclaimable))")
+    }
+
+    if !report.docker.storage.isEmpty {
+        print("\nDocker storage")
+        print("\(pad("Type", 16)) \(pad("Total", 8)) \(pad("Active", 8)) \(pad("Size", 12)) Reclaimable")
+        for bucket in report.docker.storage {
+            print("\(pad(bucket.type, 16)) \(pad(bucket.total.map(String.init) ?? "-", 8)) \(pad(bucket.active.map(String.init) ?? "-", 8)) \(pad(bucket.sizeText, 12)) \(bucket.reclaimableText)")
+        }
+    }
+
+    if !report.docker.contexts.isEmpty {
+        print("\nDocker contexts")
+        for context in report.docker.contexts.prefix(options.limit) {
+            let current = context.isCurrent ? "current" : "available"
+            print("- \(context.name) (\(current)) \(context.endpoint ?? "")")
+        }
+    }
+
+    if !report.docker.containers.isEmpty {
+        print("\nDocker containers")
+        for container in report.docker.containers.prefix(options.limit) {
+            print("- \(container.name) \(container.status) \(container.sizeText)")
+        }
+    }
+
+    if !report.docker.images.isEmpty {
+        print("\nDocker images")
+        for image in report.docker.images.prefix(options.limit) {
+            print("- \(image.repository):\(image.tag) \(image.sizeText)")
+        }
+    }
+
+    if !report.docker.volumes.isEmpty {
+        print("\nDocker volumes")
+        for volume in report.docker.volumes.prefix(options.limit) {
+            print("- \(volume.name) \(volume.driver) \(volume.scope)")
+        }
+    }
+
+    print("\nColima: \(report.colima.status.state.label) - \(report.colima.status.message)")
+    if !report.colima.profiles.isEmpty {
+        print("\nColima profiles")
+        for profile in report.colima.profiles.prefix(options.limit) {
+            let details = [
+                profile.status,
+                profile.runtime,
+                profile.architecture,
+                profile.cpu.map { "\($0) CPU" },
+                profile.memory,
+                profile.disk
+            ]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+            print("- \(profile.name): \(details)")
+        }
+    }
+
+    print("\nRead-only commands")
+    for command in (report.docker.commands + report.colima.commands).prefix(options.limit) {
+        let code = command.exitCode.map { "\($0)" } ?? "-"
+        print("- [\(command.status), exit \(code)] \(command.command)")
+        if let error = command.launchError {
+            print("  \(error)")
+        } else if let stderr = command.stderrPreview.first {
+            print("  \(stderr)")
+        }
+    }
+
+    print("\nNotes")
+    for note in report.notes {
+        print("- \(note)")
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
     }
 }
 

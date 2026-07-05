@@ -25,6 +25,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Reclaim safely | Use Trash for uncertain/user-visible data, direct delete only for allowlisted caches, compression only for cold files, holding area for reversible moves, with app confirmation before execution. | `ReclaimerExecutor`, app Reclaim confirmation |
 | Restore held items | Store holding metadata so held items can be listed, restored, or expired after review. | `HoldingStore`, `reclaimer holding`, app Holding Area |
 | Prefer native cleanup | Report Docker/Colima/package-manager cleanup as preview-only native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims rather than deleting stores directly. | `NativeToolGuidance`, `reclaimer native`, app native receipt preview |
+| Inventory containers | Run bounded read-only Docker/Colima inspection commands and record storage buckets, images, containers, volumes, profiles, missing/not-running states, and command outcomes. | `ContainerInventoryScanner`, `reclaimer containers`, app Container Inventory |
 | Automate conservatively | Scheduled job writes report plans only; unattended destructive cleanup is not enabled in v1. | `LaunchAgentManager`, `ReclaimerAgent`, `schedule install` |
 | Keep local audit trail | Save plans and receipts under Application Support with local-only JSON. | `AuditStore`, app Audit History |
 | Package for direct distribution | Build an unsigned developer preview or signed app bundle, verify release-shaped artifacts, create checksum/manifest output, and leave notarization as an explicit credentialed step. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, release-preview workflow |
@@ -37,6 +38,7 @@ Included:
 - Codex storage policy: caches/temp/logs versus sessions/state/credentials.
 - Docker/Colima reporting and native cleanup guidance.
 - Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, with no automatic command execution.
+- Read-only Docker/Colima live inventory for native storage estimates and profile/object context.
 - Xcode and package-manager cache classification.
 - SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter developer cache review.
 - Proportional visual map by category.
@@ -78,6 +80,7 @@ Deferred:
 - `reclaimer duplicates --path FIXTURE --min-size 1` groups same-content regular files, skips protected paths, and emits review-only `openGuidance` candidates.
 - `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1` reports installed app support files and orphan candidates without creating plan items.
 - `reclaimer native --path FIXTURE --json` emits preview-only native-tool receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
+- `reclaimer containers --json --timeout 2` emits a read-only Docker/Colima inventory, classifies missing versus not-running tools, and never emits prune/delete/stop/reset commands.
 - Visual map accounting does not double-count nested directory findings.
 - Large/old file signals remain review-only and are not selected by an auto-safe plan.
 - Duplicate review findings remain outside `PlanBuilder` and `ReclaimerExecutor`.

@@ -56,6 +56,7 @@ fi
 echo "==> Smoke testing bundled CLI"
 "$app/Contents/MacOS/reclaimer" status --json >"$scratch/status-smoke.json"
 "$app/Contents/MacOS/reclaimer" overview --path "$root/Tests" --limit 5 >"$scratch/overview-smoke.txt"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" containers --json --timeout 2 --save-audit >"$scratch/containers-smoke.json"
 
 echo "==> Checking code signing state"
 signing_state="unsigned developer preview"
@@ -105,6 +106,7 @@ Verification performed:
 - bundle executable/resource checks
 - bundled reclaimer status --json
 - bundled reclaimer overview --path Tests --limit 5
+- bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
 - codesign verification when CODESIGN_IDENTITY is set
 - zip artifact and SHA-256 checksum generation
 

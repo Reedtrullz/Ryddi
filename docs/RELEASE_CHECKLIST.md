@@ -19,6 +19,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
 - [ ] `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` reports installed app support files and orphan candidates without emitting a cleanup plan.
 - [ ] `reclaimer native --path FIXTURE --json --save-audit` emits preview-only native-tool receipts and saves a local audit record without executing native cleanup commands.
+- [ ] `reclaimer containers --json --timeout 2 --save-audit` emits a read-only Docker/Colima inventory, saves a local audit record, and does not execute prune/delete/stop/reset commands.
 - [ ] App Visual Map and Growth History render without changing reclaim gates.
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App Apps & Leftovers review scans bounded app roots and does not enable Reclaim or modify the dry-run plan.
@@ -46,4 +47,5 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say duplicate review uses local hashes and does not automatically select or delete duplicates.
 - [ ] Release notes say Apps & Leftovers is review-only and does not uninstall apps or delete app support files.
 - [ ] Release notes say native-tool reports are preview-only and do not run Docker/Colima/Homebrew/package-manager cleanup commands automatically.
+- [ ] Release notes say container inventory runs read-only inspection commands only.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

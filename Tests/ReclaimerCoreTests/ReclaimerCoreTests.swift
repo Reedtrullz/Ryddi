@@ -519,6 +519,116 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(receipt.actions.isEmpty)
     }
 
+    func testContainerInventoryParsesDockerAndColimaReadOnlyOutput() throws {
+        let runner = FakeToolRunner(outputs: [
+            fakeOutput(
+                "docker",
+                ["system", "df"],
+                stdout: """
+                TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+                Images          7         2         5.694GB   5.151GB (90%)
+                Containers      5         0         257.6MB   257.6MB (100%)
+                Local Volumes   4         1         455MB     123MB (27%)
+                Build Cache     140       0         11.55GB   11.55GB
+                """
+            ),
+            fakeOutput(
+                "docker",
+                ["context", "ls"],
+                stdout: """
+                NAME        DESCRIPTION                               DOCKER ENDPOINT
+                default *   Current DOCKER_HOST based configuration   unix:///var/run/docker.sock
+                """
+            ),
+            fakeOutput(
+                "docker",
+                ["ps", "-a", "--size", "--format", "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Size}}"],
+                stdout: "abc123\tpostgres\tExited (0) 2 days ago\t12.3MB (virtual 400MB)\n"
+            ),
+            fakeOutput(
+                "docker",
+                ["images", "--format", "{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"],
+                stdout: "postgres\t16\timg123\t432MB\n"
+            ),
+            fakeOutput(
+                "docker",
+                ["volume", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Scope}}"],
+                stdout: "db-data\tlocal\tlocal\n"
+            ),
+            fakeOutput(
+                "colima",
+                ["list", "--json"],
+                stdout: """
+                [
+                  {"name":"default","status":"Running","runtime":"docker","arch":"aarch64","cpus":4,"memory":"8GiB","disk":"100GiB"}
+                ]
+                """
+            )
+        ])
+
+        let report = ContainerInventoryScanner(runner: runner, timeout: 1).inspect()
+
+        XCTAssertEqual(report.docker.status.state, .available)
+        XCTAssertEqual(report.docker.storage.first { $0.type == "Images" }?.reclaimableBytes, 5_151_000_000)
+        XCTAssertEqual(report.docker.containers.first?.name, "postgres")
+        XCTAssertEqual(report.docker.images.first?.repository, "postgres")
+        XCTAssertEqual(report.docker.volumes.first?.name, "db-data")
+        XCTAssertEqual(report.colima.status.state, .available)
+        XCTAssertEqual(report.colima.profiles.first?.name, "default")
+        XCTAssertEqual(report.colima.profiles.first?.cpu, "4")
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("No prune") })
+        XCTAssertTrue(runner.commands.allSatisfy { command in
+            !command.contains("prune") && !command.contains("delete") && !command.contains("stop") && !command.contains("reset")
+        })
+    }
+
+    func testContainerInventoryHandlesMissingToolsWithoutExtraFanout() throws {
+        let runner = FakeToolRunner(outputs: [
+            fakeOutput(
+                "docker",
+                ["system", "df"],
+                exitCode: 127,
+                stderr: "/usr/bin/env: docker: No such file or directory\n"
+            ),
+            fakeOutput(
+                "colima",
+                ["list", "--json"],
+                exitCode: 127,
+                stderr: "/usr/bin/env: colima: No such file or directory\n"
+            )
+        ])
+
+        let report = ContainerInventoryScanner(runner: runner, timeout: 1).inspect()
+
+        XCTAssertEqual(report.docker.status.state, .missing)
+        XCTAssertEqual(report.colima.status.state, .missing)
+        XCTAssertEqual(runner.commands, ["docker system df", "colima list --json"])
+        XCTAssertTrue(report.docker.commands.allSatisfy { $0.command == "docker system df" })
+        XCTAssertTrue(report.colima.commands.allSatisfy { $0.command == "colima list --json" })
+    }
+
+    func testContainerInventoryClassifiesDockerSocketFailureAsNotRunning() throws {
+        let runner = FakeToolRunner(outputs: [
+            fakeOutput(
+                "docker",
+                ["system", "df"],
+                exitCode: 1,
+                stderr: "failed to connect to the docker API at unix:///var/run/docker.sock: dial unix /var/run/docker.sock: connect: no such file or directory\n"
+            ),
+            fakeOutput(
+                "colima",
+                ["list", "--json"],
+                stdout: "[]"
+            )
+        ])
+
+        let report = ContainerInventoryScanner(runner: runner, timeout: 1).inspect()
+
+        XCTAssertEqual(report.docker.status.state, .notRunning)
+        XCTAssertEqual(report.colima.status.state, .available)
+        XCTAssertEqual(runner.commands, ["docker system df", "colima list --json"])
+    }
+
     func testPlanBuilderSelectsOnlyAutoSafeClosedFindings() throws {
         let open = finding(path: tempRoot.appendingPathComponent("Library/Caches/Codex/open").path, safety: .autoSafe, action: .deleteCache, open: true)
         let closed = finding(path: tempRoot.appendingPathComponent("Library/Caches/Codex/closed").path, safety: .autoSafe, action: .deleteCache, open: false)
@@ -787,14 +897,67 @@ final class ReclaimerCoreTests: XCTestCase {
             ],
             ruleVersion: "test"
         )
+        let containerReport = ContainerInventoryScanner(
+            runner: FakeToolRunner(
+                outputs: [
+                    fakeOutput("docker", ["system", "df"], exitCode: 127, stderr: "docker: not found"),
+                    fakeOutput("colima", ["list", "--json"], exitCode: 127, stderr: "colima: not found")
+                ]
+            ),
+            timeout: 1
+        ).inspect()
 
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
         _ = try store.save(nativeToolReport: nativeReport)
+        _ = try store.save(containerInventoryReport: containerReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.recentReceipts().first?.id, receipt.id)
         XCTAssertEqual(store.recentNativeToolReports().first?.id, nativeReport.id)
+        XCTAssertEqual(store.recentContainerInventoryReports().first?.id, containerReport.id)
+    }
+
+    private final class FakeToolRunner: ToolCommandRunning, @unchecked Sendable {
+        private let lock = NSLock()
+        private let outputs: [String: ToolCommandOutput]
+        private var recordedCommands: [String] = []
+
+        init(outputs: [ToolCommandOutput]) {
+            self.outputs = Dictionary(uniqueKeysWithValues: outputs.map { ($0.invocation.displayCommand, $0) })
+        }
+
+        var commands: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedCommands
+        }
+
+        func run(_ invocation: ToolCommandInvocation, timeout: TimeInterval) -> ToolCommandOutput {
+            lock.lock()
+            recordedCommands.append(invocation.displayCommand)
+            lock.unlock()
+            return outputs[invocation.displayCommand] ?? ToolCommandOutput(
+                invocation: invocation,
+                exitCode: 1,
+                stderr: "unexpected fake command: \(invocation.displayCommand)"
+            )
+        }
+    }
+
+    private func fakeOutput(
+        _ executable: String,
+        _ arguments: [String],
+        exitCode: Int32 = 0,
+        stdout: String = "",
+        stderr: String = ""
+    ) -> ToolCommandOutput {
+        ToolCommandOutput(
+            invocation: ToolCommandInvocation(executable: executable, arguments: arguments),
+            exitCode: exitCode,
+            stdout: stdout,
+            stderr: stderr
+        )
     }
 
     private func finding(

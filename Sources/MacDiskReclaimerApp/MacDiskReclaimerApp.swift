@@ -41,6 +41,8 @@ struct DashboardView: View {
                 AppReviewView(model: model)
             } else if selectedSection == "Duplicates" {
                 DuplicateReviewView(model: model)
+            } else if selectedSection == "Containers" {
+                ContainerInventoryView(model: model)
             } else if selectedSection == "Audit" {
                 AuditHistoryView(model: model)
             } else if selectedSection == "Holding" {
@@ -115,6 +117,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Duplicates"
                 }
+                Button("Container Inventory") {
+                    selectedFinding = nil
+                    selectedSection = "Containers"
+                }
                 Button("Audit History") {
                     selectedFinding = nil
                     selectedSection = "Audit"
@@ -179,6 +185,7 @@ struct OverviewView: View {
                 MetricTile(title: "Snapshots", value: "\(model.scanSnapshots.count)")
                 MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
                 MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
+                MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
             }
 
             if let overview = model.overview {
@@ -236,6 +243,7 @@ struct CapabilityMatrixView: View {
         ("Explain every item", "Finding detail shows owner hints, rule matches, evidence, recovery, and conditions."),
         ("Review duplicates", "Local content hashes group identical regular files as manual review signals, never cleanup actions."),
         ("Review apps & leftovers", "Installed app support files and orphan candidates are surfaced as guidance, not uninstall actions."),
+        ("Inventory containers", "Read-only Docker and Colima inspection records images, volumes, build cache estimates, profiles, and command outcomes."),
         ("Protect active files", "Plan/executor run open-file checks and skip active paths."),
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
@@ -303,9 +311,186 @@ struct AuditHistoryView: View {
                         }
                     }
                 }
+
+                SectionBox(title: "Container Inventory Reports") {
+                    if model.recentContainerInventoryReports.isEmpty {
+                        Text("No container inventory reports yet.")
+                    } else {
+                        ForEach(model.recentContainerInventoryReports) { report in
+                            let reclaim = report.dockerReclaimableBytes.map(ByteFormat.string) ?? "unknown reclaim"
+                            Text("\(report.createdAt.formatted()) - Docker \(report.docker.status.state.label), Colima \(report.colima.status.state.label) - \(reclaim)")
+                        }
+                    }
+                }
             }
             .padding(24)
         }
+    }
+}
+
+struct ContainerInventoryView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Container Inventory")
+                            .font(.largeTitle.bold())
+                        Text("Read-only Docker and Colima inspection for VM, image, volume, and build-cache decisions.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.inspectContainers() }
+                    } label: {
+                        Label("Inspect", systemImage: "shippingbox")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                if model.isWorking {
+                    ProgressView("Inspecting containers...")
+                }
+
+                if let report = model.containerInventory {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Docker", value: report.docker.status.state.label)
+                        MetricTile(title: "Reclaim estimate", value: report.dockerReclaimableBytes.map(ByteFormat.string) ?? "Unknown")
+                        MetricTile(title: "Images", value: "\(report.docker.images.count)")
+                        MetricTile(title: "Volumes", value: "\(report.docker.volumes.count)")
+                        MetricTile(title: "Colima profiles", value: "\(report.colima.profiles.count)")
+                    }
+
+                    SectionBox(title: "Docker Storage") {
+                        Text(report.docker.status.message)
+                            .foregroundStyle(.secondary)
+                        if report.docker.storage.isEmpty {
+                            Text("No Docker storage rows were available.")
+                        } else {
+                            ForEach(report.docker.storage) { bucket in
+                                HStack {
+                                    Text(bucket.type)
+                                        .frame(width: 130, alignment: .leading)
+                                    Text(bucket.sizeText)
+                                        .frame(width: 92, alignment: .leading)
+                                    Text(bucket.reclaimableText)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                }
+                                .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Docker Objects") {
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Containers").font(.headline)
+                                if report.docker.containers.isEmpty {
+                                    Text("No containers reported.").foregroundStyle(.secondary)
+                                } else {
+                                    ForEach(report.docker.containers.prefix(8)) { container in
+                                        Text("\(container.name) - \(container.status) - \(container.sizeText)")
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Images").font(.headline)
+                                if report.docker.images.isEmpty {
+                                    Text("No images reported.").foregroundStyle(.secondary)
+                                } else {
+                                    ForEach(report.docker.images.prefix(8)) { image in
+                                        Text("\(image.repository):\(image.tag) - \(image.sizeText)")
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Volumes").font(.headline)
+                                if report.docker.volumes.isEmpty {
+                                    Text("No volumes reported.").foregroundStyle(.secondary)
+                                } else {
+                                    ForEach(report.docker.volumes.prefix(8)) { volume in
+                                        Text("\(volume.name) - \(volume.driver)")
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Colima Profiles") {
+                        Text(report.colima.status.message)
+                            .foregroundStyle(.secondary)
+                        if report.colima.profiles.isEmpty {
+                            Text("No Colima profiles were reported.")
+                        } else {
+                            ForEach(report.colima.profiles) { profile in
+                                let details = [
+                                    profile.status,
+                                    profile.runtime,
+                                    profile.architecture,
+                                    profile.cpu.map { "\($0) CPU" },
+                                    profile.memory,
+                                    profile.disk
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: ", ")
+                                Text("\(profile.name): \(details)")
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Read-only Command Outcomes") {
+                        ForEach((report.docker.commands + report.colima.commands), id: \.id) { command in
+                            CommandOutcomeRow(command: command)
+                        }
+                    }
+
+                    SectionBox(title: "Non-claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text("• \(note)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No container inventory yet", systemImage: "shippingbox", description: Text("Run Inspect to collect read-only Docker and Colima status."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct CommandOutcomeRow: View {
+    let command: ToolCommandSnapshot
+
+    var body: some View {
+        let exitText = command.exitCode.map { String($0) } ?? "-"
+        VStack(alignment: .leading, spacing: 3) {
+            Text(command.command)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+            Text(command.status + " - exit " + exitText)
+                .font(.caption)
+                .foregroundStyle(command.status == "ok" ? Color.secondary : Color.orange)
+            if let error = command.launchError {
+                Text(error)
+                    .foregroundStyle(.secondary)
+            } else if let stderr = command.stderrPreview.first {
+                Text(stderr)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 3)
     }
 }
 
@@ -1495,9 +1680,11 @@ final class DashboardModel {
     var recentPlans: [ReclaimPlan] = []
     var recentReceipts: [ExecutionReceipt] = []
     var recentNativeToolReports: [NativeToolReport] = []
+    var recentContainerInventoryReports: [ContainerInventoryReport] = []
     var heldItems: [HeldItem] = []
     var duplicateReview: DuplicateReview?
     var appReview: AppReviewReport?
+    var containerInventory: ContainerInventoryReport?
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
@@ -1671,6 +1858,7 @@ final class DashboardModel {
         recentPlans = store.recentPlans()
         recentReceipts = store.recentReceipts()
         recentNativeToolReports = store.recentNativeToolReports()
+        recentContainerInventoryReports = store.recentContainerInventoryReports()
     }
 
     func loadHolding() {
@@ -1721,6 +1909,22 @@ final class DashboardModel {
                     )
                 )
             }.value
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func inspectContainers() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = await Task.detached {
+                ContainerInventoryScanner().inspect()
+            }.value
+            containerInventory = report
+            _ = try AuditStore().save(containerInventoryReport: report)
+            loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
