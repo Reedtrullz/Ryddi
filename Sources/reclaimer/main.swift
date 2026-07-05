@@ -26,6 +26,8 @@ struct ReclaimerCLI {
             try history(args: args)
         case "duplicates":
             try duplicates(args: args)
+        case "apps":
+            try apps(args: args)
         case "scan":
             try scan(args: args)
         case "plan":
@@ -137,6 +139,16 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printDuplicateReview(report, options: options)
+        }
+    }
+
+    static func apps(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let report = try AppReviewScanner().scan(options: options.appReviewOptions)
+        if options.json {
+            printJSON(report)
+        } else {
+            printAppReview(report, options: options)
         }
     }
 
@@ -295,6 +307,8 @@ struct ReclaimerCLI {
               history diff [--json] [--group category|safety|scope] [--limit N]
               duplicates [--json] --path PATH ... [--min-size BYTES] [--max-depth N] [--limit N]
                          [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
+              apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
+                   [--include-system-apps] [--no-orphans] [--show-excluded]
               plan [--json] [--path PATH ...] [--review-all] [--save-audit]
               explain PATH [--json]
               execute --dry-run [--json] [--path PATH ...] [--save-audit]
@@ -332,6 +346,8 @@ struct ParsedOptions {
     var hasPath: Bool { !values(after: "--path").isEmpty }
     var includePreserve: Bool { args.contains("--include-preserve") }
     var showExcluded: Bool { args.contains("--show-excluded") }
+    var includeSystemApps: Bool { args.contains("--include-system-apps") }
+    var includeOrphans: Bool { !args.contains("--no-orphans") }
     var hour: Int { Int(value(after: "--hour") ?? "") ?? 9 }
     var minute: Int { Int(value(after: "--minute") ?? "") ?? 30 }
     var limit: Int { max(1, Int(value(after: "--limit") ?? "") ?? 80) }
@@ -395,6 +411,20 @@ struct ParsedOptions {
             maximumFilesToHash: maxFilesToHash,
             includeHidden: !args.contains("--skip-hidden"),
             includePreserveByDefault: includePreserve
+        )
+    }
+
+    var appReviewOptions: AppReviewOptions {
+        let minSize = Int64(value(after: "--min-size") ?? "") ?? 1_000_000
+        let home = value(after: "--home").map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let roots = values(after: "--path").map { URL(fileURLWithPath: $0).standardizedFileURL }
+        return AppReviewOptions(
+            appRoots: roots.isEmpty ? nil : roots,
+            home: home,
+            includeSystemApplications: includeSystemApps,
+            includeOrphanCandidates: includeOrphans,
+            minimumRelatedSize: minSize
         )
     }
 
@@ -620,6 +650,68 @@ func printDuplicateReview(_ report: DuplicateReview, options: ParsedOptions) {
         if report.skipped.count > options.limit {
             print("... \(report.skipped.count - options.limit) more skipped item(s)")
         }
+    }
+}
+
+func printAppReview(_ report: AppReviewReport, options: ParsedOptions) {
+    print("Ryddi apps & leftovers review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("App roots: \(report.appRoots.count)")
+    print("Installed apps: \(report.installedApps.count)")
+    print("Installed app groups: \(report.installedAppGroups.count)")
+    print("Orphan candidate groups: \(report.orphanGroups.count)")
+    print("Review bytes: \(ByteFormat.string(report.reviewBytes))")
+    print("\nNotes")
+    for note in report.notes {
+        print("- \(note)")
+    }
+
+    print("\nInstalled apps with related files")
+    if report.installedAppGroups.isEmpty {
+        print("No installed-app related files matched the current size threshold.")
+    } else {
+        printAppGroups(report.installedAppGroups, options: options)
+    }
+
+    print("\nOrphan candidates")
+    if report.orphanGroups.isEmpty {
+        print("No orphan candidate groups matched the current options.")
+    } else {
+        printAppGroups(report.orphanGroups, options: options)
+    }
+
+    if options.showExcluded, !report.skipped.isEmpty {
+        print("\nExcluded or skipped")
+        for line in report.skipped.prefix(options.limit) {
+            print("- \(line)")
+        }
+        if report.skipped.count > options.limit {
+            print("... \(report.skipped.count - options.limit) more skipped item(s)")
+        }
+    }
+}
+
+func printAppGroups(_ groups: [AppReviewGroup], options: ParsedOptions) {
+    print("\(pad("Bytes", 12)) \(pad("Items", 7)) \(pad("Safety", 22)) \(pad("Owner", 28)) Identifier")
+    for group in groups.prefix(options.limit) {
+        let identifier = group.bundleIdentifier ?? group.id
+        print("\(pad(ByteFormat.string(group.totalAllocatedSize), 12)) \(pad("\(group.items.count)", 7)) \(pad(group.highestRiskClass.label, 22)) \(pad(group.ownerName, 28)) \(identifier)")
+        if let appPath = group.appPath {
+            print("  app: \(appPath)")
+        }
+        for item in group.items.prefix(6) {
+            let modified = item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "-"
+            print("  - \(ByteFormat.string(item.allocatedSize)) \(item.safetyClass.label) \(item.category) \(modified) \(item.path)")
+        }
+        if group.items.count > 6 {
+            print("  ... \(group.items.count - 6) more item(s)")
+        }
+        for note in group.notes.prefix(1) {
+            print("  note: \(note)")
+        }
+    }
+    if groups.count > options.limit {
+        print("... \(groups.count - options.limit) more app group(s)")
     }
 }
 

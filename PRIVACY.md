@@ -14,6 +14,8 @@ Ryddi reads filesystem metadata such as path, file type, size, allocated size, m
 
 Duplicate review is different from normal metadata scanning: it reads regular file bytes to compute local SHA-256 content hashes for same-size candidates. File contents are not stored, uploaded, or sent to any remote service. The duplicate CLI requires explicit `--path` roots, and preserve-by-default files are excluded unless the user explicitly opts into that review.
 
+Apps & Leftovers review reads installed app bundle metadata from local `Info.plist` files and checks common user Library locations for related support files, caches, logs, preferences, containers, launch agents, and heuristic orphan candidates. It does not upload app inventory or uninstall apps.
+
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
 ## What Ryddi Writes
@@ -30,7 +32,7 @@ Uncertain user-visible data should go to Trash or the app-managed holding area. 
 
 ## What Ryddi Should Never Touch Automatically
 
-Ryddi should never automatically remove credentials, secrets, configs, app state databases, browser profiles, user documents, Photos or Music libraries, GarageBand or Logic assets, Codex memories, Codex sessions, VM/container disks, or unknown app-managed state.
+Ryddi should never automatically remove credentials, secrets, configs, app state databases, browser profiles, user documents, Photos or Music libraries, GarageBand or Logic assets, Codex memories, Codex sessions, VM/container disks, installed app bundles, app support data, or unknown app-managed state.
 
 ## Telemetry
 

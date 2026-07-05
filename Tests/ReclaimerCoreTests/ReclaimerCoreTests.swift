@@ -321,6 +321,76 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(group.files.allSatisfy { $0.safetyClass == .preserveByDefault })
     }
 
+    func testAppReviewFindsInstalledAppRelatedFiles() throws {
+        let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
+        let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
+        try createAppBundle(
+            at: appRoot.appendingPathComponent("Fixture.app", isDirectory: true),
+            bundleIdentifier: "com.example.fixture",
+            displayName: "Fixture"
+        )
+        let cache = home.appendingPathComponent("Library/Caches/com.example.fixture/cache.bin")
+        let preferences = home.appendingPathComponent("Library/Preferences/com.example.fixture.plist")
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: preferences.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 512).write(to: cache)
+        try Data(repeating: 2, count: 512).write(to: preferences)
+
+        let report = try AppReviewScanner().scan(
+            options: AppReviewOptions(
+                appRoots: [appRoot],
+                home: home,
+                minimumRelatedSize: 1,
+                measurementDepth: 2
+            )
+        )
+
+        XCTAssertEqual(report.installedApps.map(\.bundleIdentifier), ["com.example.fixture"])
+        let group = try XCTUnwrap(report.installedAppGroups.first)
+        XCTAssertEqual(group.ownerName, "Fixture")
+        XCTAssertTrue(group.isInstalled)
+        XCTAssertTrue(group.items.contains { $0.category == "App cache" && $0.safetyClass == .safeAfterCondition && $0.actionKind == .openGuidance })
+        XCTAssertTrue(group.items.contains { $0.category == "App preferences" && $0.safetyClass == .preserveByDefault && $0.actionKind == .reportOnly })
+    }
+
+    func testAppReviewSurfacesOrphanCandidatesAsReviewOnly() throws {
+        let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
+        let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
+        try FileManager.default.createDirectory(at: appRoot, withIntermediateDirectories: true)
+        let orphanCache = home.appendingPathComponent("Library/Caches/com.example.removed/blob")
+        try FileManager.default.createDirectory(at: orphanCache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 3, count: 512).write(to: orphanCache)
+
+        let report = try AppReviewScanner().scan(
+            options: AppReviewOptions(
+                appRoots: [appRoot],
+                home: home,
+                includeOrphanCandidates: true,
+                minimumRelatedSize: 1,
+                measurementDepth: 2
+            )
+        )
+
+        XCTAssertTrue(report.installedApps.isEmpty)
+        let orphan = try XCTUnwrap(report.orphanGroups.first)
+        XCTAssertFalse(orphan.isInstalled)
+        XCTAssertEqual(orphan.bundleIdentifier, "com.example.removed")
+        XCTAssertEqual(orphan.items.first?.safetyClass, .reviewRequired)
+        XCTAssertEqual(orphan.items.first?.actionKind, .openGuidance)
+
+        let finding = finding(
+            path: orphan.items[0].path,
+            safety: orphan.items[0].safetyClass,
+            action: orphan.items[0].actionKind,
+            open: false,
+            allocatedSize: orphan.items[0].allocatedSize,
+            isDirectory: orphan.items[0].isDirectory,
+            category: orphan.items[0].category
+        )
+        let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: [finding], mode: .autoSafeOnly)
+        XCTAssertFalse(plan.items.first?.selected ?? true)
+    }
+
     func testExpandedDeveloperRulesStayConservative() throws {
         let engine = try RuleEngine.bundled()
 
@@ -647,6 +717,20 @@ final class ReclaimerCoreTests: XCTestCase {
             evidence: matches.flatMap { $0.evidence.map { Evidence(kind: "fixture", message: $0) } },
             openFileStatus: OpenFileStatus(isOpen: open, processSummary: open ? ["fixture"] : [])
         )
+    }
+
+    private func createAppBundle(at url: URL, bundleIdentifier: String, displayName: String) throws {
+        let contents = url.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let info: [String: Any] = [
+            "CFBundleIdentifier": bundleIdentifier,
+            "CFBundleDisplayName": displayName,
+            "CFBundleName": displayName,
+            "CFBundleShortVersionString": "1.0",
+            "CFBundleExecutable": displayName
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+        try data.write(to: contents.appendingPathComponent("Info.plist"))
     }
 
     private func snapshot(

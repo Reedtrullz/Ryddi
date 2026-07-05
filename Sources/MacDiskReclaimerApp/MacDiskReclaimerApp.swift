@@ -29,6 +29,8 @@ struct DashboardView: View {
         } detail: {
             if selectedSection == "Features" {
                 CapabilityMatrixView()
+            } else if selectedSection == "Apps" {
+                AppReviewView(model: model)
             } else if selectedSection == "Duplicates" {
                 DuplicateReviewView(model: model)
             } else if selectedSection == "Audit" {
@@ -97,6 +99,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Features"
                 }
+                Button("Apps & Leftovers") {
+                    selectedFinding = nil
+                    selectedSection = "Apps"
+                }
                 Button("Duplicate Review") {
                     selectedFinding = nil
                     selectedSection = "Duplicates"
@@ -164,6 +170,7 @@ struct OverviewView: View {
                 MetricTile(title: "Audit receipts", value: "\(model.recentReceipts.count)")
                 MetricTile(title: "Snapshots", value: "\(model.scanSnapshots.count)")
                 MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
+                MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
             }
 
             if let overview = model.overview {
@@ -220,6 +227,7 @@ struct CapabilityMatrixView: View {
         ("Classify safety", "Versioned JSON rules produce Auto-safe, Safe after condition, Review required, Preserve by default, and Never touch."),
         ("Explain every item", "Finding detail shows owner hints, rule matches, evidence, recovery, and conditions."),
         ("Review duplicates", "Local content hashes group identical regular files as manual review signals, never cleanup actions."),
+        ("Review apps & leftovers", "Installed app support files and orphan candidates are surfaced as guidance, not uninstall actions."),
         ("Protect active files", "Plan/executor run open-file checks and skip active paths."),
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
@@ -412,6 +420,170 @@ struct DuplicateReviewView: View {
             }
             .padding(24)
         }
+    }
+}
+
+struct AppReviewView: View {
+    let model: DashboardModel
+    @State private var includeSystemApps = false
+    @State private var includeOrphans = true
+    @State private var showSkipped = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Apps & Leftovers")
+                            .font(.largeTitle.bold())
+                        Text("Review installed apps, related support files, and heuristic orphan candidates. Ryddi does not uninstall apps or delete files from this report.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.reviewApps(includeSystemApps: includeSystemApps, includeOrphans: includeOrphans) }
+                    } label: {
+                        Label("Review Apps", systemImage: "app.dashed")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                HStack {
+                    Toggle("Include system apps", isOn: $includeSystemApps)
+                        .toggleStyle(.switch)
+                    Toggle("Include orphan candidates", isOn: $includeOrphans)
+                        .toggleStyle(.switch)
+                }
+
+                if let report = model.appReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Installed apps", value: "\(report.installedApps.count)")
+                        MetricTile(title: "Related groups", value: "\(report.installedAppGroups.count)")
+                        MetricTile(title: "Orphan groups", value: "\(report.orphanGroups.count)")
+                        MetricTile(title: "Review bytes", value: ByteFormat.string(report.reviewBytes))
+                    }
+
+                    SectionBox(title: "Review Notes") {
+                        ForEach(report.notes, id: \.self) { note in
+                            Text(note)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    SectionBox(title: "Installed Apps With Related Files") {
+                        if report.installedAppGroups.isEmpty {
+                            Text("No installed-app related files matched the current threshold.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(report.installedAppGroups.prefix(20)) { group in
+                                AppReviewGroupView(group: group)
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Orphan Candidates") {
+                        if report.orphanGroups.isEmpty {
+                            Text("No orphan candidates matched the current options.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(report.orphanGroups.prefix(20)) { group in
+                                AppReviewGroupView(group: group)
+                            }
+                        }
+                    }
+
+                    Toggle("Show skipped paths", isOn: $showSkipped)
+                        .toggleStyle(.switch)
+                    if showSkipped {
+                        SectionBox(title: "Skipped Or Excluded") {
+                            if report.skipped.isEmpty {
+                                Text("No skipped paths were reported.")
+                            } else {
+                                ForEach(report.skipped.prefix(80), id: \.self) { line in
+                                    Text(line)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No app review yet", systemImage: "app.dashed", description: Text("Run an app review to inspect installed-app support files and possible leftovers."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct AppReviewGroupView: View {
+    let group: AppReviewGroup
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.ownerName)
+                        .font(.headline)
+                    Text(group.bundleIdentifier ?? group.id)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                Text(ByteFormat.string(group.totalAllocatedSize))
+                    .monospacedDigit()
+                SafetyBadge(safetyClass: group.highestRiskClass)
+            }
+            if let appPath = group.appPath {
+                Text(appPath)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            ForEach(group.notes.prefix(1), id: \.self) { note in
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            VStack(spacing: 0) {
+                ForEach(group.items.prefix(8)) { item in
+                    Divider()
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.displayName)
+                                .lineLimit(1)
+                            Text(item.path)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .textSelection(.enabled)
+                        }
+                        Spacer()
+                        Text(item.category)
+                            .foregroundStyle(.secondary)
+                        Text(ByteFormat.string(item.allocatedSize))
+                            .monospacedDigit()
+                        SafetyBadge(safetyClass: item.safetyClass)
+                        AppReviewItemActionButtons(item: item)
+                    }
+                    .padding(.vertical, 7)
+                }
+                if group.items.count > 8 {
+                    Text("\(group.items.count - 8) more item(s)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 6)
+                }
+            }
+        }
+        .padding(.vertical, 8)
     }
 }
 
@@ -953,6 +1125,43 @@ struct DuplicateFileActionButtons: View {
     }
 }
 
+struct AppReviewItemActionButtons: View {
+    let item: AppReviewItem
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button {
+                PathActions.copyPath(item.path)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .help("Copy path")
+
+            Button {
+                PathActions.revealInFinder(item.path)
+            } label: {
+                Image(systemName: "folder")
+            }
+            .help("Reveal in Finder")
+
+            Button {
+                PathActions.quickLook(item.path)
+            } label: {
+                Image(systemName: "eye")
+            }
+            .help("Quick Look")
+
+            Button {
+                PathActions.openTerminal(at: item.path, isDirectory: item.isDirectory)
+            } label: {
+                Image(systemName: "terminal")
+            }
+            .help("Open Terminal here")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
 enum PathActions {
     static func copyPath(_ path: String) {
         #if os(macOS)
@@ -1071,6 +1280,7 @@ final class DashboardModel {
     var recentReceipts: [ExecutionReceipt] = []
     var heldItems: [HeldItem] = []
     var duplicateReview: DuplicateReview?
+    var appReview: AppReviewReport?
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
@@ -1270,6 +1480,26 @@ final class DashboardModel {
                         maximumDepth: 5,
                         maximumFilesToHash: 2_000,
                         includePreserveByDefault: includePreserveByDefault
+                    )
+                )
+            }.value
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reviewApps(includeSystemApps: Bool = false, includeOrphans: Bool = true) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            appReview = try await Task.detached {
+                try AppReviewScanner().scan(
+                    options: AppReviewOptions(
+                        includeSystemApplications: includeSystemApps,
+                        includeOrphanCandidates: includeOrphans,
+                        minimumRelatedSize: 10_000_000,
+                        measurementDepth: 3
                     )
                 )
             }.value

@@ -12,8 +12,10 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer history record --path Tests --limit 5` saves a local-only snapshot.
 - [ ] `reclaimer history list --limit 5` and `reclaimer history diff --group category --limit 5` read local-only snapshots.
 - [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
+- [ ] `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` reports installed app support files and orphan candidates without emitting a cleanup plan.
 - [ ] App Visual Map and Growth History render without changing reclaim gates.
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
+- [ ] App Apps & Leftovers review scans bounded app roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] README states that the build is unsigned if `CODESIGN_IDENTITY` is unset.
 - [ ] Release notes list non-claims: no notarization, no Full Disk Access guarantee, no real cleanup performed by packaging.
 
@@ -33,4 +35,5 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] CI is green on the release commit.
 - [ ] Release notes say automation is report-first.
 - [ ] Release notes say duplicate review uses local hashes and does not automatically select or delete duplicates.
+- [ ] Release notes say Apps & Leftovers is review-only and does not uninstall apps or delete app support files.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

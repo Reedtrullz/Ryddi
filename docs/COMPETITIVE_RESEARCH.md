@@ -32,7 +32,7 @@ Ryddi's defensible differentiation is the evidence layer: rule matches, why a pa
 | --- | --- | --- | --- | --- |
 | Broad cleaner suites | CleanMyMac, Cleaner One Pro, BuhoCleaner, Sensei, MacCleaner Pro | Simple cleanup, optimization, app management, sometimes malware/privacy/performance | Smart scan, junk cleanup, big files, duplicates, app uninstall, menu bar status, reminders, subscriptions, polished onboarding | Do not compete on fake speed/optimizer breadth. Borrow polish, onboarding, menu bar/reporting, and clear packaging. |
 | Visual disk analyzers | DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie, OmniDiskSweeper | Help users understand what uses space and decide what to remove | Treemap/sunburst/list, drill-down, Quick Look, Finder reveal, Trash/drop zone, all volumes, physical-size correctness | Ryddi needs a visual/scannable evidence map. Even a strong rules engine will feel incomplete without this. |
-| App uninstallers | AppCleaner, Pearcleaner, Nektony App Cleaner & Uninstaller, Hazel App Sweep | Remove apps plus related support files | App inventory, related files, leftovers, launch agents, containers, bulk uninstall, deselection, Trash | Add an Apps module later. In v1, label app-support findings as review/guidance unless tied to an uninstalled app. |
+| App uninstallers | AppCleaner, Pearcleaner, Nektony App Cleaner & Uninstaller, Hazel App Sweep | Remove apps plus related support files | App inventory, related files, leftovers, launch agents, containers, bulk uninstall, deselection, Trash | Ryddi now has a review-only Apps & Leftovers slice. Keep actual uninstall, bulk deletion, and smart leftover selection out of the cleanup plan until ownership evidence is stronger. |
 | Developer cleaners | DevCleaner, Spacie smart categories, macOS dev-cache cleaners, Megacleaner-style projects | Reclaim Xcode, package-manager, container, and build cache bloat | Xcode DerivedData/Archives/DeviceSupport, simulators, Homebrew, npm/pnpm/yarn, Gradle, Maven, Docker, node_modules | This is Ryddi's beachhead. Go deeper and safer here than the broad suites. |
 | Automation/rules | Hazel | Keep folders tidy over time with user-defined rules | Folder watchers, schedules, Trash management, app sweep, rule preview, notifications | Ryddi automation should be report-first. Allow unattended cleanup only for tight, explainable allowlists. |
 | Duplicate specialists | Gemini 2, Nektony Duplicate File Finder | Find duplicate/similar files and prevent future clutter | Smart selection, Photos/Music awareness, external drives, duplicate monitoring | Ryddi now has a conservative review-only duplicate slice. Do not compete with specialist smart selection, similar-photo matching, or library management until the safety model is much deeper. |
@@ -105,19 +105,19 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Active-file guard | Strong safety differentiator | Exists/partial | Surface it in UI with "Quit app first" queue and exact process names when available. |
 | Trash-first cleanup | Expected safety behavior | Exists/partial | Use Trash for uncertain/user-visible data. Direct delete only for allowlisted caches. |
 | App-managed holding area | Strong differentiator | Exists/partial | Make restore and expiry visible in UI. Show "held until" and original path. |
-| Full Disk Access onboarding | Expected for any serious disk scanner | Missing/partial | Add permission coverage meter, exact steps, and degraded scan labels. |
-| APFS physical accounting | Expected by expert users; DaisyDisk/Spacie benchmark this | Missing/partial | Distinguish logical size, allocated size, clone/hardlink behavior, purgeable/snapshots caveats. |
-| Large file review | Baseline | Missing/partial | Add large files and old files as review-required queues. |
+| Full Disk Access onboarding | Expected for any serious disk scanner | Exists/partial | Permission coverage and settings shortcut exist; richer first-run onboarding remains future work. |
+| APFS physical accounting | Expected by expert users; DaisyDisk/Spacie benchmark this | Exists/partial | Logical/allocated notes and non-overlap accounting exist; clone/hardlink/purgeable/snapshot depth remains future work. |
+| Large file review | Baseline | Exists | Large and old files are review-required signals, not automatic cleanup permission. |
 | Duplicate finder | Common suite feature | Experimental review-only slice | Keep local hashing explicit and bounded. No smart selection, no automatic deletion, no Photos/Music/iCloud duplicate management. |
-| App uninstaller | Common suite/app-cleaner feature | Out of scope | Add later as "Apps & Leftovers" module, never mixed into safe maintenance. |
+| App uninstaller | Common suite/app-cleaner feature | Review-only Apps & Leftovers slice | Keep app inventory/support/orphan review separate from cleanup plans. Actual uninstall, bulk deletion, and smart leftover deletion remain future work. |
 | Developer cache packs | Ryddi beachhead | Partial | Go deeper on Xcode, SwiftPM, node_modules, JetBrains, VS Code, Android/Flutter, Docker/Colima. |
 | Docker/Colima cleanup | Risky but important for target user | Partial | Integrate native inspect/prune commands and receipts. Never raw-delete VM disks automatically. |
 | Codex/AI-agent cleanup | Ryddi-specific differentiator | Partial | Keep sessions/memories/config protected. Classify cache/tmp/logs separately from valuable transcripts. |
 | Scheduled maintenance | Expected from automation tools | Partial | LaunchAgent should report first. Only allow unattended cleanup for explicit allowlisted classes. |
 | Menu bar/status item | Common in Sensei/Cleaner One/BuhoCleaner | Missing | Add later for scan reminders and "disk pressure" status, not RAM cleaning. |
 | Notarized releases | Expected for trust | Planned | Add signed/notarized release process and GitHub release artifacts. |
-| CI/test badge | Expected for open-source trust | Missing | Add GitHub Actions for `swift test --scratch-path .build`. |
-| Privacy page | Expected for cleaners | Missing | Add a short `PRIVACY.md`: no telemetry, no uploads, local receipts, permission model. |
+| CI/test badge | Expected for open-source trust | Exists | GitHub Actions runs Swift build/test on `main`. |
+| Privacy page | Expected for cleaners | Exists | `PRIVACY.md` documents no telemetry, no uploads, local receipts, duplicate hashing, and app-review reads. |
 
 ## Suggested Ryddi Roadmap
 
@@ -155,7 +155,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 
 ### Later Modules
 
-1. Apps & Leftovers: uninstalled app support data, launch agents, containers, preferences, caches, with strict review.
+1. Apps & Leftovers depth: real app uninstall flow, deselection, Trash staging, launch-agent/background-item detail, and stronger orphan ownership evidence.
 2. Duplicate depth: partial-hash prefiltering, volume/hardlink accounting, external-drive flows, and richer review UX while keeping Photos/Music/iCloud protections.
 3. Folder automation: Hazel-like custom report rules, not arbitrary delete rules.
 4. Menu bar assistant: disk pressure and scheduled scan status.
