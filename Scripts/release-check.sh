@@ -56,6 +56,9 @@ fi
 echo "==> Smoke testing bundled CLI"
 "$app/Contents/MacOS/reclaimer" status --json >"$scratch/status-smoke.json"
 "$app/Contents/MacOS/reclaimer" overview --path "$root/Tests" --limit 5 >"$scratch/overview-smoke.txt"
+RYDDI_REPORT_ROOT="$scratch/reports" "$app/Contents/MacOS/reclaimer" report --path "$root/Tests" --limit 5 --output "$scratch/evidence-report.md" --ignore-user-policy
+grep -q "# Ryddi Evidence Report" "$scratch/evidence-report.md"
+grep -q "Explicit Non-Claims" "$scratch/evidence-report.md"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" containers --json --timeout 2 --save-audit >"$scratch/containers-smoke.json"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy protect "$root/Tests" --reason "release smoke" >"$scratch/policy-protect-smoke.txt"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy list --json >"$scratch/policy-list-smoke.json"
@@ -108,6 +111,7 @@ Verification performed:
 - bundle executable/resource checks
 - bundled reclaimer status --json
 - bundled reclaimer overview --path Tests --limit 5
+- bundled reclaimer report --path Tests --limit 5 --output evidence-report.md
 - bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
 - bundled reclaimer policy protect/list with temporary config root
 - codesign verification when CODESIGN_IDENTITY is set

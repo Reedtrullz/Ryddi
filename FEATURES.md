@@ -13,6 +13,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Watch disk pressure | Menu bar status item and CLI status report current free space using explicit warning/critical thresholds. | `DiskStatusReader`, `reclaimer status`, app menu bar |
 | Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, and provide a direct Full Disk Access settings shortcut. | `ScanOverview`, app Permission Coverage |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
+| Export evidence reports | Produce local Markdown reports with disk status, scan coverage, safety/category buckets, top findings, user policy, accounting notes, and explicit non-claims. | `EvidenceReportBuilder`, `ReportStore`, `reclaimer report`, app Export Report |
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
 | Explain decisions | Every finding carries rule matches, evidence, recovery notes, and conditions. | `Finding`, `Evidence`, app detail view, `reclaimer explain` |
 | Honor user path policy | User protections keep paths visible but blocked from cleanup; user exclusions hide noisy paths from scans and parent measurements. | `UserPathPolicyStore`, `reclaimer policy`, app Protections & Exclusions |
@@ -46,6 +47,7 @@ Included:
 - Proportional visual map by category.
 - Local scan history and growth deltas.
 - Menu bar disk-pressure status with report-only scan shortcut.
+- Exportable local Markdown evidence reports.
 - Browser cache versus browser profile distinction.
 - Large-file and old-file review-only signals.
 - Duplicate-file review for explicit CLI paths and bounded app scans, with preserve-by-default files excluded unless requested.
@@ -77,6 +79,7 @@ Deferred:
 - `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records signing state, and creates a zip/checksum/manifest.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, and APFS notes.
+- `reclaimer report --path FIXTURE --limit 5 --output REPORT.md` writes a local Markdown report with top findings, policy, accounting notes, and non-claims without executing cleanup.
 - `reclaimer status --json` reports disk pressure and free-space notes without scanning content.
 - `reclaimer history record/list/diff` stores local scan snapshots and reports category/scope/safety deltas.
 - `reclaimer duplicates --path FIXTURE --min-size 1` groups same-content regular files, skips protected paths, and emits review-only `openGuidance` candidates.

@@ -36,6 +36,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - local scan history snapshots and category growth deltas
 - menu bar disk-pressure status with report-only scan shortcut
 - permission/degraded-scan coverage and APFS accounting notes
+- exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - local user protections and exclusions for paths Ryddi should preserve or ignore
 - large-file and old-file review signals
@@ -84,6 +85,7 @@ swift run --scratch-path .build reclaimer help
 swift run --scratch-path .build reclaimer overview
 swift run --scratch-path .build reclaimer status
 swift run --scratch-path .build reclaimer overview --save-history --path Tests --limit 5
+swift run --scratch-path .build reclaimer report --path Tests --limit 10 --output ryddi-report.md
 swift run --scratch-path .build reclaimer history list
 swift run --scratch-path .build reclaimer history diff --group category
 swift run --scratch-path .build reclaimer scan
@@ -115,6 +117,17 @@ swift run --scratch-path .build reclaimer policy remove ~/Downloads/NoisyScratch
 ```
 
 Protected paths stay visible but are forced to preserve-by-default/report-only and cannot be selected by cleanup plans. Excluded paths are skipped during scans and excluded from parent directory measurement. Use `--ignore-user-policy` only for debugging or fixture verification.
+
+## Evidence Reports
+
+Ryddi can export a local Markdown report for review, sharing, or before/after notes:
+
+```bash
+swift run --scratch-path .build reclaimer report --path ~/Library/Caches --limit 25 --output ryddi-report.md
+swift run --scratch-path .build reclaimer report --save-report
+```
+
+Reports include scan coverage, safety buckets, top categories, top findings, local protections/exclusions, APFS/accounting notes, disk-pressure notes, and explicit non-claims. They do not execute cleanup and may include local paths.
 
 Holding-area expiry is also dry-run unless confirmed:
 

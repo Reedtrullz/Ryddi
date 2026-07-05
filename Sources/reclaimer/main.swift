@@ -24,6 +24,8 @@ struct ReclaimerCLI {
             try status(args: args)
         case "overview":
             try overview(args: args)
+        case "report":
+            try report(args: args)
         case "history":
             try history(args: args)
         case "duplicates":
@@ -97,6 +99,39 @@ struct ReclaimerCLI {
             printJSON(overview)
         } else {
             printOverview(overview)
+        }
+    }
+
+    static func report(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let scopes = options.scopes(includeUnavailable: true)
+        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
+        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        let report = EvidenceReportBuilder.build(
+            title: options.reportTitle,
+            overview: overview,
+            findings: findings,
+            scopes: scopes,
+            diskStatus: DiskStatusReader().snapshot(),
+            userPathPolicy: options.userPathPolicy,
+            topLimit: options.limit
+        )
+
+        if let output = options.outputPath {
+            let url = URL(fileURLWithPath: output).standardizedFileURL
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+            FileHandle.standardError.write(Data("wrote evidence report: \(url.path)\n".utf8))
+        }
+        if options.saveReport {
+            let url = try ReportStore().save(report: report)
+            FileHandle.standardError.write(Data("saved evidence report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else if options.outputPath == nil {
+            print(report.markdown)
         }
     }
 
@@ -398,6 +433,8 @@ struct ReclaimerCLI {
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy]
               overview [--json] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy]
+              report [--json] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
+                     [--title TEXT] [--include-missing-scopes] [--ignore-user-policy]
               history record [--json] [--path PATH ...] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
@@ -442,6 +479,7 @@ struct ParsedOptions {
     var reviewAll: Bool { args.contains("--review-all") }
     var saveAudit: Bool { args.contains("--save-audit") }
     var saveHistory: Bool { args.contains("--save-history") }
+    var saveReport: Bool { args.contains("--save-report") }
     var includeOpenFiles: Bool { args.contains("--include-open-files") }
     var includeMissingScopes: Bool { args.contains("--include-missing-scopes") }
     var noLsof: Bool { args.contains("--no-lsof") }
@@ -462,6 +500,8 @@ struct ParsedOptions {
     var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
     var maxFilesToHash: Int { max(1, Int(value(after: "--max-files") ?? "") ?? 5_000) }
     var reason: String? { value(after: "--reason") }
+    var outputPath: String? { value(after: "--output") }
+    var reportTitle: String { value(after: "--title") ?? "Ryddi Evidence Report" }
     var policyKind: UserPathPolicyKind? {
         switch value(after: "--kind") {
         case "protect": .protect

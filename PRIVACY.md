@@ -6,7 +6,7 @@ Ryddi is local-first disk cleanup software. Its job is to inspect local paths, e
 
 Ryddi does not upload paths, filenames, app lists, scan results, cleanup plans, receipts, or hardware information.
 
-Scans run on your Mac. Plans, receipts, and holding-area metadata are written locally under your user account. The scheduled agent is report-first and writes local audit records; it does not send reports anywhere.
+Scans run on your Mac. Plans, receipts, Markdown evidence reports, and holding-area metadata are written locally under your user account. The scheduled agent is report-first and writes local audit records; it does not send reports anywhere.
 
 ## What Ryddi Reads
 
@@ -24,6 +24,8 @@ Container inventory can run read-only Docker and Colima inspection commands. The
 
 User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
 
+Evidence report export reads scan findings, disk status, scan coverage, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them.
+
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
 ## What Ryddi Writes
@@ -31,6 +33,7 @@ Ryddi works without Full Disk Access, but scan coverage can be incomplete. If ma
 Ryddi can write:
 
 - saved dry-run plans and receipts;
+- saved Markdown evidence reports;
 - saved native-tool preview reports;
 - saved container inventory reports;
 - saved user path policy for protections and exclusions;
@@ -57,6 +60,7 @@ Ryddi data is expected under:
 ~/Library/Application Support/Ryddi
 ~/Library/Application Support/Ryddi/Config/user-path-policy.json
 ~/Library/Application Support/Ryddi/ScanHistory
+~/Library/Application Support/Ryddi/Reports
 ~/Library/LaunchAgents/com.reidar.ryddi.agent.plist
 ```
 

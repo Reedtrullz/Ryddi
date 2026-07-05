@@ -74,6 +74,12 @@ struct DashboardView: View {
                 Label("Dry Run", systemImage: "play.circle")
             }
             .disabled(model.plan == nil && model.findings.isEmpty)
+            Button {
+                Task { await model.exportEvidenceReport() }
+            } label: {
+                Label("Export Report", systemImage: "square.and.arrow.up")
+            }
+            .disabled(model.overview == nil || model.findings.isEmpty)
             Button(role: .destructive) {
                 showingReclaimConfirmation = true
             } label: {
@@ -177,6 +183,13 @@ struct OverviewView: View {
                 ProgressView("Working...")
             }
 
+            if let url = model.lastReportExportURL {
+                Text("Latest report: \(url.path)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
             HStack(spacing: 16) {
                 MetricTile(title: "Findings", value: "\(model.findings.count)")
                 MetricTile(title: "Auto-safe", value: ByteFormat.string(model.totalBytes(for: .autoSafe)))
@@ -252,6 +265,7 @@ struct CapabilityMatrixView: View {
         ("Review apps & leftovers", "Installed app support files and orphan candidates are surfaced as guidance, not uninstall actions."),
         ("Inventory containers", "Read-only Docker and Colima inspection records images, volumes, build cache estimates, profiles, and command outcomes."),
         ("Honor user policy", "Local exclusions hide noisy paths from scans; protections keep paths visible but blocked from cleanup."),
+        ("Export reports", "Local Markdown evidence reports capture scan coverage, top findings, user policy, accounting notes, and non-claims."),
         ("Protect active files", "Plan/executor run open-file checks and skip active paths."),
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
@@ -1802,6 +1816,7 @@ final class DashboardModel {
     var appReview: AppReviewReport?
     var containerInventory: ContainerInventoryReport?
     var userPathPolicy: UserPathPolicy = .empty
+    var lastReportExportURL: URL?
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
@@ -1983,6 +1998,35 @@ final class DashboardModel {
             plan = nil
             lastDryRunReceipt = nil
             lastScanDate = Date()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportEvidenceReport() async {
+        guard let currentOverview = overview, !findings.isEmpty else {
+            error = "Run a scan before exporting an evidence report."
+            return
+        }
+
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let currentFindings = findings
+            let currentScopes = scanScopes
+            let currentPolicy = userPathPolicy
+            let url = try await Task.detached {
+                let report = EvidenceReportBuilder.build(
+                    overview: currentOverview,
+                    findings: currentFindings,
+                    scopes: currentScopes,
+                    diskStatus: DiskStatusReader().snapshot(),
+                    userPathPolicy: currentPolicy
+                )
+                return try ReportStore().save(report: report)
+            }.value
+            lastReportExportURL = url
+            error = nil
         } catch {
             self.error = error.localizedDescription
         }

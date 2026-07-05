@@ -14,6 +14,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer status --json` reports disk pressure/free-space metadata without scanning content.
 - [ ] `reclaimer overview --path Tests --limit 5` prints a bounded overview.
 - [ ] `reclaimer overview --json --path Tests --limit 5` includes bounded `mapNodes`.
+- [ ] `reclaimer report --path Tests --limit 5 --output REPORT.md` writes a local Markdown report with scan coverage, top findings, user policy, accounting notes, and non-claims without executing cleanup.
 - [ ] `reclaimer history record --path Tests --limit 5` saves a local-only snapshot.
 - [ ] `reclaimer history list --limit 5` and `reclaimer history diff --group category --limit 5` read local-only snapshots.
 - [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
@@ -50,4 +51,5 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say native-tool reports are preview-only and do not run Docker/Colima/Homebrew/package-manager cleanup commands automatically.
 - [ ] Release notes say container inventory runs read-only inspection commands only.
 - [ ] Release notes say user protections/exclusions are local path policy and are not uploaded.
+- [ ] Release notes say evidence reports are local Markdown files that can include paths and do not execute cleanup.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

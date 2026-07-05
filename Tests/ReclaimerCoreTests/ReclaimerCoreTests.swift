@@ -117,6 +117,89 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(overview.accountingNotes.isEmpty)
     }
 
+    func testEvidenceReportIncludesSafetyPolicyAndNonClaims() throws {
+        let protectedPath = tempRoot.appendingPathComponent("Projects/KeepMe", isDirectory: true)
+        let excludedPath = tempRoot.appendingPathComponent("Downloads/Noisy", isDirectory: true)
+        let cache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 1_000,
+            isDirectory: true,
+            category: "Codex Cache"
+        )
+        let history = finding(
+            path: tempRoot.appendingPathComponent(".codex/sessions/rollout.jsonl").path,
+            safety: .preserveByDefault,
+            action: .compress,
+            open: false,
+            allocatedSize: 2_000,
+            category: "Codex History"
+        )
+        let scopes = [ScanScope(name: "fixture", root: tempRoot)]
+        let overview = FindingAnalytics.overview(
+            findings: [cache, history],
+            scopes: scopes,
+            topLimit: 2,
+            now: Date(timeIntervalSince1970: 0)
+        )
+        let policy = UserPathPolicy(rules: [
+            UserPathRule(kind: .protect, path: protectedPath.path, reason: "active work", createdAt: Date(timeIntervalSince1970: 0)),
+            UserPathRule(kind: .exclude, path: excludedPath.path, reason: "too noisy", createdAt: Date(timeIntervalSince1970: 0))
+        ])
+        let disk = DiskStatusSnapshot(
+            createdAt: Date(timeIntervalSince1970: 0),
+            path: "/fixture",
+            totalBytes: 10_000,
+            freeBytes: 2_000,
+            importantFreeBytes: nil,
+            availableBytes: nil,
+            pressure: .warning,
+            notes: ["Fixture disk note."]
+        )
+
+        let report = EvidenceReportBuilder.build(
+            overview: overview,
+            findings: [cache, history],
+            scopes: scopes,
+            diskStatus: disk,
+            userPathPolicy: policy,
+            topLimit: 2,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertTrue(report.markdown.contains("# Ryddi Evidence Report"))
+        XCTAssertTrue(report.markdown.contains("## Top Findings"))
+        XCTAssertTrue(report.markdown.contains("Codex Cache"))
+        XCTAssertTrue(report.markdown.contains("Protect from cleanup"))
+        XCTAssertTrue(report.markdown.contains("Exclude from scans"))
+        XCTAssertTrue(report.markdown.contains("No cleanup was executed by this report."))
+        XCTAssertTrue(report.markdown.contains("Fixture disk note."))
+        XCTAssertEqual(report.findingCount, 2)
+        XCTAssertEqual(report.protectedBytes, 2_000)
+    }
+
+    func testReportStoreSavesMarkdown() throws {
+        let report = EvidenceReport(
+            id: "fixture",
+            createdAt: Date(timeIntervalSince1970: 0),
+            title: "Fixture Report",
+            markdown: "# Fixture Report\n\nEvidence.",
+            findingCount: 1,
+            expectedAutoSafeBytes: 10,
+            reviewBytes: 20,
+            protectedBytes: 30,
+            nonClaims: ["fixture non-claim"]
+        )
+        let store = ReportStore(root: tempRoot.appendingPathComponent("Reports", isDirectory: true))
+
+        let url = try store.save(report: report)
+
+        XCTAssertEqual(url.lastPathComponent, "report-fixture.md")
+        XCTAssertEqual(try String(contentsOf: url), report.markdown)
+    }
+
     func testVisualMapUsesNonOverlappingAllocatedSizes() throws {
         let root = Finding(
             scopeName: "fixture",

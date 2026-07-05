@@ -102,6 +102,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Partial | First slice has non-overlapping proportional category map nodes; a full treemap/sunburst with drill-down remains future work. |
 | Evidence details | Rare in broad cleaners, central to Ryddi | Partial | Make every finding answer: what is this, why matched, risk, recovery path, exact action. |
 | Dry-run plan | Strong differentiator | Partial | Keep as default. Add plan diff, receipt export, and selected/blocked/skipped counts. |
+| Exportable reports | Expected in trust-sensitive admin tools, useful for before/after review | Exists/partial | Markdown evidence reports now capture scan coverage, top findings, policy, accounting notes, and non-claims. Future work should add richer before/after receipt exports and redaction controls. |
 | Active-file guard | Strong safety differentiator | Exists/partial | Surface it in UI with "Quit app first" queue and exact process names when available. |
 | Trash-first cleanup | Expected safety behavior | Exists/partial | Use Trash for uncertain/user-visible data. Direct delete only for allowlisted caches. |
 | App-managed holding area | Strong differentiator | Exists/partial | Make restore and expiry visible in UI. Show "held until" and original path. |
@@ -145,7 +146,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 2. Add APFS size model: logical, allocated, clone/hardlink caveat, purgeable/snapshot explanation.
 3. Add final re-stat and reclassification immediately before action.
 4. Add restore UX for Trash and holding-area moves where possible.
-5. Add receipt export with before/after disk stats, skipped active files, errors, and non-claims.
+5. Evidence report export exists for scan review. Add richer execution receipt export with before/after disk stats, skipped active files, errors, and non-claims.
 
 ### Developer/AI Niche
 
