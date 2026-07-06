@@ -38,7 +38,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Reclaim safely | Use Trash for uncertain/user-visible data, direct delete only for allowlisted caches, compression only for cold files, holding area for reversible moves, with app confirmation before execution. | `ReclaimerExecutor`, app Reclaim confirmation |
 | Restore held items | Store holding metadata so held items can be listed, restored, or expired after review. | `HoldingStore`, `reclaimer holding`, app Holding Area |
 | Review recovery | Combine app-held items and saved receipts into a recovery view that separates Ryddi-restorable items from Trash review, dry-run/skipped no-ops, native-tool guidance, and non-recoverable direct deletes. | `RecoveryCenter`, `reclaimer recovery`, app Recovery Center |
-| Prefer native cleanup | Report Docker/Colima/package-manager cleanup as preview-only native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims rather than deleting stores directly. | `NativeToolGuidance`, `reclaimer native`, app native receipt preview |
+| Prefer native cleanup | Report Docker/Colima/package-manager cleanup as native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims; execute only one selected non-destructive/non-placeholder command at a time with dry-run default and a local receipt. | `NativeToolGuidance`, `NativeToolExecutor`, `reclaimer native`, `reclaimer native run`, app native receipt preview |
 | Inventory containers | Run bounded read-only Docker/Colima inspection commands and record storage buckets, images, containers, volumes, profiles, missing/not-running states, and command outcomes. | `ContainerInventoryScanner`, `reclaimer containers`, app Container Inventory |
 | Automate conservatively | Scheduled jobs are report-only, can target Developer/General/All presets, built-in templates, or saved scope sets, and can be previewed before installation; unattended destructive cleanup is not enabled in v1. | `ScheduleConfiguration`, `LaunchAgentManager`, `ReclaimerAgent`, `schedule preview`, `schedule install` |
 | Keep local audit trail | Save plans, receipts, native reports, container reports, and active-file reports under Application Support with local-only JSON. | `AuditStore`, app Audit History |
@@ -56,7 +56,7 @@ Included:
 - Saved custom scope sets for repeatable general cleanup, project-specific review, and developer maintenance scans, with local JSON import/export.
 - Codex storage policy: caches/temp/logs versus sessions/state/credentials.
 - Docker/Colima reporting and native cleanup guidance.
-- Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, with no automatic command execution.
+- Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, plus one-command execution receipts for selected non-destructive/non-placeholder commands; no automatic native command execution.
 - Read-only Docker/Colima live inventory for native storage estimates and profile/object context.
 - Local user protections and exclusions, plus user path policy JSON import/export.
 - Local user rule-pack preview/import/export for custom review/protection signals, disabled by default unless a scan passes `--include-user-rules` or the app User Rules scan toggle is on.
@@ -95,6 +95,7 @@ Deferred:
 - Mac App Store sandbox packaging.
 - Automatic deletion of safe-after-condition or review-required items.
 - Automatic execution of native Docker/Colima/Homebrew/package-manager cleanup commands.
+- Raw deletion or unattended execution of Docker/Colima VM disks, volumes, package stores, destructive prune/reset commands, or placeholder commands.
 - Screenshot/GIF walkthrough for Full Disk Access onboarding in release materials.
 
 ## Acceptance Criteria
@@ -147,7 +148,8 @@ Deferred:
 - `reclaimer apps uninstall --yes --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` moves only the selected app bundle to Trash after open-file checks, user policy checks, and final bundle protection checks; related support files remain untouched.
 - `reclaimer agents --path FIXTURE --min-size 1 --max-depth 4 --json` reports AI-agent storage buckets, including reclaimable cache, valuable history, protected state, and quit-first data without creating plan items.
 - `reclaimer agents retention --path FIXTURE --profile balanced --min-size 1 --max-depth 4 --json` reports cleanup-plan, compression-review, keep, and protect recommendations without deleting, compressing, moving, or modifying agent files.
-- `reclaimer native --path FIXTURE --json` emits preview-only native-tool receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
+- `reclaimer native --path FIXTURE --json` emits native-tool preview receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
+- `reclaimer native run --command-id brew.preview --path FIXTURE --dry-run --json --save-audit` creates a local native command execution receipt without executing the command.
 - `reclaimer containers --json --timeout 2` emits a read-only Docker/Colima inventory, classifies missing versus not-running tools, and never emits prune/delete/stop/reset commands.
 - `reclaimer policy protect/exclude/list/remove/export/import` writes local-only path policy, protects configured paths from cleanup selection, excludes configured paths from scan output, exports a versioned JSON document, imports by merge by default, and supports explicit `--replace`.
 - Visual map accounting does not double-count nested directory findings.

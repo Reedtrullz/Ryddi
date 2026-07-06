@@ -714,6 +714,10 @@ struct ReclaimerCLI {
     }
 
     static func native(args: [String]) throws {
+        if args.first == "run" {
+            try nativeRun(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
@@ -726,6 +730,41 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printNativeToolReport(report, options: options)
+        }
+    }
+
+    static func nativeRun(args: [String]) throws {
+        let options = ParsedOptions(args)
+        guard let commandID = options.commandID else {
+            throw CLIError.message("native run requires --command-id COMMAND_ID")
+        }
+        let ruleEngine = try options.ruleEngine()
+        let scanner = try FileScanner(ruleEngine: ruleEngine, openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
+        let report = NativeToolGuidance.report(for: findings, ruleVersion: ruleEngine.version)
+        guard let selection = NativeToolExecutor.selection(
+            in: report,
+            commandID: commandID,
+            findingPath: options.nativeFindingPath
+        ) else {
+            throw CLIError.message("No native-tool command matched --command-id \(commandID). Run `reclaimer native` to inspect available command ids.")
+        }
+        let receipt = NativeToolExecutor(
+            configuration: NativeToolExecutionConfiguration(timeout: options.timeoutSeconds)
+        ).execute(
+            selection: selection,
+            mode: options.dryRun ? .dryRun : .perform,
+            ruleVersion: ruleEngine.version,
+            userConfirmed: options.yes
+        )
+        if options.saveAudit {
+            let url = try AuditStore().save(nativeToolExecutionReceipt: receipt)
+            FileHandle.standardError.write(Data("saved native-tool execution receipt: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(receipt)
+        } else {
+            printNativeToolExecutionReceipt(receipt)
         }
     }
 
@@ -1193,6 +1232,8 @@ struct ReclaimerCLI {
               agents retention [--json] [--profile conservative|balanced|aggressive] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID]
                      [--min-size BYTES] [--max-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               native [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
+              native run --command-id COMMAND_ID [--dry-run|--yes] [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
+                     [--finding-path PATH] [--timeout SECONDS] [--save-audit] [--include-user-rules]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
               policy list [--json]
               policy protect PATH [--reason TEXT]
@@ -1290,6 +1331,8 @@ struct ParsedOptions {
     var previousSnapshotID: String? { value(after: "--previous-id") }
     var scopeTemplateReference: String? { value(after: "--template") }
     var scopeSetReference: String? { value(after: "--scope-set") }
+    var commandID: String? { value(after: "--command-id") }
+    var nativeFindingPath: String? { value(after: "--finding-path") }
     var reportPrivacy: ReportPrivacyOptions {
         ReportPrivacyOptions(pathStyle: reportPathStyle, redactUserText: args.contains("--redact-user-text"))
     }
@@ -2619,6 +2662,59 @@ func printNativeToolReport(_ report: NativeToolReport, options: ParsedOptions) {
         for note in report.nonClaims {
             print("- \(note)")
         }
+    }
+}
+
+func printNativeToolExecutionReceipt(_ receipt: NativeToolExecutionReceipt) {
+    print("Native tool execution receipt \(receipt.id)")
+    print("Generated: \(receipt.createdAt.formatted())")
+    print("Rule version: \(receipt.ruleVersion)")
+    print("Mode: \(receipt.mode.rawValue)")
+    print("Status: \(receipt.status)")
+    print("Finding path: \(receipt.findingPath)")
+    print("Category: \(receipt.category)")
+    print("Command id: \(receipt.command.id)")
+    print("Command: \(receipt.command.command)")
+    print("Risk: \(receipt.command.risk.label)")
+    print("User confirmed: \(receipt.userConfirmed ? "yes" : "no")")
+    if let before = receipt.beforeFreeBytes {
+        print("Before free: \(ByteFormat.string(before))")
+    }
+    if let after = receipt.afterFreeBytes {
+        print("After free: \(ByteFormat.string(after))")
+    }
+    print("Message: \(receipt.message)")
+    if let output = receipt.output {
+        print("\nCommand output")
+        print("Status: \(output.status)")
+        if let exitCode = output.exitCode {
+            print("Exit code: \(exitCode)")
+        }
+        if !output.stdoutPreview.isEmpty {
+            print("stdout:")
+            for line in output.stdoutPreview {
+                print("  \(line)")
+            }
+        }
+        if !output.stderrPreview.isEmpty {
+            print("stderr:")
+            for line in output.stderrPreview {
+                print("  \(line)")
+            }
+        }
+        if let launchError = output.launchError {
+            print("Launch error: \(launchError)")
+        }
+    }
+    if !receipt.errors.isEmpty {
+        print("\nErrors")
+        for error in receipt.errors {
+            print("- \(error)")
+        }
+    }
+    print("\nNon-claims")
+    for note in receipt.nonClaims {
+        print("- \(note)")
     }
 }
 

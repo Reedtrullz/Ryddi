@@ -72,7 +72,7 @@ struct DashboardView: View {
             } else if selectedSection == "Automation" {
                 AutomationView(model: model)
             } else if let finding = model.findings.first(where: { $0.id == selectedFinding }) {
-                FindingDetailView(finding: finding, planItem: model.planItem(for: finding.id))
+                FindingDetailView(model: model, finding: finding, planItem: model.planItem(for: finding.id))
             } else {
                 OverviewView(model: model)
             }
@@ -1125,6 +1125,27 @@ struct AuditHistoryView: View {
                     } else {
                         ForEach(model.recentNativeToolReports) { report in
                             Text("\(report.createdAt.formatted()) - \(report.receipts.count) candidate(s) - \(ByteFormat.string(report.totalBytesUnderNativeReview))")
+                        }
+                    }
+                }
+
+                SectionBox(title: "Native Command Receipts") {
+                    if model.recentNativeToolExecutionReceipts.isEmpty {
+                        Text("No native command receipts yet.")
+                    } else {
+                        ForEach(model.recentNativeToolExecutionReceipts) { receipt in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("\(receipt.createdAt.formatted()) - \(receipt.status) - \(receipt.command.id)")
+                                    Spacer()
+                                    Text(receipt.mode.rawValue)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(receipt.message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
                 }
@@ -2483,8 +2504,10 @@ struct FindingRow: View {
 }
 
 struct FindingDetailView: View {
+    let model: DashboardModel
     let finding: Finding
     let planItem: ReclaimPlanItem?
+    @State private var pendingNativeCommand: NativeToolCommand?
 
     private var explanation: FindingExplanationReport {
         FindingExplanationBuilder.build(for: finding)
@@ -2566,6 +2589,26 @@ struct FindingDetailView: View {
                                 Text(command.purpose)
                                 Text("Expected effect: \(command.expectedEffect)")
                                     .foregroundStyle(.secondary)
+                                HStack {
+                                    Button {
+                                        Task { await model.runNativeToolCommand(receipt: nativeReceipt, command: command, perform: false) }
+                                    } label: {
+                                        Label("Dry Run", systemImage: "doc.text.magnifyingglass")
+                                    }
+                                    if NativeToolExecutor.blockReason(for: command) == nil {
+                                        Button {
+                                            pendingNativeCommand = command
+                                        } label: {
+                                            Label("Run", systemImage: "terminal")
+                                        }
+                                    }
+                                }
+                                if let blockReason = NativeToolExecutor.blockReason(for: command) {
+                                    Text(blockReason)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                             .padding(.vertical, 4)
                         }
@@ -2606,6 +2649,26 @@ struct FindingDetailView: View {
                 }
             }
             .padding(24)
+        }
+        .confirmationDialog(
+            "Run native command?",
+            isPresented: Binding(
+                get: { pendingNativeCommand != nil },
+                set: { if !$0 { pendingNativeCommand = nil } }
+            ),
+            presenting: pendingNativeCommand
+        ) { command in
+            Button("Run \(command.command)", role: .destructive) {
+                if let nativeReceipt = explanation.nativeToolReceipt {
+                    Task { await model.runNativeToolCommand(receipt: nativeReceipt, command: command, perform: true) }
+                }
+                pendingNativeCommand = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingNativeCommand = nil
+            }
+        } message: { command in
+            Text("Ryddi will execute exactly this native-tool command and save a local receipt: \(command.command)")
         }
     }
 }
@@ -4223,6 +4286,7 @@ final class DashboardModel {
     var recentPlans: [ReclaimPlan] = []
     var recentReceipts: [ExecutionReceipt] = []
     var recentNativeToolReports: [NativeToolReport] = []
+    var recentNativeToolExecutionReceipts: [NativeToolExecutionReceipt] = []
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
     var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
     var recentAppUninstallReceipts: [AppUninstallExecutionReceipt] = []
@@ -4850,6 +4914,7 @@ final class DashboardModel {
         recentPlans = store.recentPlans()
         recentReceipts = store.recentReceipts()
         recentNativeToolReports = store.recentNativeToolReports()
+        recentNativeToolExecutionReceipts = store.recentNativeToolExecutionReceipts()
         recentContainerInventoryReports = store.recentContainerInventoryReports()
         recentActiveFileReviewReports = store.recentActiveFileReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
@@ -5105,6 +5170,29 @@ final class DashboardModel {
             agentStorageReview = result.0
             agentRetentionReport = result.1
             error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func runNativeToolCommand(receipt: NativeToolReceipt, command: NativeToolCommand, perform: Bool) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let includeUserRules = includeUserRulesInScans
+            let executionReceipt = try await Task.detached {
+                let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
+                let selection = NativeToolCommandSelection(receipt: receipt, command: command)
+                return NativeToolExecutor().execute(
+                    selection: selection,
+                    mode: perform ? .perform : .dryRun,
+                    ruleVersion: ruleVersion,
+                    userConfirmed: perform
+                )
+            }.value
+            _ = try AuditStore().save(nativeToolExecutionReceipt: executionReceipt)
+            loadAudit()
+            error = executionReceipt.errors.isEmpty ? nil : executionReceipt.message
         } catch {
             self.error = error.localizedDescription
         }

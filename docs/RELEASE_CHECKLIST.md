@@ -51,7 +51,8 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer apps uninstall --dry-run --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` writes an app-uninstall receipt where only the selected app bundle would move to Trash and related files remain untouched.
 - [ ] `reclaimer agents --path FIXTURE --min-size 1 --max-depth 4 --json` reports AI-agent storage buckets for cache, history, protected state, and quit-first data without emitting a cleanup plan.
 - [ ] `reclaimer agents retention --path FIXTURE --profile balanced --min-size 1 --max-depth 4 --json` reports cleanup-plan, compression-review, keep, and protect recommendations without deleting, compressing, moving, or modifying agent files.
-- [ ] `reclaimer native --path FIXTURE --json --save-audit` emits preview-only native-tool receipts and saves a local audit record without executing native cleanup commands.
+- [ ] `reclaimer native --path FIXTURE --json --save-audit` emits native-tool preview receipts and saves a local audit record without executing native cleanup commands.
+- [ ] `reclaimer native run --command-id brew.preview --path FIXTURE --dry-run --json --save-audit` writes a native command execution receipt without running the command.
 - [ ] `reclaimer execute --dry-run --path FIXTURE --save-audit` followed by `reclaimer receipts export --output RECEIPT.md` writes a local Markdown receipt report without rerunning cleanup.
 - [ ] `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
 - [ ] `reclaimer recovery --json` reports app-held, dry-run, skipped, Trash, native-tool, and direct-delete recovery states without mutating files.
@@ -87,7 +88,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say duplicate review uses local hashes and does not automatically select or delete duplicates.
 - [ ] Release notes say Apps & Leftovers related files are review-only; app uninstall execution can move only the selected app bundle to Trash after dry run, confirmation, open-file checks, user-policy checks, and final protection checks.
 - [ ] Release notes say AI Agent Storage review is report-only and does not automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
-- [ ] Release notes say native-tool reports are preview-only and do not run Docker/Colima/Homebrew/package-manager cleanup commands automatically.
+- [ ] Release notes say native-tool reports are review-first, `native run` defaults to dry-run and executes only one selected non-destructive/non-placeholder command with explicit confirmation, and Docker/Colima destructive commands remain guidance-only.
 - [ ] Release notes say container inventory runs read-only inspection commands only.
 - [ ] Release notes say user protections/exclusions are local path policy, exports can contain private paths/reasons, imports do not delete files or grant permissions, and policy data is not uploaded.
 - [ ] Release notes say user rule packs are local, can contain private path fragments/app names/evidence text, are disabled by default unless explicitly included in CLI scans or app scans, cannot grant cleanup actions, and cannot downgrade bundled never-touch protections.

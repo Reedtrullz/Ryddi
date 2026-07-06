@@ -57,6 +57,9 @@ echo "==> Smoke testing bundled CLI"
 receipt_fixture="$scratch/receipt-fixture/Library/Caches/Codex"
 mkdir -p "$receipt_fixture"
 printf 'fixture cache\n' >"$receipt_fixture/cache.bin"
+native_fixture="$scratch/native-fixture/Library/Caches/Homebrew/downloads"
+mkdir -p "$native_fixture"
+printf 'homebrew cache\n' >"$native_fixture/bottle.tar.gz"
 agent_fixture="$scratch/agent-fixture"
 mkdir -p \
   "$agent_fixture/.codex/cache" \
@@ -295,6 +298,25 @@ grep -q '"recommendation" : "cleanupPlan"' "$scratch/agents-retention-smoke.json
 grep -q '"recommendation" : "compressAfterReview"' "$scratch/agents-retention-smoke.json"
 grep -q '"recommendation" : "protect"' "$scratch/agents-retention-smoke.json"
 grep -q "does not delete, compress, move, or modify agent files" "$scratch/agents-retention-smoke.json"
+"$app/Contents/MacOS/reclaimer" native --json \
+  --path "$scratch/native-fixture/Library/Caches/Homebrew" \
+  --min-size 1 \
+  --max-depth 3 \
+  --limit 20 >"$scratch/native-smoke.json"
+grep -q '"command" : "brew cleanup -n"' "$scratch/native-smoke.json"
+grep -q '"command" : "brew cleanup"' "$scratch/native-smoke.json"
+grep -q "No native cleanup command was executed" "$scratch/native-smoke.json"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" native run --dry-run --json \
+  --path "$scratch/native-fixture/Library/Caches/Homebrew" \
+  --command-id brew.preview \
+  --min-size 1 \
+  --max-depth 3 \
+  --save-audit >"$scratch/native-run-dry-run.json"
+grep -q '"status" : "dry-run"' "$scratch/native-run-dry-run.json"
+grep -q '"command" : "brew cleanup -n"' "$scratch/native-run-dry-run.json"
+grep -q "Dry run only" "$scratch/native-run-dry-run.json"
+grep -q "only one explicitly selected native-tool command" "$scratch/native-run-dry-run.json"
+find "$scratch/audit" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
@@ -555,6 +577,7 @@ Verification performed:
 - bundled reclaimer rules and rules --json
 - bundled reclaimer agents --json on disposable Codex/Claude/Cursor/Ollama fixture
 - bundled reclaimer agents retention --json on disposable Codex/Claude/Cursor/Ollama fixture
+- bundled reclaimer native --json and native run --dry-run --json on disposable Homebrew fixture
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root

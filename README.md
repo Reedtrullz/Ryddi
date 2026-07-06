@@ -62,7 +62,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
 - read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
-- native-tool command preview receipts for Docker/Colima/Homebrew/package-manager cleanup
+- native-tool command preview and execution receipts for selected non-destructive Homebrew/package-manager cleanup commands, while Docker/Colima destructive commands remain guidance-only
 - Xcode DerivedData and developer cache review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
 - Browser cache versus browser profile separation
@@ -138,6 +138,8 @@ swift run --scratch-path .build reclaimer agents
 swift run --scratch-path .build reclaimer agents --json --limit 40
 swift run --scratch-path .build reclaimer agents retention --profile balanced
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
+swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
+swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
 swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
 swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
 swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch
@@ -444,7 +446,7 @@ reclaimer report --json --save-report --preset general
 
 It does not run destructive cleanup unattended, does not call `execute --yes`, and does not run Docker/Colima/Homebrew/package-manager prune commands. A scheduled scope controls where Ryddi looks; it does not make personal files auto-cleanable.
 
-## Native Tool Reports
+## Native Tool Reports And Receipts
 
 Ryddi treats container runtimes and package-manager stores as tool-owned state. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use:
 
@@ -452,7 +454,16 @@ Ryddi treats container runtimes and package-manager stores as tool-owned state. 
 swift run --scratch-path .build reclaimer native --json --path ~/.colima
 ```
 
-The report is a preview receipt: command, purpose, risk, expected effect, and non-claims. It can be saved with `--save-audit`, but Ryddi does not run these commands automatically and does not raw-delete VM disks, volumes, or package stores.
+The report is a preview receipt: command, purpose, risk, expected effect, and non-claims. It can be saved with `--save-audit`, and it is the safest default for Docker, Colima, package stores, and VM/container state.
+
+For selected non-destructive/non-placeholder commands, Ryddi can also create a native command execution receipt:
+
+```bash
+swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
+swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
+```
+
+`native run` executes exactly one selected command. It defaults to dry-run, requires `--yes` before performing the command, records stdout/stderr previews and before/after free-space fields, and blocks destructive commands, placeholder commands, shell metacharacters, and raw-delete paths. Ryddi does not run Docker/Colima prune/reset commands automatically and does not raw-delete VM disks, volumes, or package stores.
 
 ## Container Inventory
 

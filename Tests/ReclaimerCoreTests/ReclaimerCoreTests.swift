@@ -2064,6 +2064,80 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(receipt.actions.isEmpty)
     }
 
+    func testNativeToolExecutionDryRunAndConfirmedRunCreateReceipts() throws {
+        let homebrew = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Homebrew").path,
+            safety: .safeAfterCondition,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 1_000,
+            isDirectory: true,
+            category: "Developer cache"
+        )
+        let report = NativeToolGuidance.report(for: [homebrew], ruleVersion: "test")
+        let selection = try XCTUnwrap(NativeToolExecutor.selection(in: report, commandID: "brew.preview"))
+        let runner = FakeToolRunner(outputs: [
+            fakeOutput("brew", ["cleanup", "-n"], stdout: "Would remove old bottles\n")
+        ])
+        let executor = NativeToolExecutor(
+            runner: runner,
+            configuration: NativeToolExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot)
+        )
+
+        let dryRun = executor.execute(selection: selection, mode: .dryRun, ruleVersion: "test", userConfirmed: false)
+        XCTAssertEqual(dryRun.status, "dry-run")
+        XCTAssertEqual(dryRun.invocation?.displayCommand, "brew cleanup -n")
+        XCTAssertNil(dryRun.output)
+        XCTAssertTrue(runner.commands.isEmpty)
+        XCTAssertTrue(dryRun.nonClaims.contains { $0.contains("only one explicitly selected") })
+
+        let performed = executor.execute(selection: selection, mode: .perform, ruleVersion: "test", userConfirmed: true)
+        XCTAssertEqual(performed.status, "done")
+        XCTAssertEqual(performed.output?.stdoutPreview.first, "Would remove old bottles")
+        XCTAssertEqual(runner.commands, ["brew cleanup -n"])
+        XCTAssertNotNil(performed.beforeFreeBytes)
+        XCTAssertNotNil(performed.afterFreeBytes)
+        XCTAssertTrue(performed.errors.isEmpty)
+    }
+
+    func testNativeToolExecutionBlocksDestructiveAndPlaceholderCommands() throws {
+        let docker = finding(
+            path: "/Users/test/.docker",
+            safety: .reviewRequired,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 2_000,
+            isDirectory: true,
+            category: "Containers"
+        )
+        let colima = finding(
+            path: "/Users/test/.colima/default",
+            safety: .reviewRequired,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 2_000,
+            isDirectory: true,
+            category: "Containers"
+        )
+        let report = NativeToolGuidance.report(for: [docker, colima], ruleVersion: "test")
+        let destructive = try XCTUnwrap(NativeToolExecutor.selection(in: report, commandID: "docker.prune-volumes"))
+        let placeholder = try XCTUnwrap(NativeToolExecutor.selection(in: report, commandID: "colima.stop"))
+        let runner = FakeToolRunner(outputs: [])
+        let executor = NativeToolExecutor(
+            runner: runner,
+            configuration: NativeToolExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot)
+        )
+
+        let destructiveReceipt = executor.execute(selection: destructive, mode: .perform, ruleVersion: "test", userConfirmed: true)
+        XCTAssertEqual(destructiveReceipt.status, "blocked")
+        XCTAssertTrue(destructiveReceipt.message.contains("does not execute destructive"))
+
+        let placeholderReceipt = executor.execute(selection: placeholder, mode: .perform, ruleVersion: "test", userConfirmed: true)
+        XCTAssertEqual(placeholderReceipt.status, "blocked")
+        XCTAssertTrue(placeholderReceipt.message.contains("placeholders"))
+        XCTAssertTrue(runner.commands.isEmpty)
+    }
+
     func testContainerInventoryParsesDockerAndColimaReadOnlyOutput() throws {
         let runner = FakeToolRunner(outputs: [
             fakeOutput(
@@ -2810,6 +2884,11 @@ final class ReclaimerCoreTests: XCTestCase {
             ],
             ruleVersion: "test"
         )
+        let nativeSelection = try XCTUnwrap(NativeToolExecutor.selection(in: nativeReport, commandID: "brew.preview"))
+        let nativeExecutionReceipt = NativeToolExecutor(
+            runner: FakeToolRunner(outputs: []),
+            configuration: NativeToolExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot)
+        ).execute(selection: nativeSelection, mode: .dryRun, ruleVersion: "test", userConfirmed: false)
         let containerReport = ContainerInventoryScanner(
             runner: FakeToolRunner(
                 outputs: [
@@ -2826,6 +2905,7 @@ final class ReclaimerCoreTests: XCTestCase {
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
         _ = try store.save(nativeToolReport: nativeReport)
+        _ = try store.save(nativeToolExecutionReceipt: nativeExecutionReceipt)
         _ = try store.save(containerInventoryReport: containerReport)
         _ = try store.save(activeFileReviewReport: activeReport)
 
@@ -2834,6 +2914,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.recentReceipts().first?.id, receipt.id)
         XCTAssertEqual(store.receipt(id: String(receipt.id.prefix(8)))?.id, receipt.id)
         XCTAssertEqual(store.recentNativeToolReports().first?.id, nativeReport.id)
+        XCTAssertEqual(store.recentNativeToolExecutionReceipts().first?.id, nativeExecutionReceipt.id)
         XCTAssertEqual(store.recentContainerInventoryReports().first?.id, containerReport.id)
         XCTAssertEqual(store.recentActiveFileReviewReports().first?.id, activeReport.id)
     }
