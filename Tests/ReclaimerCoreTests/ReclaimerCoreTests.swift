@@ -1833,6 +1833,65 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("profile roots") })
     }
 
+    func testPackageCacheReviewSeparatesCachesFromProtectedConfig() throws {
+        let homebrewDownloads = tempRoot.appendingPathComponent("Library/Caches/Homebrew/downloads", isDirectory: true)
+        let npmContent = tempRoot.appendingPathComponent(".npm/_cacache/content-v2/sha512/aa", isDirectory: true)
+        let gradleModules = tempRoot.appendingPathComponent(".gradle/caches/modules-2/files-2.1/example", isDirectory: true)
+        let npmConfig = tempRoot.appendingPathComponent(".npmrc")
+        let mavenSettings = tempRoot.appendingPathComponent(".m2/settings.xml")
+        try FileManager.default.createDirectory(at: homebrewDownloads, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: npmContent, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: gradleModules, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: mavenSettings.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 4096).write(to: homebrewDownloads.appendingPathComponent("portable-ruby.tar.gz"))
+        try Data(repeating: 2, count: 2048).write(to: npmContent.appendingPathComponent("cache.bin"))
+        try Data(repeating: 3, count: 1024).write(to: gradleModules.appendingPathComponent("artifact.jar"))
+        try Data("//registry.npmjs.org/:_authToken=fixture".utf8).write(to: npmConfig)
+        try Data("<settings><servers>fixture</servers></settings>".utf8).write(to: mavenSettings)
+
+        let report = PackageCacheReviewScanner().review(
+            options: PackageCacheReviewOptions(
+                roots: [
+                    tempRoot.appendingPathComponent("Library/Caches/Homebrew"),
+                    tempRoot.appendingPathComponent(".npm/_cacache"),
+                    tempRoot.appendingPathComponent(".gradle/caches")
+                ],
+                protectedConfigRoots: [npmConfig, mavenSettings],
+                limit: 10,
+                measurementDepth: 6
+            ),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertTrue(report.rootSummaries.contains { $0.manager == .homebrew && $0.permissionState == .readable })
+        XCTAssertTrue(report.rootSummaries.contains { $0.manager == .npm && $0.permissionState == .readable })
+        XCTAssertTrue(report.rootSummaries.contains { $0.manager == .gradle && $0.permissionState == .readable })
+        XCTAssertTrue(report.largestItems.contains { $0.manager == .homebrew && $0.kind == .downloadCache })
+        XCTAssertTrue(report.largestItems.contains { $0.manager == .npm && $0.kind == .packageStore })
+        XCTAssertTrue(report.largestItems.contains { $0.manager == .gradle && $0.kind == .packageStore })
+        XCTAssertGreaterThanOrEqual(report.candidateBytes, 7_168)
+        XCTAssertEqual(report.protectedConfigRoots.filter { $0.permissionState == .readable }.count, 2)
+        XCTAssertTrue(report.protectedConfigRoots.contains { $0.path == npmConfig.path && $0.note.contains("tokens") })
+        XCTAssertFalse(report.largestItems.contains { $0.path == npmConfig.path || $0.path == mavenSettings.path })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: npmConfig.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mavenSettings.path))
+        XCTAssertTrue(report.guidance.contains { $0.contains("Prefer package-manager cleanup commands") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
+    }
+
+    func testPackageCacheReviewReportsMissingRootAsCoverageEvidence() throws {
+        let missing = tempRoot.appendingPathComponent("Library/Caches/Homebrew", isDirectory: true)
+        let report = PackageCacheReviewScanner().review(
+            options: PackageCacheReviewOptions(roots: [missing], protectedConfigRoots: [], limit: 10, measurementDepth: 4),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.rootSummaries.first?.permissionState, .missing)
+        XCTAssertEqual(report.candidateBytes, 0)
+        XCTAssertTrue(report.rootSummaries.first?.note.contains("does not exist") == true)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("config/auth") })
+    }
+
     func testDuplicateReviewExcludesPreserveByDefaultUnlessRequested() throws {
         let documents = tempRoot.appendingPathComponent("Documents", isDirectory: true)
         try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
@@ -3067,6 +3126,15 @@ final class ReclaimerCoreTests: XCTestCase {
             ),
             createdAt: Date(timeIntervalSince1970: 0)
         )
+        let packageReport = PackageCacheReviewScanner().review(
+            options: PackageCacheReviewOptions(
+                roots: [tempRoot.appendingPathComponent("Library/Caches/Homebrew")],
+                protectedConfigRoots: [tempRoot.appendingPathComponent(".npmrc")],
+                limit: 10,
+                measurementDepth: 4
+            ),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
 
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
@@ -3077,6 +3145,7 @@ final class ReclaimerCoreTests: XCTestCase {
         _ = try store.save(trashReviewReport: trashReport)
         _ = try store.save(downloadsReviewReport: downloadsReport)
         _ = try store.save(browserCacheReviewReport: browserReport)
+        _ = try store.save(packageCacheReviewReport: packageReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.plan(id: String(plan.id.prefix(8)))?.id, plan.id)
@@ -3089,6 +3158,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.recentTrashReviewReports().first?.id, trashReport.id)
         XCTAssertEqual(store.recentDownloadsReviewReports().first?.id, downloadsReport.id)
         XCTAssertEqual(store.recentBrowserCacheReviewReports().first?.id, browserReport.id)
+        XCTAssertEqual(store.recentPackageCacheReviewReports().first?.id, packageReport.id)
     }
 
     private final class FakeToolRunner: ToolCommandRunning, @unchecked Sendable {

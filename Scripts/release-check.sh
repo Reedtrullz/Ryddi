@@ -83,6 +83,20 @@ printf 'browser disk cache\n' >"$browser_cache/Cache/Cache_Data/data_0"
 printf 'browser code cache\n' >"$browser_cache/Code Cache/js/script.bin"
 printf 'browser gpu cache\n' >"$browser_cache/GPUCache/gpu.bin"
 printf 'profile should remain protected\n' >"$browser_profile/Login Data"
+package_fixture="$scratch/package-fixture"
+package_homebrew="$package_fixture/Library/Caches/Homebrew"
+package_npm="$package_fixture/.npm/_cacache"
+package_gradle="$package_fixture/.gradle/caches"
+mkdir -p \
+  "$package_homebrew/downloads" \
+  "$package_npm/content-v2/sha512/aa" \
+  "$package_gradle/modules-2/files-2.1/example" \
+  "$package_fixture/.m2"
+printf 'homebrew bottle\n' >"$package_homebrew/downloads/bottle.tar.gz"
+printf 'npm package cache\n' >"$package_npm/content-v2/sha512/aa/cache.bin"
+printf 'gradle artifact\n' >"$package_gradle/modules-2/files-2.1/example/artifact.jar"
+printf '//registry.npmjs.org/:_authToken=fixture\n' >"$package_fixture/.npmrc"
+printf '<settings>fixture</settings>\n' >"$package_fixture/.m2/settings.xml"
 agent_fixture="$scratch/agent-fixture"
 mkdir -p \
   "$agent_fixture/.codex/cache" \
@@ -388,6 +402,25 @@ test -f "$browser_cache/Cache/Cache_Data/data_0"
 test -f "$browser_cache/Code Cache/js/script.bin"
 test -f "$browser_cache/GPUCache/gpu.bin"
 test -f "$browser_profile/Login Data"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" packages --json \
+  --home "$package_fixture" \
+  --limit 20 \
+  --max-depth 6 \
+  --include-missing-scopes \
+  --save-audit >"$scratch/packages-smoke.json"
+grep -q '"manager" : "homebrew"' "$scratch/packages-smoke.json"
+grep -q '"manager" : "npm"' "$scratch/packages-smoke.json"
+grep -q '"manager" : "gradle"' "$scratch/packages-smoke.json"
+grep -q '"kind" : "downloadCache"' "$scratch/packages-smoke.json"
+grep -q '"kind" : "packageStore"' "$scratch/packages-smoke.json"
+grep -q "Package Cache Review is report-only" "$scratch/packages-smoke.json"
+grep -q "protected package-manager" "$scratch/packages-smoke.json"
+find "$scratch/audit" -name 'package-cache-review-*.json' -print -quit | grep -q 'package-cache-review-'
+test -f "$package_homebrew/downloads/bottle.tar.gz"
+test -f "$package_npm/content-v2/sha512/aa/cache.bin"
+test -f "$package_gradle/modules-2/files-2.1/example/artifact.jar"
+test -f "$package_fixture/.npmrc"
+test -f "$package_fixture/.m2/settings.xml"
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
@@ -652,6 +685,7 @@ Verification performed:
 - bundled reclaimer trash --json on disposable Trash fixture, with audit save and no emptying
 - bundled reclaimer downloads --json on disposable Downloads fixture, with audit save and no file moves/deletes
 - bundled reclaimer browsers --json on disposable browser cache/profile fixture, with audit save and no profile/cache mutation
+- bundled reclaimer packages --json on disposable package cache/config fixture, with audit save and no cache/config mutation
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root

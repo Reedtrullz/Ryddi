@@ -55,6 +55,8 @@ struct DashboardView: View {
                 DownloadsReviewView(model: model)
             } else if selectedSection == "Browsers" {
                 BrowserCacheReviewView(model: model)
+            } else if selectedSection == "Packages" {
+                PackageCacheReviewView(model: model)
             } else if selectedSection == "Trash" {
                 TrashReviewView(model: model)
             } else if selectedSection == "Containers" {
@@ -221,6 +223,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Browsers"
                 }
+                Button("Package Caches") {
+                    selectedFinding = nil
+                    selectedSection = "Packages"
+                }
                 Button("Trash Review") {
                     selectedFinding = nil
                     selectedSection = "Trash"
@@ -340,6 +346,7 @@ struct OverviewView: View {
                 MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
                 MetricTile(title: "Downloads", value: model.downloadsReview.map { ByteFormat.string($0.reviewCandidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Browser caches", value: model.browserCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
+                MetricTile(title: "Package caches", value: model.packageCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
                 MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
                 MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
@@ -1217,6 +1224,16 @@ struct AuditHistoryView: View {
                         Text("No browser cache review reports yet.")
                     } else {
                         ForEach(model.recentBrowserCacheReviewReports) { report in
+                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.candidateBytes)) candidates")
+                        }
+                    }
+                }
+
+                SectionBox(title: "Package Cache Review Reports") {
+                    if model.recentPackageCacheReviewReports.isEmpty {
+                        Text("No package cache review reports yet.")
+                    } else {
+                        ForEach(model.recentPackageCacheReviewReports) { report in
                             Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.candidateBytes)) candidates")
                         }
                     }
@@ -2238,6 +2255,192 @@ struct BrowserCacheReviewView: View {
                     }
                 } else {
                     ContentUnavailableView("No browser cache review yet", systemImage: "globe", description: Text("Run Browser Cache Review to inspect browser cache roots without measuring or modifying protected profile state."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct PackageCacheReviewView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Package Cache Review")
+                            .font(.largeTitle.bold())
+                        Text("Review Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots separately from config and auth state.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.reviewPackageCaches() }
+                    } label: {
+                        Label("Review Package Caches", systemImage: "shippingbox")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                if let report = model.packageCacheReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Candidates", value: ByteFormat.string(report.candidateBytes))
+                        MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
+                        MetricTile(title: "Measured items", value: "\(report.itemCount)")
+                        MetricTile(title: "Cache roots", value: "\(report.rootSummaries.count)")
+                        MetricTile(title: "Protected config", value: "\(report.protectedConfigRoots.count)")
+                    }
+
+                    SectionBox(title: "By Package Manager") {
+                        if report.managerSummaries.isEmpty {
+                            Text("No package cache items found in readable cache roots.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 6) {
+                                ForEach(report.managerSummaries) { summary in
+                                    HStack {
+                                        Text(summary.name)
+                                        Spacer()
+                                        Text("\(summary.itemCount)")
+                                            .monospacedDigit()
+                                            .foregroundStyle(.secondary)
+                                        Text(ByteFormat.string(summary.allocatedSize))
+                                            .frame(width: 90, alignment: .trailing)
+                                            .monospacedDigit()
+                                    }
+                                    .font(.caption)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Cache Roots") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(report.rootSummaries) { root in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(root.manager.label)
+                                            .font(.caption.weight(.semibold))
+                                        Text(root.permissionState.rawValue)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(ByteFormat.string(root.allocatedSize))
+                                            .font(.caption.monospacedDigit())
+                                    }
+                                    Text(root.rootPath)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                    Text(root.nativeCleanupHint)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    Text(root.note)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Largest Cache Items") {
+                        if report.largestItems.isEmpty {
+                            Text("No package cache items found in readable cache roots.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 0) {
+                                HStack {
+                                    Text("Allocated").frame(width: 92, alignment: .leading)
+                                    Text("Manager").frame(width: 92, alignment: .leading)
+                                    Text("Kind").frame(width: 122, alignment: .leading)
+                                    Text("Path")
+                                    Spacer()
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                ForEach(report.largestItems.prefix(40)) { item in
+                                    Divider()
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(ByteFormat.string(item.allocatedSize))
+                                                .frame(width: 92, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text(item.manager.label)
+                                                .frame(width: 92, alignment: .leading)
+                                            Text(item.kind.label)
+                                                .frame(width: 122, alignment: .leading)
+                                            Text(item.path)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                                .textSelection(.enabled)
+                                            Spacer()
+                                        }
+                                        .font(.caption)
+                                        Text(item.recommendation)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(.vertical, 6)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Protected Config And Auth Paths") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(report.protectedConfigRoots) { protectedRoot in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(protectedRoot.manager.label)
+                                            .font(.caption.weight(.semibold))
+                                        Text(protectedRoot.permissionState.rawValue)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text(protectedRoot.path)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                    Text(protectedRoot.note)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Guidance") {
+                        ForEach(report.guidance, id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    SectionBox(title: "Non-Claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No package cache review yet", systemImage: "shippingbox", description: Text("Run Package Cache Review to inspect package-manager cache roots without measuring or modifying protected config/auth state."))
                 }
 
                 if let error = model.error {
@@ -4807,6 +5010,7 @@ final class DashboardModel {
     var recentTrashReviewReports: [TrashReviewReport] = []
     var recentDownloadsReviewReports: [DownloadsReviewReport] = []
     var recentBrowserCacheReviewReports: [BrowserCacheReviewReport] = []
+    var recentPackageCacheReviewReports: [PackageCacheReviewReport] = []
     var recentAppUninstallReceipts: [AppUninstallExecutionReceipt] = []
     var heldItems: [HeldItem] = []
     var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
@@ -4822,6 +5026,7 @@ final class DashboardModel {
     var trashReview: TrashReviewReport?
     var downloadsReview: DownloadsReviewReport?
     var browserCacheReview: BrowserCacheReviewReport?
+    var packageCacheReview: PackageCacheReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
     var lastPlanReportExportURL: URL?
@@ -5441,6 +5646,7 @@ final class DashboardModel {
         recentTrashReviewReports = store.recentTrashReviewReports()
         recentDownloadsReviewReports = store.recentDownloadsReviewReports()
         recentBrowserCacheReviewReports = store.recentBrowserCacheReviewReports()
+        recentPackageCacheReviewReports = store.recentPackageCacheReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
     }
@@ -5577,6 +5783,24 @@ final class DashboardModel {
             }.value
             browserCacheReview = report
             _ = try AuditStore().save(browserCacheReviewReport: report)
+            loadAudit()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reviewPackageCaches() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = await Task.detached {
+                PackageCacheReviewScanner().review(
+                    options: PackageCacheReviewOptions(limit: 80, measurementDepth: 7, includeMissingRoots: true)
+                )
+            }.value
+            packageCacheReview = report
+            _ = try AuditStore().save(packageCacheReviewReport: report)
             loadAudit()
             error = nil
         } catch {

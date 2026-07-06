@@ -57,6 +57,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - report-only Downloads review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
 - report-only Browser Cache review for cache roots, protected profile roots, quit-first guidance, and local audit history
+- report-only Package Cache review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native-tool guidance, and local audit history
 - report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
@@ -141,6 +142,7 @@ swift run --scratch-path .build reclaimer apps uninstall-preview --app /Applicat
 swift run --scratch-path .build reclaimer agents
 swift run --scratch-path .build reclaimer agents --json --limit 40
 swift run --scratch-path .build reclaimer agents retention --profile balanced
+swift run --scratch-path .build reclaimer packages --json --save-audit
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
@@ -311,6 +313,17 @@ swift run --scratch-path .build reclaimer browsers --path ~/Library/Caches/Googl
 ```
 
 Browser Cache Review reports readable/missing cache roots, browser and cache-kind summaries, largest cache items, protected profile roots, and quit-first guidance. It is report-only: Ryddi does not delete, move, Trash, reset, or modify browser files, and it does not treat bookmarks, cookies, history, passwords, extensions, sessions, or sync state as cache.
+
+## Package Cache Review
+
+Ryddi can review common package-manager cache roots while keeping config and auth files out of the cache report:
+
+```bash
+swift run --scratch-path .build reclaimer packages --json --save-audit
+swift run --scratch-path .build reclaimer packages --path ~/Library/Caches/Homebrew --home ~ --limit 40
+```
+
+Package Cache Review reports readable/missing cache roots, package-manager and cache-kind summaries, largest cache items, protected config/auth paths, and native cleanup guidance. It is report-only: Ryddi does not delete, move, Trash, prune, purge, or modify package-manager files, and it does not treat tokens, credentials, registries, mirrors, settings, or project behavior as cache.
 
 ## Trash Review
 
@@ -485,7 +498,7 @@ It does not run destructive cleanup unattended, does not call `execute --yes`, a
 
 ## Native Tool Reports And Receipts
 
-Ryddi treats container runtimes and package-manager stores as tool-owned state. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use:
+Ryddi treats container runtimes and package-manager stores as tool-owned state. Use Package Cache Review to inventory package cache roots first. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use native-tool reports when you want command-level guidance:
 
 ```bash
 swift run --scratch-path .build reclaimer native --json --path ~/.colima
