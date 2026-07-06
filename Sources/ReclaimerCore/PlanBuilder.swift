@@ -16,9 +16,9 @@ public final class PlanBuilder: @unchecked Sendable {
         let initialItems = findings.map { finding -> ReclaimPlanItem in
             let findingWithOpenStatus: Finding
             if let openStatus = finding.openFileStatus {
-                findingWithOpenStatus = finding.withOpenStatus(openStatus)
+                findingWithOpenStatus = finding.withOpenFileStatus(openStatus)
             } else if requiresOpenFileCheck(finding, mode: mode) {
-                findingWithOpenStatus = finding.withOpenStatus(openFileChecker.status(for: URL(fileURLWithPath: finding.path)))
+                findingWithOpenStatus = finding.withOpenFileStatus(openFileChecker.status(for: URL(fileURLWithPath: finding.path)))
             } else {
                 findingWithOpenStatus = finding
             }
@@ -182,27 +182,5 @@ public final class PlanBuilder: @unchecked Sendable {
         case .nativeToolCommand, .openGuidance, .reportOnly:
             0
         }
-    }
-}
-
-private extension Finding {
-    func withOpenStatus(_ status: OpenFileStatus) -> Finding {
-        Finding(
-            id: id,
-            scopeName: scopeName,
-            path: path,
-            displayName: displayName,
-            logicalSize: logicalSize,
-            allocatedSize: allocatedSize,
-            isDirectory: isDirectory,
-            isSymbolicLink: isSymbolicLink,
-            modificationDate: modificationDate,
-            ownerHint: ownerHint,
-            safetyClass: safetyClass,
-            actionKind: actionKind,
-            ruleMatches: ruleMatches,
-            evidence: evidence,
-            openFileStatus: status
-        )
     }
 }

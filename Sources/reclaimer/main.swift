@@ -28,6 +28,8 @@ struct ReclaimerCLI {
             try report(args: args)
         case "permissions":
             try permissions(args: args)
+        case "active":
+            try active(args: args)
         case "history":
             try history(args: args)
         case "duplicates":
@@ -148,6 +150,27 @@ struct ReclaimerCLI {
             printPermissionAdvisorReport(report)
         }
     }
+
+    static func active(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let scopes = options.scopes(includeUnavailable: true)
+        let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
+        let report = ActiveFileReviewScanner(openFileChecker: LsofOpenFileChecker()).review(
+            findings: options.prepare(findings),
+            options: ActiveFileReviewOptions(limit: options.limit)
+        )
+        if options.saveAudit {
+            let url = try AuditStore().save(activeFileReviewReport: report)
+            FileHandle.standardError.write(Data("saved active-file report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printActiveFileReviewReport(report)
+        }
+    }
+
 
     static func history(args: [String]) throws {
         guard let subcommand = args.first else {
@@ -492,6 +515,7 @@ struct ReclaimerCLI {
               report [--json] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
                      [--title TEXT] [--include-missing-scopes] [--ignore-user-policy]
               permissions [--json] [--path PATH ...] [--include-missing-scopes]
+              active [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit]
               history record [--json] [--path PATH ...] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
@@ -826,6 +850,42 @@ func printPermissionAdvisorReport(_ report: PermissionAdvisorReport) {
         for scope in report.unavailableScopes {
             print("- \(scope.permissionState.rawValue): \(scope.name) - \(scope.path)")
             print("  \(scope.message)")
+        }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printActiveFileReviewReport(_ report: ActiveFileReviewReport) {
+    print("Ryddi active-file review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Candidates: \(report.candidateCount)")
+    print("Checked: \(report.checkedCount)\(report.truncated ? " (limited)" : "")")
+    print("Open: \(report.openCount)")
+    print("Check failed: \(report.failedCheckCount)")
+    print("Blocked bytes: \(ByteFormat.string(report.totalBlockedBytes))")
+
+    if report.items.isEmpty {
+        print("\nNo open-handle blockers found in the checked cleanup candidates.")
+    } else {
+        print("\nOpen-handle blockers")
+        print("\(pad("State", 13)) \(pad("Bytes", 11)) \(pad("Safety", 22)) \(pad("Processes", 36)) Path")
+        for item in report.items {
+            let processes: String
+            if !item.processSummary.isEmpty {
+                processes = item.processSummary.joined(separator: ", ")
+            } else if let failure = item.checkFailed {
+                processes = failure
+            } else {
+                processes = "-"
+            }
+            print("\(pad(item.state.label, 13)) \(pad(ByteFormat.string(item.finding.allocatedSize), 11)) \(pad(item.finding.safetyClass.label, 22)) \(pad(processes, 36)) \(item.finding.path)")
+            for line in item.guidance.prefix(2) {
+                print("  - \(line)")
+            }
         }
     }
 

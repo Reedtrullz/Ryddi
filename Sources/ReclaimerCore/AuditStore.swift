@@ -49,6 +49,13 @@ public final class AuditStore: @unchecked Sendable {
         return url
     }
 
+    public func save(activeFileReviewReport: ActiveFileReviewReport) throws -> URL {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("active-files-\(activeFileReviewReport.id).json")
+        try encoder.encode(activeFileReviewReport).write(to: url, options: .atomic)
+        return url
+    }
+
     public func recentReceipts(limit: Int = 20) -> [ExecutionReceipt] {
         guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
             return []
@@ -114,5 +121,20 @@ public final class AuditStore: @unchecked Sendable {
             }
             .prefix(limit)
             .compactMap { try? decoder.decode(ContainerInventoryReport.self, from: Data(contentsOf: $0)) }
+    }
+
+    public func recentActiveFileReviewReports(limit: Int = 20) -> [ActiveFileReviewReport] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
+            return []
+        }
+        return files
+            .filter { $0.lastPathComponent.hasPrefix("active-files-") }
+            .sorted { lhs, rhs in
+                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return left > right
+            }
+            .prefix(limit)
+            .compactMap { try? decoder.decode(ActiveFileReviewReport.self, from: Data(contentsOf: $0)) }
     }
 }

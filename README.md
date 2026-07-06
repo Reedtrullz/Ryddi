@@ -38,6 +38,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - permission/degraded-scan coverage, Full Disk Access guidance, and APFS accounting notes
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
 - exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
+- active-handle review for cleanup candidates, with process summaries and failed-check visibility
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - local user protections and exclusions for paths Ryddi should preserve or ignore
 - large-file and old-file review signals
@@ -52,7 +53,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - Browser cache versus browser profile separation
 - Stale temp/scratch review
 - App-managed holding area for reversible quarantine moves
-- Local audit history for plans and execution receipts
+- Local audit history for plans, execution receipts, native reports, container reports, and active-file reports
 
 ## Safety Model
 
@@ -86,6 +87,7 @@ swift run --scratch-path .build reclaimer help
 swift run --scratch-path .build reclaimer overview
 swift run --scratch-path .build reclaimer status
 swift run --scratch-path .build reclaimer permissions
+swift run --scratch-path .build reclaimer active --path ~/Library/Caches --limit 25
 swift run --scratch-path .build reclaimer overview --save-history --path Tests --limit 5
 swift run --scratch-path .build reclaimer report --path Tests --limit 10 --output ryddi-report.md
 swift run --scratch-path .build reclaimer history list
@@ -119,6 +121,17 @@ swift run --scratch-path .build reclaimer permissions --json --path ~/Library
 ```
 
 The permission advisor reports readable, denied, missing, and unknown scopes; recommends when to review Full Disk Access; and keeps explicit non-claims because path readability is not cleanup permission.
+
+## Active Handles
+
+Ryddi can run a focused active-file review for cleanup-relevant candidates:
+
+```bash
+swift run --scratch-path .build reclaimer active --path ~/Library/Caches --limit 25
+swift run --scratch-path .build reclaimer active --json --save-audit
+```
+
+The active review reports paths blocked by open handles or failed open-file checks, including process summaries when `lsof` can provide them. It does not quit apps, execute cleanup, or prove that a path becomes safe after an app exits.
 
 ## Protections And Exclusions
 

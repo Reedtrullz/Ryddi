@@ -12,6 +12,8 @@ Scans run on your Mac. Plans, receipts, Markdown evidence reports, and holding-a
 
 Ryddi reads filesystem metadata such as path, file type, size, allocated size, modification date, and readability. When requested by a plan or action, it can run open-file checks so active files are skipped.
 
+Active-handle review runs bounded open-file checks over cleanup-relevant candidates and can save a local report. These reports can include local paths, process names, pids, failed-check messages, safety classes, and guidance. Ryddi does not upload active-handle reports, quit processes, or execute cleanup while creating them.
+
 Disk status and the menu bar item read local volume capacity/free-space metadata. They do not inspect file contents or send disk pressure information anywhere.
 
 Permission coverage checks use local filesystem existence and readability checks for configured scan roots. They can report readable, denied, missing, and unknown scope states, but they do not grant macOS permissions or prove that Full Disk Access is globally enabled.
@@ -41,6 +43,7 @@ Ryddi can write:
 - saved Markdown receipt reports;
 - saved native-tool preview reports;
 - saved container inventory reports;
+- saved active-file review reports;
 - saved user path policy for protections and exclusions;
 - compact local scan-history snapshots for growth comparisons;
 - app-managed holding-area metadata;

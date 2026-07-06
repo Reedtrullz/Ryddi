@@ -80,14 +80,19 @@ public struct NoOpenFilesChecker: OpenFileChecking {
 }
 
 public struct StaticOpenFileChecker: OpenFileChecking {
-    private let openPaths: Set<String>
+    private let statusesByPath: [String: OpenFileStatus]
 
     public init(openPaths: Set<String>) {
-        self.openPaths = openPaths
+        self.statusesByPath = Dictionary(uniqueKeysWithValues: openPaths.map {
+            ($0, OpenFileStatus(isOpen: true, processSummary: ["fixture pid 1"]))
+        })
+    }
+
+    public init(openStatuses: [String: OpenFileStatus]) {
+        self.statusesByPath = openStatuses
     }
 
     public func status(for url: URL) -> OpenFileStatus {
-        let isOpen = openPaths.contains(url.path)
-        return OpenFileStatus(isOpen: isOpen, processSummary: isOpen ? ["fixture pid 1"] : [])
+        statusesByPath[url.path] ?? OpenFileStatus(isOpen: false)
     }
 }

@@ -45,6 +45,8 @@ struct DashboardView: View {
                 ContainerInventoryView(model: model)
             } else if selectedSection == "Permissions" {
                 PermissionOnboardingView(model: model)
+            } else if selectedSection == "Active" {
+                ActiveFileReviewView(model: model)
             } else if selectedSection == "Policy" {
                 UserPathPolicyView(model: model)
             } else if selectedSection == "Audit" {
@@ -137,6 +139,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Permissions"
                 }
+                Button("Active Handles") {
+                    selectedFinding = nil
+                    selectedSection = "Active"
+                }
                 Button("Protections & Exclusions") {
                     selectedFinding = nil
                     selectedSection = "Policy"
@@ -213,6 +219,7 @@ struct OverviewView: View {
                 MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
                 MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
                 MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
+                MetricTile(title: "Active handles", value: "\(model.activeFileReview?.openCount ?? 0)")
             }
 
             if let overview = model.overview {
@@ -274,7 +281,7 @@ struct CapabilityMatrixView: View {
         ("Explain permissions", "Coverage advisor shows readable, denied, missing, and unknown scopes with Full Disk Access guidance and non-claims."),
         ("Honor user policy", "Local exclusions hide noisy paths from scans; protections keep paths visible but blocked from cleanup."),
         ("Export reports", "Local Markdown evidence reports capture scan coverage, top findings, user policy, accounting notes, and non-claims."),
-        ("Protect active files", "Plan/executor run open-file checks and skip active paths."),
+        ("Protect active files", "Plan/executor run open-file checks, active-handle review surfaces process names, and active paths are skipped."),
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Export receipts", "Saved dry-run and execution receipts can be exported as local Markdown reports with action counts and non-claims."),
         ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
@@ -364,6 +371,112 @@ struct AuditHistoryView: View {
                             Text("\(report.createdAt.formatted()) - Docker \(report.docker.status.state.label), Colima \(report.colima.status.state.label) - \(reclaim)")
                         }
                     }
+                }
+
+                SectionBox(title: "Active File Reports") {
+                    if model.recentActiveFileReviewReports.isEmpty {
+                        Text("No active-file reports yet.")
+                    } else {
+                        ForEach(model.recentActiveFileReviewReports) { report in
+                            Text("\(report.createdAt.formatted()) - \(report.openCount) open - \(report.failedCheckCount) failed - \(ByteFormat.string(report.totalBlockedBytes))")
+                        }
+                    }
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct ActiveFileReviewView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Active Handles")
+                            .font(.largeTitle.bold())
+                        Text("Open-file blockers for cleanup-relevant candidates.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.checkActiveHandles() }
+                    } label: {
+                        Label("Check", systemImage: "lock.open")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                if model.isWorking {
+                    ProgressView("Checking active handles...")
+                }
+
+                if let report = model.activeFileReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Candidates", value: "\(report.candidateCount)")
+                        MetricTile(title: "Checked", value: "\(report.checkedCount)")
+                        MetricTile(title: "Open", value: "\(report.openCount)")
+                        MetricTile(title: "Failed", value: "\(report.failedCheckCount)")
+                        MetricTile(title: "Blocked bytes", value: ByteFormat.string(report.totalBlockedBytes))
+                    }
+
+                    if report.truncated {
+                        Text("Checked the first \(report.checkedCount) candidates by size.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    SectionBox(title: "Open Handle Blockers") {
+                        if report.items.isEmpty {
+                            Text("No blockers found in the checked candidates.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(report.items) { item in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text(item.state.label)
+                                            .font(.headline)
+                                        Text(ByteFormat.string(item.finding.allocatedSize))
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        SafetyBadge(safetyClass: item.finding.safetyClass)
+                                    }
+                                    Text(item.finding.path)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                    if !item.processSummary.isEmpty {
+                                        Text("Open by: \(item.processSummary.joined(separator: ", "))")
+                                            .font(.caption)
+                                    }
+                                    if let failure = item.checkFailed {
+                                        Text(failure)
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                    }
+                                    ForEach(item.guidance, id: \.self) { line in
+                                        Text(line)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    FindingActionButtons(finding: item.finding)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Non-Claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No active-file report", systemImage: "lock.open", description: Text("Run Check after a scan."))
                 }
             }
             .padding(24)
@@ -1897,10 +2010,12 @@ final class DashboardModel {
     var recentReceipts: [ExecutionReceipt] = []
     var recentNativeToolReports: [NativeToolReport] = []
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
+    var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
     var heldItems: [HeldItem] = []
     var duplicateReview: DuplicateReview?
     var appReview: AppReviewReport?
     var containerInventory: ContainerInventoryReport?
+    var activeFileReview: ActiveFileReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
     var lastReceiptReportExportURL: URL?
@@ -2139,12 +2254,46 @@ final class DashboardModel {
         }
     }
 
+    func checkActiveHandles() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let baseFindings = findings
+            let report = try await Task.detached {
+                let sourceFindings: [Finding]
+                if baseFindings.isEmpty {
+                    let scopes = DefaultScopes.developerAgentBloat(includeUnavailable: true)
+                    let policy = UserPathPolicyStore().load()
+                    let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+                    sourceFindings = scanner.scan(
+                        scopes: scopes,
+                        options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
+                    )
+                } else {
+                    sourceFindings = baseFindings
+                }
+                return ActiveFileReviewScanner(openFileChecker: LsofOpenFileChecker()).review(
+                    findings: sourceFindings,
+                    options: ActiveFileReviewOptions(limit: 80)
+                )
+            }.value
+            activeFileReview = report
+            applyActiveFileStatuses(from: report)
+            _ = try AuditStore().save(activeFileReviewReport: report)
+            loadAudit()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
     func loadAudit() {
         let store = AuditStore()
         recentPlans = store.recentPlans()
         recentReceipts = store.recentReceipts()
         recentNativeToolReports = store.recentNativeToolReports()
         recentContainerInventoryReports = store.recentContainerInventoryReports()
+        recentActiveFileReviewReports = store.recentActiveFileReviewReports()
     }
 
     func loadHolding() {
@@ -2275,6 +2424,22 @@ final class DashboardModel {
 
     func planItem(for findingID: Finding.ID) -> ReclaimPlanItem? {
         plan?.items.first { $0.finding.id == findingID }
+    }
+
+    private func applyActiveFileStatuses(from report: ActiveFileReviewReport) {
+        var statusByPath: [String: OpenFileStatus] = [:]
+        for item in report.items {
+            if let status = item.finding.openFileStatus {
+                statusByPath[item.finding.path] = status
+            }
+        }
+        guard !statusByPath.isEmpty else { return }
+        findings = findings.map { finding in
+            if let status = statusByPath[finding.path] {
+                return finding.withOpenFileStatus(status)
+            }
+            return finding
+        }
     }
 
     func installSchedule() {

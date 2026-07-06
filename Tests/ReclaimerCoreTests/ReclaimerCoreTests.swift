@@ -951,6 +951,64 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(plan.expectedImmediateReclaim, 1_000)
     }
 
+    func testActiveFileReviewReportsOpenCleanupCandidatesWithProcesses() throws {
+        let openCache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex/open-cache").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 1_000,
+            isDirectory: true,
+            category: "Codex"
+        )
+        let protectedHistory = finding(
+            path: tempRoot.appendingPathComponent(".codex/sessions/history.jsonl").path,
+            safety: .preserveByDefault,
+            action: .compress,
+            open: true,
+            allocatedSize: 2_000,
+            category: "Codex"
+        )
+
+        let report = ActiveFileReviewScanner(
+            openFileChecker: StaticOpenFileChecker(
+                openStatuses: [
+                    openCache.path: OpenFileStatus(isOpen: true, processSummary: ["Codex pid 42"])
+                ]
+            )
+        ).review(findings: [protectedHistory, openCache], options: ActiveFileReviewOptions(limit: 10))
+
+        XCTAssertEqual(report.candidateCount, 1)
+        XCTAssertEqual(report.checkedCount, 1)
+        XCTAssertEqual(report.openCount, 1)
+        XCTAssertEqual(report.failedCheckCount, 0)
+        XCTAssertEqual(report.totalBlockedBytes, 1_000)
+        XCTAssertEqual(report.items.first?.finding.path, openCache.path)
+        XCTAssertEqual(report.items.first?.processSummary, ["Codex pid 42"])
+        XCTAssertTrue(report.items.first?.guidance.contains { $0.contains("rerun Plan or Dry Run") } ?? false)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("did not quit processes") })
+    }
+
+    func testActiveFileReviewReportsCheckFailuresAndLimit() throws {
+        let first = finding(path: "/tmp/a", safety: .autoSafe, action: .deleteCache, open: false, allocatedSize: 1_000)
+        let second = finding(path: "/tmp/b", safety: .safeAfterCondition, action: .trash, open: false, allocatedSize: 900)
+        let report = ActiveFileReviewScanner(
+            openFileChecker: StaticOpenFileChecker(
+                openStatuses: [
+                    first.path: OpenFileStatus(isOpen: false, checkFailed: "permission denied")
+                ]
+            )
+        ).review(findings: [second, first], options: ActiveFileReviewOptions(limit: 1))
+
+        XCTAssertEqual(report.candidateCount, 2)
+        XCTAssertEqual(report.checkedCount, 1)
+        XCTAssertTrue(report.truncated)
+        XCTAssertEqual(report.openCount, 0)
+        XCTAssertEqual(report.failedCheckCount, 1)
+        XCTAssertEqual(report.items.first?.state, .checkFailed)
+        XCTAssertEqual(report.items.first?.checkFailed, "permission denied")
+    }
+
     func testExecutorDryRunNeverMutatesFiles() throws {
         let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
         try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -1181,17 +1239,22 @@ final class ReclaimerCoreTests: XCTestCase {
             ),
             timeout: 1
         ).inspect()
+        let activeReport = ActiveFileReviewScanner(
+            openFileChecker: StaticOpenFileChecker(openPaths: [candidate.path])
+        ).review(findings: [candidate], options: ActiveFileReviewOptions(limit: 10))
 
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
         _ = try store.save(nativeToolReport: nativeReport)
         _ = try store.save(containerInventoryReport: containerReport)
+        _ = try store.save(activeFileReviewReport: activeReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.recentReceipts().first?.id, receipt.id)
         XCTAssertEqual(store.receipt(id: String(receipt.id.prefix(8)))?.id, receipt.id)
         XCTAssertEqual(store.recentNativeToolReports().first?.id, nativeReport.id)
         XCTAssertEqual(store.recentContainerInventoryReports().first?.id, containerReport.id)
+        XCTAssertEqual(store.recentActiveFileReviewReports().first?.id, activeReport.id)
     }
 
     private final class FakeToolRunner: ToolCommandRunning, @unchecked Sendable {

@@ -103,7 +103,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Evidence details | Rare in broad cleaners, central to Ryddi | Partial | Make every finding answer: what is this, why matched, risk, recovery path, exact action. |
 | Dry-run plan | Strong differentiator | Partial | Keep as default. Receipt exports now add action counts and skipped/error visibility; plan diff remains future work. |
 | Exportable reports | Expected in trust-sensitive admin tools, useful for before/after review | Exists/partial | Markdown evidence reports and receipt reports now capture scan coverage, top findings, policy, accounting notes, action counts, skipped/errors, before/after free-space fields, and non-claims. Future work should add redaction controls. |
-| Active-file guard | Strong safety differentiator | Exists/partial | Surface it in UI with "Quit app first" queue and exact process names when available. |
+| Active-file guard | Strong safety differentiator | Exists/partial | Active-handle review now surfaces open/process summaries and failed checks for cleanup candidates. Future work should add richer app-name mapping and notification flows. |
 | Trash-first cleanup | Expected safety behavior | Exists/partial | Use Trash for uncertain/user-visible data. Direct delete only for allowlisted caches. |
 | App-managed holding area | Strong differentiator | Exists/partial | Make restore and expiry visible in UI. Show "held until" and original path. |
 | User exclusions/protections | Expected from Hazel-like automation and serious cleanup tools | Exists/partial | Local path policy now supports scan exclusions and cleanup protections. Future work should add import/export and richer rule conditions. |

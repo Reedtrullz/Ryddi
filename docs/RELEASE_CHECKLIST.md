@@ -13,6 +13,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] App launches locally.
 - [ ] `reclaimer status --json` reports disk pressure/free-space metadata without scanning content.
 - [ ] `reclaimer permissions --json --path Tests` reports a permission coverage level, scope counts, recommended actions, and non-claims.
+- [ ] `reclaimer active --path Tests --json --save-audit` reports cleanup-relevant active-handle candidates, saves a local audit record, and does not quit processes or execute cleanup.
 - [ ] `reclaimer overview --path Tests --limit 5` prints a bounded overview.
 - [ ] `reclaimer overview --json --path Tests --limit 5` includes bounded `mapNodes`.
 - [ ] `reclaimer report --path Tests --limit 5 --output REPORT.md` writes a local Markdown report with scan coverage, top findings, user policy, accounting notes, and non-claims without executing cleanup.
@@ -54,6 +55,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say container inventory runs read-only inspection commands only.
 - [ ] Release notes say user protections/exclusions are local path policy and are not uploaded.
 - [ ] Release notes say permission coverage is local path readability evidence and does not grant or prove global Full Disk Access.
+- [ ] Release notes say active-handle reports can include process summaries and do not quit processes or execute cleanup.
 - [ ] Release notes say evidence reports are local Markdown files that can include paths and do not execute cleanup.
 - [ ] Release notes say receipt reports summarize saved receipts locally and do not rerun cleanup.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

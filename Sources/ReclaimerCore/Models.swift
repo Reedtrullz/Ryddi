@@ -203,6 +203,26 @@ public extension Finding {
         }
         return "Allocated size is higher than logical size because filesystem blocks and metadata can consume extra physical space."
     }
+
+    func withOpenFileStatus(_ status: OpenFileStatus) -> Finding {
+        Finding(
+            id: id,
+            scopeName: scopeName,
+            path: path,
+            displayName: displayName,
+            logicalSize: logicalSize,
+            allocatedSize: allocatedSize,
+            isDirectory: isDirectory,
+            isSymbolicLink: isSymbolicLink,
+            modificationDate: modificationDate,
+            ownerHint: ownerHint,
+            safetyClass: safetyClass,
+            actionKind: actionKind,
+            ruleMatches: ruleMatches,
+            evidence: evidence,
+            openFileStatus: status
+        )
+    }
 }
 
 public struct PlanCondition: Codable, Hashable, Sendable {
