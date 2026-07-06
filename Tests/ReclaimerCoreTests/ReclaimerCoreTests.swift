@@ -559,6 +559,30 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url), report.markdown)
     }
 
+    func testReportStoreSavesUserRulePackExport() throws {
+        let rule = ReclaimerRule(
+            id: "user.review.fixture",
+            title: "Fixture review rule",
+            category: "User",
+            priority: 5000,
+            safetyClass: .reviewRequired,
+            actionKind: .openGuidance,
+            match: RuleMatchSpec(containsAny: ["/FixtureReviewTarget/"]),
+            evidence: ["Fixture rule."]
+        )
+        let document = UserRulePackDocument(id: "fixture-rules", exportedAt: Date(timeIntervalSince1970: 0), rules: [rule])
+        let store = ReportStore(root: tempRoot.appendingPathComponent("Reports", isDirectory: true))
+
+        let url = try store.save(userRulePackDocument: document)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(UserRulePackDocument.self, from: Data(contentsOf: url))
+
+        XCTAssertEqual(url.lastPathComponent, "user-rules-fixture-rules.json")
+        XCTAssertEqual(decoded.rules.map(\.id), [rule.id])
+        XCTAssertTrue(decoded.nonClaims.contains { $0.contains("local review data") })
+    }
+
     func testExecutionReceiptReportIncludesCountsDeltasAndNonClaims() {
         let receipt = ExecutionReceipt(
             id: "receipt-fixture",

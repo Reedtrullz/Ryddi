@@ -1,5 +1,6 @@
 import SwiftUI
 import ReclaimerCore
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #endif
@@ -78,6 +79,13 @@ struct DashboardView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 320)
+            Toggle(isOn: Binding(
+                get: { model.includeUserRulesInScans },
+                set: { model.setIncludeUserRulesInScans($0) }
+            )) {
+                Label("User Rules", systemImage: "slider.horizontal.3")
+            }
+            .toggleStyle(.button)
             Button {
                 Task { await model.scan() }
             } label: {
@@ -429,21 +437,13 @@ struct CapabilityMatrixView: View {
 }
 
 struct RuleCatalogView: View {
-    private let catalogResult: Result<RuleCatalogReport, Error>
-    private let userRuleDocumentResult: Result<UserRulePackDocument, Error>
-    private let userRuleCatalogResult: Result<RuleCatalogReport, Error>
-
-    init() {
-        catalogResult = Result {
-            try RuleEngine.bundled().catalog()
-        }
-        userRuleDocumentResult = Result {
-            try UserRulePackStore().loadDocument()
-        }
-        userRuleCatalogResult = Result {
-            try RuleEngine.bundled(includingUserRules: true).catalog()
-        }
-    }
+    @State private var catalogResult: Result<RuleCatalogReport, Error> = Result { try RuleEngine.bundled().catalog() }
+    @State private var userRuleDocumentResult: Result<UserRulePackDocument, Error> = Result { try UserRulePackStore().loadDocument() }
+    @State private var userRuleCatalogResult: Result<RuleCatalogReport, Error> = Result { try RuleEngine.bundled(includingUserRules: true).catalog() }
+    @State private var userRulePreview: UserRulePackPreview?
+    @State private var userRuleImportResult: UserRulePackImportResult?
+    @State private var lastUserRuleExportURL: URL?
+    @State private var userRuleError: String?
 
     var body: some View {
         ScrollView {
@@ -463,13 +463,42 @@ struct RuleCatalogView: View {
                     SectionBox(title: "Local User Rules") {
                         switch userRuleDocumentResult {
                         case .success(let document):
-                            HStack {
-                                Text("Installed")
-                                Spacer()
-                                Text("\(document.rules.count)")
-                                    .monospacedDigit()
+                            HStack(spacing: 12) {
+                                Button {
+                                    previewUserRulePack()
+                                } label: {
+                                    Label("Preview JSON", systemImage: "doc.text.magnifyingglass")
+                                }
+
+                                Button {
+                                    importPreviewedUserRulePack()
+                                } label: {
+                                    Label("Import Preview", systemImage: "square.and.arrow.down")
+                                }
+                                .disabled(userRulePreview?.isImportable != true)
+
+                                Button {
+                                    exportUserRulePack()
+                                } label: {
+                                    Label("Export Rules", systemImage: "square.and.arrow.up")
+                                }
+                                .disabled(document.rules.isEmpty)
+
+                                Button {
+                                    NSWorkspace.shared.activateFileViewerSelecting([UserRulePackStore().rulePackURL])
+                                } label: {
+                                    Label("Reveal File", systemImage: "folder")
+                                }
+                                .disabled(document.rules.isEmpty)
                             }
-                            .font(.caption)
+                            .buttonStyle(.bordered)
+
+                            HStack {
+                                MetricTile(title: "Installed", value: "\(document.rules.count)")
+                                MetricTile(title: "Rule file", value: UserRulePackStore().rulePackURL.lastPathComponent)
+                                MetricTile(title: "Included by default", value: "No")
+                            }
+
                             switch userRuleCatalogResult {
                             case .success(let combinedCatalog):
                                 HStack {
@@ -484,6 +513,17 @@ struct RuleCatalogView: View {
                                     .font(.caption)
                                     .foregroundStyle(.red)
                             }
+                            if let result = userRuleImportResult {
+                                Text("Imported \(result.importedRuleCount) rule(s), final local rules: \(result.finalRuleCount). User rules remain opt-in per scan.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let url = lastUserRuleExportURL {
+                                Text(url.path)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
                             ForEach(document.nonClaims, id: \.self) { note in
                                 Text(note)
                                     .font(.caption2)
@@ -493,6 +533,47 @@ struct RuleCatalogView: View {
                             Text(error.localizedDescription)
                                 .font(.caption)
                                 .foregroundStyle(.red)
+                        }
+                        if let error = userRuleError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
+                    if let preview = userRulePreview {
+                        SectionBox(title: "Rule Pack Preview") {
+                            HStack(spacing: 16) {
+                                MetricTile(title: "Importable", value: preview.isImportable ? "Yes" : "No")
+                                MetricTile(title: "Accepted", value: "\(preview.acceptedRuleCount)")
+                                MetricTile(title: "Rejected", value: "\(preview.rejectedRuleCount)")
+                                MetricTile(title: "Total", value: "\(preview.ruleCount)")
+                            }
+                            Text(preview.sourcePath)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                            if preview.issues.isEmpty {
+                                Text("Validation: no issues")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(preview.issues) { issue in
+                                    let scope = issue.ruleID.map { " \($0)" } ?? ""
+                                    Text("\(issue.severity.rawValue)\(scope): \(issue.message)")
+                                        .font(.caption)
+                                        .foregroundStyle(issue.severity == .error ? .red : .orange)
+                                }
+                            }
+                            ForEach(preview.document.rules.prefix(12)) { rule in
+                                ruleRow(rule, source: "Preview")
+                                Divider()
+                            }
+                            if preview.document.rules.count > 12 {
+                                Text("\(preview.document.rules.count - 12) more preview rule(s)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
 
@@ -525,40 +606,7 @@ struct RuleCatalogView: View {
                             Text(section.guidance)
                                 .foregroundStyle(.secondary)
                             ForEach(section.rules) { rule in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text(rule.title)
-                                            .font(.subheadline.weight(.semibold))
-                                        Spacer()
-                                        Text(rule.actionKind.label)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Text(rule.id)
-                                        .font(.caption2.monospaced())
-                                        .foregroundStyle(.secondary)
-                                    Text("\(rule.category) - priority \(rule.priority)")
-                                        .font(.caption)
-                                    if !rule.matchHints.isEmpty {
-                                        Text("Match: \(rule.matchHints.joined(separator: ", "))")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                    }
-                                    if !rule.conditions.isEmpty {
-                                        Text("Conditions: \(rule.conditions.joined(separator: " | "))")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                    }
-                                    if let recovery = rule.recovery, !recovery.isEmpty {
-                                        Text("Recovery: \(recovery)")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                    }
-                                }
-                                .padding(.vertical, 6)
+                                ruleRow(rule)
                                 Divider()
                             }
                         }
@@ -585,6 +633,151 @@ struct RuleCatalogView: View {
         case .success(let document): document.rules.count
         case .failure: 0
         }
+    }
+
+    private func ruleRow(_ rule: RuleCatalogEntry) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(rule.title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(rule.actionKind.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(rule.id)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+            Text("\(rule.category) - \(rule.source) - priority \(rule.priority)")
+                .font(.caption)
+            if !rule.matchHints.isEmpty {
+                Text("Match: \(rule.matchHints.joined(separator: ", "))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            if !rule.conditions.isEmpty {
+                Text("Conditions: \(rule.conditions.joined(separator: " | "))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            if let recovery = rule.recovery, !recovery.isEmpty {
+                Text("Recovery: \(recovery)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func ruleRow(_ rule: ReclaimerRule, source: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(rule.title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(rule.actionKind.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(rule.id)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+            Text("\(rule.category) - \(source) - priority \(rule.priority)")
+                .font(.caption)
+            Text("Match: \(rule.match.appCatalogSummary)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            if !rule.conditions.isEmpty {
+                Text("Conditions: \(rule.conditions.joined(separator: " | "))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            if let recovery = rule.recovery, !recovery.isEmpty {
+                Text("Recovery: \(recovery)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func refreshUserRuleState() {
+        catalogResult = Result { try RuleEngine.bundled().catalog() }
+        userRuleDocumentResult = Result { try UserRulePackStore().loadDocument() }
+        userRuleCatalogResult = Result { try RuleEngine.bundled(includingUserRules: true).catalog() }
+    }
+
+    private func previewUserRulePack() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.json]
+        panel.message = "Choose a Ryddi user rule pack JSON file to preview before importing."
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        do {
+            userRulePreview = try UserRulePackStore().preview(from: url)
+            userRuleImportResult = nil
+            userRuleError = nil
+        } catch {
+            userRulePreview = nil
+            userRuleImportResult = nil
+            userRuleError = error.localizedDescription
+        }
+        #endif
+    }
+
+    private func importPreviewedUserRulePack() {
+        guard let preview = userRulePreview else {
+            userRuleError = "Preview a rule pack before importing."
+            return
+        }
+        guard preview.isImportable else {
+            userRuleError = "This rule pack has validation errors and cannot be imported."
+            return
+        }
+        do {
+            userRuleImportResult = try UserRulePackStore().importDocument(
+                from: URL(fileURLWithPath: preview.sourcePath),
+                merge: true
+            )
+            refreshUserRuleState()
+            userRuleError = nil
+        } catch {
+            userRuleImportResult = nil
+            userRuleError = error.localizedDescription
+        }
+    }
+
+    private func exportUserRulePack() {
+        do {
+            let document = try UserRulePackStore().exportDocument()
+            lastUserRuleExportURL = try ReportStore().save(userRulePackDocument: document)
+            userRuleError = nil
+        } catch {
+            lastUserRuleExportURL = nil
+            userRuleError = error.localizedDescription
+        }
+    }
+}
+
+private extension RuleMatchSpec {
+    var appCatalogSummary: String {
+        var hints: [String] = []
+        hints += containsAny.map { "contains: \($0)" }
+        hints += suffixAny.map { "suffix: \($0)" }
+        hints += basenameAny.map { "basename: \($0)" }
+        hints += pathExtensionAny.map { "extension: \($0)" }
+        return hints.isEmpty ? "none" : hints.sorted().joined(separator: ", ")
     }
 }
 
@@ -3048,6 +3241,7 @@ final class DashboardModel {
     var findings: [Finding] = []
     var scanScopes: [ScanScope] = []
     var scanPreset: ScanScopePreset = .developer
+    var includeUserRulesInScans = false
     var lastScannedPreset: ScanScopePreset?
     var overview: ScanOverview?
     var diskDrillDown: DiskDrillDownReport?
@@ -3123,6 +3317,19 @@ final class DashboardModel {
     func setScanPreset(_ preset: ScanScopePreset) {
         guard scanPreset != preset else { return }
         scanPreset = preset
+        resetScanState()
+        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        error = nil
+    }
+
+    func setIncludeUserRulesInScans(_ include: Bool) {
+        guard includeUserRulesInScans != include else { return }
+        includeUserRulesInScans = include
+        resetScanState()
+        error = nil
+    }
+
+    private func resetScanState() {
         findings = []
         scanScopes = []
         overview = nil
@@ -3132,8 +3339,6 @@ final class DashboardModel {
         lastDryRunReceipt = nil
         lastExecutionReceipt = nil
         lastScannedPreset = nil
-        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
-        error = nil
     }
 
     private func currentScopes(includeUnavailable: Bool) -> [ScanScope] {
@@ -3162,10 +3367,14 @@ final class DashboardModel {
         defer { isWorking = false }
         do {
             let preset = scanPreset
+            let includeUserRules = includeUserRulesInScans
             let result = try await Task.detached {
                 let scopes = DefaultScopes.scopes(for: preset, includeUnavailable: true)
                 let policy = UserPathPolicyStore().load()
-                let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+                let scanner = try FileScanner(
+                    ruleEngine: try RuleEngine.bundled(includingUserRules: includeUserRules),
+                    openFileChecker: NoOpenFilesChecker()
+                )
                 let findings = scanner.scan(
                     scopes: scopes,
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
@@ -3214,8 +3423,9 @@ final class DashboardModel {
                 await buildPlan()
             }
             guard let plan else { return }
+            let includeUserRules = includeUserRulesInScans
             let receipt = try await Task.detached {
-                let ruleVersion = try RuleEngine.bundled().version
+                let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
                 let policy = UserPathPolicyStore().load()
                 return ReclaimerExecutor(
                     openFileChecker: LsofOpenFileChecker(),
@@ -3248,8 +3458,9 @@ final class DashboardModel {
         isWorking = true
         defer { isWorking = false }
         do {
+            let includeUserRules = includeUserRulesInScans
             let receipt = try await Task.detached {
-                let ruleVersion = try RuleEngine.bundled().version
+                let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
                 let policy = UserPathPolicyStore().load()
                 return ReclaimerExecutor(
                     openFileChecker: LsofOpenFileChecker(),
@@ -3269,10 +3480,14 @@ final class DashboardModel {
             loadRecovery()
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
             let preset = scanPreset
+            let refreshedIncludeUserRules = includeUserRulesInScans
             let refreshed = try await Task.detached {
                 let scopes = DefaultScopes.scopes(for: preset, includeUnavailable: true)
                 let policy = UserPathPolicyStore().load()
-                let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+                let scanner = try FileScanner(
+                    ruleEngine: try RuleEngine.bundled(includingUserRules: refreshedIncludeUserRules),
+                    openFileChecker: NoOpenFilesChecker()
+                )
                 let findings = scanner.scan(
                     scopes: scopes,
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
@@ -3412,12 +3627,16 @@ final class DashboardModel {
         do {
             let baseFindings = findings
             let preset = scanPreset
+            let includeUserRules = includeUserRulesInScans
             let report = try await Task.detached {
                 let sourceFindings: [Finding]
                 if baseFindings.isEmpty {
                     let scopes = DefaultScopes.scopes(for: preset, includeUnavailable: true)
                     let policy = UserPathPolicyStore().load()
-                    let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+                    let scanner = try FileScanner(
+                        ruleEngine: try RuleEngine.bundled(includingUserRules: includeUserRules),
+                        openFileChecker: NoOpenFilesChecker()
+                    )
                     sourceFindings = scanner.scan(
                         scopes: scopes,
                         options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
@@ -3584,10 +3803,14 @@ final class DashboardModel {
         isWorking = true
         defer { isWorking = false }
         do {
+            let includeUserRules = includeUserRulesInScans
             agentStorageReview = try await Task.detached {
                 let scopes = DefaultScopes.aiAgentStorage(includeUnavailable: false)
                 let policy = UserPathPolicyStore().load()
-                let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+                let scanner = try FileScanner(
+                    ruleEngine: try RuleEngine.bundled(includingUserRules: includeUserRules),
+                    openFileChecker: NoOpenFilesChecker()
+                )
                 let findings = scanner.scan(
                     scopes: scopes,
                     options: ScanOptions(

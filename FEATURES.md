@@ -21,7 +21,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Inspect rules | Read-only rule catalog exposes rule version, bundled/user source, safety/action/category summaries, match hints, conditions, recovery notes, and non-claims. | `RuleCatalogReport`, `reclaimer rules`, app Rule Catalog |
 | Explain decisions | Every finding carries rule matches, evidence, recovery notes, and conditions. | `Finding`, `Evidence`, app detail view, `reclaimer explain` |
 | Honor user path policy | User protections keep paths visible but blocked from cleanup; user exclusions hide noisy paths from scans and parent measurements; JSON import/export lets users carry policy between Macs or attach redacted rule context to reviews. | `UserPathPolicyStore`, `UserPathPolicyDocument`, `reclaimer policy`, app Protections & Exclusions |
-| Review user rule packs | Local user rule packs can be previewed, validated, imported, exported, and included explicitly in scans; imported rules can only add review, preserve, or never-touch signals and cannot grant cleanup actions. | `UserRulePackStore`, `UserRulePackDocument`, `reclaimer rules user`, `--include-user-rules`, app Rule Catalog |
+| Review user rule packs | Local user rule packs can be previewed, validated, imported, exported, and included explicitly in scans; imported rules can only add review, preserve, or never-touch signals and cannot grant cleanup actions. | `UserRulePackStore`, `UserRulePackDocument`, `reclaimer rules user`, `--include-user-rules`, app Rule Catalog preview/import/export, app User Rules scan toggle |
 | Review large/old files | Size and age create review-only signals, never automatic cleanup permission. | dynamic scanner review signals |
 | Review duplicates | Size-bucketed local content hashing groups identical regular files as manual review signals; no delete action or plan item is emitted. | `DuplicateReviewScanner`, `reclaimer duplicates`, app Duplicate Review |
 | Review apps & leftovers | Parse installed `.app` bundles and related Library files, then surface support data and orphan candidates as review-only guidance. | `AppReviewScanner`, `reclaimer apps`, app Apps & Leftovers |
@@ -52,7 +52,7 @@ Included:
 - Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, with no automatic command execution.
 - Read-only Docker/Colima live inventory for native storage estimates and profile/object context.
 - Local user protections and exclusions, plus user path policy JSON import/export.
-- Local user rule-pack preview/import/export for custom review/protection signals, disabled by default unless a scan passes `--include-user-rules`.
+- Local user rule-pack preview/import/export for custom review/protection signals, disabled by default unless a scan passes `--include-user-rules` or the app User Rules scan toggle is on.
 - Xcode and package-manager cache classification.
 - SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter developer cache review.
 - Proportional visual map by category plus a bounded hierarchical disk drill-down.
@@ -104,6 +104,7 @@ Deferred:
 - `reclaimer rules user preview RULES.json --json` validates custom rules, rejects cleanup-granting rules, and reports import non-claims without mutating local config.
 - `reclaimer rules user import RULES.json --json` stores local user rules without enabling them by default.
 - `reclaimer scan --include-user-rules --path FIXTURE --min-size 1 --json` includes accepted user rules while preserving bundled never-touch protections.
+- App Rule Catalog can preview, validate, import, export, and reveal local user rule packs; app scans only include user rules when the toolbar User Rules toggle is on.
 - `reclaimer permissions --json --path FIXTURE` reports coverage level, readable/denied/missing counts, recommended actions, and non-claims.
 - `reclaimer permissions guide --path FIXTURE --output GUIDE.md` writes a local Markdown first-run walkthrough with Full Disk Access steps, rescan/report-only commands, affected scopes, and non-claims.
 - `reclaimer active --path FIXTURE --json` reports cleanup candidates blocked by open handles or failed open-file checks, with process summaries when available, and does not quit processes or execute cleanup.

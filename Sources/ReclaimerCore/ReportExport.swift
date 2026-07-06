@@ -342,4 +342,12 @@ public final class ReportStore: @unchecked Sendable {
         try encoder.encode(document).write(to: url, options: .atomic)
         return url
     }
+
+    @discardableResult
+    public func save(userRulePackDocument document: UserRulePackDocument) throws -> URL {
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("user-rules-\(document.id).json")
+        try encoder.encode(document).write(to: url, options: .atomic)
+        return url
+    }
 }

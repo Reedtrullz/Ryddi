@@ -49,7 +49,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - active-handle review for cleanup candidates, with process summaries and failed-check visibility
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - local user protections and exclusions for paths Ryddi should preserve or ignore, with JSON import/export
-- local user rule-pack preview/import/export for custom review, preserve, and never-touch signals
+- local user rule-pack preview/import/export in CLI and app for custom review, preserve, and never-touch signals
 - large-file and old-file review signals
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
@@ -235,6 +235,8 @@ swift run --scratch-path .build reclaimer rules --include-user-rules
 User rules are local, disabled by default for scans, and cannot grant cleanup actions. Imports are limited to `reviewRequired`, `preserveByDefault`, or `neverTouch` signals with report/guidance-style actions. A user rule can make Ryddi more cautious about a path, but it cannot downgrade bundled `neverTouch` rules or turn custom matches into unattended cleanup candidates.
 
 Rule packs can contain private path fragments, app names, or notes. Review before sharing.
+
+In the app, use Rule Catalog -> Local User Rules to preview a JSON pack, inspect validation issues, import the previewed pack, export installed rules, or reveal the local `user-rules.json`. The toolbar `User Rules` toggle is off by default; turning it on opts the next scan into local user rules and clears stale scan/plan state.
 
 ## Evidence Reports
 

@@ -74,7 +74,7 @@ Initial MVP:
 - Dry-run receipts and local audit store
 - Markdown evidence, growth, plan, and receipt report exports with path privacy controls
 - Local path protections/exclusions with versioned JSON export, merge import, and explicit replace import
-- Local user rule-pack preview/import/export for custom review, preserve, and never-touch signals; user rules are opt-in per scan and cannot grant cleanup actions
+- Local user rule-pack preview/import/export in CLI and app for custom review, preserve, and never-touch signals; user rules are opt-in per scan and cannot grant cleanup actions
 - App-managed holding area with restore/expire workflow
 - Recovery Center for app-held restores and receipt-based guidance
 - Permission advisor and first-run walkthrough for readable/denied/missing scan coverage and Full Disk Access guidance
