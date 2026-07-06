@@ -57,6 +57,10 @@ public final class ScanHistoryStore: @unchecked Sendable {
             .map(\.1)
     }
 
+    public func snapshot(id: String) -> ScanSnapshot? {
+        recent(limit: Int.max).first { $0.id == id }
+    }
+
     public func latestGrowthDeltas(group: GrowthGroup = .category, limit: Int = 12) -> [BucketGrowthDelta] {
         let snapshots = recent(limit: 2)
         guard snapshots.count == 2 else { return [] }

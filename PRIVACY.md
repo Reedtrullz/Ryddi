@@ -34,7 +34,9 @@ Plan report export reads a proposed reclaim plan to write local Markdown. Plan r
 
 Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Ryddi does not upload receipt reports or rerun cleanup while creating them.
 
-Report exports support path privacy controls. `home-relative` reports hide your home-directory prefix, `redacted` reports replace report paths with `<path redacted>`, and user-entered policy reasons can be redacted from exports. These controls affect the generated report only; saved local audit JSON, plans, and receipts can still contain original local paths.
+Growth report export reads saved scan-history snapshots to write local Markdown. Growth reports can include category, scope, safety, scan coverage, and current top finding paths. Ryddi does not upload growth reports or execute cleanup while creating them.
+
+Report exports support path privacy controls. `home-relative` reports hide your home-directory prefix, `redacted` reports replace report paths with `<path redacted>`, and user-entered policy reasons can be redacted from exports. These controls affect the generated report only; saved local audit JSON, plans, receipts, and scan snapshots can still contain original local paths.
 
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
@@ -46,6 +48,7 @@ Ryddi can write:
 - saved Markdown evidence reports;
 - saved Markdown reclaim plan reports;
 - saved Markdown receipt reports;
+- saved Markdown growth reports;
 - saved native-tool preview reports;
 - saved container inventory reports;
 - saved active-file review reports;

@@ -199,7 +199,7 @@ struct ReclaimerCLI {
 
     static func history(args: [String]) throws {
         guard let subcommand = args.first else {
-            throw CLIError.message("history requires record, list, or diff")
+            throw CLIError.message("history requires record, list, diff, or report")
         }
         let options = ParsedOptions(Array(args.dropFirst()))
         let store = ScanHistoryStore()
@@ -238,6 +238,53 @@ struct ReclaimerCLI {
                 printJSON(deltas)
             } else {
                 printGrowthDeltas(deltas, group: options.growthGroup, current: snapshots[0], previous: snapshots[1], limit: options.limit)
+            }
+        case "report":
+            try options.validateReportPrivacyOptions()
+            let current: ScanSnapshot
+            let previous: ScanSnapshot
+            if options.currentSnapshotID != nil || options.previousSnapshotID != nil {
+                guard let currentID = options.currentSnapshotID, let previousID = options.previousSnapshotID else {
+                    throw CLIError.message("history report requires both --current-id and --previous-id when comparing explicit snapshots")
+                }
+                guard let foundCurrent = store.snapshot(id: currentID) else {
+                    throw CLIError.message("No saved scan snapshot found for --current-id \(currentID)")
+                }
+                guard let foundPrevious = store.snapshot(id: previousID) else {
+                    throw CLIError.message("No saved scan snapshot found for --previous-id \(previousID)")
+                }
+                current = foundCurrent
+                previous = foundPrevious
+            } else {
+                let snapshots = store.recent(limit: 2)
+                guard snapshots.count == 2 else {
+                    throw CLIError.message("history report requires at least two saved scan snapshots")
+                }
+                current = snapshots[0]
+                previous = snapshots[1]
+            }
+            let report = GrowthReportBuilder.build(
+                title: options.growthReportTitle,
+                previous: previous,
+                current: current,
+                group: options.growthGroup,
+                limit: options.limit,
+                privacy: options.reportPrivacy
+            )
+            if let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                FileHandle.standardError.write(Data("wrote growth report: \(url.path)\n".utf8))
+            }
+            if options.saveReport {
+                let url = try ReportStore().save(growthReport: report)
+                FileHandle.standardError.write(Data("saved growth report: \(url.path)\n".utf8))
+            }
+            if options.json {
+                printJSON(report)
+            } else if options.outputPath == nil {
+                print(report.markdown)
             }
         default:
             throw CLIError.message("Unknown history subcommand: \(subcommand)")
@@ -612,6 +659,9 @@ struct ReclaimerCLI {
               history record [--json] [--path PATH ...] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
+              history report [--json] [--group category|safety|scope] [--limit N]
+                             [--current-id ID --previous-id ID] [--output PATH] [--save-report]
+                             [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
               duplicates [--json] --path PATH ... [--min-size BYTES] [--max-depth N] [--limit N]
                          [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
@@ -686,8 +736,11 @@ struct ParsedOptions {
     var reportTitle: String { value(after: "--title") ?? "Ryddi Evidence Report" }
     var planReportTitle: String { value(after: "--title") ?? "Ryddi Plan Report" }
     var receiptReportTitle: String { value(after: "--title") ?? "Ryddi Receipt Report" }
+    var growthReportTitle: String { value(after: "--title") ?? "Ryddi Growth Report" }
     var planID: String? { value(after: "--id") }
     var receiptID: String? { value(after: "--id") }
+    var currentSnapshotID: String? { value(after: "--current-id") }
+    var previousSnapshotID: String? { value(after: "--previous-id") }
     var reportPrivacy: ReportPrivacyOptions {
         ReportPrivacyOptions(pathStyle: reportPathStyle, redactUserText: args.contains("--redact-user-text"))
     }

@@ -65,12 +65,12 @@ Review first. Reclaim safely.
 Initial MVP:
 
 - Swift core scanner and rule engine
-- CLI for scan, overview, status, permissions, active-handle review, report, plan/plans, receipts, explain, execute, schedule, and holding-area operations
+- CLI for scan, overview, status, permissions, active-handle review, report, history/growth reports, plan/plans, receipts, explain, execute, schedule, and holding-area operations
 - SwiftUI app overview, review queues, detail view, dry run, confirmed reclaim, audit history, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - Open-file guard and active-handle review with `lsof` process summaries
 - Dry-run receipts and local audit store
-- Markdown evidence, plan, and receipt report exports with path privacy controls
+- Markdown evidence, growth, plan, and receipt report exports with path privacy controls
 - App-managed holding area with restore/expire workflow
 - Permission advisor and first-run walkthrough for readable/denied/missing scan coverage and Full Disk Access guidance
 - Release-check workflow for unsigned developer preview artifacts

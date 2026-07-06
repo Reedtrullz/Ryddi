@@ -34,6 +34,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - top-offender overview with category, safety, age, logical size, and allocated size
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
 - local scan history snapshots and category growth deltas
+- exportable local Markdown growth reports comparing saved scan snapshots
 - menu bar disk-pressure status with report-only scan shortcut
 - permission/degraded-scan coverage, first-run Full Disk Access walkthrough, and APFS accounting notes
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
@@ -96,6 +97,7 @@ swift run --scratch-path .build reclaimer report --path Tests --limit 10 --outpu
 swift run --scratch-path .build reclaimer report --path Tests --path-style redacted --redact-user-text --output ryddi-report-redacted.md
 swift run --scratch-path .build reclaimer history list
 swift run --scratch-path .build reclaimer history diff --group category
+swift run --scratch-path .build reclaimer history report --output ryddi-growth-report.md
 swift run --scratch-path .build reclaimer scan
 swift run --scratch-path .build reclaimer scan --sort category --group category --limit 40
 swift run --scratch-path .build reclaimer scan --review large --large-threshold 1000000000
@@ -166,6 +168,16 @@ swift run --scratch-path .build reclaimer report --save-report
 Reports include scan coverage, safety buckets, top categories, top findings, local protections/exclusions, APFS/accounting notes, disk-pressure notes, and explicit non-claims. They do not execute cleanup and may include local paths.
 
 Use `--path-style home-relative` to hide the home directory prefix, `--path-style redacted` or `--redact-paths` to replace report paths with `<path redacted>`, and `--redact-user-text` to hide user-entered policy reasons. Redaction affects the exported report; saved local audit records may still contain the original paths.
+
+Saved scan history can also be exported as a before/after growth report:
+
+```bash
+swift run --scratch-path .build reclaimer overview --save-history --path ~/Library/Caches --limit 25
+swift run --scratch-path .build reclaimer history report --group category --output ryddi-growth-report.md
+swift run --scratch-path .build reclaimer history report --path-style redacted --output ryddi-growth-report-redacted.md
+```
+
+Growth reports compare saved snapshots by category, scope, or safety class. They are evidence for review, not cleanup proof: scope changes, permissions, APFS snapshots, clones, hard links, and purgeable space can make exact free-space deltas differ.
 
 Proposed reclaim plans can also be exported before dry run or execution:
 

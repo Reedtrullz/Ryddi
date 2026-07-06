@@ -542,6 +542,85 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertEqual(store.recent(limit: 2).map(\.id), ["newer", "older"])
         XCTAssertEqual(store.latestGrowthDeltas().first { $0.name == "Codex" }?.deltaAllocatedSize, 40)
+        XCTAssertEqual(store.snapshot(id: "older")?.id, "older")
+    }
+
+    func testGrowthReportIncludesDeltasNonClaimsAndRedactedPaths() {
+        let previous = ScanSnapshot(
+            id: "previous",
+            createdAt: Date(timeIntervalSince1970: 10),
+            findingCount: 1,
+            totalLogicalSize: 100,
+            totalAllocatedSize: 100,
+            expectedAutoSafeBytes: 20,
+            reviewBytes: 30,
+            protectedBytes: 50,
+            categorySummaries: [BucketSummary(name: "Codex", count: 1, logicalSize: 100, allocatedSize: 100)],
+            safetySummaries: [BucketSummary(name: SafetyClass.autoSafe.label, count: 1, logicalSize: 100, allocatedSize: 100)],
+            scopeBuckets: [BucketSummary(name: "Codex", count: 1, logicalSize: 100, allocatedSize: 100)],
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/Users/reidar/.codex", permissionState: .readable, message: "Directory is readable.")
+            ],
+            topFindingPaths: ["/Users/reidar/.codex/cache-old"]
+        )
+        let current = ScanSnapshot(
+            id: "current",
+            createdAt: Date(timeIntervalSince1970: 20),
+            findingCount: 2,
+            totalLogicalSize: 180,
+            totalAllocatedSize: 190,
+            expectedAutoSafeBytes: 90,
+            reviewBytes: 40,
+            protectedBytes: 60,
+            categorySummaries: [BucketSummary(name: "Codex", count: 2, logicalSize: 180, allocatedSize: 190)],
+            safetySummaries: [BucketSummary(name: SafetyClass.autoSafe.label, count: 2, logicalSize: 180, allocatedSize: 190)],
+            scopeBuckets: [BucketSummary(name: "Codex", count: 2, logicalSize: 180, allocatedSize: 190)],
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/Users/reidar/.codex", permissionState: .readable, message: "Directory is readable.")
+            ],
+            topFindingPaths: ["/Users/reidar/.codex/cache-new"]
+        )
+
+        let report = GrowthReportBuilder.build(
+            previous: previous,
+            current: current,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted)
+        )
+
+        XCTAssertEqual(report.previousSnapshotID, "previous")
+        XCTAssertEqual(report.currentSnapshotID, "current")
+        XCTAssertEqual(report.deltaAllocatedSize, 90)
+        XCTAssertEqual(report.deltaFindingCount, 1)
+        XCTAssertEqual(report.deltas.first?.name, "Codex")
+        XCTAssertEqual(report.deltas.first?.deltaAllocatedSize, 90)
+        XCTAssertTrue(report.markdown.contains("# Ryddi Growth Report"))
+        XCTAssertTrue(report.markdown.contains("Largest Category Deltas"))
+        XCTAssertTrue(report.markdown.contains("Explicit Non-Claims"))
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertFalse(report.markdown.contains("/Users/reidar"))
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("No cleanup was executed") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("Report privacy was applied") })
+    }
+
+    func testReportStoreSavesGrowthReport() throws {
+        let previous = snapshot(
+            id: "previous",
+            createdAt: Date(timeIntervalSince1970: 10),
+            category: [BucketSummary(name: "Codex", count: 1, logicalSize: 100, allocatedSize: 100)]
+        )
+        let current = snapshot(
+            id: "current",
+            createdAt: Date(timeIntervalSince1970: 20),
+            category: [BucketSummary(name: "Codex", count: 2, logicalSize: 180, allocatedSize: 190)]
+        )
+        let report = GrowthReportBuilder.build(previous: previous, current: current)
+        let url = try ReportStore(root: tempRoot.appendingPathComponent("Reports", isDirectory: true))
+            .save(growthReport: report)
+
+        let markdown = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(url.lastPathComponent.hasPrefix("growth-report-current-"))
+        XCTAssertTrue(markdown.contains("# Ryddi Growth Report"))
+        XCTAssertTrue(markdown.contains("Codex"))
     }
 
     func testDiskStatusPressureThresholdsAndFormatting() {

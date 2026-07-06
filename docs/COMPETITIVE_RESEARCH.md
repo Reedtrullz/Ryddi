@@ -102,7 +102,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Partial | First slice has non-overlapping proportional category map nodes; a full treemap/sunburst with drill-down remains future work. |
 | Evidence details | Rare in broad cleaners, central to Ryddi | Partial | Make every finding answer: what is this, why matched, risk, recovery path, exact action. |
 | Dry-run plan | Strong differentiator | Partial | Keep as default. Receipt exports now add action counts and skipped/error visibility; plan diff remains future work. |
-| Exportable reports | Expected in trust-sensitive admin tools, useful for before/after review | Exists/partial | Markdown evidence reports, reclaim plan reports, and receipt reports now capture scan coverage, proposed actions, blocked/review items, policy, accounting notes, action counts, skipped/errors, before/after free-space fields, path privacy controls, and non-claims. Future work should add richer before/after comparison exports. |
+| Exportable reports | Expected in trust-sensitive admin tools, useful for before/after review | Exists/partial | Markdown evidence reports, growth reports, reclaim plan reports, and receipt reports now capture scan coverage, saved-snapshot deltas, proposed actions, blocked/review items, policy, accounting notes, action counts, skipped/errors, before/after free-space fields, path privacy controls, and non-claims. Future work should add richer trend charts and visual comparisons. |
 | Active-file guard | Strong safety differentiator | Exists/partial | Active-handle review now surfaces open/process summaries and failed checks for cleanup candidates. Future work should add richer app-name mapping and notification flows. |
 | Trash-first cleanup | Expected safety behavior | Exists/partial | Use Trash for uncertain/user-visible data. Direct delete only for allowlisted caches. |
 | App-managed holding area | Strong differentiator | Exists/partial | Make restore and expiry visible in UI. Show "held until" and original path. |
@@ -146,7 +146,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 2. Add APFS size model: logical, allocated, clone/hardlink caveat, purgeable/snapshot explanation.
 3. Add final re-stat and reclassification immediately before action.
 4. Add restore UX for Trash and holding-area moves where possible.
-5. Evidence, plan, and receipt report export exist for scan, proposed cleanup, and execution review, including path privacy controls. Add richer before/after comparison exports.
+5. Evidence, growth, plan, and receipt report export exist for scan, saved-snapshot comparison, proposed cleanup, and execution review, including path privacy controls. Add richer trend charts and visual comparisons.
 
 ### Developer/AI Niche
 
@@ -162,7 +162,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 2. Duplicate depth: partial-hash prefiltering, volume/hardlink accounting, external-drive flows, and richer review UX while keeping Photos/Music/iCloud protections.
 3. Folder automation: Hazel-like custom report rules, not arbitrary delete rules.
 4. Menu bar assistant depth: scan reminders, notification summaries, and richer scheduled-scan status.
-5. Growth history: first local category/scope/safety snapshot deltas exist; richer trend charts and longer history views remain future work.
+5. Growth history: local category/scope/safety snapshot deltas and Markdown growth reports exist; richer trend charts and longer history views remain future work.
 
 ## Product Principles To Keep
 

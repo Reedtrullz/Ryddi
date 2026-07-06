@@ -67,6 +67,18 @@ grep -q "does not grant macOS permissions" "$scratch/permissions-guide.md"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" active --json --path "$root/Tests" --min-size 1 --max-depth 1 --limit 5 --save-audit >"$scratch/active-smoke.json"
 grep -q '"candidateCount"' "$scratch/active-smoke.json"
 "$app/Contents/MacOS/reclaimer" overview --path "$root/Tests" --limit 5 >"$scratch/overview-smoke.txt"
+history_fixture="$scratch/history-fixture"
+history_cache="$history_fixture/Library/Caches/Codex"
+mkdir -p "$history_cache"
+printf 'old cache\n' >"$history_cache/old.bin"
+RYDDI_SCAN_HISTORY_ROOT="$scratch/history" "$app/Contents/MacOS/reclaimer" history record --path "$history_fixture" --min-size 1 --max-depth 3 >"$scratch/history-record-1.txt"
+printf 'new cache growth\n' >"$history_cache/new.bin"
+RYDDI_SCAN_HISTORY_ROOT="$scratch/history" "$app/Contents/MacOS/reclaimer" history record --path "$history_fixture" --min-size 1 --max-depth 3 >"$scratch/history-record-2.txt"
+RYDDI_SCAN_HISTORY_ROOT="$scratch/history" "$app/Contents/MacOS/reclaimer" history report --output "$scratch/growth-report.md" --path-style redacted
+grep -q "# Ryddi Growth Report" "$scratch/growth-report.md"
+grep -q "Largest Category Deltas" "$scratch/growth-report.md"
+grep -q "does not prove exact current disk state" "$scratch/growth-report.md"
+grep -q "<path redacted>" "$scratch/growth-report.md"
 RYDDI_REPORT_ROOT="$scratch/reports" "$app/Contents/MacOS/reclaimer" report --path "$root/Tests" --limit 5 --output "$scratch/evidence-report.md" --ignore-user-policy --path-style redacted --redact-user-text
 grep -q "# Ryddi Evidence Report" "$scratch/evidence-report.md"
 grep -q "Explicit Non-Claims" "$scratch/evidence-report.md"
@@ -142,6 +154,7 @@ Verification performed:
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5
+- bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md
 - bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
 - bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy
 - bundled reclaimer plan --save-audit on disposable fixture plus redacted plans export --output saved-plan-report.md

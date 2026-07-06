@@ -208,6 +208,12 @@ struct OverviewView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
+            if let url = model.lastGrowthReportExportURL {
+                Text("Latest growth report: \(url.path)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
 
             HStack(spacing: 16) {
                 MetricTile(title: "Findings", value: "\(model.findings.count)")
@@ -232,7 +238,12 @@ struct OverviewView: View {
                 PermissionCoverageView(report: model.permissionReport)
                 AccountingNotesView(notes: overview.accountingNotes)
                 DiskMapView(nodes: overview.mapNodes)
-                GrowthHistoryView(snapshots: model.scanSnapshots, deltas: model.growthDeltas)
+                GrowthHistoryView(
+                    snapshots: model.scanSnapshots,
+                    deltas: model.growthDeltas,
+                    onExport: { Task { await model.exportGrowthReport() } },
+                    onExportRedacted: { Task { await model.exportGrowthReport(pathStyle: .redacted) } }
+                )
                 TopOffendersView(findings: model.findings, plan: model.plan)
             }
 
@@ -1589,6 +1600,8 @@ struct DiskMapView: View {
 struct GrowthHistoryView: View {
     let snapshots: [ScanSnapshot]
     let deltas: [BucketGrowthDelta]
+    let onExport: () -> Void
+    let onExportRedacted: () -> Void
 
     var body: some View {
         SectionBox(title: "Growth History") {
@@ -1598,8 +1611,21 @@ struct GrowthHistoryView: View {
             } else {
                 let current = snapshots[0]
                 let previous = snapshots[1]
-                Text("Compared \(previous.createdAt.formatted()) to \(current.createdAt.formatted()).")
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Compared \(previous.createdAt.formatted()) to \(current.createdAt.formatted()).")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        onExport()
+                    } label: {
+                        Label("Export Growth", systemImage: "chart.line.uptrend.xyaxis")
+                    }
+                    Button {
+                        onExportRedacted()
+                    } label: {
+                        Label("Redacted", systemImage: "eye.slash")
+                    }
+                }
                 ForEach(deltas.prefix(8)) { delta in
                     HStack {
                         Text(delta.name)
@@ -2139,6 +2165,7 @@ final class DashboardModel {
     var lastReportExportURL: URL?
     var lastPlanReportExportURL: URL?
     var lastReceiptReportExportURL: URL?
+    var lastGrowthReportExportURL: URL?
     var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.developerAgentBloat(includeUnavailable: true))
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
@@ -2390,6 +2417,33 @@ final class DashboardModel {
                 return try ReportStore().save(executionReceiptReport: report)
             }.value
             lastReceiptReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportGrowthReport(pathStyle: ReportPathStyle = .full) async {
+        guard scanSnapshots.count >= 2 else {
+            error = "Run at least two scans before exporting a growth report."
+            return
+        }
+
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let current = scanSnapshots[0]
+            let previous = scanSnapshots[1]
+            let url = try await Task.detached {
+                let report = GrowthReportBuilder.build(
+                    previous: previous,
+                    current: current,
+                    group: .category,
+                    privacy: ReportPrivacyOptions(pathStyle: pathStyle)
+                )
+                return try ReportStore().save(growthReport: report)
+            }.value
+            lastGrowthReportExportURL = url
             error = nil
         } catch {
             self.error = error.localizedDescription
