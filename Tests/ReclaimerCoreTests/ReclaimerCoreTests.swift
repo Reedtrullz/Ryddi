@@ -264,6 +264,51 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(plan.nonClaims.contains { $0.contains("Custom paths do not change") })
     }
 
+    func testSavedScopeSetStoreRoundTripsAndBuildsPlans() throws {
+        let root = tempRoot.appendingPathComponent("config", isDirectory: true)
+        let store = SavedScopeSetStore(root: root)
+        let first = tempRoot.appendingPathComponent("Downloads")
+        let duplicate = tempRoot.appendingPathComponent("Downloads")
+        let second = tempRoot.appendingPathComponent("Library/Caches")
+
+        let set = try store.upsert(
+            name: "General tidy",
+            paths: [first.path, duplicate.path, second.path],
+            summary: "Downloads and caches review."
+        )
+
+        XCTAssertEqual(set.name, "General tidy")
+        XCTAssertEqual(set.scopes.count, 2)
+        XCTAssertEqual(try store.loadDocument().sets.count, 1)
+
+        let found = try store.find("general tidy")
+        XCTAssertEqual(found.id, set.id)
+        let plan = try store.plan(reference: set.id)
+        XCTAssertNil(plan.preset)
+        XCTAssertEqual(plan.label, "General tidy")
+        XCTAssertEqual(plan.scopes.count, 2)
+        XCTAssertTrue(plan.nonClaims.contains { $0.contains("do not change Ryddi's safety rules") })
+    }
+
+    func testSavedScopeSetImportMergesAndReplaces() throws {
+        let localStore = SavedScopeSetStore(root: tempRoot.appendingPathComponent("local-config", isDirectory: true))
+        let sourceStore = SavedScopeSetStore(root: tempRoot.appendingPathComponent("source-config", isDirectory: true))
+        _ = try localStore.upsert(name: "Developer", paths: [tempRoot.appendingPathComponent("Developer").path])
+        _ = try sourceStore.upsert(name: "General", paths: [tempRoot.appendingPathComponent("General").path])
+        let exportURL = tempRoot.appendingPathComponent("scope-export.json")
+        try sourceStore.writeExport(sourceStore.exportDocument(), to: exportURL)
+
+        let merge = try localStore.importDocument(from: exportURL, merge: true)
+        XCTAssertEqual(merge.importedSetCount, 1)
+        XCTAssertEqual(merge.finalSetCount, 2)
+        XCTAssertEqual(Set(try localStore.loadDocument().sets.map(\.name)), Set(["Developer", "General"]))
+
+        let replace = try localStore.importDocument(from: exportURL, merge: false)
+        XCTAssertEqual(replace.importedSetCount, 1)
+        XCTAssertEqual(replace.finalSetCount, 1)
+        XCTAssertEqual(try localStore.loadDocument().sets.map(\.name), ["General"])
+    }
+
     func testScannerProducesStableFindingsAndDoesNotFollowSymlink() throws {
         let cache = tempRoot.appendingPathComponent("Library/Caches/Codex", isDirectory: true)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
@@ -557,6 +602,32 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertEqual(url.lastPathComponent, "report-fixture.md")
         XCTAssertEqual(try String(contentsOf: url), report.markdown)
+    }
+
+    func testReportStoreSavesSavedScopeSetExport() throws {
+        let document = SavedScopeSetDocument(
+            id: "fixture",
+            exportedAt: Date(timeIntervalSince1970: 0),
+            sets: [
+                SavedScopeSet(
+                    id: "general",
+                    name: "General",
+                    createdAt: Date(timeIntervalSince1970: 0),
+                    updatedAt: Date(timeIntervalSince1970: 0),
+                    paths: [tempRoot.appendingPathComponent("Downloads").path]
+                )
+            ]
+        )
+        let store = ReportStore(root: tempRoot.appendingPathComponent("Reports", isDirectory: true))
+
+        let url = try store.save(savedScopeSetDocument: document)
+        let data = try Data(contentsOf: url)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(SavedScopeSetDocument.self, from: data)
+
+        XCTAssertEqual(url.lastPathComponent, "saved-scope-sets-fixture.json")
+        XCTAssertEqual(decoded.sets.map(\.name), ["General"])
     }
 
     func testReportStoreSavesUserRulePackExport() throws {

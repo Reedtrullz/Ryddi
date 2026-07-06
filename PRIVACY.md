@@ -12,7 +12,7 @@ Scans run on your Mac. Plans, receipts, Markdown evidence/plan/receipt reports, 
 
 Ryddi reads filesystem metadata such as path, file type, size, allocated size, modification date, and readability. When requested by a plan or action, it can run open-file checks so active files are skipped.
 
-Scan presets control which local roots are inspected. Developer mode focuses on developer and AI-agent storage, General Mac mode includes broader review roots such as Downloads, Desktop, personal media/document folders, user caches/logs, app support, attachments, backups, and Trash, and All combines both while collapsing overlapping roots. Presets do not upload data, grant cleanup permission, or change safety rules.
+Scan presets control which local roots are inspected. Developer mode focuses on developer and AI-agent storage, General Mac mode includes broader review roots such as Downloads, Desktop, personal media/document folders, user caches/logs, app support, attachments, backups, and Trash, and All combines both while collapsing overlapping roots. Saved scope sets store user-chosen scan roots for repeatable scans. Presets and saved scope sets do not upload data, grant cleanup permission, or change safety rules.
 
 Disk drill-down reports reuse local scan metadata to build a bounded hierarchy of paths, sizes, safety classes, actions, categories, owner hints, and short evidence strings. Ryddi does not upload drill-down reports, and drill-down navigation does not select or execute cleanup.
 
@@ -39,6 +39,8 @@ User path policy stores local exclusions and protections you create. These entri
 Policy export writes a local JSON document containing those paths, reasons, timestamps, schema version, and non-claims. Ryddi does not upload the export. Review it before sharing because it can reveal project names, usernames, customer names, or other private path details. Policy import changes only Ryddi's local path policy; it does not delete files, run cleanup, grant Full Disk Access, or prove that imported paths still exist. Import merges by default and replaces the whole policy only when `--replace` is supplied.
 
 User rule packs store local classification rules you import. These entries can include match patterns, app names, path fragments, rule titles, categories, evidence text, recovery text, and conditions. Ryddi does not upload rule packs. Imported user rules are disabled by default for scans unless `--include-user-rules` is supplied in the CLI or the app User Rules scan toggle is on, and validation rejects rules that try to grant cleanup actions or unattended cleanup safety. User rules can make a path more cautious to review, preserve, or never-touch; they cannot downgrade bundled never-touch protections.
+
+Saved scope sets store local scan root names and paths for reuse. Ryddi does not upload scope sets. Scope-set export writes local JSON and can reveal usernames, project names, app names, client folders, or personal folder structure, so review exports before sharing. Importing a scope set changes only what roots Ryddi scans when selected; it does not grant cleanup permission or change safety classification.
 
 Evidence report export reads scan findings, disk status, scan coverage, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them.
 
@@ -68,6 +70,7 @@ Ryddi can write:
 - saved active-file review reports;
 - saved user path policy for protections and exclusions;
 - saved user rule packs for custom review/protection signals;
+- saved scope sets for repeatable scan roots;
 - compact local scan-history snapshots for growth comparisons;
 - app-managed holding-area metadata;
 - a per-user LaunchAgent plist if you install report scheduling;

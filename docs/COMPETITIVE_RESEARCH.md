@@ -99,7 +99,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 
 | Feature | Market Expectation | Ryddi Status | Recommendation |
 | --- | --- | --- | --- |
-| Scan mode selection | Expected from tools that span simple cleanup and expert/developer use | Exists/partial | `ScanScopePreset`, `reclaimer scopes`, and the app Scan Scope preview now separate Developer, General Mac, All, and explicit custom roots. Future work should add saved/custom scope sets and per-scope scheduling. |
+| Scan mode selection | Expected from tools that span simple cleanup and expert/developer use | Exists/partial | `ScanScopePreset`, `SavedScopeSetStore`, `reclaimer scopes`, `reclaimer scopes saved`, app Scan Scope, and app Scope Sets now separate Developer, General Mac, All, explicit custom roots, and saved per-user scope sets. Future work should add per-scope scheduling and richer scope templates. |
 | Top offenders overview | Baseline for all disk analyzers | Partial | Add a sortable, scannable table grouped by category, safety, and reclaim estimate. |
 | Owner/app/tool grouping | Expected from app uninstallers and increasingly important for developer-cleaner trust | Exists/partial | `ScanOverview.ownerSummaries`, CLI overview, app Top Owners, and evidence reports now group non-overlapping findings by owner hints or category fallback. Future work should deepen app identity confidence. |
 | Rule transparency | Rare in broad cleaners but important for open-source trust | Exists/partial | `reclaimer rules`, app Rule Catalog, and `RuleCatalogReport` expose bundled and opt-in user rule sources, safety/action/category summaries, match hints, conditions, recovery notes, and non-claims. `reclaimer rules user preview/import/export` and app Rule Catalog preview/import/export add local user rule-pack review with validation that rejects cleanup-granting imports. Future work should add shared rule-pack signing and richer provenance review. |
@@ -139,7 +139,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 ### Product Core
 
 1. Improve overview with a sortable offender table: path, size, category, safety, age, action, confidence.
-2. Make scan modes feel first-class: General Mac, Developer, All, custom paths, and saved per-user scope sets.
+2. Make scan modes feel first-class: General Mac, Developer, All, custom paths, and saved per-user scope sets now exist; next depth is per-scope scheduling and richer templates.
 3. Add drill-down detail pages that explain evidence and recovery.
 4. Add review queues that mirror user intent: Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, Unknown.
 5. Add large-file and old-file review mode, explicitly non-automatic.

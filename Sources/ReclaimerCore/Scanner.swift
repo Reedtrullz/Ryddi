@@ -390,17 +390,22 @@ public enum DefaultScopes {
         )
     }
 
-    public static func customPlan(scopes: [ScanScope]) -> ScanScopePlan {
+    public static func customPlan(
+        label: String = "Custom paths",
+        summary: String = "Explicit paths supplied by the user override preset scan roots.",
+        scopes: [ScanScope],
+        nonClaims: [String] = [
+            "Custom paths do not change Ryddi's safety rules or cleanup protections.",
+            "Scanning a path does not mean Ryddi will select it for cleanup.",
+            "Permission state is checked separately when the scan or permission advisor runs."
+        ]
+    ) -> ScanScopePlan {
         ScanScopePlan(
             preset: nil,
-            label: "Custom paths",
-            summary: "Explicit paths supplied by the user override preset scan roots.",
+            label: label,
+            summary: summary,
             scopes: uniqueScopes(scopes),
-            nonClaims: [
-                "Custom paths do not change Ryddi's safety rules or cleanup protections.",
-                "Scanning a path does not mean Ryddi will select it for cleanup.",
-                "Permission state is checked separately when the scan or permission advisor runs."
-            ]
+            nonClaims: nonClaims
         )
     }
 

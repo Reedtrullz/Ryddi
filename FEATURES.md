@@ -6,7 +6,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 
 | Feature | Best MVP solution | Implemented |
 | --- | --- | --- |
-| Choose scan scope | Named presets for Developer, General Mac, and All roots, plus explicit custom `--path` support and scope preview. | `ScanScopePreset`, `ScanScopePlan`, `DefaultScopes`, `reclaimer scopes`, app Scan Scope |
+| Choose scan scope | Named presets for Developer, General Mac, and All roots, explicit custom `--path` support, saved scope sets, and scope preview. | `ScanScopePreset`, `ScanScopePlan`, `SavedScopeSetStore`, `DefaultScopes`, `reclaimer scopes`, app Scan Scope, app Scope Sets |
 | Find large offenders | Bounded filesystem scanner over preset or custom roots, with permission evidence. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
 | Show top offenders | Shared overview analytics with category, owner/app/tool, safety, scope, age, logical size, allocated size, and top finding summaries. | `FindingAnalytics`, `reclaimer overview`, app Top Offenders |
 | Visualize space | Proportional category map plus bounded hierarchical drill-down from scan findings; informational only, not a cleanup selector. | `DiskMapNode`, `DiskDrillDownReport`, `reclaimer drilldown`, app Visual Map and Disk Drilldown |
@@ -47,6 +47,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 Included:
 
 - General Mac scan preset for Downloads, Desktop, personal folder review, user caches/logs, app support, attachments, device backups, and Trash review.
+- Saved custom scope sets for repeatable general cleanup, project-specific review, and developer maintenance scans, with local JSON import/export.
 - Codex storage policy: caches/temp/logs versus sessions/state/credentials.
 - Docker/Colima reporting and native cleanup guidance.
 - Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, with no automatic command execution.
@@ -101,6 +102,8 @@ Deferred:
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, owner summaries, and APFS notes.
 - `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` reports hierarchical scan nodes, omitted-child summaries, and non-claims without creating plan items.
 - `reclaimer rules --json` reports the bundled rule version, safety/action/category summaries, rule sections, match hints, conditions, recovery notes, and non-claims without scanning or executing cleanup.
+- `reclaimer scopes saved add/list/show/export/import` stores reusable scan roots locally, supports merge/replace import, and keeps non-claims that scope sets do not change cleanup safety.
+- `reclaimer scan --scope-set NAME` scans the saved roots while preserving all normal rules, policies, dry-run gates, and never-touch protections.
 - `reclaimer rules user preview RULES.json --json` validates custom rules, rejects cleanup-granting rules, and reports import non-claims without mutating local config.
 - `reclaimer rules user import RULES.json --json` stores local user rules without enabling them by default.
 - `reclaimer scan --include-user-rules --path FIXTURE --min-size 1 --json` includes accepted user rules while preserving bundled never-touch protections.

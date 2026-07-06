@@ -350,4 +350,12 @@ public final class ReportStore: @unchecked Sendable {
         try encoder.encode(document).write(to: url, options: .atomic)
         return url
     }
+
+    @discardableResult
+    public func save(savedScopeSetDocument document: SavedScopeSetDocument) throws -> URL {
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("saved-scope-sets-\(document.id).json")
+        try encoder.encode(document).write(to: url, options: .atomic)
+        return url
+    }
 }

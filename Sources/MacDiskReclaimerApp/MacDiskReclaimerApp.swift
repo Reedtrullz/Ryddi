@@ -52,6 +52,8 @@ struct DashboardView: View {
                 PermissionOnboardingView(model: model)
             } else if selectedSection == "Active" {
                 ActiveFileReviewView(model: model)
+            } else if selectedSection == "Scopes" {
+                SavedScopeSetView(model: model)
             } else if selectedSection == "Policy" {
                 UserPathPolicyView(model: model)
             } else if selectedSection == "Audit" {
@@ -79,6 +81,18 @@ struct DashboardView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 320)
+            Picker("Saved Scope", selection: Binding(
+                get: { model.selectedSavedScopeSetID ?? "" },
+                set: { model.setSavedScopeSet($0.isEmpty ? nil : $0) }
+            )) {
+                Text("No saved scope").tag("")
+                ForEach(model.savedScopeSets) { set in
+                    Text(set.name).tag(set.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 190)
+            .disabled(model.savedScopeSets.isEmpty)
             Toggle(isOn: Binding(
                 get: { model.includeUserRulesInScans },
                 set: { model.setIncludeUserRulesInScans($0) }
@@ -133,6 +147,7 @@ struct DashboardView: View {
             if model.findings.isEmpty {
                 Task { await model.scan() }
             }
+            model.loadSavedScopeSets()
             model.loadAudit()
             model.loadHolding()
             model.loadRecovery()
@@ -181,6 +196,10 @@ struct DashboardView: View {
                 Button("Active Handles") {
                     selectedFinding = nil
                     selectedSection = "Active"
+                }
+                Button("Scope Sets") {
+                    selectedFinding = nil
+                    selectedSection = "Scopes"
                 }
                 Button("Protections & Exclusions") {
                     selectedFinding = nil
@@ -239,7 +258,7 @@ struct OverviewView: View {
                 ProgressView("Working...")
             }
 
-            ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedPreset: model.lastScannedPreset)
+            ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
 
             if let url = model.lastReportExportURL {
                 Text("Latest report: \(url.path)")
@@ -351,7 +370,7 @@ struct OverviewView: View {
 
 struct ScanScopePreviewView: View {
     let plan: ScanScopePlan
-    let lastScannedPreset: ScanScopePreset?
+    let lastScannedLabel: String?
 
     var body: some View {
         SectionBox(title: "Scan Scope") {
@@ -359,7 +378,7 @@ struct ScanScopePreviewView: View {
                 HStack(spacing: 16) {
                     MetricTile(title: "Mode", value: plan.label)
                     MetricTile(title: "Roots", value: "\(plan.scopes.count)")
-                    MetricTile(title: "Last scanned", value: lastScannedPreset?.label ?? "Never")
+                    MetricTile(title: "Last scanned", value: lastScannedLabel ?? "Never")
                 }
                 Text(plan.summary)
                     .font(.caption)
@@ -394,9 +413,188 @@ struct ScanScopePreviewView: View {
     }
 }
 
+struct SavedScopeSetView: View {
+    let model: DashboardModel
+    @State private var newName = ""
+    @State private var newSummary = ""
+    @State private var replaceOnImport = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Scope Sets")
+                    .font(.largeTitle.bold())
+                Text("Reusable scan roots for general Mac cleanup, project-specific review, and developer maintenance.")
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 16) {
+                    MetricTile(title: "Saved", value: "\(model.savedScopeSets.count)")
+                    MetricTile(title: "Active", value: model.selectedScopePlan.label)
+                    MetricTile(title: "Roots", value: "\(model.selectedScopePlan.scopes.count)")
+                    MetricTile(title: "Config", value: SavedScopeSetStore().scopeSetURL.lastPathComponent)
+                }
+
+                SectionBox(title: "Create From Current Scope") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            TextField("Name", text: $newName)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 260)
+                            TextField("Summary", text: $newSummary)
+                                .textFieldStyle(.roundedBorder)
+                            Button {
+                                model.saveCurrentScopeSet(name: newName, summary: newSummary)
+                                if model.error == nil {
+                                    newName = ""
+                                    newSummary = ""
+                                }
+                            } label: {
+                                Label("Save", systemImage: "plus")
+                            }
+                            .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        ScanScopeMiniList(scopes: model.selectedScopePlan.scopes)
+                    }
+                }
+
+                SectionBox(title: "Import And Export") {
+                    HStack(spacing: 12) {
+                        Button {
+                            importSavedScopeSets()
+                        } label: {
+                            Label("Import JSON", systemImage: "square.and.arrow.down")
+                        }
+                        Toggle("Replace", isOn: $replaceOnImport)
+                            .toggleStyle(.checkbox)
+                        Button {
+                            Task { await model.exportSavedScopeSets() }
+                        } label: {
+                            Label("Export JSON", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(model.savedScopeSets.isEmpty)
+                        Button {
+                            #if os(macOS)
+                            NSWorkspace.shared.activateFileViewerSelecting([SavedScopeSetStore().scopeSetURL])
+                            #endif
+                        } label: {
+                            Label("Reveal File", systemImage: "folder")
+                        }
+                        .disabled(model.savedScopeSets.isEmpty)
+                    }
+                    .buttonStyle(.bordered)
+
+                    if let result = model.lastScopeSetImportResult {
+                        Text("Imported \(result.importedSetCount) set(s), final saved sets: \(result.finalSetCount).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let url = model.lastScopeSetExportURL {
+                        Text(url.path)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    ForEach(SavedScopeSetDocument.defaultNonClaims, id: \.self) { note in
+                        Text(note)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                if model.savedScopeSets.isEmpty {
+                    ContentUnavailableView("No saved scope sets", systemImage: "folder.badge.plus", description: Text("Choose a preset or scan roots, then save the current scope for reuse."))
+                } else {
+                    ForEach(model.savedScopeSets) { set in
+                        SectionBox(title: set.name) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Text(set.summary ?? "Saved custom scan scope set with explicit local roots.")
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button {
+                                        model.setSavedScopeSet(set.id)
+                                    } label: {
+                                        Label(model.selectedSavedScopeSetID == set.id ? "Selected" : "Use", systemImage: "scope")
+                                    }
+                                    .disabled(model.selectedSavedScopeSetID == set.id)
+                                    Button(role: .destructive) {
+                                        model.removeSavedScopeSet(set)
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                                HStack {
+                                    Text("Updated \(set.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                                    Text(set.id)
+                                        .font(.caption2.monospaced())
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                ScanScopeMiniList(scopes: set.scopes)
+                            }
+                        }
+                    }
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+        .onAppear {
+            model.loadSavedScopeSets()
+        }
+    }
+
+    private func importSavedScopeSets() {
+        #if os(macOS)
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.json]
+        panel.message = "Choose a Ryddi saved scope set JSON file."
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        model.importSavedScopeSets(from: url, replace: replaceOnImport)
+        #endif
+    }
+}
+
+struct ScanScopeMiniList: View {
+    let scopes: [ScanScope]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(scopes.prefix(12)) { scope in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(scope.name)
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 190, alignment: .leading)
+                    Text(scope.root.path)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            }
+            if scopes.count > 12 {
+                Text("\(scopes.count - 12) more root(s)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 struct CapabilityMatrixView: View {
     private let rows = [
-        ("Choose scan mode", "Shared scope presets cover Developer, General Mac, and All roots, with explicit scope preview before scanning."),
+        ("Choose scan mode", "Shared scope presets cover Developer, General Mac, and All roots, with explicit scope preview and saved custom scope sets before scanning."),
         ("Find space offenders", "Bounded Swift scanner over preset or custom roots with size and permission evidence."),
         ("Classify safety", "Versioned JSON rules produce Auto-safe, Safe after condition, Review required, Preserve by default, and Never touch."),
         ("Inspect rules", "Bundled rules can be reviewed by safety class, action, category, match hints, conditions, recovery, and non-claims."),
@@ -3241,8 +3439,10 @@ final class DashboardModel {
     var findings: [Finding] = []
     var scanScopes: [ScanScope] = []
     var scanPreset: ScanScopePreset = .developer
+    var savedScopeSets: [SavedScopeSet] = []
+    var selectedSavedScopeSetID: String?
     var includeUserRulesInScans = false
-    var lastScannedPreset: ScanScopePreset?
+    var lastScannedScopeLabel: String?
     var overview: ScanOverview?
     var diskDrillDown: DiskDrillDownReport?
     var plan: ReclaimPlan?
@@ -3267,6 +3467,8 @@ final class DashboardModel {
     var lastReceiptReportExportURL: URL?
     var lastGrowthReportExportURL: URL?
     var lastPolicyExportURL: URL?
+    var lastScopeSetExportURL: URL?
+    var lastScopeSetImportResult: SavedScopeSetImportResult?
     var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.scopes(for: .developer, includeUnavailable: true))
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
@@ -3276,7 +3478,15 @@ final class DashboardModel {
     var error: String?
 
     var selectedScopePlan: ScanScopePlan {
-        DefaultScopes.plan(for: scanPreset, includeUnavailable: true)
+        if let selectedSavedScopeSet {
+            return selectedSavedScopeSet.plan
+        }
+        return DefaultScopes.plan(for: scanPreset, includeUnavailable: true)
+    }
+
+    var selectedSavedScopeSet: SavedScopeSet? {
+        guard let selectedSavedScopeSetID else { return nil }
+        return savedScopeSets.first { $0.id == selectedSavedScopeSetID }
     }
 
     var queueSummaries: [QueueSummary] {
@@ -3315,11 +3525,27 @@ final class DashboardModel {
     }
 
     func setScanPreset(_ preset: ScanScopePreset) {
-        guard scanPreset != preset else { return }
+        guard scanPreset != preset || selectedSavedScopeSetID != nil else { return }
         scanPreset = preset
+        selectedSavedScopeSetID = nil
         resetScanState()
         permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
         error = nil
+    }
+
+    func setSavedScopeSet(_ id: String?) {
+        let normalizedID = id?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextID = normalizedID?.isEmpty == true ? nil : normalizedID
+        guard selectedSavedScopeSetID != nextID else { return }
+        selectedSavedScopeSetID = nextID
+        if nextID != nil, selectedSavedScopeSet == nil {
+            selectedSavedScopeSetID = nil
+            error = "Saved scope set is no longer available."
+        } else {
+            error = nil
+        }
+        resetScanState()
+        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
     }
 
     func setIncludeUserRulesInScans(_ include: Bool) {
@@ -3338,11 +3564,14 @@ final class DashboardModel {
         agentStorageReview = nil
         lastDryRunReceipt = nil
         lastExecutionReceipt = nil
-        lastScannedPreset = nil
+        lastScannedScopeLabel = nil
     }
 
     private func currentScopes(includeUnavailable: Bool) -> [ScanScope] {
-        DefaultScopes.scopes(for: scanPreset, includeUnavailable: includeUnavailable)
+        if let selectedSavedScopeSet {
+            return selectedSavedScopeSet.plan.scopes
+        }
+        return DefaultScopes.scopes(for: scanPreset, includeUnavailable: includeUnavailable)
     }
 
     func totalBytes(for safetyClass: SafetyClass) -> Int64 {
@@ -3366,10 +3595,10 @@ final class DashboardModel {
         isWorking = true
         defer { isWorking = false }
         do {
-            let preset = scanPreset
+            let scopePlan = selectedScopePlan
             let includeUserRules = includeUserRulesInScans
             let result = try await Task.detached {
-                let scopes = DefaultScopes.scopes(for: preset, includeUnavailable: true)
+                let scopes = scopePlan.scopes
                 let policy = UserPathPolicyStore().load()
                 let scanner = try FileScanner(
                     ruleEngine: try RuleEngine.bundled(includingUserRules: includeUserRules),
@@ -3381,9 +3610,9 @@ final class DashboardModel {
                 )
                 let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
                 let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
-                return (preset, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
+                return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
             }.value
-            lastScannedPreset = result.0
+            lastScannedScopeLabel = result.0
             scanScopes = result.1
             findings = result.2
             overview = result.3
@@ -3479,10 +3708,10 @@ final class DashboardModel {
             loadHolding()
             loadRecovery()
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
-            let preset = scanPreset
+            let scopePlan = selectedScopePlan
             let refreshedIncludeUserRules = includeUserRulesInScans
             let refreshed = try await Task.detached {
-                let scopes = DefaultScopes.scopes(for: preset, includeUnavailable: true)
+                let scopes = scopePlan.scopes
                 let policy = UserPathPolicyStore().load()
                 let scanner = try FileScanner(
                     ruleEngine: try RuleEngine.bundled(includingUserRules: refreshedIncludeUserRules),
@@ -3494,9 +3723,9 @@ final class DashboardModel {
                 )
                 let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
                 let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
-                return (preset, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
+                return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
             }.value
-            lastScannedPreset = refreshed.0
+            lastScannedScopeLabel = refreshed.0
             scanScopes = refreshed.1
             findings = refreshed.2
             overview = refreshed.3
@@ -3621,17 +3850,90 @@ final class DashboardModel {
         }
     }
 
+    func loadSavedScopeSets() {
+        let previousSelection = selectedSavedScopeSetID
+        savedScopeSets = SavedScopeSetStore().list()
+        if let previousSelection, !savedScopeSets.contains(where: { $0.id == previousSelection }) {
+            selectedSavedScopeSetID = nil
+            resetScanState()
+        }
+        if overview == nil {
+            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        }
+    }
+
+    func saveCurrentScopeSet(name: String, summary: String?) {
+        do {
+            let planToSave = selectedScopePlan
+            let set = try SavedScopeSetStore().upsert(
+                name: name,
+                paths: planToSave.scopes.map(\.root.path),
+                summary: summary
+            )
+            savedScopeSets = SavedScopeSetStore().list()
+            selectedSavedScopeSetID = set.id
+            resetScanState()
+            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func removeSavedScopeSet(_ set: SavedScopeSet) {
+        do {
+            _ = try SavedScopeSetStore().remove(reference: set.id)
+            if selectedSavedScopeSetID == set.id {
+                selectedSavedScopeSetID = nil
+                resetScanState()
+            }
+            savedScopeSets = SavedScopeSetStore().list()
+            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func importSavedScopeSets(from url: URL, replace: Bool) {
+        do {
+            let result = try SavedScopeSetStore().importDocument(from: url, merge: !replace)
+            lastScopeSetImportResult = result
+            loadSavedScopeSets()
+            error = nil
+        } catch {
+            lastScopeSetImportResult = nil
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportSavedScopeSets() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let url = try await Task.detached {
+                let document = try SavedScopeSetStore().exportDocument()
+                return try ReportStore().save(savedScopeSetDocument: document)
+            }.value
+            lastScopeSetExportURL = url
+            error = nil
+        } catch {
+            lastScopeSetExportURL = nil
+            self.error = error.localizedDescription
+        }
+    }
+
     func checkActiveHandles() async {
         isWorking = true
         defer { isWorking = false }
         do {
             let baseFindings = findings
-            let preset = scanPreset
+            let scopePlan = selectedScopePlan
             let includeUserRules = includeUserRulesInScans
             let report = try await Task.detached {
                 let sourceFindings: [Finding]
                 if baseFindings.isEmpty {
-                    let scopes = DefaultScopes.scopes(for: preset, includeUnavailable: true)
+                    let scopes = scopePlan.scopes
                     let policy = UserPathPolicyStore().load()
                     let scanner = try FileScanner(
                         ruleEngine: try RuleEngine.bundled(includingUserRules: includeUserRules),

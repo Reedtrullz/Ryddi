@@ -139,12 +139,89 @@ struct ReclaimerCLI {
     }
 
     static func scopes(args: [String]) throws {
+        if args.first == "saved" {
+            try savedScopes(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
         let plan = try options.scopePlan(includeUnavailable: true)
         if options.json {
             printJSON(plan)
         } else {
             printScopePlan(plan)
+        }
+    }
+
+    static func savedScopes(args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.message("scopes saved requires list, show, add, remove, export, or import")
+        }
+        let options = ParsedOptions(Array(args.dropFirst()))
+        let store = SavedScopeSetStore()
+        switch subcommand {
+        case "list":
+            let document = try store.loadDocument()
+            if options.json {
+                printJSON(document)
+            } else {
+                printSavedScopeSetDocument(document, path: store.scopeSetURL.path)
+            }
+        case "show":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("scopes saved show requires a saved scope set name or id")
+            }
+            let set = try store.find(args[1])
+            if options.json {
+                printJSON(set)
+            } else {
+                printSavedScopeSet(set)
+            }
+        case "add":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("scopes saved add requires a name and at least one --path")
+            }
+            let set = try store.upsert(name: args[1], paths: options.values(after: "--path"), summary: options.summary)
+            if options.json {
+                printJSON(set)
+            } else {
+                print("saved scope set: \(set.name)")
+                printSavedScopeSet(set)
+            }
+        case "remove":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("scopes saved remove requires a saved scope set name or id")
+            }
+            let document = try store.remove(reference: args[1])
+            if options.json {
+                printJSON(document)
+            } else {
+                print("removed saved scope set: \(args[1])")
+                printSavedScopeSetDocument(document, path: store.scopeSetURL.path)
+            }
+        case "export":
+            let document = try store.exportDocument()
+            if let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                _ = try store.writeExport(document, to: url)
+                FileHandle.standardError.write(Data("wrote saved scope sets export: \(url.path)\n".utf8))
+            }
+            if options.json || options.outputPath == nil {
+                printJSON(document)
+            } else {
+                printSavedScopeSetDocument(document, path: store.scopeSetURL.path)
+            }
+        case "import":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("scopes saved import requires a saved scope sets JSON path")
+            }
+            let result = try store.importDocument(from: URL(fileURLWithPath: args[1]).standardizedFileURL, merge: !options.replacePolicy)
+            if options.json {
+                printJSON(result)
+            } else {
+                printSavedScopeSetImportResult(result)
+            }
+        default:
+            throw CLIError.message("Unknown scopes saved subcommand: \(subcommand)")
         }
     }
 
@@ -455,7 +532,7 @@ struct ReclaimerCLI {
     static func agents(args: [String]) throws {
         let options = ParsedOptions(args)
         let scopes: [ScanScope]
-        if options.hasPath {
+        if options.hasCustomScopeSelection {
             scopes = try options.scopes(includeUnavailable: options.includeMissingScopes)
         } else {
             scopes = DefaultScopes.aiAgentStorage(includeUnavailable: options.includeMissingScopes)
@@ -854,25 +931,31 @@ struct ReclaimerCLI {
 
             Commands:
               status [--json] [--path PATH]
-              scopes [--json] [--preset developer|general|all] [--path PATH ...]
-              scan [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--include-open-files]
+              scopes [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
+              scopes saved list [--json]
+              scopes saved show NAME_OR_ID [--json]
+              scopes saved add NAME --path PATH ... [--summary TEXT] [--json]
+              scopes saved remove NAME_OR_ID [--json]
+              scopes saved export [--json] [--output PATH]
+              scopes saved import PATH [--json] [--replace]
+              scan [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
-              overview [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy] [--include-user-rules]
-              drilldown [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N]
+              overview [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-history] [--ignore-user-policy] [--include-user-rules]
+              drilldown [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N]
                         [--tree-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               rules [--json] [--include-user-rules]
               rules user list [--json]
               rules user preview PATH [--json]
               rules user import PATH [--json] [--replace]
               rules user export [--json] [--output PATH]
-              report [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
+              report [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--output PATH] [--save-report]
                      [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
-              permissions [--json] [--preset developer|general|all] [--path PATH ...] [--include-missing-scopes]
-              permissions guide [--json] [--preset developer|general|all] [--path PATH ...] [--output PATH] [--include-missing-scopes]
-              active [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit] [--include-user-rules]
-              history record [--json] [--preset developer|general|all] [--path PATH ...] [--limit N]
+              permissions [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--include-missing-scopes]
+              permissions guide [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--output PATH] [--include-missing-scopes]
+              active [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit] [--include-user-rules]
+              history record [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
               history report [--json] [--group category|safety|scope] [--limit N]
@@ -885,9 +968,9 @@ struct ReclaimerCLI {
               apps uninstall-preview [--json] (--app PATH | --bundle-id ID | --name NAME)
                    [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N] [--output PATH]
                    [--save-audit] [--path-style full|home-relative|redacted] [--redact-user-text]
-              agents [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N]
+              agents [--json] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
-              native [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-audit] [--include-user-rules]
+              native [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
               policy list [--json]
               policy protect PATH [--reason TEXT]
@@ -895,21 +978,21 @@ struct ReclaimerCLI {
               policy remove PATH [--kind protect|exclude]
               policy export [--json] [--output PATH]
               policy import PATH [--json] [--replace]
-              plan [--json] [--preset developer|general|all] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
+              plan [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
                    [--output PATH] [--save-report] [--title TEXT]
                    [--path-style full|home-relative|redacted] [--redact-user-text]
               plans list [--json] [--limit N]
               plans export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                            [--path-style full|home-relative|redacted] [--redact-user-text]
               explain PATH [--json] [--include-user-rules]
-              execute --dry-run [--json] [--preset developer|general|all] [--path PATH ...] [--save-audit] [--ignore-user-policy] [--include-user-rules]
-              execute --yes [--preset developer|general|all] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
+              execute --dry-run [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--save-audit] [--ignore-user-policy] [--include-user-rules]
+              execute --yes [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
               receipts list [--json] [--limit N]
               receipts export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                               [--path-style full|home-relative|redacted] [--redact-user-text]
               recovery [list] [--json] [--limit N]
               recovery restore HOLDING_ID [--to PATH]
-              archive [--json] [--preset developer|general|all] [--path PATH ...]   # review/compression-oriented plan only
+              archive [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]   # review/compression-oriented plan only
               schedule install [--hour H] [--minute M] [--load]
               schedule uninstall [--unload]
               schedule status
@@ -918,7 +1001,8 @@ struct ReclaimerCLI {
               holding expire [--older-than-days N] [--yes]
 
             Defaults use --preset developer. Use --preset general for ordinary Mac cleanup review roots
-            or --preset all for general plus developer/agent storage. User rule packs are local and opt-in
+            or --preset all for general plus developer/agent storage. Use saved scope sets for repeatable
+            custom roots. User rule packs are local and opt-in
             per scan with --include-user-rules. Execution is dry-run unless --yes is supplied.
             """
         )
@@ -943,6 +1027,7 @@ struct ParsedOptions {
     var includeMissingScopes: Bool { args.contains("--include-missing-scopes") }
     var noLsof: Bool { args.contains("--no-lsof") }
     var hasPath: Bool { !values(after: "--path").isEmpty }
+    var hasCustomScopeSelection: Bool { hasPath || scopeSetReference != nil }
     var includePreserve: Bool { args.contains("--include-preserve") }
     var showExcluded: Bool { args.contains("--show-excluded") }
     var includeSystemApps: Bool { args.contains("--include-system-apps") }
@@ -963,6 +1048,7 @@ struct ParsedOptions {
     var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
     var maxFilesToHash: Int { max(1, Int(value(after: "--max-files") ?? "") ?? 5_000) }
     var reason: String? { value(after: "--reason") }
+    var summary: String? { value(after: "--summary") }
     var outputPath: String? { value(after: "--output") }
     var reportTitle: String { value(after: "--title") ?? "Ryddi Evidence Report" }
     var planReportTitle: String { value(after: "--title") ?? "Ryddi Plan Report" }
@@ -973,6 +1059,7 @@ struct ParsedOptions {
     var receiptID: String? { value(after: "--id") }
     var currentSnapshotID: String? { value(after: "--current-id") }
     var previousSnapshotID: String? { value(after: "--previous-id") }
+    var scopeSetReference: String? { value(after: "--scope-set") }
     var reportPrivacy: ReportPrivacyOptions {
         ReportPrivacyOptions(pathStyle: reportPathStyle, redactUserText: args.contains("--redact-user-text"))
     }
@@ -1046,6 +1133,9 @@ struct ParsedOptions {
                 return ScanScope(name: url.lastPathComponent, root: url)
             }
             return DefaultScopes.customPlan(scopes: scopes)
+        }
+        if let scopeSetReference {
+            return try SavedScopeSetStore().plan(reference: scopeSetReference)
         }
         return DefaultScopes.plan(for: try scopePreset(), includeUnavailable: includeUnavailable)
     }
@@ -1185,6 +1275,58 @@ func printScopePlan(_ plan: ScanScopePlan) {
     }
     print("\nNon-claims")
     for note in plan.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printSavedScopeSetDocument(_ document: SavedScopeSetDocument, path: String) {
+    print("Ryddi saved scope sets")
+    print("Path: \(path)")
+    print("Sets: \(document.sets.count)")
+    if document.sets.isEmpty {
+        print("No saved scope sets yet. Use `reclaimer scopes saved add NAME --path PATH`.")
+    } else {
+        print("\nSets")
+        for set in document.sets {
+            print("- \(set.name) (\(set.scopes.count) root(s), id \(set.id))")
+            if let summary = set.summary {
+                print("  \(summary)")
+            }
+        }
+    }
+    print("\nNon-claims")
+    for note in document.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printSavedScopeSet(_ set: SavedScopeSet) {
+    print("Saved scope set: \(set.name)")
+    print("ID: \(set.id)")
+    if let summary = set.summary {
+        print(summary)
+    }
+    print("Created: \(set.createdAt.formatted())")
+    print("Updated: \(set.updatedAt.formatted())")
+    print("Roots: \(set.scopes.count)")
+    for scope in set.scopes {
+        print("- \(scope.name): \(scope.root.path)")
+    }
+    print("\nNon-claims")
+    for note in SavedScopeSetDocument.defaultNonClaims {
+        print("- \(note)")
+    }
+}
+
+func printSavedScopeSetImportResult(_ result: SavedScopeSetImportResult) {
+    print("Imported saved scope sets")
+    print("Mode: \(result.mode)")
+    print("Source: \(result.sourcePath)")
+    print("Destination: \(result.scopeSetPath)")
+    print("Imported: \(result.importedSetCount)")
+    print("Final: \(result.finalSetCount)")
+    print("\nNon-claims")
+    for note in result.nonClaims {
         print("- \(note)")
     }
 }

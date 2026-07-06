@@ -33,6 +33,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 
 - top-offender overview with category, owner/app/tool, safety, age, logical size, and allocated size
 - scan presets for Developer, General Mac, and All roots, plus scope preview before scanning
+- saved custom scope sets for repeatable general cleanup, project review, or developer maintenance scans
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
 - hierarchical disk drill-down for scanned roots, with bounded child rows, safety/action/category hints, and explicit non-additive accounting notes
 - ownership-aware storage summaries that group findings by app/tool hints such as Codex, Docker, Colima, Xcode, Homebrew, and Chrome
@@ -98,6 +99,9 @@ swift run --scratch-path .build reclaimer help
 swift run --scratch-path .build reclaimer overview
 swift run --scratch-path .build reclaimer drilldown --preset general --max-depth 3 --limit 8
 swift run --scratch-path .build reclaimer scopes --preset general
+swift run --scratch-path .build reclaimer scopes saved add "Weekly General" --path ~/Downloads --path ~/Library/Caches
+swift run --scratch-path .build reclaimer scopes --scope-set "Weekly General"
+swift run --scratch-path .build reclaimer overview --scope-set "Weekly General"
 swift run --scratch-path .build reclaimer overview --preset general
 swift run --scratch-path .build reclaimer scan --preset all --review large
 swift run --scratch-path .build reclaimer rules
@@ -142,6 +146,21 @@ swift run --scratch-path .build reclaimer holding list
 ```
 
 Execution is dry-run unless `--yes` is supplied. Even with `--yes`, the executor refuses protected classes, revalidates the path, reclassifies it, and skips open files.
+
+## Saved Scope Sets
+
+Ryddi's presets cover common modes, but saved scope sets let you reuse specific local roots:
+
+```bash
+swift run --scratch-path .build reclaimer scopes saved add "Weekly General" --path ~/Downloads --path ~/Library/Caches --summary "General cleanup review"
+swift run --scratch-path .build reclaimer scopes saved list
+swift run --scratch-path .build reclaimer scopes saved show "Weekly General"
+swift run --scratch-path .build reclaimer scan --scope-set "Weekly General"
+swift run --scratch-path .build reclaimer scopes saved export --output ryddi-scope-sets.json
+swift run --scratch-path .build reclaimer scopes saved import ryddi-scope-sets.json
+```
+
+Saved scope sets store scan roots only. They do not grant cleanup permission, change safety rules, or make any path auto-cleanable. Exports can contain private local paths, so review them before sharing.
 
 ## Permission Coverage
 
