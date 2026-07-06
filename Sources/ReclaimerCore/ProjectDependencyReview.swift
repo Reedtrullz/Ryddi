@@ -183,6 +183,8 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
     public let signals: [String]
     public let vcsInfo: ProjectDependencyVCSInfo
     public let commandHints: [NativeToolCommand]
+    public let projectPolicyDecision: ProjectDependencyPolicyDecision?
+    public let projectPolicyReason: String?
     public let recommendation: String
     public let guidance: [String]
 
@@ -205,6 +207,8 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         signals: [String],
         vcsInfo: ProjectDependencyVCSInfo = .notChecked,
         commandHints: [NativeToolCommand] = [],
+        projectPolicyDecision: ProjectDependencyPolicyDecision? = nil,
+        projectPolicyReason: String? = nil,
         recommendation: String,
         guidance: [String]
     ) {
@@ -226,6 +230,8 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         self.signals = signals
         self.vcsInfo = vcsInfo
         self.commandHints = commandHints
+        self.projectPolicyDecision = projectPolicyDecision
+        self.projectPolicyReason = projectPolicyReason
         self.recommendation = recommendation
         self.guidance = guidance
     }
@@ -249,6 +255,8 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         case signals
         case vcsInfo
         case commandHints
+        case projectPolicyDecision
+        case projectPolicyReason
         case recommendation
         case guidance
     }
@@ -273,6 +281,8 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         signals = try container.decode([String].self, forKey: .signals)
         vcsInfo = try container.decodeIfPresent(ProjectDependencyVCSInfo.self, forKey: .vcsInfo) ?? .notChecked
         commandHints = try container.decodeIfPresent([NativeToolCommand].self, forKey: .commandHints) ?? []
+        projectPolicyDecision = try container.decodeIfPresent(ProjectDependencyPolicyDecision.self, forKey: .projectPolicyDecision)
+        projectPolicyReason = try container.decodeIfPresent(String.self, forKey: .projectPolicyReason)
         recommendation = try container.decode(String.self, forKey: .recommendation)
         guidance = try container.decode([String].self, forKey: .guidance)
     }
@@ -297,6 +307,8 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         try container.encode(signals, forKey: .signals)
         try container.encode(vcsInfo, forKey: .vcsInfo)
         try container.encode(commandHints, forKey: .commandHints)
+        try container.encodeIfPresent(projectPolicyDecision, forKey: .projectPolicyDecision)
+        try container.encodeIfPresent(projectPolicyReason, forKey: .projectPolicyReason)
         try container.encode(recommendation, forKey: .recommendation)
         try container.encode(guidance, forKey: .guidance)
     }
@@ -339,6 +351,8 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
     public let projectName: String
     public let manifestHints: [String]
     public let vcsInfo: ProjectDependencyVCSInfo
+    public let projectPolicyDecision: ProjectDependencyPolicyDecision?
+    public let projectPolicyReason: String?
     public let note: String
 
     public init(
@@ -347,6 +361,8 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         projectName: String,
         manifestHints: [String],
         vcsInfo: ProjectDependencyVCSInfo = .notChecked,
+        projectPolicyDecision: ProjectDependencyPolicyDecision? = nil,
+        projectPolicyReason: String? = nil,
         note: String
     ) {
         self.id = id
@@ -354,6 +370,8 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         self.projectName = projectName
         self.manifestHints = manifestHints
         self.vcsInfo = vcsInfo
+        self.projectPolicyDecision = projectPolicyDecision
+        self.projectPolicyReason = projectPolicyReason
         self.note = note
     }
 
@@ -363,6 +381,8 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         case projectName
         case manifestHints
         case vcsInfo
+        case projectPolicyDecision
+        case projectPolicyReason
         case note
     }
 
@@ -373,6 +393,8 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         projectName = try container.decode(String.self, forKey: .projectName)
         manifestHints = try container.decode([String].self, forKey: .manifestHints)
         vcsInfo = try container.decodeIfPresent(ProjectDependencyVCSInfo.self, forKey: .vcsInfo) ?? .notChecked
+        projectPolicyDecision = try container.decodeIfPresent(ProjectDependencyPolicyDecision.self, forKey: .projectPolicyDecision)
+        projectPolicyReason = try container.decodeIfPresent(String.self, forKey: .projectPolicyReason)
         note = try container.decode(String.self, forKey: .note)
     }
 
@@ -383,7 +405,37 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         try container.encode(projectName, forKey: .projectName)
         try container.encode(manifestHints, forKey: .manifestHints)
         try container.encode(vcsInfo, forKey: .vcsInfo)
+        try container.encodeIfPresent(projectPolicyDecision, forKey: .projectPolicyDecision)
+        try container.encodeIfPresent(projectPolicyReason, forKey: .projectPolicyReason)
         try container.encode(note, forKey: .note)
+    }
+}
+
+public struct ProjectDependencyPolicySkippedProject: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let projectRootPath: String
+    public let projectName: String
+    public let manifestHints: [String]
+    public let decision: ProjectDependencyPolicyDecision
+    public let reason: String?
+    public let note: String
+
+    public init(
+        id: String = UUID().uuidString,
+        projectRootPath: String,
+        projectName: String,
+        manifestHints: [String],
+        decision: ProjectDependencyPolicyDecision,
+        reason: String? = nil,
+        note: String
+    ) {
+        self.id = id
+        self.projectRootPath = projectRootPath
+        self.projectName = projectName
+        self.manifestHints = manifestHints
+        self.decision = decision
+        self.reason = reason
+        self.note = note
     }
 }
 
@@ -414,9 +466,11 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
     public let ecosystemSummaries: [ProjectDependencySummary]
     public let kindSummaries: [ProjectDependencySummary]
     public let vcsSummaries: [ProjectDependencySummary]
+    public let policySummaries: [ProjectDependencySummary]
     public let projectsWithDirtyVCSCount: Int
     public let largestItems: [ProjectDependencyItem]
     public let protectedProjectRoots: [ProjectDependencyProtectedProjectRoot]
+    public let policySkippedProjects: [ProjectDependencyPolicySkippedProject]
     public let guidance: [String]
     public let nonClaims: [String]
 
@@ -434,9 +488,11 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         ecosystemSummaries: [ProjectDependencySummary],
         kindSummaries: [ProjectDependencySummary],
         vcsSummaries: [ProjectDependencySummary] = [],
+        policySummaries: [ProjectDependencySummary] = [],
         projectsWithDirtyVCSCount: Int = 0,
         largestItems: [ProjectDependencyItem],
         protectedProjectRoots: [ProjectDependencyProtectedProjectRoot],
+        policySkippedProjects: [ProjectDependencyPolicySkippedProject] = [],
         guidance: [String],
         nonClaims: [String]
     ) {
@@ -453,9 +509,11 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         self.ecosystemSummaries = ecosystemSummaries
         self.kindSummaries = kindSummaries
         self.vcsSummaries = vcsSummaries
+        self.policySummaries = policySummaries
         self.projectsWithDirtyVCSCount = max(0, projectsWithDirtyVCSCount)
         self.largestItems = largestItems
         self.protectedProjectRoots = protectedProjectRoots
+        self.policySkippedProjects = policySkippedProjects
         self.guidance = guidance
         self.nonClaims = nonClaims
     }
@@ -474,9 +532,11 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         case ecosystemSummaries
         case kindSummaries
         case vcsSummaries
+        case policySummaries
         case projectsWithDirtyVCSCount
         case largestItems
         case protectedProjectRoots
+        case policySkippedProjects
         case guidance
         case nonClaims
     }
@@ -496,9 +556,11 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         ecosystemSummaries = try container.decode([ProjectDependencySummary].self, forKey: .ecosystemSummaries)
         kindSummaries = try container.decode([ProjectDependencySummary].self, forKey: .kindSummaries)
         vcsSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .vcsSummaries) ?? []
+        policySummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .policySummaries) ?? []
         projectsWithDirtyVCSCount = try container.decodeIfPresent(Int.self, forKey: .projectsWithDirtyVCSCount) ?? 0
         largestItems = try container.decode([ProjectDependencyItem].self, forKey: .largestItems)
         protectedProjectRoots = try container.decode([ProjectDependencyProtectedProjectRoot].self, forKey: .protectedProjectRoots)
+        policySkippedProjects = try container.decodeIfPresent([ProjectDependencyPolicySkippedProject].self, forKey: .policySkippedProjects) ?? []
         guidance = try container.decode([String].self, forKey: .guidance)
         nonClaims = try container.decode([String].self, forKey: .nonClaims)
     }
@@ -518,9 +580,11 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         try container.encode(ecosystemSummaries, forKey: .ecosystemSummaries)
         try container.encode(kindSummaries, forKey: .kindSummaries)
         try container.encode(vcsSummaries, forKey: .vcsSummaries)
+        try container.encode(policySummaries, forKey: .policySummaries)
         try container.encode(projectsWithDirtyVCSCount, forKey: .projectsWithDirtyVCSCount)
         try container.encode(largestItems, forKey: .largestItems)
         try container.encode(protectedProjectRoots, forKey: .protectedProjectRoots)
+        try container.encode(policySkippedProjects, forKey: .policySkippedProjects)
         try container.encode(guidance, forKey: .guidance)
         try container.encode(nonClaims, forKey: .nonClaims)
     }
@@ -534,6 +598,8 @@ public struct ProjectDependencyReviewOptions: Hashable, Sendable {
     public let measurementDepth: Int
     public let includeMissingRoots: Bool
     public let includeVCSStatus: Bool
+    public let projectPolicy: ProjectDependencyPolicy
+    public let includePolicySkippedProjects: Bool
 
     public init(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -543,7 +609,9 @@ public struct ProjectDependencyReviewOptions: Hashable, Sendable {
         maximumSearchDepth: Int = 6,
         measurementDepth: Int = 8,
         includeMissingRoots: Bool = true,
-        includeVCSStatus: Bool = false
+        includeVCSStatus: Bool = false,
+        projectPolicy: ProjectDependencyPolicy = .empty,
+        includePolicySkippedProjects: Bool = false
     ) {
         let standardizedHome = home.standardizedFileURL
         self.roots = (roots ?? Self.defaultRoots(home: standardizedHome)).map { $0.standardizedFileURL }
@@ -553,6 +621,8 @@ public struct ProjectDependencyReviewOptions: Hashable, Sendable {
         self.measurementDepth = max(0, min(measurementDepth, 32))
         self.includeMissingRoots = includeMissingRoots
         self.includeVCSStatus = includeVCSStatus
+        self.projectPolicy = projectPolicy
+        self.includePolicySkippedProjects = includePolicySkippedProjects
     }
 
     public static func defaultRoots(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
@@ -581,6 +651,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
     ) -> ProjectDependencyReviewReport {
         var summaries: [ProjectDependencyRootSummary] = []
         var items: [ProjectDependencyItem] = []
+        var skippedProjects: [ProjectDependencyPolicySkippedProject] = []
 
         for root in options.roots {
             let result = inspect(
@@ -589,14 +660,18 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                 maximumSearchDepth: options.maximumSearchDepth,
                 measurementDepth: options.measurementDepth,
                 includeVCSStatus: options.includeVCSStatus,
+                projectPolicy: options.projectPolicy,
+                includePolicySkippedProjects: options.includePolicySkippedProjects,
                 referenceDate: createdAt
             )
             if result.summary.permissionState != .missing || options.includeMissingRoots {
                 summaries.append(result.summary)
             }
             items.append(contentsOf: result.items)
+            skippedProjects.append(contentsOf: result.skippedProjects)
         }
 
+        let sortedSkippedProjects = Self.deduplicatedSkippedProjects(skippedProjects)
         let sortedItems = items.sorted { lhs, rhs in
             if lhs.allocatedSize == rhs.allocatedSize {
                 return lhs.path < rhs.path
@@ -626,9 +701,11 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             ecosystemSummaries: Self.ecosystemSummaries(for: sortedItems),
             kindSummaries: Self.kindSummaries(for: sortedItems),
             vcsSummaries: Self.vcsSummaries(for: sortedItems),
+            policySummaries: Self.policySummaries(for: sortedItems),
             projectsWithDirtyVCSCount: Self.projectsWithDirtyVCSCount(for: sortedItems),
             largestItems: Array(sortedItems.prefix(options.limit)),
             protectedProjectRoots: protectedProjectRoots(for: sortedItems),
+            policySkippedProjects: sortedSkippedProjects,
             guidance: Self.guidance,
             nonClaims: Self.nonClaims
         )
@@ -640,8 +717,10 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         maximumSearchDepth: Int,
         measurementDepth: Int,
         includeVCSStatus: Bool,
+        projectPolicy: ProjectDependencyPolicy,
+        includePolicySkippedProjects: Bool,
         referenceDate: Date
-    ) -> (summary: ProjectDependencyRootSummary, items: [ProjectDependencyItem]) {
+    ) -> (summary: ProjectDependencyRootSummary, items: [ProjectDependencyItem], skippedProjects: [ProjectDependencyPolicySkippedProject]) {
         let root = root.standardizedFileURL
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) else {
@@ -655,6 +734,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     candidateCount: 0,
                     note: "Project dependency review root does not exist at \(root.path)."
                 ),
+                [],
                 []
             )
         }
@@ -669,6 +749,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     candidateCount: 0,
                     note: "Configured project dependency review root is not a directory: \(root.path)."
                 ),
+                [],
                 []
             )
         }
@@ -683,20 +764,24 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     candidateCount: 0,
                     note: "Project dependency review root is not readable with current permissions: \(root.path)."
                 ),
+                [],
                 []
             )
         }
 
         var vcsCache: [String: ProjectDependencyVCSInfo] = [:]
-        let items = projectDependencyItems(
+        let result = projectDependencyItems(
             under: root,
             oldDays: oldDays,
             maximumSearchDepth: maximumSearchDepth,
             measurementDepth: measurementDepth,
             includeVCSStatus: includeVCSStatus,
+            projectPolicy: projectPolicy,
+            includePolicySkippedProjects: includePolicySkippedProjects,
             vcsCache: &vcsCache,
             referenceDate: referenceDate
         )
+        let items = result.items
         let logical = items.reduce(Int64(0)) { $0 + $1.logicalSize }
         let allocated = items.reduce(Int64(0)) { $0 + $1.allocatedSize }
         let count = items.reduce(0) { $0 + max(1, $1.itemCount) }
@@ -708,9 +793,12 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                 allocatedSize: allocated,
                 itemCount: count,
                 candidateCount: items.count,
-                note: "Measured recognized project-local dependency and build artifact directories under \(root.path)."
+                note: result.skippedProjects.isEmpty
+                    ? "Measured recognized project-local dependency and build artifact directories under \(root.path)."
+                    : "Measured recognized project-local dependency and build artifact directories under \(root.path). Skipped \(result.skippedProjects.count) project(s) by saved Project Dependencies policy."
             ),
-            items
+            items,
+            result.skippedProjects
         )
     }
 
@@ -720,15 +808,23 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         maximumSearchDepth: Int,
         measurementDepth: Int,
         includeVCSStatus: Bool,
+        projectPolicy: ProjectDependencyPolicy,
+        includePolicySkippedProjects: Bool,
         vcsCache: inout [String: ProjectDependencyVCSInfo],
         referenceDate: Date
-    ) -> [ProjectDependencyItem] {
+    ) -> (items: [ProjectDependencyItem], skippedProjects: [ProjectDependencyPolicySkippedProject]) {
         var items: [ProjectDependencyItem] = []
+        var skippedProjects: [ProjectDependencyPolicySkippedProject] = []
 
         if let values = try? root.resourceValues(forKeys: Set(projectDependencyResourceKeys)),
            values.isSymbolicLink != true,
            values.isDirectory == true,
            let metadata = candidateMetadata(for: root, boundary: root.deletingLastPathComponent().standardizedFileURL) {
+            let policyRule = projectPolicy.matchingPolicy(forProjectRoot: metadata.projectRoot.path)
+            if shouldSkipByPolicy(policyRule, includePolicySkippedProjects: includePolicySkippedProjects) {
+                skippedProjects.append(skippedProject(for: metadata, policyRule: policyRule))
+                return (items, skippedProjects)
+            }
             items.append(
                 item(
                     for: root,
@@ -737,11 +833,13 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     oldDays: oldDays,
                     measurementDepth: measurementDepth,
                     includeVCSStatus: includeVCSStatus,
+                    policyRule: policyRule,
+                    policySkipOverridden: policyRule?.decision == .skipReview,
                     vcsCache: &vcsCache,
                     referenceDate: referenceDate
                 )
             )
-            return items
+            return (items, skippedProjects)
         }
 
         guard let enumerator = fileManager.enumerator(
@@ -750,7 +848,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             options: [],
             errorHandler: { _, _ in true }
         ) else {
-            return items
+            return (items, skippedProjects)
         }
 
         for case let child as URL in enumerator {
@@ -770,6 +868,12 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                 continue
             }
             if let metadata = candidateMetadata(for: child, boundary: root) {
+                let policyRule = projectPolicy.matchingPolicy(forProjectRoot: metadata.projectRoot.path)
+                if shouldSkipByPolicy(policyRule, includePolicySkippedProjects: includePolicySkippedProjects) {
+                    skippedProjects.append(skippedProject(for: metadata, policyRule: policyRule))
+                    enumerator.skipDescendants()
+                    continue
+                }
                 items.append(
                     item(
                         for: child,
@@ -778,6 +882,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                         oldDays: oldDays,
                         measurementDepth: measurementDepth,
                         includeVCSStatus: includeVCSStatus,
+                        policyRule: policyRule,
+                        policySkipOverridden: policyRule?.decision == .skipReview,
                         vcsCache: &vcsCache,
                         referenceDate: referenceDate
                     )
@@ -786,7 +892,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             }
         }
 
-        return items
+        return (items, skippedProjects)
     }
 
     private func item(
@@ -796,6 +902,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         oldDays: Int,
         measurementDepth: Int,
         includeVCSStatus: Bool,
+        policyRule: ProjectDependencyProjectPolicy?,
+        policySkipOverridden: Bool,
         vcsCache: inout [String: ProjectDependencyVCSInfo],
         referenceDate: Date
     ) -> ProjectDependencyItem {
@@ -812,6 +920,16 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
         if values.isSymbolicLink == true {
             signals.append("symlink-not-followed")
+        }
+        if let policyRule {
+            switch policyRule.decision {
+            case .review:
+                signals.append("project-policy-review")
+            case .preserve:
+                signals.append("project-policy-preserve")
+            case .skipReview:
+                signals.append(policySkipOverridden ? "project-policy-skip-overridden" : "project-policy-skip")
+            }
         }
         let vcsInfo = vcsInfo(for: metadata.projectRoot, includeStatus: includeVCSStatus, cache: &vcsCache)
         switch vcsInfo.state {
@@ -847,8 +965,16 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             signals: signals,
             vcsInfo: vcsInfo,
             commandHints: Self.commandHints(for: metadata),
+            projectPolicyDecision: policyRule?.decision,
+            projectPolicyReason: policyRule?.reason,
             recommendation: Self.recommendation(for: metadata, isOld: isOld),
-            guidance: Self.itemGuidance(for: metadata, isOld: isOld, isSymbolicLink: values.isSymbolicLink == true)
+            guidance: Self.itemGuidance(
+                for: metadata,
+                isOld: isOld,
+                isSymbolicLink: values.isSymbolicLink == true,
+                policyRule: policyRule,
+                policySkipOverridden: policySkipOverridden
+            )
         )
     }
 
@@ -975,9 +1101,34 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     projectName: item.projectName,
                     manifestHints: hints,
                     vcsInfo: item.vcsInfo,
+                    projectPolicyDecision: item.projectPolicyDecision,
+                    projectPolicyReason: item.projectPolicyReason,
                     note: "Protected project files, source, manifests, lockfiles, env files, IDE settings, credentials, and unknown project state are intentionally not measured as cleanup candidates. \(manifestText)"
                 )
             }
+    }
+
+    private func shouldSkipByPolicy(
+        _ policyRule: ProjectDependencyProjectPolicy?,
+        includePolicySkippedProjects: Bool
+    ) -> Bool {
+        policyRule?.decision == .skipReview && !includePolicySkippedProjects
+    }
+
+    private func skippedProject(
+        for metadata: ProjectDependencyCandidateMetadata,
+        policyRule: ProjectDependencyProjectPolicy?
+    ) -> ProjectDependencyPolicySkippedProject {
+        let reason = policyRule?.reason
+        let reasonText = reason.map { " Reason: \($0)" } ?? ""
+        return ProjectDependencyPolicySkippedProject(
+            projectRootPath: metadata.projectRoot.path,
+            projectName: metadata.projectRoot.lastPathComponent,
+            manifestHints: metadata.manifestHints,
+            decision: policyRule?.decision ?? .skipReview,
+            reason: reason,
+            note: "Saved Project Dependencies policy skipped this project from dependency/build artifact review.\(reasonText)"
+        )
     }
 
     private func vcsInfo(
@@ -1195,6 +1346,18 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
     }
 
+    private static func policySummaries(for items: [ProjectDependencyItem]) -> [ProjectDependencySummary] {
+        ProjectDependencyPolicyDecision.allCases.compactMap { decision in
+            let matches = items.filter { $0.projectPolicyDecision == decision }
+            guard !matches.isEmpty else { return nil }
+            return ProjectDependencySummary(
+                name: decision.label,
+                itemCount: matches.count,
+                allocatedSize: matches.reduce(Int64(0)) { $0 + $1.allocatedSize }
+            )
+        }
+    }
+
     private static func projectsWithDirtyVCSCount(for items: [ProjectDependencyItem]) -> Int {
         Set(items.compactMap { item in
             switch item.vcsInfo.state {
@@ -1204,6 +1367,21 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                 return nil
             }
         }).count
+    }
+
+    private static func deduplicatedSkippedProjects(_ projects: [ProjectDependencyPolicySkippedProject]) -> [ProjectDependencyPolicySkippedProject] {
+        var seen: Set<String> = []
+        var output: [ProjectDependencyPolicySkippedProject] = []
+        for project in projects.sorted(by: { lhs, rhs in
+            if lhs.projectName == rhs.projectName {
+                return lhs.projectRootPath < rhs.projectRootPath
+            }
+            return lhs.projectName < rhs.projectName
+        }) {
+            guard seen.insert(project.projectRootPath).inserted else { continue }
+            output.append(project)
+        }
+        return output
     }
 
     private static func parseGitStatus(_ output: String) -> (changedTracked: Int, untracked: Int) {
@@ -1444,7 +1622,9 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
     private static func itemGuidance(
         for metadata: ProjectDependencyCandidateMetadata,
         isOld: Bool,
-        isSymbolicLink: Bool
+        isSymbolicLink: Bool,
+        policyRule: ProjectDependencyProjectPolicy?,
+        policySkipOverridden: Bool
     ) -> [String] {
         var guidance = [
             "Project Dependency Review is report-only; this item is not selected for cleanup.",
@@ -1476,6 +1656,15 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
         if isSymbolicLink {
             guidance.append("Symbolic link was not followed while measuring.")
+        }
+        if let policyRule {
+            guidance.append(policyRule.decision.guidance)
+            if let reason = policyRule.reason {
+                guidance.append("Saved project policy reason: \(reason)")
+            }
+            if policySkipOverridden {
+                guidance.append("Saved skip-review policy was overridden for this report.")
+            }
         }
         return guidance
     }
@@ -1558,6 +1747,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
 
     public static let guidance = [
         "Review project status, VCS changes, lockfiles, and active terminals before cleanup.",
+        "Use saved project policies to mark recurring projects for review, preserve-by-default, or skip-review; policies do not grant cleanup permission.",
         "Prefer native commands such as package-manager install/clean, `swift package clean`, `cargo clean`, `./gradlew clean`, `flutter clean`, or `pod install` over blind deletion.",
         "Skip active builds, dev servers, simulators, IDE indexing, and terminals using the project.",
         "Treat project-local dependencies as rebuildable evidence only when the project has the expected manifests and network/toolchain access."
@@ -1565,6 +1755,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
 
     public static let nonClaims = [
         "Project Dependency Review is report-only; it does not delete, move, Trash, prune, purge, clean, or modify project files.",
+        "Saved Project Dependencies policies only annotate or skip report rows; they do not make project dependencies safe to delete.",
         "Ryddi does not measure project source, manifests, lockfiles, env files, credentials, IDE settings, or unknown project state as cleanup candidates.",
         "Project-local dependency and build directories may contain generated code, local editable installs, offline dependencies, or unsaved development state; review the project before cleanup.",
         "Classification is path-and-manifest based and cannot prove the owning tool is idle or that all active handles are closed.",

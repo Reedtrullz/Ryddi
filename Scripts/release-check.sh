@@ -106,6 +106,7 @@ project_rust="$project_root/RustApp"
 project_ios="$project_root/iOSApp"
 project_flutter="$project_root/FlutterApp"
 project_android="$project_root/AndroidApp"
+project_skipped="$project_root/SkippedWeb"
 mkdir -p \
   "$project_web/src" \
   "$project_web/node_modules/react" \
@@ -118,7 +119,8 @@ mkdir -p \
   "$project_flutter/.dart_tool" \
   "$project_flutter/build" \
   "$project_android/app/src/main" \
-  "$project_android/app/build/intermediates"
+  "$project_android/app/build/intermediates" \
+  "$project_skipped/node_modules/react"
 printf '{"scripts":{"build":"vite build"}}\n' >"$project_web/package.json"
 printf '{"lockfileVersion":3}\n' >"$project_web/package-lock.json"
 printf 'source should remain protected\n' >"$project_web/src/index.ts"
@@ -150,6 +152,9 @@ printf 'pluginManagement {}\n' >"$project_android/settings.gradle"
 printf 'plugins { id "com.android.application" }\n' >"$project_android/app/build.gradle"
 printf '<manifest />\n' >"$project_android/app/src/main/AndroidManifest.xml"
 printf 'android classes\n' >"$project_android/app/build/intermediates/classes.bin"
+printf '{"scripts":{"build":"vite build"}}\n' >"$project_skipped/package.json"
+printf '{"lockfileVersion":3}\n' >"$project_skipped/package-lock.json"
+printf 'skipped project dependency\n' >"$project_skipped/node_modules/react/index.js"
 device_fixture="$scratch/device-fixture"
 device_backup_root="$device_fixture/Library/Application Support/MobileSync/Backup"
 device_backup_a="$device_backup_root/1111222233334444555566667777888899990000"
@@ -559,7 +564,13 @@ test -f "$package_npm/content-v2/sha512/aa/cache.bin"
 test -f "$package_gradle/modules-2/files-2.1/example/artifact.jar"
 test -f "$package_fixture/.npmrc"
 test -f "$package_fixture/.m2/settings.xml"
-RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" projects --json \
+RYDDI_CONFIG_ROOT="$scratch/project-policy-config" "$app/Contents/MacOS/reclaimer" projects policy skip-review "$project_skipped" \
+  --reason "release smoke skip" >"$scratch/project-policy-skip.txt"
+RYDDI_CONFIG_ROOT="$scratch/project-policy-config" "$app/Contents/MacOS/reclaimer" projects policy export --output "$scratch/project-policy-export.json"
+grep -q '"schemaVersion" : 1' "$scratch/project-policy-export.json"
+RYDDI_CONFIG_ROOT="$scratch/project-policy-import-config" "$app/Contents/MacOS/reclaimer" projects policy import "$scratch/project-policy-export.json" --json >"$scratch/project-policy-import.json"
+grep -q '"finalProjectCount" : 1' "$scratch/project-policy-import.json"
+RYDDI_CONFIG_ROOT="$scratch/project-policy-config" RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" projects --json \
   --path "$project_root" \
   --limit 40 \
   --old-days 30 \
@@ -584,10 +595,20 @@ grep -q '"kind" : "androidBuild"' "$scratch/projects-smoke.json"
 grep -q '"state" : "dirty"' "$scratch/projects-smoke.json"
 grep -q '"command" : "npm ci"' "$scratch/projects-smoke.json"
 grep -q '"projectsWithDirtyVCSCount" : 1' "$scratch/projects-smoke.json"
+grep -q '"decision" : "skipReview"' "$scratch/projects-smoke.json"
+grep -q '"projectName" : "SkippedWeb"' "$scratch/projects-smoke.json"
 grep -q "Project Dependency Review is report-only" "$scratch/projects-smoke.json"
 grep -q "Protected project files" "$scratch/projects-smoke.json"
+RYDDI_CONFIG_ROOT="$scratch/project-policy-config" "$app/Contents/MacOS/reclaimer" projects --json \
+  --path "$project_root" \
+  --limit 40 \
+  --search-depth 6 \
+  --max-depth 8 \
+  --include-policy-skipped >"$scratch/projects-policy-override.json"
+grep -q '"projectPolicyDecision" : "skipReview"' "$scratch/projects-policy-override.json"
 find "$scratch/audit" -name 'project-dependency-review-*.json' -print -quit | grep -q 'project-dependency-review-'
 test -f "$project_web/src/index.ts"
+test -f "$project_skipped/node_modules/react/index.js"
 test -f "$project_web/.env"
 test -f "$project_web/node_modules/react/index.js"
 test -f "$project_python/.venv/pyvenv.cfg"

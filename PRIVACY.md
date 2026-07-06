@@ -32,7 +32,7 @@ Device Backups Review reads local filesystem metadata from the configured Mobile
 
 Xcode Review reads local filesystem metadata from configured Xcode and CoreSimulator roots and, when present, local archive `Info.plist` files and simulator `device.plist` files. Reports can include local paths, app/archive names, simulator names, runtime names, DeviceSupport versions, protected Xcode developer-state paths, sizes, ages, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, reset simulators, modify Xcode files, or treat Xcode UserData, signing profiles, accounts, templates, preferences, snippets, archives, DeviceSupport, simulator state, or runtimes as automatically safe.
 
-Project Dependencies Review reads local filesystem metadata from configured project roots and recognizes common project-local dependency/build directories such as `node_modules`, `.venv`, `.build`, `target`, `Pods`, `.dart_tool`, framework caches, Gradle caches, Flutter build output, and Android build output. Reports can include local project paths, project names, manifest hints, ecosystem labels, artifact kinds, sizes, ages, optional local Git status summaries from `git status --porcelain=v1 --untracked-files=normal`, command hints, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, clean, execute rebuild commands, or modify project files, dependencies, build outputs, source, manifests, lockfiles, env files, credentials, IDE settings, generated code, local editable installs, or unknown project state.
+Project Dependencies Review reads local filesystem metadata from configured project roots and recognizes common project-local dependency/build directories such as `node_modules`, `.venv`, `.build`, `target`, `Pods`, `.dart_tool`, framework caches, Gradle caches, Flutter build output, and Android build output. Reports can include local project paths, project names, manifest hints, ecosystem labels, artifact kinds, sizes, ages, optional local Git status summaries from `git status --porcelain=v1 --untracked-files=normal`, saved per-project policy decisions/reasons, command hints, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, clean, execute rebuild commands, or modify project files, dependencies, build outputs, source, manifests, lockfiles, env files, credentials, IDE settings, generated code, local editable installs, saved policy choices, or unknown project state.
 
 AI-agent storage review reads local filesystem metadata from common Codex, Claude, Cursor, Windsurf, and Ollama roots, or from explicit paths you provide. Results can include local paths, owner hints, rule IDs, bucket names, and evidence strings. Ryddi does not upload this report, inspect prompt contents for remote analysis, or automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
 
@@ -41,6 +41,8 @@ Native-tool reports read scan findings and generate local command preview receip
 Container inventory can run read-only Docker and Colima inspection commands. The resulting local reports can include Docker image names, container names, volume names, context endpoints, Colima profile names, command exit states, and short command-output previews. Ryddi does not upload this inventory and does not run prune, delete, stop, reset, or raw VM-disk commands.
 
 User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
+
+Project dependency policies store local project review choices you create. These entries can include project root paths, project names, review/preserve/skip decisions, and optional reasons. Ryddi uses them locally to annotate Project Dependencies reports or skip known-noisy projects from that report by default; policies do not grant cleanup permission.
 
 Policy export writes a local JSON document containing those paths, reasons, timestamps, schema version, and non-claims. Ryddi does not upload the export. Review it before sharing because it can reveal project names, usernames, customer names, or other private path details. Policy import changes only Ryddi's local path policy; it does not delete files, run cleanup, grant Full Disk Access, or prove that imported paths still exist. Import merges by default and replaces the whole policy only when `--replace` is supplied.
 
@@ -76,6 +78,7 @@ Ryddi can write:
 - saved active-file review reports;
 - saved report-only review reports for Downloads, browser caches, package caches, project dependencies, Xcode storage, device backups, and Trash;
 - saved user path policy for protections and exclusions;
+- saved project dependency policy for per-project review choices;
 - saved user rule packs for custom review/protection signals;
 - saved scope sets for repeatable scan roots;
 - compact local scan-history snapshots for growth comparisons;
@@ -100,10 +103,12 @@ Ryddi data is expected under:
 ```text
 ~/Library/Application Support/Ryddi
 ~/Library/Application Support/Ryddi/Config/user-path-policy.json
+~/Library/Application Support/Ryddi/Config/project-dependency-policy.json
 ~/Library/Application Support/Ryddi/Config/user-rules.json
 ~/Library/Application Support/Ryddi/ScanHistory
 ~/Library/Application Support/Ryddi/Reports
 ~/Library/Application Support/Ryddi/Reports/user-path-policy-*.json
+~/Library/Application Support/Ryddi/Reports/project-dependency-policy-*.json
 ~/Library/LaunchAgents/com.reidar.ryddi.agent.plist
 ```
 

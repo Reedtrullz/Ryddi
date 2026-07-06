@@ -687,6 +687,10 @@ struct ReclaimerCLI {
     }
 
     static func projects(args: [String]) throws {
+        if args.first == "policy" {
+            try projectDependencyPolicy(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
         let home = options.value(after: "--home")
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
@@ -703,7 +707,9 @@ struct ReclaimerCLI {
                 maximumSearchDepth: searchDepth,
                 measurementDepth: measurementDepth,
                 includeMissingRoots: options.includeMissingScopes,
-                includeVCSStatus: options.includeVCSStatus
+                includeVCSStatus: options.includeVCSStatus,
+                projectPolicy: ProjectDependencyPolicyStore().load(),
+                includePolicySkippedProjects: options.includePolicySkippedProjects
             )
         )
         if options.saveAudit {
@@ -714,6 +720,101 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printProjectDependencyReview(report, options: options)
+        }
+    }
+
+    static func projectDependencyPolicy(args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.message("projects policy requires list, review, preserve, skip-review, remove, export, or import")
+        }
+        let options = ParsedOptions(Array(args.dropFirst()))
+        let store = ProjectDependencyPolicyStore()
+        switch subcommand {
+        case "list":
+            let policy = store.load()
+            if options.json {
+                printJSON(policy)
+            } else {
+                printProjectDependencyPolicy(policy)
+            }
+        case "review", "preserve", "skip-review", "skip":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("projects policy \(subcommand) requires a project root path")
+            }
+            let decision: ProjectDependencyPolicyDecision
+            switch subcommand {
+            case "review": decision = .review
+            case "preserve": decision = .preserve
+            case "skip-review", "skip": decision = .skipReview
+            default: decision = .review
+            }
+            let policy = try store.set(
+                projectRootPath: args[1],
+                projectName: options.value(after: "--name"),
+                decision: decision,
+                reason: options.reason
+            )
+            if options.json {
+                printJSON(policy)
+            } else {
+                print("saved \(decision.label): \(ProjectDependencyPolicy.standardizedPath(args[1]))")
+                printProjectDependencyPolicy(policy)
+            }
+        case "set":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("projects policy set requires a project root path")
+            }
+            guard let decision = options.projectDependencyPolicyDecision else {
+                throw CLIError.message("projects policy set requires --decision review|preserve|skip-review")
+            }
+            let policy = try store.set(
+                projectRootPath: args[1],
+                projectName: options.value(after: "--name"),
+                decision: decision,
+                reason: options.reason
+            )
+            if options.json {
+                printJSON(policy)
+            } else {
+                print("saved \(decision.label): \(ProjectDependencyPolicy.standardizedPath(args[1]))")
+                printProjectDependencyPolicy(policy)
+            }
+        case "remove":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("projects policy remove requires a project root path")
+            }
+            let policy = try store.remove(projectRootPath: args[1])
+            if options.json {
+                printJSON(policy)
+            } else {
+                print("removed project dependency policy for: \(ProjectDependencyPolicy.standardizedPath(args[1]))")
+                printProjectDependencyPolicy(policy)
+            }
+        case "export":
+            let document = store.exportDocument()
+            if let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                _ = try store.writeExport(document, to: url)
+                FileHandle.standardError.write(Data("wrote project dependency policy export: \(url.path)\n".utf8))
+            }
+            if options.json || options.outputPath == nil {
+                printJSON(document)
+            } else {
+                printProjectDependencyPolicyExportSummary(document)
+            }
+        case "import":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("projects policy import requires a policy JSON path")
+            }
+            let sourceURL = URL(fileURLWithPath: args[1]).standardizedFileURL
+            let result = try store.importDocument(from: sourceURL, merge: !options.replacePolicy)
+            if options.json {
+                printJSON(result)
+            } else {
+                printProjectDependencyPolicyImportResult(result)
+            }
+        default:
+            throw CLIError.message("Unknown projects policy subcommand: \(subcommand)")
         }
     }
 
@@ -1428,7 +1529,13 @@ struct ReclaimerCLI {
               downloads [--json] [--path DOWNLOADS_ROOT] [--limit N] [--old-days N] [--max-depth N] [--include-hidden] [--save-audit]
               browsers [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               packages [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
-              projects [--json] [--path PROJECT_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--search-depth N] [--max-depth N] [--include-vcs-status] [--include-missing-scopes] [--save-audit]
+              projects [--json] [--path PROJECT_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--search-depth N] [--max-depth N] [--include-vcs-status] [--include-policy-skipped] [--include-missing-scopes] [--save-audit]
+              projects policy list [--json]
+              projects policy review|preserve|skip-review PROJECT_ROOT [--reason TEXT] [--name NAME] [--json]
+              projects policy set PROJECT_ROOT --decision review|preserve|skip-review [--reason TEXT] [--name NAME] [--json]
+              projects policy remove PROJECT_ROOT [--json]
+              projects policy export [--json] [--output PATH]
+              projects policy import PATH [--json] [--replace]
               device-backups [--json] [--path BACKUP_ROOT] [--home HOME] [--limit N] [--old-days N] [--max-depth N] [--save-audit]
               xcode [--json] [--path XCODE_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               trash [--json] [--path TRASH_ROOT] [--limit N] [--max-depth N] [--save-audit]
@@ -1507,6 +1614,7 @@ struct ParsedOptions {
     var includeOpenFiles: Bool { args.contains("--include-open-files") }
     var includeMissingScopes: Bool { args.contains("--include-missing-scopes") }
     var includeVCSStatus: Bool { args.contains("--include-vcs-status") }
+    var includePolicySkippedProjects: Bool { args.contains("--include-policy-skipped") }
     var noLsof: Bool { args.contains("--no-lsof") }
     var hasPath: Bool { !values(after: "--path").isEmpty }
     var hasCustomScopeSelection: Bool { hasPath || scopeTemplateReference != nil || scopeSetReference != nil }
@@ -1565,6 +1673,15 @@ struct ParsedOptions {
         switch value(after: "--kind") {
         case "protect": .protect
         case "exclude": .exclude
+        case nil: nil
+        default: nil
+        }
+    }
+    var projectDependencyPolicyDecision: ProjectDependencyPolicyDecision? {
+        switch value(after: "--decision") {
+        case "review": .review
+        case "preserve": .preserve
+        case "skip", "skip-review": .skipReview
         case nil: nil
         default: nil
         }
@@ -2981,6 +3098,13 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
         }
     }
 
+    if !report.policySummaries.isEmpty {
+        print("\nBy saved project policy")
+        for summary in report.policySummaries {
+            print("- \(pad(summary.name, 22)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
     print("\nProject roots")
     if report.rootSummaries.isEmpty {
         print("No project roots were inspected.")
@@ -3002,6 +3126,10 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.ecosystem.label, 14)) \(pad(item.kind.label, 22)) \(pad(item.vcsInfo.state.label, 18)) \(pad(age, 8)) \(item.path)")
             print("  project: \(item.projectName)")
             print("  vcs: \(item.vcsInfo.summary)")
+            if let decision = item.projectPolicyDecision {
+                let reason = item.projectPolicyReason.map { " - \($0)" } ?? ""
+                print("  policy: \(decision.label)\(reason)")
+            }
             print("  - \(item.recommendation)")
             if let command = item.commandHints.first {
                 print("  command hint: \(command.command) - \(command.purpose)")
@@ -3021,7 +3149,25 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             print("- \(protectedRoot.projectName): \(manifests)")
             print("  \(protectedRoot.projectRootPath)")
             print("  vcs: \(protectedRoot.vcsInfo.state.label) - \(protectedRoot.vcsInfo.summary)")
+            if let decision = protectedRoot.projectPolicyDecision {
+                let reason = protectedRoot.projectPolicyReason.map { " - \($0)" } ?? ""
+                print("  policy: \(decision.label)\(reason)")
+            }
             print("  \(protectedRoot.note)")
+        }
+    }
+
+    print("\nSkipped by saved project policy")
+    if report.policySkippedProjects.isEmpty {
+        print("No projects were skipped by saved Project Dependencies policy.")
+    } else {
+        for project in report.policySkippedProjects {
+            let manifests = project.manifestHints.isEmpty ? "no standard manifest" : project.manifestHints.joined(separator: ", ")
+            let reason = project.reason.map { " - \($0)" } ?? ""
+            print("- \(project.projectName): \(project.decision.label)\(reason)")
+            print("  \(project.projectRootPath)")
+            print("  \(manifests)")
+            print("  \(project.note)")
         }
     }
 
@@ -3489,6 +3635,52 @@ func printPolicyImportResult(_ result: UserPathPolicyImportResult) {
     print("Final rules: \(result.finalRuleCount)")
     print("")
     printUserPathPolicy(result.policy)
+    print("\nNon-claims")
+    for note in result.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printProjectDependencyPolicy(_ policy: ProjectDependencyPolicy) {
+    print("Ryddi project dependency policy")
+    if policy.projects.isEmpty {
+        print("No saved project dependency policies configured.")
+        return
+    }
+    for decision in ProjectDependencyPolicyDecision.allCases {
+        let projects = policy.policies(decision: decision)
+        guard !projects.isEmpty else { continue }
+        print("\n\(decision.label)")
+        for project in projects {
+            let reason = project.reason.map { " - \($0)" } ?? ""
+            print("- \(project.projectName): \(project.projectRootPath)\(reason)")
+        }
+    }
+    print("\nNon-claims")
+    for note in ProjectDependencyPolicyDocument.defaultNonClaims {
+        print("- \(note)")
+    }
+}
+
+func printProjectDependencyPolicyExportSummary(_ document: ProjectDependencyPolicyDocument) {
+    print("Ryddi project dependency policy export")
+    print("Projects: \(document.projects.count)")
+    print("Schema: \(document.schemaVersion)")
+    print("\nNon-claims")
+    for note in document.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printProjectDependencyPolicyImportResult(_ result: ProjectDependencyPolicyImportResult) {
+    print("Imported project dependency policy")
+    print("Mode: \(result.mode)")
+    print("Source: \(result.sourcePath)")
+    print("Policy file: \(result.policyPath)")
+    print("Imported projects: \(result.importedProjectCount)")
+    print("Final projects: \(result.finalProjectCount)")
+    print("")
+    printProjectDependencyPolicy(result.policy)
     print("\nNon-claims")
     for note in result.nonClaims {
         print("- \(note)")

@@ -2536,6 +2536,7 @@ struct ProjectDependencyReviewView: View {
                         MetricTile(title: "Measured items", value: "\(report.itemCount)")
                         MetricTile(title: "Project roots", value: "\(report.rootSummaries.count)")
                         MetricTile(title: "VCS changes", value: "\(report.projectsWithDirtyVCSCount)")
+                        MetricTile(title: "Skipped policy", value: "\(report.policySkippedProjects.count)")
                     }
 
                     HStack(alignment: .top, spacing: 16) {
@@ -2592,6 +2593,29 @@ struct ProjectDependencyReviewView: View {
                             } else {
                                 VStack(spacing: 6) {
                                     ForEach(report.vcsSummaries) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.itemCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+
+                        SectionBox(title: "By Policy") {
+                            if report.policySummaries.isEmpty {
+                                Text("No saved project policies matched measured items.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.policySummaries) { summary in
                                         HStack {
                                             Text(summary.name)
                                             Spacer()
@@ -2690,6 +2714,12 @@ struct ProjectDependencyReviewView: View {
                                                 .foregroundStyle(.secondary)
                                                 .fixedSize(horizontal: false, vertical: true)
                                         }
+                                        if let decision = item.projectPolicyDecision {
+                                            Text("\(decision.label)\(item.projectPolicyReason.map { ": \($0)" } ?? "")")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
                                         Text(item.recommendation)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
@@ -2725,7 +2755,44 @@ struct ProjectDependencyReviewView: View {
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                             .fixedSize(horizontal: false, vertical: true)
+                                        if let decision = protectedRoot.projectPolicyDecision {
+                                            Text("\(decision.label)\(protectedRoot.projectPolicyReason.map { ": \($0)" } ?? "")")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
                                         Text(protectedRoot.note)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Divider()
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Skipped By Policy") {
+                        if report.policySkippedProjects.isEmpty {
+                            Text("No projects were skipped by saved Project Dependencies policy.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(report.policySkippedProjects) { skipped in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("\(skipped.projectName) - \(skipped.decision.label)")
+                                            .font(.caption.weight(.semibold))
+                                        Text(skipped.projectRootPath)
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .textSelection(.enabled)
+                                        if let reason = skipped.reason {
+                                            Text(reason)
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Text(skipped.note)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                             .fixedSize(horizontal: false, vertical: true)
@@ -6508,7 +6575,15 @@ final class DashboardModel {
         do {
             let report = await Task.detached {
                 ProjectDependencyReviewScanner().review(
-                    options: ProjectDependencyReviewOptions(limit: 80, oldDays: 90, maximumSearchDepth: 6, measurementDepth: 8, includeMissingRoots: true, includeVCSStatus: true)
+                    options: ProjectDependencyReviewOptions(
+                        limit: 80,
+                        oldDays: 90,
+                        maximumSearchDepth: 6,
+                        measurementDepth: 8,
+                        includeMissingRoots: true,
+                        includeVCSStatus: true,
+                        projectPolicy: ProjectDependencyPolicyStore().load()
+                    )
                 )
             }.value
             projectDependencyReview = report

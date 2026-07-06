@@ -2035,6 +2035,101 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: dirtyWeb.appendingPathComponent("local-note.md").path))
     }
 
+    func testProjectDependencyReviewAppliesSavedProjectPolicies() throws {
+        let projects = tempRoot.appendingPathComponent("Projects", isDirectory: true)
+        let preserved = projects.appendingPathComponent("PreservedWeb", isDirectory: true)
+        let skipped = projects.appendingPathComponent("SkippedWeb", isDirectory: true)
+        for project in [preserved, skipped] {
+            try FileManager.default.createDirectory(at: project.appendingPathComponent("node_modules/react"), withIntermediateDirectories: true)
+            try "{\"lockfileVersion\":3}\n".write(to: project.appendingPathComponent("package-lock.json"), atomically: true, encoding: .utf8)
+            try "{\"scripts\":{\"build\":\"vite build\"}}\n".write(to: project.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+            try "react package\n".write(to: project.appendingPathComponent("node_modules/react/index.js"), atomically: true, encoding: .utf8)
+        }
+
+        let policy = ProjectDependencyPolicy(projects: [
+            ProjectDependencyProjectPolicy(
+                projectRootPath: preserved.path,
+                decision: .preserve,
+                reason: "Offline demo dependencies"
+            ),
+            ProjectDependencyProjectPolicy(
+                projectRootPath: skipped.path,
+                decision: .skipReview,
+                reason: "Known noisy generated project"
+            )
+        ])
+
+        let report = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                roots: [projects],
+                limit: 20,
+                maximumSearchDepth: 4,
+                measurementDepth: 6,
+                projectPolicy: policy
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        let preservedItem = try XCTUnwrap(report.largestItems.first { $0.projectName == "PreservedWeb" })
+        XCTAssertEqual(preservedItem.projectPolicyDecision, .preserve)
+        XCTAssertEqual(preservedItem.projectPolicyReason, "Offline demo dependencies")
+        XCTAssertTrue(preservedItem.signals.contains("project-policy-preserve"))
+        XCTAssertTrue(preservedItem.guidance.contains { $0.contains("preserve-by-default") })
+        XCTAssertTrue(report.policySummaries.contains { $0.name == ProjectDependencyPolicyDecision.preserve.label && $0.itemCount == 1 })
+        XCTAssertFalse(report.largestItems.contains { $0.projectName == "SkippedWeb" })
+        XCTAssertEqual(report.policySkippedProjects.count, 1)
+        XCTAssertEqual(report.policySkippedProjects.first?.projectName, "SkippedWeb")
+        XCTAssertEqual(report.policySkippedProjects.first?.decision, .skipReview)
+
+        let overrideReport = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                roots: [projects],
+                limit: 20,
+                maximumSearchDepth: 4,
+                measurementDepth: 6,
+                projectPolicy: policy,
+                includePolicySkippedProjects: true
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        let skippedItem = try XCTUnwrap(overrideReport.largestItems.first { $0.projectName == "SkippedWeb" })
+        XCTAssertEqual(skippedItem.projectPolicyDecision, .skipReview)
+        XCTAssertTrue(skippedItem.signals.contains("project-policy-skip-overridden"))
+        XCTAssertTrue(skippedItem.guidance.contains { $0.contains("overridden") })
+        XCTAssertTrue(overrideReport.policySkippedProjects.isEmpty)
+    }
+
+    func testProjectDependencyPolicyStoreRoundTripsExportsAndImports() throws {
+        let store = ProjectDependencyPolicyStore(root: tempRoot.appendingPathComponent("config", isDirectory: true))
+        let appA = tempRoot.appendingPathComponent("Projects/AppA", isDirectory: true)
+        let appB = tempRoot.appendingPathComponent("Projects/AppB", isDirectory: true)
+        let appC = tempRoot.appendingPathComponent("Projects/AppC", isDirectory: true)
+
+        var policy = try store.set(projectRootPath: appA.path, decision: .preserve, reason: "Keep demo dependencies")
+        XCTAssertEqual(policy.projects.count, 1)
+        XCTAssertEqual(policy.projects.first?.decision, .preserve)
+        policy = try store.set(projectRootPath: appB.path, decision: .skipReview, reason: "Too noisy")
+        XCTAssertEqual(policy.projects.count, 2)
+
+        let exportURL = tempRoot.appendingPathComponent("project-policy-export.json")
+        let document = store.exportDocument(exportedAt: Date(timeIntervalSince1970: 0))
+        try store.writeExport(document, to: exportURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: exportURL.path))
+
+        let replacementStore = ProjectDependencyPolicyStore(root: tempRoot.appendingPathComponent("replacement-config", isDirectory: true))
+        _ = try replacementStore.set(projectRootPath: appC.path, decision: .review, reason: "Existing local note")
+        let mergeResult = try replacementStore.importDocument(from: exportURL, merge: true)
+        XCTAssertEqual(mergeResult.importedProjectCount, 2)
+        XCTAssertEqual(mergeResult.finalProjectCount, 3)
+        XCTAssertTrue(mergeResult.policy.projects.contains { $0.projectRootPath == ProjectDependencyPolicy.standardizedPath(appC.path) })
+
+        let replaceResult = try replacementStore.importDocument(from: exportURL, merge: false)
+        XCTAssertEqual(replaceResult.finalProjectCount, 2)
+        XCTAssertFalse(replaceResult.policy.projects.contains { $0.projectRootPath == ProjectDependencyPolicy.standardizedPath(appC.path) })
+        XCTAssertTrue(replaceResult.nonClaims.contains { $0.contains("does not delete files") })
+    }
+
     func testProjectDependencyReviewReportsMissingRootAsCoverageEvidence() throws {
         let missing = tempRoot.appendingPathComponent("Projects", isDirectory: true)
         let report = ProjectDependencyReviewScanner().review(
