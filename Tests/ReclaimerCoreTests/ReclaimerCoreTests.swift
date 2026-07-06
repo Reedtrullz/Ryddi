@@ -566,14 +566,22 @@ final class ReclaimerCoreTests: XCTestCase {
             allocatedSize: 600,
             category: "Downloads"
         )
+        let smallerUnknown = finding(
+            path: tempRoot.appendingPathComponent("Downloads/readme.txt").path,
+            safety: .reviewRequired,
+            action: .openGuidance,
+            open: false,
+            allocatedSize: 50,
+            category: "Downloads"
+        )
 
         let report = FindingAnalytics.reviewQueueReport(
-            findings: [safeCache, openCache, nativeTool, history, asset, unknown],
+            findings: [safeCache, openCache, nativeTool, history, asset, unknown, smallerUnknown],
             limitPerQueue: 2,
             now: Date(timeIntervalSince1970: 0)
         )
 
-        XCTAssertEqual(report.totalCount, 6)
+        XCTAssertEqual(report.totalCount, 7)
         XCTAssertEqual(report.estimatedImmediateReclaim, 100)
         XCTAssertEqual(report.queues.first { $0.queueID == .safeMaintenance }?.count, 1)
         XCTAssertEqual(report.queues.first { $0.queueID == .safeMaintenance }?.estimatedImmediateReclaim, 100)
@@ -582,10 +590,25 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(report.queues.first { $0.queueID == .valuableHistory }?.rows.first?.path, history.path)
         XCTAssertEqual(report.queues.first { $0.queueID == .personalAppAssets }?.rows.first?.path, asset.path)
         XCTAssertEqual(report.queues.first { $0.queueID == .unknown }?.rows.first?.path, unknown.path)
+        XCTAssertEqual(report.queues.first { $0.queueID == .unknown }?.count, 2)
         XCTAssertTrue(report.nonClaims.contains { $0.contains("do not grant cleanup permission") })
 
         let safeRows = FindingAnalytics.reviewQueueRows(findings: [safeCache, openCache], queueID: .safeMaintenance)
         XCTAssertEqual(safeRows.map(\.path), [safeCache.path])
+
+        let detail = FindingAnalytics.reviewQueueDetailReport(
+            findings: [safeCache, openCache, nativeTool, history, asset, unknown, smallerUnknown],
+            queueID: .unknown,
+            limit: 1,
+            now: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertEqual(detail.queueID, .unknown)
+        XCTAssertEqual(detail.title, "Unknown")
+        XCTAssertEqual(detail.count, 2)
+        XCTAssertEqual(detail.rowCount, 1)
+        XCTAssertEqual(detail.allocatedSize, 650)
+        XCTAssertEqual(detail.rows.first?.path, unknown.path)
+        XCTAssertTrue(detail.nonClaims.contains { $0.contains("do not grant cleanup permission") })
     }
 
     func testDiskDrillDownBuildsHierarchyAndOmittedChildSummary() throws {

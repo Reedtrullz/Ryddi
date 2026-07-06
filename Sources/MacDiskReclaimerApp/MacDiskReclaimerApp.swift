@@ -42,6 +42,11 @@ struct DashboardView: View {
                 RuleCatalogView()
             } else if selectedSection == "Apps" {
                 AppReviewView(model: model)
+            } else if selectedSection == "Queues" {
+                ReviewQueuesView(model: model) { finding in
+                    selectedFinding = finding.id
+                    selectedSection = "Finding"
+                }
             } else if selectedSection == "LargeOld" {
                 LargeOldReviewView(model: model)
             } else if selectedSection == "Duplicates" {
@@ -179,6 +184,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Apps"
                 }
+                Button("Review Queues") {
+                    selectedFinding = nil
+                    selectedSection = "Queues"
+                }
                 Button("Large & Old Files") {
                     selectedFinding = nil
                     selectedSection = "LargeOld"
@@ -238,6 +247,7 @@ struct DashboardView: View {
                             FindingRow(finding: finding)
                                 .tag(finding.id)
                                 .onTapGesture {
+                                    selectedFinding = finding.id
                                     selectedSection = "Finding"
                                 }
                         }
@@ -2982,6 +2992,184 @@ struct TopOffendersView: View {
     }
 }
 
+struct ReviewQueuesView: View {
+    let model: DashboardModel
+    let onOpenFinding: (Finding) -> Void
+    @State private var selectedQueue = ReviewQueueID.safeMaintenance
+
+    private var report: ReviewQueueReport {
+        model.reviewQueueReport
+    }
+
+    private var detailReport: ReviewQueueDetailReport {
+        FindingAnalytics.reviewQueueDetailReport(
+            findings: model.findings,
+            queueID: selectedQueue,
+            limit: 80
+        )
+    }
+
+    private var selectedPlanIDs: Set<Finding.ID> {
+        Set(model.plan?.items.filter(\.selected).map { $0.finding.id } ?? [])
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Review Queues")
+                            .font(.largeTitle.bold())
+                        Text("Work through scan results by cleanup intent before making a dry-run plan.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker("Queue", selection: $selectedQueue) {
+                        ForEach(ReviewQueueID.allCases) { queue in
+                            Label(queue.title, systemImage: symbol(for: queue))
+                                .tag(queue)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 240)
+                }
+
+                HStack(spacing: 12) {
+                    MetricTile(title: "Queued", value: "\(report.totalCount)")
+                    MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
+                    MetricTile(title: "Estimated Reclaim", value: ByteFormat.string(report.estimatedImmediateReclaim))
+                    MetricTile(title: "Selected Queue", value: "\(detailReport.count)")
+                    MetricTile(title: "Queue Bytes", value: ByteFormat.string(detailReport.allocatedSize))
+                }
+
+                if model.findings.isEmpty {
+                    ContentUnavailableView("No scan yet", systemImage: "tray", description: Text("Run Scan to populate review queues."))
+                } else {
+                    HStack(alignment: .top, spacing: 16) {
+                        SectionBox(title: "Queues") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(report.queues) { queue in
+                                    Button {
+                                        selectedQueue = queue.queueID
+                                    } label: {
+                                        ReviewQueueSummaryRow(queue: queue, isSelected: selectedQueue == queue.queueID)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .frame(minWidth: 260)
+                        }
+
+                        SectionBox(title: detailReport.title) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(detailReport.guidance)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                HStack(spacing: 12) {
+                                    MetricTile(title: "Rows Shown", value: "\(detailReport.rowCount)/\(detailReport.count)")
+                                    MetricTile(title: "Reclaim", value: ByteFormat.string(detailReport.estimatedImmediateReclaim))
+                                    MetricTile(title: "Risk", value: detailReport.highestRiskClass?.label ?? "-")
+                                    MetricTile(title: "Dominant", value: detailReport.dominantCategory)
+                                }
+
+                                if detailReport.rows.isEmpty {
+                                    ContentUnavailableView("No findings in this queue", systemImage: "checkmark.circle", description: Text("This scan did not produce matching rows."))
+                                } else {
+                                    VStack(spacing: 0) {
+                                        TopOffenderHeader(includesDetailAction: true)
+                                        ForEach(detailReport.rows) { row in
+                                            TopOffenderRowView(
+                                                row: row,
+                                                isSelectedInPlan: selectedPlanIDs.contains(row.finding.id),
+                                                onOpenDetail: onOpenFinding
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Divider()
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Non-Claims")
+                                        .font(.headline)
+                                    ForEach(detailReport.nonClaims, id: \.self) { note in
+                                        Text(note)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+
+    private func symbol(for queue: ReviewQueueID) -> String {
+        switch queue {
+        case .safeMaintenance: "checkmark.shield"
+        case .quitAppFirst: "pause.circle"
+        case .useNativeTool: "terminal"
+        case .valuableHistory: "archivebox"
+        case .personalAppAssets: "person.crop.square"
+        case .unknown: "questionmark.circle"
+        }
+    }
+}
+
+struct ReviewQueueSummaryRow: View {
+    let queue: ReviewQueueSummary
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(queue.title)
+                        .font(.headline)
+                    Spacer()
+                    Text(ByteFormat.string(queue.allocatedSize))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Text("\(queue.count) item(s) • \(ByteFormat.string(queue.estimatedImmediateReclaim)) estimated reclaim")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(queue.guidance)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(8)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+        }
+    }
+
+    private var symbol: String {
+        switch queue.queueID {
+        case .safeMaintenance: "checkmark.shield"
+        case .quitAppFirst: "pause.circle"
+        case .useNativeTool: "terminal"
+        case .valuableHistory: "archivebox"
+        case .personalAppAssets: "person.crop.square"
+        case .unknown: "questionmark.circle"
+        }
+    }
+}
+
 struct LargeOldReviewView: View {
     let model: DashboardModel
     @State private var mode = LargeOldReviewMode.all
@@ -3096,6 +3284,8 @@ struct ReviewSummaryList: View {
 }
 
 struct TopOffenderHeader: View {
+    var includesDetailAction = false
+
     var body: some View {
         HStack {
             Text("Reclaim").frame(width: 86, alignment: .leading)
@@ -3107,7 +3297,7 @@ struct TopOffenderHeader: View {
             Text("Age").frame(width: 48, alignment: .leading)
             Text("Path")
             Spacer()
-            Text("Actions").frame(width: 132, alignment: .trailing)
+            Text("Actions").frame(width: includesDetailAction ? 164 : 132, alignment: .trailing)
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
@@ -3118,6 +3308,17 @@ struct TopOffenderHeader: View {
 struct TopOffenderRowView: View {
     let row: TopOffenderRow
     let isSelectedInPlan: Bool
+    let onOpenDetail: ((Finding) -> Void)?
+
+    init(
+        row: TopOffenderRow,
+        isSelectedInPlan: Bool,
+        onOpenDetail: ((Finding) -> Void)? = nil
+    ) {
+        self.row = row
+        self.isSelectedInPlan = isSelectedInPlan
+        self.onOpenDetail = onOpenDetail
+    }
 
     var body: some View {
         Divider()
@@ -3168,8 +3369,19 @@ struct TopOffenderRowView: View {
                     .lineLimit(1)
             }
             Spacer()
-            FindingActionButtons(finding: row.finding)
-                .frame(width: 132, alignment: .trailing)
+            HStack(spacing: 4) {
+                if let onOpenDetail {
+                    Button {
+                        onOpenDetail(row.finding)
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .help("Open evidence detail")
+                }
+                FindingActionButtons(finding: row.finding)
+            }
+            .buttonStyle(.borderless)
+            .frame(width: onOpenDetail == nil ? 132 : 164, alignment: .trailing)
         }
         .padding(.vertical, 7)
     }

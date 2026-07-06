@@ -245,6 +245,14 @@ grep -q "Queue non-claims" "$scratch/queues-smoke.txt"
 grep -q '"queues"' "$scratch/queues-smoke.json"
 grep -q '"queueID" : "safeMaintenance"' "$scratch/queues-smoke.json"
 grep -q '"estimatedImmediateReclaim"' "$scratch/queues-smoke.json"
+"$app/Contents/MacOS/reclaimer" queues --path "$root/Tests" --queue unknown --limit 5 >"$scratch/queue-detail-smoke.txt"
+grep -q "Ryddi review queue: Unknown" "$scratch/queue-detail-smoke.txt"
+grep -q "Queue ID: unknown" "$scratch/queue-detail-smoke.txt"
+grep -q "Queue non-claims" "$scratch/queue-detail-smoke.txt"
+"$app/Contents/MacOS/reclaimer" queues --json --path "$root/Tests" --queue unknown --limit 5 >"$scratch/queue-detail-smoke.json"
+grep -q '"queueID" : "unknown"' "$scratch/queue-detail-smoke.json"
+grep -q '"rowCount"' "$scratch/queue-detail-smoke.json"
+grep -q '"rows"' "$scratch/queue-detail-smoke.json"
 "$app/Contents/MacOS/reclaimer" large \
   --path "$large_fixture" \
   --min-size 1 \
@@ -417,7 +425,7 @@ Verification performed:
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
-- bundled reclaimer queues --path Tests --limit 5 and queues --json
+- bundled reclaimer queues --path Tests --limit 5, queues --json, and queues --queue unknown
 - bundled reclaimer large --path disposable fixture with text and JSON review output
 - bundled reclaimer drilldown --json on disposable nested fixture
 - bundled reclaimer apps uninstall-preview on a disposable app fixture, with redacted Markdown and saved JSON audit

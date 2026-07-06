@@ -135,6 +135,19 @@ struct ReclaimerCLI {
         let scopes = try options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
+        if let queueID = try options.reviewQueueID() {
+            let detailReport = FindingAnalytics.reviewQueueDetailReport(
+                findings: findings,
+                queueID: queueID,
+                limit: options.limit
+            )
+            if options.json {
+                printJSON(detailReport)
+            } else {
+                printReviewQueueDetailReport(detailReport)
+            }
+            return
+        }
         let report = FindingAnalytics.reviewQueueReport(
             findings: findings,
             limitPerQueue: options.limit
@@ -991,6 +1004,7 @@ struct ReclaimerCLI {
                        [--save-history] [--ignore-user-policy] [--include-user-rules]
               queues [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
                      [--min-size BYTES] [--max-depth N] [--include-open-files] [--limit N]
+                     [--queue safe-maintenance|quit-app-first|use-native-tool|valuable-history|personal-app-assets|unknown]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               large [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
                     [--min-size BYTES] [--max-depth N] [--large-threshold BYTES] [--old-days N]
@@ -1202,6 +1216,16 @@ struct ParsedOptions {
             throw CLIError.message("--review must be one of: \(allowed)")
         }
         return mode
+    }
+
+    func reviewQueueID() throws -> ReviewQueueID? {
+        guard let raw = value(after: "--queue") else { return nil }
+        guard let queueID = ReviewQueueID.parse(raw) else {
+            let allowed = ReviewQueueID.allCases.map { "\($0.rawValue) / \($0.title.lowercased().replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: " ", with: "-"))" }
+                .joined(separator: ", ")
+            throw CLIError.message("--queue must be one of: \(allowed)")
+        }
+        return queueID
     }
 
     func scopePlan(includeUnavailable: Bool = false) throws -> ScanScopePlan {
@@ -1540,6 +1564,34 @@ func printReviewQueueReport(_ report: ReviewQueueReport) {
     for queue in report.queues where !queue.rows.isEmpty {
         print("\n\(queue.title) examples")
         printTopOffenderRows(queue.rows)
+    }
+
+    print("\nQueue non-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printReviewQueueDetailReport(_ report: ReviewQueueDetailReport) {
+    print("Ryddi review queue: \(report.title)")
+    print("Generated: \(report.generatedAt.formatted())")
+    print("Queue ID: \(report.queueID.rawValue)")
+    print("Findings queued: \(report.count)")
+    print("Rows shown: \(report.rowCount)/\(report.limit)")
+    print("Allocated queued: \(ByteFormat.string(report.allocatedSize))")
+    print("Logical queued: \(ByteFormat.string(report.logicalSize))")
+    print("Estimated immediate reclaim: \(ByteFormat.string(report.estimatedImmediateReclaim))")
+    print("Highest risk: \(report.highestRiskClass?.label ?? "-")")
+    print("Dominant category: \(report.dominantCategory)")
+    print("Dominant action: \(report.dominantAction?.label ?? "-")")
+    print("\nGuidance")
+    print("- \(report.guidance)")
+
+    print("\nRows")
+    if report.rows.isEmpty {
+        print("No findings are currently in this queue.")
+    } else {
+        printTopOffenderRows(report.rows)
     }
 
     print("\nQueue non-claims")

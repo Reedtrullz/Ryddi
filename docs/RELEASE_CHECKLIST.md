@@ -30,6 +30,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer overview --path Tests --limit 5 --sort reclaim --group safety` includes owner/app/tool summaries.
 - [ ] `reclaimer overview --json --path Tests --limit 5 --sort reclaim --group safety` includes bounded `mapNodes`, `ownerSummaries`, and `topOffenderTable`.
 - [ ] `reclaimer queues --path Tests --limit 5 --json` reports all shared review queues, conservative reclaim estimates, sample rows, and queue non-claims without creating a cleanup plan.
+- [ ] `reclaimer queues --path Tests --queue unknown --limit 5 --json` reports one queue with full queue accounting, bounded rows, guidance, and non-claims without creating a cleanup plan.
 - [ ] `reclaimer large --path FIXTURE --min-size 1 --large-threshold 16000 --old-days 30 --json` reports large/old review rows, signal/category/safety summaries, and non-claims without selecting cleanup.
 - [ ] `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` emits hierarchical `rootNodes`, bounded child rows, omitted-child summaries, and non-claims without creating a cleanup plan.
 - [ ] `reclaimer report --path Tests --limit 5 --output REPORT.md` writes a local Markdown report with scan coverage, top findings, user policy, accounting notes, and non-claims without executing cleanup.

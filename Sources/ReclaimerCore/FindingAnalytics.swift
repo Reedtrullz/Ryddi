@@ -542,6 +542,47 @@ public struct ReviewQueueReport: Codable, Hashable, Sendable {
     ]
 }
 
+public struct ReviewQueueDetailReport: Codable, Hashable, Sendable {
+    public let generatedAt: Date
+    public let queueID: ReviewQueueID
+    public let title: String
+    public let guidance: String
+    public let count: Int
+    public let rowCount: Int
+    public let limit: Int
+    public let logicalSize: Int64
+    public let allocatedSize: Int64
+    public let estimatedImmediateReclaim: Int64
+    public let highestRiskClass: SafetyClass?
+    public let dominantCategory: String
+    public let dominantAction: ActionKind?
+    public let rows: [TopOffenderRow]
+    public let nonClaims: [String]
+
+    public init(
+        generatedAt: Date,
+        queue: ReviewQueueSummary,
+        limit: Int,
+        nonClaims: [String] = ReviewQueueReport.defaultNonClaims
+    ) {
+        self.generatedAt = generatedAt
+        queueID = queue.queueID
+        title = queue.title
+        guidance = queue.guidance
+        count = queue.count
+        rowCount = queue.rows.count
+        self.limit = limit
+        logicalSize = queue.logicalSize
+        allocatedSize = queue.allocatedSize
+        estimatedImmediateReclaim = queue.estimatedImmediateReclaim
+        highestRiskClass = queue.highestRiskClass
+        dominantCategory = queue.dominantCategory
+        dominantAction = queue.dominantAction
+        rows = queue.rows
+        self.nonClaims = nonClaims
+    }
+}
+
 public enum LargeOldReviewMode: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
     case all
     case large
@@ -944,6 +985,18 @@ public enum FindingAnalytics {
             }
             .prefix(max(0, limit))
             .map { $0 }
+    }
+
+    public static func reviewQueueDetailReport(
+        findings: [Finding],
+        queueID: ReviewQueueID,
+        limit: Int = 80,
+        now: Date = Date()
+    ) -> ReviewQueueDetailReport {
+        let allRows = reviewQueueRows(findings: findings, queueID: queueID, limit: Int.max, now: now)
+        let displayRows = allRows.prefix(max(0, limit)).map { $0 }
+        let summary = ReviewQueueSummary(queueID: queueID, rows: displayRows, accountingRows: allRows)
+        return ReviewQueueDetailReport(generatedAt: now, queue: summary, limit: limit)
     }
 
     public static func largeOldReviewReport(
