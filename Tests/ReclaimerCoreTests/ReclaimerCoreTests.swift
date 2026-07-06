@@ -1984,6 +1984,57 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: webApp.appendingPathComponent("node_modules/react/index.js").path))
     }
 
+    func testProjectDependencyReviewReportsVCSStatusAndCommandHints() throws {
+        try requireGit()
+
+        let projects = tempRoot.appendingPathComponent("Projects", isDirectory: true)
+        let cleanWeb = projects.appendingPathComponent("CleanWeb", isDirectory: true)
+        let dirtyWeb = projects.appendingPathComponent("DirtyWeb", isDirectory: true)
+        for project in [cleanWeb, dirtyWeb] {
+            try FileManager.default.createDirectory(at: project.appendingPathComponent("src"), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: project.appendingPathComponent("node_modules/react"), withIntermediateDirectories: true)
+            try "*.tmp\nnode_modules/\n".write(to: project.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+            try "{\"scripts\":{\"build\":\"vite build\"}}\n".write(to: project.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+            try "{\"lockfileVersion\":3}\n".write(to: project.appendingPathComponent("package-lock.json"), atomically: true, encoding: .utf8)
+            try "console.log('fixture')\n".write(to: project.appendingPathComponent("src/index.ts"), atomically: true, encoding: .utf8)
+            try "react package\n".write(to: project.appendingPathComponent("node_modules/react/index.js"), atomically: true, encoding: .utf8)
+            try initializeGitRepository(at: project)
+        }
+        try "console.log('dirty fixture')\n".write(to: dirtyWeb.appendingPathComponent("src/index.ts"), atomically: true, encoding: .utf8)
+        try "untracked evidence\n".write(to: dirtyWeb.appendingPathComponent("local-note.md"), atomically: true, encoding: .utf8)
+
+        let report = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                roots: [projects],
+                limit: 20,
+                oldDays: 30,
+                maximumSearchDepth: 4,
+                measurementDepth: 6,
+                includeVCSStatus: true
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        let cleanItem = try XCTUnwrap(report.largestItems.first { $0.projectName == "CleanWeb" && $0.kind == .nodeModules })
+        XCTAssertEqual(cleanItem.vcsInfo.state, .clean)
+        XCTAssertEqual(cleanItem.commandHints.first?.command, "npm ci")
+        XCTAssertTrue(cleanItem.signals.contains("vcs-clean"))
+
+        let dirtyItem = try XCTUnwrap(report.largestItems.first { $0.projectName == "DirtyWeb" && $0.kind == .nodeModules })
+        XCTAssertEqual(dirtyItem.vcsInfo.state, .dirty)
+        XCTAssertGreaterThanOrEqual(dirtyItem.vcsInfo.changedTrackedCount, 1)
+        XCTAssertGreaterThanOrEqual(dirtyItem.vcsInfo.untrackedCount, 1)
+        XCTAssertTrue(dirtyItem.signals.contains("vcs-tracked-changes"))
+
+        XCTAssertEqual(report.projectsWithDirtyVCSCount, 1)
+        XCTAssertTrue(report.vcsSummaries.contains { $0.name == ProjectDependencyVCSState.clean.label && $0.itemCount >= 1 })
+        XCTAssertTrue(report.vcsSummaries.contains { $0.name == ProjectDependencyVCSState.dirty.label && $0.itemCount >= 1 })
+        let protectedDirty = try XCTUnwrap(report.protectedProjectRoots.first { $0.projectName == "DirtyWeb" })
+        XCTAssertEqual(protectedDirty.vcsInfo.state, .dirty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dirtyWeb.appendingPathComponent("src/index.ts").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dirtyWeb.appendingPathComponent("local-note.md").path))
+    }
+
     func testProjectDependencyReviewReportsMissingRootAsCoverageEvidence() throws {
         let missing = tempRoot.appendingPathComponent("Projects", isDirectory: true)
         let report = ProjectDependencyReviewScanner().review(
@@ -3558,6 +3609,44 @@ final class ReclaimerCoreTests: XCTestCase {
         ]
         let data = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try data.write(to: contents.appendingPathComponent("Info.plist"))
+    }
+
+    private func requireGit() throws {
+        let result = try runProcess(arguments: ["git", "--version"], cwd: tempRoot)
+        if result.status != 0 {
+            throw XCTSkip("git is not available in this test environment")
+        }
+    }
+
+    private func initializeGitRepository(at url: URL) throws {
+        try runGit(["init", "-q"], cwd: url)
+        try runGit(["config", "user.name", "Ryddi Tests"], cwd: url)
+        try runGit(["config", "user.email", "ryddi-tests@example.invalid"], cwd: url)
+        try runGit(["add", ".gitignore", "package.json", "package-lock.json", "src/index.ts"], cwd: url)
+        try runGit(["commit", "-qm", "fixture"], cwd: url)
+    }
+
+    private func runGit(_ arguments: [String], cwd: URL) throws {
+        let result = try runProcess(arguments: ["git"] + arguments, cwd: cwd)
+        XCTAssertEqual(result.status, 0, "git \(arguments.joined(separator: " ")) failed: \(result.stderr)")
+    }
+
+    private func runProcess(arguments: [String], cwd: URL) throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = arguments
+        process.currentDirectoryURL = cwd
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        return (
+            process.terminationStatus,
+            String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        )
     }
 
     private func snapshot(

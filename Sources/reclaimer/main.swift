@@ -702,7 +702,8 @@ struct ReclaimerCLI {
                 oldDays: options.oldDays,
                 maximumSearchDepth: searchDepth,
                 measurementDepth: measurementDepth,
-                includeMissingRoots: options.includeMissingScopes
+                includeMissingRoots: options.includeMissingScopes,
+                includeVCSStatus: options.includeVCSStatus
             )
         )
         if options.saveAudit {
@@ -1427,7 +1428,7 @@ struct ReclaimerCLI {
               downloads [--json] [--path DOWNLOADS_ROOT] [--limit N] [--old-days N] [--max-depth N] [--include-hidden] [--save-audit]
               browsers [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               packages [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
-              projects [--json] [--path PROJECT_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--search-depth N] [--max-depth N] [--include-missing-scopes] [--save-audit]
+              projects [--json] [--path PROJECT_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--search-depth N] [--max-depth N] [--include-vcs-status] [--include-missing-scopes] [--save-audit]
               device-backups [--json] [--path BACKUP_ROOT] [--home HOME] [--limit N] [--old-days N] [--max-depth N] [--save-audit]
               xcode [--json] [--path XCODE_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               trash [--json] [--path TRASH_ROOT] [--limit N] [--max-depth N] [--save-audit]
@@ -1505,6 +1506,7 @@ struct ParsedOptions {
     var saveReport: Bool { args.contains("--save-report") }
     var includeOpenFiles: Bool { args.contains("--include-open-files") }
     var includeMissingScopes: Bool { args.contains("--include-missing-scopes") }
+    var includeVCSStatus: Bool { args.contains("--include-vcs-status") }
     var noLsof: Bool { args.contains("--no-lsof") }
     var hasPath: Bool { !values(after: "--path").isEmpty }
     var hasCustomScopeSelection: Bool { hasPath || scopeTemplateReference != nil || scopeSetReference != nil }
@@ -2954,6 +2956,9 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
     print("Review-required bytes: \(ByteFormat.string(report.reviewRequiredBytes))")
     print("Allocated project dependency bytes: \(ByteFormat.string(report.totalAllocatedSize))")
     print("Logical project dependency bytes: \(ByteFormat.string(report.totalLogicalSize))")
+    if options.includeVCSStatus || !report.vcsSummaries.isEmpty {
+        print("Projects with local VCS changes: \(report.projectsWithDirtyVCSCount)")
+    }
 
     if !report.ecosystemSummaries.isEmpty {
         print("\nBy ecosystem")
@@ -2966,6 +2971,13 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
         print("\nBy dependency kind")
         for summary in report.kindSummaries {
             print("- \(pad(summary.name, 24)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
+    if !report.vcsSummaries.isEmpty {
+        print("\nBy VCS state")
+        for summary in report.vcsSummaries {
+            print("- \(pad(summary.name, 18)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
         }
     }
 
@@ -2984,12 +2996,16 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
         print("\nNo project dependency candidates found in readable roots.")
     } else {
         print("\nLargest project dependency items")
-        print("\(pad("Allocated", 11)) \(pad("Ecosystem", 14)) \(pad("Kind", 22)) \(pad("Age", 8)) Path")
+        print("\(pad("Allocated", 11)) \(pad("Ecosystem", 14)) \(pad("Kind", 22)) \(pad("VCS", 18)) \(pad("Age", 8)) Path")
         for item in report.largestItems.prefix(options.limit) {
             let age = item.ageDays.map { "\($0)d" } ?? "unknown"
-            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.ecosystem.label, 14)) \(pad(item.kind.label, 22)) \(pad(age, 8)) \(item.path)")
+            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.ecosystem.label, 14)) \(pad(item.kind.label, 22)) \(pad(item.vcsInfo.state.label, 18)) \(pad(age, 8)) \(item.path)")
             print("  project: \(item.projectName)")
+            print("  vcs: \(item.vcsInfo.summary)")
             print("  - \(item.recommendation)")
+            if let command = item.commandHints.first {
+                print("  command hint: \(command.command) - \(command.purpose)")
+            }
             if let guidance = item.guidance.first {
                 print("  next: \(guidance)")
             }
@@ -3004,6 +3020,7 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             let manifests = protectedRoot.manifestHints.isEmpty ? "no standard manifest" : protectedRoot.manifestHints.joined(separator: ", ")
             print("- \(protectedRoot.projectName): \(manifests)")
             print("  \(protectedRoot.projectRootPath)")
+            print("  vcs: \(protectedRoot.vcsInfo.state.label) - \(protectedRoot.vcsInfo.summary)")
             print("  \(protectedRoot.note)")
         }
     }

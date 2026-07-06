@@ -123,9 +123,17 @@ printf '{"scripts":{"build":"vite build"}}\n' >"$project_web/package.json"
 printf '{"lockfileVersion":3}\n' >"$project_web/package-lock.json"
 printf 'source should remain protected\n' >"$project_web/src/index.ts"
 printf 'SECRET=fixture\n' >"$project_web/.env"
+printf 'node_modules/\n.next/\ndist/\n' >"$project_web/.gitignore"
 printf 'react package\n' >"$project_web/node_modules/react/index.js"
 printf 'next cache\n' >"$project_web/.next/cache/chunk.bin"
 printf 'web build\n' >"$project_web/dist/app.js"
+git -C "$project_web" init -q
+git -C "$project_web" config user.name "Ryddi Release Check"
+git -C "$project_web" config user.email "ryddi-release-check@example.invalid"
+git -C "$project_web" add .gitignore package.json package-lock.json src/index.ts
+git -C "$project_web" commit -qm "fixture"
+printf 'source should remain protected after dirty change\n' >"$project_web/src/index.ts"
+printf 'local untracked evidence\n' >"$project_web/local-note.md"
 printf '[project]\nname = "fixture"\n' >"$project_python/pyproject.toml"
 printf 'home = /usr/bin\n' >"$project_python/.venv/pyvenv.cfg"
 printf 'python package\n' >"$project_python/.venv/lib/python/site-packages/pkg.py"
@@ -557,6 +565,7 @@ RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" projects --jso
   --old-days 30 \
   --search-depth 6 \
   --max-depth 8 \
+  --include-vcs-status \
   --save-audit >"$scratch/projects-smoke.json"
 grep -q '"ecosystem" : "javascript"' "$scratch/projects-smoke.json"
 grep -q '"ecosystem" : "python"' "$scratch/projects-smoke.json"
@@ -572,6 +581,9 @@ grep -q '"kind" : "rustTarget"' "$scratch/projects-smoke.json"
 grep -q '"kind" : "cocoaPodsPods"' "$scratch/projects-smoke.json"
 grep -q '"kind" : "dartTool"' "$scratch/projects-smoke.json"
 grep -q '"kind" : "androidBuild"' "$scratch/projects-smoke.json"
+grep -q '"state" : "dirty"' "$scratch/projects-smoke.json"
+grep -q '"command" : "npm ci"' "$scratch/projects-smoke.json"
+grep -q '"projectsWithDirtyVCSCount" : 1' "$scratch/projects-smoke.json"
 grep -q "Project Dependency Review is report-only" "$scratch/projects-smoke.json"
 grep -q "Protected project files" "$scratch/projects-smoke.json"
 find "$scratch/audit" -name 'project-dependency-review-*.json' -print -quit | grep -q 'project-dependency-review-'

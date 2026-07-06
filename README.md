@@ -58,7 +58,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - report-only Downloads review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
 - report-only Browser Cache review for cache roots, protected profile roots, quit-first guidance, and local audit history
 - report-only Package Cache review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native-tool guidance, and local audit history
-- report-only Project Dependencies review for project-local node_modules, virtual environments, build folders, Pods, framework caches, Flutter/Android outputs, protected project files, native rebuild guidance, and local audit history
+- report-only Project Dependencies review for project-local node_modules, virtual environments, build folders, Pods, framework caches, Flutter/Android outputs, protected project files, optional local VCS status, native rebuild command hints, and local audit history
 - report-only Device Backups review for local iPhone/iPad MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, and local audit history
 - report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
 - report-only Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulators, protected Xcode UserData, and local audit history
@@ -146,7 +146,7 @@ swift run --scratch-path .build reclaimer agents
 swift run --scratch-path .build reclaimer agents --json --limit 40
 swift run --scratch-path .build reclaimer agents retention --profile balanced
 swift run --scratch-path .build reclaimer packages --json --save-audit
-swift run --scratch-path .build reclaimer projects --json --path ~/Projects --save-audit
+swift run --scratch-path .build reclaimer projects --json --path ~/Projects --include-vcs-status --save-audit
 swift run --scratch-path .build reclaimer xcode --json --save-audit
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
@@ -338,11 +338,11 @@ Ryddi can review project-local dependencies and build artifacts without touching
 
 ```bash
 swift run --scratch-path .build reclaimer projects --json --save-audit
-swift run --scratch-path .build reclaimer projects --path ~/Projects --search-depth 6 --max-depth 8 --limit 40
+swift run --scratch-path .build reclaimer projects --path ~/Projects --search-depth 6 --max-depth 8 --limit 40 --include-vcs-status
 swift run --scratch-path .build reclaimer scopes --template project-dependencies
 ```
 
-Project Dependencies Review reports readable/missing project roots, ecosystem and artifact-kind summaries, largest `node_modules`, `.venv`, `.build`, `target`, `Pods`, `.dart_tool`, framework cache, web build, Gradle, Flutter, and Android build directories, plus protected project roots and native rebuild guidance. It is report-only: Ryddi does not delete, move, Trash, prune, purge, clean, or modify project files, and it does not treat source, manifests, lockfiles, env files, credentials, IDE settings, generated code, local editable installs, or unknown project state as automatically safe.
+Project Dependencies Review reports readable/missing project roots, ecosystem and artifact-kind summaries, largest `node_modules`, `.venv`, `.build`, `target`, `Pods`, `.dart_tool`, framework cache, web build, Gradle, Flutter, and Android build directories, plus protected project roots and native rebuild guidance. With `--include-vcs-status`, it runs local read-only `git status --porcelain=v1 --untracked-files=normal` checks and records whether candidate projects are clean, dirty, untracked-only, not Git repositories, or failed to check. It is report-only: Ryddi does not delete, move, Trash, prune, purge, clean, execute rebuild commands, or modify project files, and it does not treat source, manifests, lockfiles, env files, credentials, IDE settings, generated code, local editable installs, or unknown project state as automatically safe.
 
 ## Xcode Review
 

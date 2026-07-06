@@ -2535,6 +2535,7 @@ struct ProjectDependencyReviewView: View {
                         MetricTile(title: "Needs review", value: ByteFormat.string(report.reviewRequiredBytes))
                         MetricTile(title: "Measured items", value: "\(report.itemCount)")
                         MetricTile(title: "Project roots", value: "\(report.rootSummaries.count)")
+                        MetricTile(title: "VCS changes", value: "\(report.projectsWithDirtyVCSCount)")
                     }
 
                     HStack(alignment: .top, spacing: 16) {
@@ -2568,6 +2569,29 @@ struct ProjectDependencyReviewView: View {
                             } else {
                                 VStack(spacing: 6) {
                                     ForEach(report.kindSummaries) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.itemCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+
+                        SectionBox(title: "By VCS") {
+                            if report.vcsSummaries.isEmpty {
+                                Text("No VCS state was reported.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.vcsSummaries) { summary in
                                         HStack {
                                             Text(summary.name)
                                             Spacer()
@@ -2624,6 +2648,7 @@ struct ProjectDependencyReviewView: View {
                                     Text("Allocated").frame(width: 92, alignment: .leading)
                                     Text("Ecosystem").frame(width: 92, alignment: .leading)
                                     Text("Kind").frame(width: 142, alignment: .leading)
+                                    Text("VCS").frame(width: 112, alignment: .leading)
                                     Text("Age").frame(width: 70, alignment: .leading)
                                     Text("Path")
                                     Spacer()
@@ -2641,6 +2666,8 @@ struct ProjectDependencyReviewView: View {
                                                 .frame(width: 92, alignment: .leading)
                                             Text(item.kind.label)
                                                 .frame(width: 142, alignment: .leading)
+                                            Text(item.vcsInfo.state.label)
+                                                .frame(width: 112, alignment: .leading)
                                             Text(item.ageDays.map { "\($0)d" } ?? "unknown")
                                                 .frame(width: 70, alignment: .leading)
                                                 .monospacedDigit()
@@ -2653,6 +2680,16 @@ struct ProjectDependencyReviewView: View {
                                         .font(.caption)
                                         Text(item.projectName)
                                             .font(.caption2.weight(.semibold))
+                                        Text(item.vcsInfo.summary)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        if let command = item.commandHints.first {
+                                            Text("\(command.command) - \(command.purpose)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
                                         Text(item.recommendation)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
@@ -2684,6 +2721,10 @@ struct ProjectDependencyReviewView: View {
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
                                         }
+                                        Text("\(protectedRoot.vcsInfo.state.label): \(protectedRoot.vcsInfo.summary)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
                                         Text(protectedRoot.note)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
@@ -6467,7 +6508,7 @@ final class DashboardModel {
         do {
             let report = await Task.detached {
                 ProjectDependencyReviewScanner().review(
-                    options: ProjectDependencyReviewOptions(limit: 80, oldDays: 90, maximumSearchDepth: 6, measurementDepth: 8, includeMissingRoots: true)
+                    options: ProjectDependencyReviewOptions(limit: 80, oldDays: 90, maximumSearchDepth: 6, measurementDepth: 8, includeMissingRoots: true, includeVCSStatus: true)
                 )
             }.value
             projectDependencyReview = report

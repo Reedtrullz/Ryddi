@@ -109,6 +109,61 @@ public enum ProjectDependencyKind: String, Codable, CaseIterable, Hashable, Send
     }
 }
 
+public enum ProjectDependencyVCSState: String, Codable, CaseIterable, Hashable, Sendable {
+    case clean
+    case dirty
+    case untrackedOnly
+    case notRepository
+    case notChecked
+    case checkFailed
+
+    public var label: String {
+        switch self {
+        case .clean: return "Clean"
+        case .dirty: return "Tracked changes"
+        case .untrackedOnly: return "Untracked only"
+        case .notRepository: return "No Git repository"
+        case .notChecked: return "Not checked"
+        case .checkFailed: return "Check failed"
+        }
+    }
+}
+
+public struct ProjectDependencyVCSInfo: Codable, Hashable, Sendable {
+    public let system: String
+    public let state: ProjectDependencyVCSState
+    public let summary: String
+    public let changedTrackedCount: Int
+    public let untrackedCount: Int
+    public let command: String?
+    public let exitCode: Int32?
+
+    public init(
+        system: String,
+        state: ProjectDependencyVCSState,
+        summary: String,
+        changedTrackedCount: Int = 0,
+        untrackedCount: Int = 0,
+        command: String? = nil,
+        exitCode: Int32? = nil
+    ) {
+        self.system = system
+        self.state = state
+        self.summary = summary
+        self.changedTrackedCount = max(0, changedTrackedCount)
+        self.untrackedCount = max(0, untrackedCount)
+        self.command = command
+        self.exitCode = exitCode
+    }
+
+    public static let notChecked = ProjectDependencyVCSInfo(
+        system: "git",
+        state: .notChecked,
+        summary: "Git status was not checked for this report.",
+        command: "git status --porcelain=v1 --untracked-files=normal"
+    )
+}
+
 public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let path: String
@@ -126,6 +181,8 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
     public let ageDays: Int?
     public let manifestHints: [String]
     public let signals: [String]
+    public let vcsInfo: ProjectDependencyVCSInfo
+    public let commandHints: [NativeToolCommand]
     public let recommendation: String
     public let guidance: [String]
 
@@ -146,6 +203,8 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         ageDays: Int? = nil,
         manifestHints: [String],
         signals: [String],
+        vcsInfo: ProjectDependencyVCSInfo = .notChecked,
+        commandHints: [NativeToolCommand] = [],
         recommendation: String,
         guidance: [String]
     ) {
@@ -165,8 +224,81 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         self.ageDays = ageDays
         self.manifestHints = manifestHints
         self.signals = signals
+        self.vcsInfo = vcsInfo
+        self.commandHints = commandHints
         self.recommendation = recommendation
         self.guidance = guidance
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case path
+        case displayName
+        case projectRootPath
+        case projectName
+        case ecosystem
+        case kind
+        case logicalSize
+        case allocatedSize
+        case itemCount
+        case isDirectory
+        case isSymbolicLink
+        case modificationDate
+        case ageDays
+        case manifestHints
+        case signals
+        case vcsInfo
+        case commandHints
+        case recommendation
+        case guidance
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        path = try container.decode(String.self, forKey: .path)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        projectRootPath = try container.decode(String.self, forKey: .projectRootPath)
+        projectName = try container.decode(String.self, forKey: .projectName)
+        ecosystem = try container.decode(ProjectDependencyEcosystem.self, forKey: .ecosystem)
+        kind = try container.decode(ProjectDependencyKind.self, forKey: .kind)
+        logicalSize = try container.decode(Int64.self, forKey: .logicalSize)
+        allocatedSize = try container.decode(Int64.self, forKey: .allocatedSize)
+        itemCount = try container.decode(Int.self, forKey: .itemCount)
+        isDirectory = try container.decode(Bool.self, forKey: .isDirectory)
+        isSymbolicLink = try container.decode(Bool.self, forKey: .isSymbolicLink)
+        modificationDate = try container.decodeIfPresent(Date.self, forKey: .modificationDate)
+        ageDays = try container.decodeIfPresent(Int.self, forKey: .ageDays)
+        manifestHints = try container.decode([String].self, forKey: .manifestHints)
+        signals = try container.decode([String].self, forKey: .signals)
+        vcsInfo = try container.decodeIfPresent(ProjectDependencyVCSInfo.self, forKey: .vcsInfo) ?? .notChecked
+        commandHints = try container.decodeIfPresent([NativeToolCommand].self, forKey: .commandHints) ?? []
+        recommendation = try container.decode(String.self, forKey: .recommendation)
+        guidance = try container.decode([String].self, forKey: .guidance)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(path, forKey: .path)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(projectRootPath, forKey: .projectRootPath)
+        try container.encode(projectName, forKey: .projectName)
+        try container.encode(ecosystem, forKey: .ecosystem)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(logicalSize, forKey: .logicalSize)
+        try container.encode(allocatedSize, forKey: .allocatedSize)
+        try container.encode(itemCount, forKey: .itemCount)
+        try container.encode(isDirectory, forKey: .isDirectory)
+        try container.encode(isSymbolicLink, forKey: .isSymbolicLink)
+        try container.encodeIfPresent(modificationDate, forKey: .modificationDate)
+        try container.encodeIfPresent(ageDays, forKey: .ageDays)
+        try container.encode(manifestHints, forKey: .manifestHints)
+        try container.encode(signals, forKey: .signals)
+        try container.encode(vcsInfo, forKey: .vcsInfo)
+        try container.encode(commandHints, forKey: .commandHints)
+        try container.encode(recommendation, forKey: .recommendation)
+        try container.encode(guidance, forKey: .guidance)
     }
 }
 
@@ -206,6 +338,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
     public let projectRootPath: String
     public let projectName: String
     public let manifestHints: [String]
+    public let vcsInfo: ProjectDependencyVCSInfo
     public let note: String
 
     public init(
@@ -213,13 +346,44 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         projectRootPath: String,
         projectName: String,
         manifestHints: [String],
+        vcsInfo: ProjectDependencyVCSInfo = .notChecked,
         note: String
     ) {
         self.id = id
         self.projectRootPath = projectRootPath
         self.projectName = projectName
         self.manifestHints = manifestHints
+        self.vcsInfo = vcsInfo
         self.note = note
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectRootPath
+        case projectName
+        case manifestHints
+        case vcsInfo
+        case note
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        projectRootPath = try container.decode(String.self, forKey: .projectRootPath)
+        projectName = try container.decode(String.self, forKey: .projectName)
+        manifestHints = try container.decode([String].self, forKey: .manifestHints)
+        vcsInfo = try container.decodeIfPresent(ProjectDependencyVCSInfo.self, forKey: .vcsInfo) ?? .notChecked
+        note = try container.decode(String.self, forKey: .note)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(projectRootPath, forKey: .projectRootPath)
+        try container.encode(projectName, forKey: .projectName)
+        try container.encode(manifestHints, forKey: .manifestHints)
+        try container.encode(vcsInfo, forKey: .vcsInfo)
+        try container.encode(note, forKey: .note)
     }
 }
 
@@ -249,6 +413,8 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
     public let rootSummaries: [ProjectDependencyRootSummary]
     public let ecosystemSummaries: [ProjectDependencySummary]
     public let kindSummaries: [ProjectDependencySummary]
+    public let vcsSummaries: [ProjectDependencySummary]
+    public let projectsWithDirtyVCSCount: Int
     public let largestItems: [ProjectDependencyItem]
     public let protectedProjectRoots: [ProjectDependencyProtectedProjectRoot]
     public let guidance: [String]
@@ -267,6 +433,8 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         rootSummaries: [ProjectDependencyRootSummary],
         ecosystemSummaries: [ProjectDependencySummary],
         kindSummaries: [ProjectDependencySummary],
+        vcsSummaries: [ProjectDependencySummary] = [],
+        projectsWithDirtyVCSCount: Int = 0,
         largestItems: [ProjectDependencyItem],
         protectedProjectRoots: [ProjectDependencyProtectedProjectRoot],
         guidance: [String],
@@ -284,10 +452,77 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         self.rootSummaries = rootSummaries
         self.ecosystemSummaries = ecosystemSummaries
         self.kindSummaries = kindSummaries
+        self.vcsSummaries = vcsSummaries
+        self.projectsWithDirtyVCSCount = max(0, projectsWithDirtyVCSCount)
         self.largestItems = largestItems
         self.protectedProjectRoots = protectedProjectRoots
         self.guidance = guidance
         self.nonClaims = nonClaims
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt
+        case totalLogicalSize
+        case totalAllocatedSize
+        case itemCount
+        case displayedItemCount
+        case candidateBytes
+        case rebuildableBytes
+        case reviewRequiredBytes
+        case rootSummaries
+        case ecosystemSummaries
+        case kindSummaries
+        case vcsSummaries
+        case projectsWithDirtyVCSCount
+        case largestItems
+        case protectedProjectRoots
+        case guidance
+        case nonClaims
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        totalLogicalSize = try container.decode(Int64.self, forKey: .totalLogicalSize)
+        totalAllocatedSize = try container.decode(Int64.self, forKey: .totalAllocatedSize)
+        itemCount = try container.decode(Int.self, forKey: .itemCount)
+        displayedItemCount = try container.decode(Int.self, forKey: .displayedItemCount)
+        candidateBytes = try container.decode(Int64.self, forKey: .candidateBytes)
+        rebuildableBytes = try container.decode(Int64.self, forKey: .rebuildableBytes)
+        reviewRequiredBytes = try container.decode(Int64.self, forKey: .reviewRequiredBytes)
+        rootSummaries = try container.decode([ProjectDependencyRootSummary].self, forKey: .rootSummaries)
+        ecosystemSummaries = try container.decode([ProjectDependencySummary].self, forKey: .ecosystemSummaries)
+        kindSummaries = try container.decode([ProjectDependencySummary].self, forKey: .kindSummaries)
+        vcsSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .vcsSummaries) ?? []
+        projectsWithDirtyVCSCount = try container.decodeIfPresent(Int.self, forKey: .projectsWithDirtyVCSCount) ?? 0
+        largestItems = try container.decode([ProjectDependencyItem].self, forKey: .largestItems)
+        protectedProjectRoots = try container.decode([ProjectDependencyProtectedProjectRoot].self, forKey: .protectedProjectRoots)
+        guidance = try container.decode([String].self, forKey: .guidance)
+        nonClaims = try container.decode([String].self, forKey: .nonClaims)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(totalLogicalSize, forKey: .totalLogicalSize)
+        try container.encode(totalAllocatedSize, forKey: .totalAllocatedSize)
+        try container.encode(itemCount, forKey: .itemCount)
+        try container.encode(displayedItemCount, forKey: .displayedItemCount)
+        try container.encode(candidateBytes, forKey: .candidateBytes)
+        try container.encode(rebuildableBytes, forKey: .rebuildableBytes)
+        try container.encode(reviewRequiredBytes, forKey: .reviewRequiredBytes)
+        try container.encode(rootSummaries, forKey: .rootSummaries)
+        try container.encode(ecosystemSummaries, forKey: .ecosystemSummaries)
+        try container.encode(kindSummaries, forKey: .kindSummaries)
+        try container.encode(vcsSummaries, forKey: .vcsSummaries)
+        try container.encode(projectsWithDirtyVCSCount, forKey: .projectsWithDirtyVCSCount)
+        try container.encode(largestItems, forKey: .largestItems)
+        try container.encode(protectedProjectRoots, forKey: .protectedProjectRoots)
+        try container.encode(guidance, forKey: .guidance)
+        try container.encode(nonClaims, forKey: .nonClaims)
     }
 }
 
@@ -298,6 +533,7 @@ public struct ProjectDependencyReviewOptions: Hashable, Sendable {
     public let maximumSearchDepth: Int
     public let measurementDepth: Int
     public let includeMissingRoots: Bool
+    public let includeVCSStatus: Bool
 
     public init(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -306,7 +542,8 @@ public struct ProjectDependencyReviewOptions: Hashable, Sendable {
         oldDays: Int = 90,
         maximumSearchDepth: Int = 6,
         measurementDepth: Int = 8,
-        includeMissingRoots: Bool = true
+        includeMissingRoots: Bool = true,
+        includeVCSStatus: Bool = false
     ) {
         let standardizedHome = home.standardizedFileURL
         self.roots = (roots ?? Self.defaultRoots(home: standardizedHome)).map { $0.standardizedFileURL }
@@ -315,6 +552,7 @@ public struct ProjectDependencyReviewOptions: Hashable, Sendable {
         self.maximumSearchDepth = max(0, min(maximumSearchDepth, 24))
         self.measurementDepth = max(0, min(measurementDepth, 32))
         self.includeMissingRoots = includeMissingRoots
+        self.includeVCSStatus = includeVCSStatus
     }
 
     public static func defaultRoots(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
@@ -350,6 +588,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                 oldDays: options.oldDays,
                 maximumSearchDepth: options.maximumSearchDepth,
                 measurementDepth: options.measurementDepth,
+                includeVCSStatus: options.includeVCSStatus,
                 referenceDate: createdAt
             )
             if result.summary.permissionState != .missing || options.includeMissingRoots {
@@ -386,6 +625,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             rootSummaries: summaries,
             ecosystemSummaries: Self.ecosystemSummaries(for: sortedItems),
             kindSummaries: Self.kindSummaries(for: sortedItems),
+            vcsSummaries: Self.vcsSummaries(for: sortedItems),
+            projectsWithDirtyVCSCount: Self.projectsWithDirtyVCSCount(for: sortedItems),
             largestItems: Array(sortedItems.prefix(options.limit)),
             protectedProjectRoots: protectedProjectRoots(for: sortedItems),
             guidance: Self.guidance,
@@ -398,6 +639,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         oldDays: Int,
         maximumSearchDepth: Int,
         measurementDepth: Int,
+        includeVCSStatus: Bool,
         referenceDate: Date
     ) -> (summary: ProjectDependencyRootSummary, items: [ProjectDependencyItem]) {
         let root = root.standardizedFileURL
@@ -445,11 +687,14 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             )
         }
 
+        var vcsCache: [String: ProjectDependencyVCSInfo] = [:]
         let items = projectDependencyItems(
             under: root,
             oldDays: oldDays,
             maximumSearchDepth: maximumSearchDepth,
             measurementDepth: measurementDepth,
+            includeVCSStatus: includeVCSStatus,
+            vcsCache: &vcsCache,
             referenceDate: referenceDate
         )
         let logical = items.reduce(Int64(0)) { $0 + $1.logicalSize }
@@ -474,6 +719,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         oldDays: Int,
         maximumSearchDepth: Int,
         measurementDepth: Int,
+        includeVCSStatus: Bool,
+        vcsCache: inout [String: ProjectDependencyVCSInfo],
         referenceDate: Date
     ) -> [ProjectDependencyItem] {
         var items: [ProjectDependencyItem] = []
@@ -489,6 +736,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     values: values,
                     oldDays: oldDays,
                     measurementDepth: measurementDepth,
+                    includeVCSStatus: includeVCSStatus,
+                    vcsCache: &vcsCache,
                     referenceDate: referenceDate
                 )
             )
@@ -528,6 +777,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                         values: values,
                         oldDays: oldDays,
                         measurementDepth: measurementDepth,
+                        includeVCSStatus: includeVCSStatus,
+                        vcsCache: &vcsCache,
                         referenceDate: referenceDate
                     )
                 )
@@ -544,6 +795,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         values: URLResourceValues,
         oldDays: Int,
         measurementDepth: Int,
+        includeVCSStatus: Bool,
+        vcsCache: inout [String: ProjectDependencyVCSInfo],
         referenceDate: Date
     ) -> ProjectDependencyItem {
         let measurement = measure(url: url, maxDepth: measurementDepth)
@@ -559,6 +812,21 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
         if values.isSymbolicLink == true {
             signals.append("symlink-not-followed")
+        }
+        let vcsInfo = vcsInfo(for: metadata.projectRoot, includeStatus: includeVCSStatus, cache: &vcsCache)
+        switch vcsInfo.state {
+        case .clean:
+            signals.append("vcs-clean")
+        case .dirty:
+            signals.append("vcs-tracked-changes")
+        case .untrackedOnly:
+            signals.append("vcs-untracked-only")
+        case .notRepository:
+            signals.append("vcs-not-repository")
+        case .notChecked:
+            signals.append("vcs-not-checked")
+        case .checkFailed:
+            signals.append("vcs-check-failed")
         }
 
         return ProjectDependencyItem(
@@ -577,6 +845,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             ageDays: ageDays,
             manifestHints: metadata.manifestHints,
             signals: signals,
+            vcsInfo: vcsInfo,
+            commandHints: Self.commandHints(for: metadata),
             recommendation: Self.recommendation(for: metadata, isOld: isOld),
             guidance: Self.itemGuidance(for: metadata, isOld: isOld, isSymbolicLink: values.isSymbolicLink == true)
         )
@@ -704,9 +974,141 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     projectRootPath: item.projectRootPath,
                     projectName: item.projectName,
                     manifestHints: hints,
+                    vcsInfo: item.vcsInfo,
                     note: "Protected project files, source, manifests, lockfiles, env files, IDE settings, credentials, and unknown project state are intentionally not measured as cleanup candidates. \(manifestText)"
                 )
             }
+    }
+
+    private func vcsInfo(
+        for projectRoot: URL,
+        includeStatus: Bool,
+        cache: inout [String: ProjectDependencyVCSInfo]
+    ) -> ProjectDependencyVCSInfo {
+        let root = projectRoot.standardizedFileURL
+        let key = root.path
+        if let cached = cache[key] {
+            return cached
+        }
+
+        let command = "git -C \(root.path) status --porcelain=v1 --untracked-files=normal"
+        let info: ProjectDependencyVCSInfo
+        if !includeStatus {
+            if hasGitMarker(atOrAbove: root) {
+                info = ProjectDependencyVCSInfo(
+                    system: "git",
+                    state: .notChecked,
+                    summary: "Git repository marker detected; run with VCS status enabled to inspect tracked and untracked changes.",
+                    command: command
+                )
+            } else {
+                info = ProjectDependencyVCSInfo(
+                    system: "none",
+                    state: .notRepository,
+                    summary: "No Git repository marker was detected for this project root."
+                )
+            }
+            cache[key] = info
+            return info
+        }
+
+        let result = runGitStatus(at: root, command: command)
+        if result.exitCode == 0 {
+            let counts = Self.parseGitStatus(result.stdout)
+            let state: ProjectDependencyVCSState
+            let summary: String
+            if counts.changedTracked == 0 && counts.untracked == 0 {
+                state = .clean
+                summary = "Git status is clean for this project root."
+            } else if counts.changedTracked == 0 {
+                state = .untrackedOnly
+                summary = "Git status has \(counts.untracked) untracked item(s) and no tracked changes."
+            } else {
+                state = .dirty
+                summary = "Git status has \(counts.changedTracked) tracked change(s) and \(counts.untracked) untracked item(s)."
+            }
+            info = ProjectDependencyVCSInfo(
+                system: "git",
+                state: state,
+                summary: summary,
+                changedTrackedCount: counts.changedTracked,
+                untrackedCount: counts.untracked,
+                command: command,
+                exitCode: result.exitCode
+            )
+        } else if result.stderr.localizedCaseInsensitiveContains("not a git repository")
+            || result.stderr.localizedCaseInsensitiveContains("not in a git directory") {
+            info = ProjectDependencyVCSInfo(
+                system: "none",
+                state: .notRepository,
+                summary: "No Git repository was detected by `git status` for this project root.",
+                command: command,
+                exitCode: result.exitCode
+            )
+        } else {
+            let trimmedError = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            info = ProjectDependencyVCSInfo(
+                system: "git",
+                state: .checkFailed,
+                summary: trimmedError.isEmpty ? "Git status check failed or timed out." : "Git status check failed: \(trimmedError)",
+                command: command,
+                exitCode: result.exitCode
+            )
+        }
+        cache[key] = info
+        return info
+    }
+
+    private func hasGitMarker(atOrAbove url: URL) -> Bool {
+        var current = url.standardizedFileURL
+        while true {
+            if fileManager.fileExists(atPath: current.appendingPathComponent(".git").path) {
+                return true
+            }
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            if parent.path == current.path || current.path == "/" {
+                return false
+            }
+            current = parent
+        }
+    }
+
+    private func runGitStatus(at root: URL, command: String) -> ProjectDependencyGitStatusResult {
+        let process = Process()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", root.path, "status", "--porcelain=v1", "--untracked-files=normal"]
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        let semaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            semaphore.signal()
+        }
+
+        do {
+            try process.run()
+        } catch {
+            return ProjectDependencyGitStatusResult(
+                stdout: "",
+                stderr: "Could not start \(command): \(error.localizedDescription)",
+                exitCode: -1
+            )
+        }
+
+        if semaphore.wait(timeout: .now() + .seconds(2)) == .timedOut {
+            process.terminate()
+            return ProjectDependencyGitStatusResult(
+                stdout: "",
+                stderr: "Timed out while running \(command).",
+                exitCode: -1
+            )
+        }
+
+        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let errorOutput = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return ProjectDependencyGitStatusResult(stdout: output, stderr: errorOutput, exitCode: process.terminationStatus)
     }
 
     private func measure(url: URL, maxDepth: Int) -> ProjectDependencyMeasurement {
@@ -779,6 +1181,259 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                 allocatedSize: matches.reduce(Int64(0)) { $0 + $1.allocatedSize }
             )
         }
+    }
+
+    private static func vcsSummaries(for items: [ProjectDependencyItem]) -> [ProjectDependencySummary] {
+        ProjectDependencyVCSState.allCases.compactMap { state in
+            let matches = items.filter { $0.vcsInfo.state == state }
+            guard !matches.isEmpty else { return nil }
+            return ProjectDependencySummary(
+                name: state.label,
+                itemCount: matches.count,
+                allocatedSize: matches.reduce(Int64(0)) { $0 + $1.allocatedSize }
+            )
+        }
+    }
+
+    private static func projectsWithDirtyVCSCount(for items: [ProjectDependencyItem]) -> Int {
+        Set(items.compactMap { item in
+            switch item.vcsInfo.state {
+            case .dirty, .untrackedOnly:
+                return item.projectRootPath
+            case .clean, .notRepository, .notChecked, .checkFailed:
+                return nil
+            }
+        }).count
+    }
+
+    private static func parseGitStatus(_ output: String) -> (changedTracked: Int, untracked: Int) {
+        var changedTracked = 0
+        var untracked = 0
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            let line = String(rawLine)
+            if line.hasPrefix("??") {
+                untracked += 1
+            } else if !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                changedTracked += 1
+            }
+        }
+        return (changedTracked, untracked)
+    }
+
+    private static func commandHints(for metadata: ProjectDependencyCandidateMetadata) -> [NativeToolCommand] {
+        let hints = Set(metadata.manifestHints)
+        switch metadata.kind {
+        case .nodeModules:
+            return [
+                commandHint(
+                    "project.javascript.install",
+                    javascriptInstallCommand(for: hints),
+                    "Recreate project dependencies after reviewing lockfiles and local edits.",
+                    .reclaim,
+                    "Reinstalls project-local dependencies from the selected package manager."
+                )
+            ]
+        case .webBuildOutput, .webFrameworkCache:
+            return [
+                commandHint(
+                    "project.javascript.install",
+                    javascriptInstallCommand(for: hints),
+                    "Restore dependencies needed to rebuild project-local web artifacts.",
+                    .reclaim,
+                    "Recreates project-local dependencies if they were removed."
+                ),
+                commandHint(
+                    "project.javascript.build",
+                    javascriptRunCommand(for: hints, script: "build"),
+                    "Rebuild web output after reviewing the project command set.",
+                    .reclaim,
+                    "Regenerates project-local build output such as dist, out, .next, or framework caches."
+                )
+            ]
+        case .coverageOutput:
+            return [
+                commandHint(
+                    "project.javascript.test",
+                    javascriptRunCommand(for: hints, script: "test"),
+                    "Regenerate coverage after reviewing the project's test command.",
+                    .inspect,
+                    "Runs the project test script; coverage output depends on project configuration."
+                )
+            ]
+        case .pythonVirtualEnvironment:
+            return [
+                commandHint(
+                    "project.python.venv",
+                    pythonVirtualEnvironmentCommand(for: hints),
+                    "Recreate the virtual environment after reviewing Python manifests.",
+                    .reclaim,
+                    "Creates a fresh project-local virtual environment and installs declared dependencies when a manifest is present."
+                )
+            ]
+        case .swiftBuild:
+            return [
+                commandHint(
+                    "project.swift.clean",
+                    "swift package clean",
+                    "Let SwiftPM remove project build artifacts after active builds finish.",
+                    .reclaim,
+                    "Removes SwiftPM build output for the current package."
+                ),
+                commandHint(
+                    "project.swift.build",
+                    "swift build --scratch-path .build",
+                    "Rebuild while keeping future autonomous build output bounded to the project directory.",
+                    .inspect,
+                    "Recreates build artifacts inside .build."
+                )
+            ]
+        case .rustTarget:
+            return [
+                commandHint(
+                    "project.rust.clean",
+                    "cargo clean",
+                    "Let Cargo remove project target artifacts after active builds finish.",
+                    .reclaim,
+                    "Removes the current project's target output."
+                ),
+                commandHint(
+                    "project.rust.build",
+                    "cargo build",
+                    "Rebuild the project after cleanup.",
+                    .inspect,
+                    "Regenerates target artifacts."
+                )
+            ]
+        case .gradleProjectCache, .gradleBuildOutput:
+            return [
+                commandHint(
+                    "project.gradle.clean",
+                    "./gradlew clean",
+                    "Let Gradle remove project build output after active daemons finish.",
+                    .reclaim,
+                    "Removes Gradle project build outputs without raw-deleting source or config."
+                )
+            ]
+        case .cocoaPodsPods:
+            return [
+                commandHint(
+                    "project.cocoapods.install",
+                    "pod install",
+                    "Restore Pods after checking for local pod edits.",
+                    .reclaim,
+                    "Recreates Pods from the Podfile and lockfile when available."
+                )
+            ]
+        case .dartTool:
+            return [
+                commandHint(
+                    "project.dart.pub-get",
+                    "dart pub get",
+                    "Regenerate Dart package configuration after review.",
+                    .reclaim,
+                    "Restores .dart_tool package metadata from pubspec files."
+                )
+            ]
+        case .androidBuild:
+            if metadata.ecosystem == .dartFlutter {
+                return [
+                    commandHint(
+                        "project.flutter.clean",
+                        "flutter clean",
+                        "Let Flutter remove project build artifacts after active tools finish.",
+                        .reclaim,
+                        "Removes Flutter build output and generated state."
+                    ),
+                    commandHint(
+                        "project.flutter.pub-get",
+                        "flutter pub get",
+                        "Restore Flutter/Dart package metadata after cleanup.",
+                        .reclaim,
+                        "Regenerates package configuration from pubspec files."
+                    )
+                ]
+            }
+            return [
+                commandHint(
+                    "project.android.clean",
+                    "./gradlew clean",
+                    "Let Gradle/Android remove project build output after active tools finish.",
+                    .reclaim,
+                    "Removes Android project build outputs without raw-deleting source or manifests."
+                )
+            ]
+        case .goBuildOutput:
+            return [
+                commandHint(
+                    "project.go.build",
+                    "go build ./...",
+                    "Rebuild Go outputs after review.",
+                    .inspect,
+                    "Regenerates Go build output according to the project command."
+                )
+            ]
+        case .other:
+            return []
+        }
+    }
+
+    private static func commandHint(
+        _ id: String,
+        _ command: String,
+        _ purpose: String,
+        _ risk: NativeToolRisk,
+        _ expectedEffect: String
+    ) -> NativeToolCommand {
+        NativeToolCommand(
+            id: id,
+            command: command,
+            purpose: purpose,
+            risk: risk,
+            requiresReview: true,
+            expectedEffect: expectedEffect
+        )
+    }
+
+    private static func javascriptInstallCommand(for hints: Set<String>) -> String {
+        if hints.contains("pnpm-lock.yaml") {
+            return "pnpm install --frozen-lockfile"
+        }
+        if hints.contains("yarn.lock") {
+            return "yarn install"
+        }
+        if hints.contains("bun.lock") || hints.contains("bun.lockb") {
+            return "bun install --frozen-lockfile"
+        }
+        if hints.contains("package-lock.json") || hints.contains("npm-shrinkwrap.json") {
+            return "npm ci"
+        }
+        return "npm install"
+    }
+
+    private static func javascriptRunCommand(for hints: Set<String>, script: String) -> String {
+        if hints.contains("pnpm-lock.yaml") {
+            return "pnpm run \(script)"
+        }
+        if hints.contains("yarn.lock") {
+            return "yarn \(script)"
+        }
+        if hints.contains("bun.lock") || hints.contains("bun.lockb") {
+            return "bun run \(script)"
+        }
+        return "npm run \(script)"
+    }
+
+    private static func pythonVirtualEnvironmentCommand(for hints: Set<String>) -> String {
+        if hints.contains("requirements.txt") {
+            return "python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt"
+        }
+        if hints.contains("pyproject.toml") || hints.contains("setup.py") {
+            return "python3 -m venv .venv && .venv/bin/python -m pip install -e ."
+        }
+        if hints.contains("Pipfile") {
+            return "python3 -m venv .venv && .venv/bin/python -m pip install pipenv && .venv/bin/python -m pipenv install"
+        }
+        return "python3 -m venv .venv"
     }
 
     private static func recommendation(for metadata: ProjectDependencyCandidateMetadata, isOld: Bool) -> String {
@@ -928,6 +1583,12 @@ private struct ProjectDependencyMeasurement: Hashable {
     let logicalSize: Int64
     let allocatedSize: Int64
     let itemCount: Int
+}
+
+private struct ProjectDependencyGitStatusResult: Hashable {
+    let stdout: String
+    let stderr: String
+    let exitCode: Int32
 }
 
 private let projectDependencyResourceKeys: [URLResourceKey] = [
