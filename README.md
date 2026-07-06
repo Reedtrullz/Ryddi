@@ -42,6 +42,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - exportable local Markdown reclaim plan reports with selected actions, blocked items, safety buckets, and non-claims
 - exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
 - report privacy controls for full, home-relative, or redacted paths plus user-entered reason redaction
+- transparent bundled rule catalog showing safety classes, actions, categories, match hints, conditions, recovery notes, and non-claims
 - active-handle review for cleanup candidates, with process summaries and failed-check visibility
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - local user protections and exclusions for paths Ryddi should preserve or ignore, with JSON import/export
@@ -89,6 +90,7 @@ swift run --scratch-path .build reclaimer help
 
 ```bash
 swift run --scratch-path .build reclaimer overview
+swift run --scratch-path .build reclaimer rules
 swift run --scratch-path .build reclaimer status
 swift run --scratch-path .build reclaimer permissions
 swift run --scratch-path .build reclaimer permissions guide --output ryddi-permissions-guide.md

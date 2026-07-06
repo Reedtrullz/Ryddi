@@ -44,6 +44,24 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(cache.actionKind, .deleteCache)
     }
 
+    func testRuleCatalogExplainsSafetyBucketsAndNeverTouchRules() throws {
+        let catalog = try RuleEngine.bundled().catalog(generatedAt: Date(timeIntervalSince1970: 0))
+
+        XCTAssertEqual(catalog.ruleVersion, "2026.07.05-mvp1")
+        XCTAssertGreaterThan(catalog.ruleCount, 10)
+        XCTAssertTrue(catalog.safetySummaries.contains { $0.name == SafetyClass.neverTouch.label && $0.count > 0 })
+        XCTAssertTrue(catalog.actionSummaries.contains { $0.name == ActionKind.deleteCache.label && $0.count > 0 })
+        XCTAssertTrue(catalog.categorySummaries.contains { $0.name == "Codex" && $0.count > 0 })
+
+        let neverTouch = try XCTUnwrap(catalog.sections.first { $0.safetyClass == .neverTouch })
+        XCTAssertTrue(neverTouch.title.contains("Never Touch"))
+        let credentials = try XCTUnwrap(neverTouch.rules.first { $0.id == "codex.credentials.never" })
+        XCTAssertEqual(credentials.actionKind, .reportOnly)
+        XCTAssertFalse(credentials.matchHints.isEmpty)
+        XCTAssertFalse(credentials.evidence.isEmpty)
+        XCTAssertFalse(catalog.nonClaims.isEmpty)
+    }
+
     func testScannerProducesStableFindingsAndDoesNotFollowSymlink() throws {
         let cache = tempRoot.appendingPathComponent("Library/Caches/Codex", isDirectory: true)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)

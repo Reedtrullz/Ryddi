@@ -37,6 +37,8 @@ struct DashboardView: View {
         } detail: {
             if selectedSection == "Features" {
                 CapabilityMatrixView()
+            } else if selectedSection == "Rules" {
+                RuleCatalogView()
             } else if selectedSection == "Apps" {
                 AppReviewView(model: model)
             } else if selectedSection == "Duplicates" {
@@ -128,6 +130,10 @@ struct DashboardView: View {
                 Button("Feature Matrix") {
                     selectedFinding = nil
                     selectedSection = "Features"
+                }
+                Button("Rule Catalog") {
+                    selectedFinding = nil
+                    selectedSection = "Rules"
                 }
                 Button("Apps & Leftovers") {
                     selectedFinding = nil
@@ -311,6 +317,7 @@ struct CapabilityMatrixView: View {
     private let rows = [
         ("Find space offenders", "Bounded Swift scanner over developer/agent scopes with size and permission evidence."),
         ("Classify safety", "Versioned JSON rules produce Auto-safe, Safe after condition, Review required, Preserve by default, and Never touch."),
+        ("Inspect rules", "Bundled rules can be reviewed by safety class, action, category, match hints, conditions, recovery, and non-claims."),
         ("Explain every item", "Finding detail shows owner hints, rule matches, evidence, recovery, and conditions."),
         ("Review duplicates", "Local content hashes group identical regular files as manual review signals, never cleanup actions."),
         ("Review apps & leftovers", "Installed app support files and orphan candidates are surfaced as guidance, not uninstall actions."),
@@ -342,6 +349,114 @@ struct CapabilityMatrixView: View {
                 }
             }
             .padding(24)
+        }
+    }
+}
+
+struct RuleCatalogView: View {
+    private let catalogResult: Result<RuleCatalogReport, Error>
+
+    init() {
+        catalogResult = Result {
+            try RuleEngine.bundled().catalog()
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            switch catalogResult {
+            case .success(let catalog):
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Rule Catalog")
+                        .font(.largeTitle.bold())
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Version", value: catalog.ruleVersion)
+                        MetricTile(title: "Rules", value: "\(catalog.ruleCount)")
+                        MetricTile(title: "Safety buckets", value: "\(catalog.safetySummaries.count)")
+                        MetricTile(title: "Categories", value: "\(catalog.categorySummaries.count)")
+                    }
+
+                    SectionBox(title: "Safety Summary") {
+                        ForEach(catalog.safetySummaries) { summary in
+                            HStack {
+                                Text(summary.name)
+                                Spacer()
+                                Text("\(summary.count)")
+                                    .monospacedDigit()
+                            }
+                            .font(.caption)
+                        }
+                    }
+
+                    SectionBox(title: "Action Summary") {
+                        ForEach(catalog.actionSummaries) { summary in
+                            HStack {
+                                Text(summary.name)
+                                Spacer()
+                                Text("\(summary.count)")
+                                    .monospacedDigit()
+                            }
+                            .font(.caption)
+                        }
+                    }
+
+                    ForEach(catalog.sections.filter { !$0.rules.isEmpty }) { section in
+                        SectionBox(title: section.title) {
+                            Text(section.guidance)
+                                .foregroundStyle(.secondary)
+                            ForEach(section.rules) { rule in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text(rule.title)
+                                            .font(.subheadline.weight(.semibold))
+                                        Spacer()
+                                        Text(rule.actionKind.label)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text(rule.id)
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.secondary)
+                                    Text("\(rule.category) - priority \(rule.priority)")
+                                        .font(.caption)
+                                    if !rule.matchHints.isEmpty {
+                                        Text("Match: \(rule.matchHints.joined(separator: ", "))")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                    if !rule.conditions.isEmpty {
+                                        Text("Conditions: \(rule.conditions.joined(separator: " | "))")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                    if let recovery = rule.recovery, !recovery.isEmpty {
+                                        Text("Recovery: \(recovery)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                .padding(.vertical, 6)
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Non-claims") {
+                        ForEach(catalog.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(24)
+            case .failure(let error):
+                ContentUnavailableView("Rule catalog unavailable", systemImage: "exclamationmark.triangle", description: Text(error.localizedDescription))
+                    .padding(24)
+            }
         }
     }
 }

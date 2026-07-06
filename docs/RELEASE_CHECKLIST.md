@@ -12,6 +12,8 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `dist/Ryddi-release-manifest.txt` records bundle id, version, rules resource path, signing state, performed verification, and non-claims.
 - [ ] App launches locally.
 - [ ] `reclaimer status --json` reports disk pressure/free-space metadata without scanning content.
+- [ ] `reclaimer rules` prints the bundled rule catalog with safety sections and non-claims.
+- [ ] `reclaimer rules --json` includes `ruleVersion`, `sections`, and known never-touch rules such as `codex.credentials.never`.
 - [ ] `reclaimer permissions --json --path Tests` reports a permission coverage level, scope counts, recommended actions, and non-claims.
 - [ ] `reclaimer permissions guide --path Tests --output permissions-guide.md` writes a first-run walkthrough with Full Disk Access steps, rescan/report-only commands, affected scopes, and non-claims.
 - [ ] `reclaimer active --path Tests --json --save-audit` reports cleanup-relevant active-handle candidates, saves a local audit record, and does not quit processes or execute cleanup.

@@ -100,6 +100,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | --- | --- | --- | --- |
 | Top offenders overview | Baseline for all disk analyzers | Partial | Add a sortable, scannable table grouped by category, safety, and reclaim estimate. |
 | Owner/app/tool grouping | Expected from app uninstallers and increasingly important for developer-cleaner trust | Exists/partial | `ScanOverview.ownerSummaries`, CLI overview, app Top Owners, and evidence reports now group non-overlapping findings by owner hints or category fallback. Future work should deepen app identity confidence. |
+| Rule transparency | Rare in broad cleaners but important for open-source trust | Exists/partial | `reclaimer rules`, app Rule Catalog, and `RuleCatalogReport` expose bundled rule version, safety/action/category summaries, match hints, conditions, recovery notes, and non-claims. Future work should add user rule-pack review/import UX. |
 | Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Partial | First slice has non-overlapping proportional category map nodes; a full treemap/sunburst with drill-down remains future work. |
 | Evidence details | Rare in broad cleaners, central to Ryddi | Partial | Make every finding answer: what is this, why matched, risk, recovery path, exact action. |
 | Dry-run plan | Strong differentiator | Partial | Keep as default. Receipt exports now add action counts and skipped/error visibility; plan diff remains future work. |

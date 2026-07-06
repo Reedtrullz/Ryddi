@@ -58,6 +58,12 @@ receipt_fixture="$scratch/receipt-fixture/Library/Caches/Codex"
 mkdir -p "$receipt_fixture"
 printf 'fixture cache\n' >"$receipt_fixture/cache.bin"
 "$app/Contents/MacOS/reclaimer" status --json >"$scratch/status-smoke.json"
+"$app/Contents/MacOS/reclaimer" rules >"$scratch/rules-smoke.txt"
+grep -q "Ryddi rule catalog" "$scratch/rules-smoke.txt"
+grep -q "Never Touch" "$scratch/rules-smoke.txt"
+"$app/Contents/MacOS/reclaimer" rules --json >"$scratch/rules-smoke.json"
+grep -q '"ruleVersion"' "$scratch/rules-smoke.json"
+grep -q '"codex.credentials.never"' "$scratch/rules-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
@@ -167,6 +173,7 @@ Verification performed:
 - Scripts/package-app.sh
 - bundle executable/resource checks
 - bundled reclaimer status --json
+- bundled reclaimer rules and rules --json
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root

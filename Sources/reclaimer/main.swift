@@ -24,6 +24,8 @@ struct ReclaimerCLI {
             try status(args: args)
         case "overview":
             try overview(args: args)
+        case "rules":
+            try rules(args: args)
         case "report":
             try report(args: args)
         case "permissions":
@@ -107,6 +109,16 @@ struct ReclaimerCLI {
             printJSON(overview)
         } else {
             printOverview(overview)
+        }
+    }
+
+    static func rules(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let catalog = try RuleEngine.bundled().catalog()
+        if options.json {
+            printJSON(catalog)
+        } else {
+            printRuleCatalog(catalog)
         }
     }
 
@@ -673,6 +685,7 @@ struct ReclaimerCLI {
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy]
               overview [--json] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy]
+              rules [--json]
               report [--json] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
                      [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
                      [--include-missing-scopes] [--ignore-user-policy]
@@ -1013,6 +1026,47 @@ func printOverview(_ overview: ScanOverview) {
 
     print("\nAPFS/accounting notes")
     for note in overview.accountingNotes {
+        print("- \(note)")
+    }
+}
+
+func printRuleCatalog(_ catalog: RuleCatalogReport) {
+    print("Ryddi rule catalog")
+    print("Generated: \(catalog.generatedAt.formatted())")
+    print("Rule version: \(catalog.ruleVersion)")
+    print("Rules: \(catalog.ruleCount)")
+
+    print("\nBy safety")
+    for summary in catalog.safetySummaries {
+        print("- \(pad(summary.name, 22)) \(summary.count) rule(s)")
+    }
+
+    print("\nBy category")
+    for summary in catalog.categorySummaries.prefix(12) {
+        print("- \(pad(summary.name, 22)) \(summary.count) rule(s)")
+    }
+
+    for section in catalog.sections where !section.rules.isEmpty {
+        print("\n\(section.title)")
+        print(section.guidance)
+        for rule in section.rules {
+            print("- \(rule.id): \(rule.title)")
+            print("  Category: \(rule.category)")
+            print("  Action: \(rule.actionKind.label)")
+            if !rule.matchHints.isEmpty {
+                print("  Match: \(rule.matchHints.joined(separator: ", "))")
+            }
+            if !rule.conditions.isEmpty {
+                print("  Conditions: \(rule.conditions.joined(separator: " | "))")
+            }
+            if let recovery = rule.recovery, !recovery.isEmpty {
+                print("  Recovery: \(recovery)")
+            }
+        }
+    }
+
+    print("\nNon-claims")
+    for note in catalog.nonClaims {
         print("- \(note)")
     }
 }
