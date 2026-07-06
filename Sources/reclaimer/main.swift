@@ -996,6 +996,12 @@ func printOverview(_ overview: ScanOverview) {
         print("- \(pad(summary.name, 22)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.count) item(s)")
     }
 
+    print("\nBy owner")
+    for summary in overview.ownerSummaries.prefix(12) {
+        let reclaim = summary.isReclaimable ? "reclaimable" : "review"
+        print("- \(pad(summary.ownerName, 22)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(pad(summary.dominantCategory, 18)) \(reclaim)")
+    }
+
     print("\nVisual map nodes")
     for node in overview.mapNodes.prefix(10) {
         let reclaim = node.isReclaimable ? "reclaimable" : "review"

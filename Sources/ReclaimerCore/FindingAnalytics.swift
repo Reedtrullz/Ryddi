@@ -62,6 +62,50 @@ public struct DiskMapNode: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public struct OwnerStorageSummary: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { ownerName }
+    public let ownerName: String
+    public let count: Int
+    public let logicalSize: Int64
+    public let allocatedSize: Int64
+    public let expectedAutoSafeBytes: Int64
+    public let reviewBytes: Int64
+    public let protectedBytes: Int64
+    public let dominantCategory: String
+    public let safetyClass: SafetyClass?
+    public let actionKind: ActionKind?
+    public let isReclaimable: Bool
+    public let topPaths: [String]
+
+    public init(
+        ownerName: String,
+        count: Int,
+        logicalSize: Int64,
+        allocatedSize: Int64,
+        expectedAutoSafeBytes: Int64,
+        reviewBytes: Int64,
+        protectedBytes: Int64,
+        dominantCategory: String,
+        safetyClass: SafetyClass?,
+        actionKind: ActionKind?,
+        isReclaimable: Bool,
+        topPaths: [String]
+    ) {
+        self.ownerName = ownerName
+        self.count = count
+        self.logicalSize = logicalSize
+        self.allocatedSize = allocatedSize
+        self.expectedAutoSafeBytes = expectedAutoSafeBytes
+        self.reviewBytes = reviewBytes
+        self.protectedBytes = protectedBytes
+        self.dominantCategory = dominantCategory
+        self.safetyClass = safetyClass
+        self.actionKind = actionKind
+        self.isReclaimable = isReclaimable
+        self.topPaths = topPaths
+    }
+}
+
 public struct ScanOverview: Codable, Hashable, Sendable {
     public let generatedAt: Date
     public let findingCount: Int
@@ -75,6 +119,7 @@ public struct ScanOverview: Codable, Hashable, Sendable {
     public let scopeSizeSummaries: [BucketSummary]
     public let scopeSummaries: [ScopeAccessSummary]
     public let mapNodes: [DiskMapNode]
+    public let ownerSummaries: [OwnerStorageSummary]
     public let topFindings: [Finding]
     public let accountingNotes: [String]
 
@@ -91,6 +136,7 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         scopeSizeSummaries: [BucketSummary],
         scopeSummaries: [ScopeAccessSummary],
         mapNodes: [DiskMapNode],
+        ownerSummaries: [OwnerStorageSummary],
         topFindings: [Finding],
         accountingNotes: [String]
     ) {
@@ -106,6 +152,7 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         self.scopeSizeSummaries = scopeSizeSummaries
         self.scopeSummaries = scopeSummaries
         self.mapNodes = mapNodes
+        self.ownerSummaries = ownerSummaries
         self.topFindings = topFindings
         self.accountingNotes = accountingNotes
     }
@@ -230,9 +277,55 @@ public enum FindingAnalytics {
             scopeSizeSummaries: bucket(accountingFindings, by: { $0.scopeName }),
             scopeSummaries: scopeSummaries(scopes: scopes, fileManager: fileManager),
             mapNodes: mapNodes(from: accountingFindings),
+            ownerSummaries: ownerSummaries(from: ownerAttributionFindings(findings)),
             topFindings: Array(findings.sorted(by: sortByAllocatedThenPath).prefix(topLimit)),
             accountingNotes: accountingNotes(logicalSize: totalLogical, allocatedSize: totalAllocated)
         )
+    }
+
+    public static func ownerSummaries(from findings: [Finding], limit: Int = 18) -> [OwnerStorageSummary] {
+        let grouped = Dictionary(grouping: findings) { finding in
+            ownerName(for: finding)
+        }
+        return grouped.map { ownerName, items in
+            let allocated = items.reduce(0) { $0 + $1.allocatedSize }
+            let logical = items.reduce(0) { $0 + $1.logicalSize }
+            let autoSafe = items
+                .filter { $0.safetyClass == .autoSafe }
+                .reduce(0) { $0 + $1.allocatedSize }
+            let review = items
+                .filter { [.safeAfterCondition, .reviewRequired].contains($0.safetyClass) }
+                .reduce(0) { $0 + $1.allocatedSize }
+            let protected = items
+                .filter { [.preserveByDefault, .neverTouch].contains($0.safetyClass) }
+                .reduce(0) { $0 + $1.allocatedSize }
+            let dominant = dominantFinding(in: items)
+            let reclaimable = items.contains {
+                $0.safetyClass == .autoSafe && [.deleteCache, .trash].contains($0.actionKind)
+            }
+            return OwnerStorageSummary(
+                ownerName: ownerName,
+                count: items.count,
+                logicalSize: logical,
+                allocatedSize: allocated,
+                expectedAutoSafeBytes: autoSafe,
+                reviewBytes: review,
+                protectedBytes: protected,
+                dominantCategory: dominantCategory(in: items),
+                safetyClass: dominant?.safetyClass,
+                actionKind: dominant?.actionKind,
+                isReclaimable: reclaimable,
+                topPaths: items.sorted(by: sortByAllocatedThenPath).prefix(3).map(\.path)
+            )
+        }
+        .sorted {
+            if $0.allocatedSize == $1.allocatedSize {
+                return $0.ownerName < $1.ownerName
+            }
+            return $0.allocatedSize > $1.allocatedSize
+        }
+        .prefix(limit)
+        .map { $0 }
     }
 
     public static func mapNodes(from findings: [Finding], limit: Int = 18) -> [DiskMapNode] {
@@ -242,12 +335,7 @@ public enum FindingAnalytics {
         return grouped.map { category, items in
             let allocated = items.reduce(0) { $0 + $1.allocatedSize }
             let logical = items.reduce(0) { $0 + $1.logicalSize }
-            let dominant = items.sorted {
-                if $0.allocatedSize == $1.allocatedSize {
-                    return $0.path < $1.path
-                }
-                return $0.allocatedSize > $1.allocatedSize
-            }.first
+            let dominant = dominantFinding(in: items)
             let reclaimable = items.contains {
                 $0.safetyClass == .autoSafe && [.deleteCache, .trash].contains($0.actionKind)
             }
@@ -374,6 +462,30 @@ public enum FindingAnalytics {
         }
     }
 
+    private static func ownerName(for finding: Finding) -> String {
+        if let ownerHint = finding.ownerHint?.trimmingCharacters(in: .whitespacesAndNewlines), !ownerHint.isEmpty {
+            return ownerHint
+        }
+        let category = finding.primaryCategory.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !category.isEmpty && category != "Unknown" {
+            return category
+        }
+        let scopeName = finding.scopeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !scopeName.isEmpty {
+            return scopeName
+        }
+        return "Unknown"
+    }
+
+    private static func dominantFinding(in findings: [Finding]) -> Finding? {
+        findings.sorted(by: sortByAllocatedThenPath).first
+    }
+
+    private static func dominantCategory(in findings: [Finding]) -> String {
+        let categories = bucket(findings, by: { $0.primaryCategory })
+        return categories.first?.name ?? "Unknown"
+    }
+
     private static func accountingNotes(logicalSize: Int64, allocatedSize: Int64) -> [String] {
         var notes = [
             "Ryddi reports allocated size for reclaim estimates because APFS physical usage is closer to what can be freed than Finder-style logical size."
@@ -414,6 +526,47 @@ public enum FindingAnalytics {
             selectedPaths.append(path)
         }
         return selected
+    }
+
+    private static func ownerAttributionFindings(_ findings: [Finding]) -> [Finding] {
+        let nonRoot = findings.filter { finding in
+            !finding.evidence.contains { $0.kind == "scope" }
+        }
+        let candidates = nonRoot.isEmpty ? findings : nonRoot
+        let ordered = candidates.sorted { lhs, rhs in
+            let lhsDepth = URL(fileURLWithPath: lhs.path).standardizedFileURL.pathComponents.count
+            let rhsDepth = URL(fileURLWithPath: rhs.path).standardizedFileURL.pathComponents.count
+            if lhsDepth == rhsDepth {
+                return lhs.path < rhs.path
+            }
+            return lhsDepth < rhsDepth
+        }
+        var selected: [Finding] = []
+        var selectedPaths: [String] = []
+        for finding in ordered {
+            let path = URL(fileURLWithPath: finding.path).standardizedFileURL.path
+            guard !selectedPaths.contains(where: { isDescendant(path, of: $0) }) else { continue }
+            if !isOwnerAttributable(finding) && hasOwnerAttributableDescendant(of: path, in: candidates) {
+                continue
+            }
+            selected.append(finding)
+            selectedPaths.append(path)
+        }
+        return selected
+    }
+
+    private static func isOwnerAttributable(_ finding: Finding) -> Bool {
+        if let ownerHint = finding.ownerHint?.trimmingCharacters(in: .whitespacesAndNewlines), !ownerHint.isEmpty {
+            return true
+        }
+        return !finding.ruleMatches.isEmpty
+    }
+
+    private static func hasOwnerAttributableDescendant(of path: String, in findings: [Finding]) -> Bool {
+        findings.contains { other in
+            let otherPath = URL(fileURLWithPath: other.path).standardizedFileURL.path
+            return isDescendant(otherPath, of: path) && isOwnerAttributable(other)
+        }
     }
 
     private static func isDescendant(_ path: String, of ancestor: String) -> Bool {

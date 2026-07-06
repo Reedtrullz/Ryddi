@@ -157,6 +157,27 @@ public enum EvidenceReportBuilder {
         lines.append(summaryTable(Array(overview.categorySummaries.prefix(12))))
         lines.append("")
 
+        lines.append("## Top Owners")
+        if overview.ownerSummaries.isEmpty {
+            lines.append("No owner summaries were recorded.")
+        } else {
+            lines.append(table(
+                headers: ["Owner", "Allocated", "Items", "Dominant Category", "Auto-safe", "Review", "Protected"],
+                rows: overview.ownerSummaries.prefix(12).map {
+                    [
+                        $0.ownerName,
+                        ByteFormat.string($0.allocatedSize),
+                        "\($0.count)",
+                        $0.dominantCategory,
+                        ByteFormat.string($0.expectedAutoSafeBytes),
+                        ByteFormat.string($0.reviewBytes),
+                        ByteFormat.string($0.protectedBytes)
+                    ]
+                }
+            ))
+        }
+        lines.append("")
+
         lines.append("## Top Findings")
         let topFindings = Array(overview.topFindings.prefix(topLimit))
         if topFindings.isEmpty {

@@ -113,6 +113,8 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertGreaterThan(overview.totalAllocatedSize, 0)
         XCTAssertFalse(overview.categorySummaries.isEmpty)
         XCTAssertFalse(overview.mapNodes.isEmpty)
+        XCTAssertFalse(overview.ownerSummaries.isEmpty)
+        XCTAssertTrue(overview.ownerSummaries.contains { $0.ownerName == "Codex" })
         XCTAssertLessThanOrEqual(overview.topFindings.count, 3)
         XCTAssertFalse(overview.accountingNotes.isEmpty)
     }
@@ -453,6 +455,55 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(overview.mapNodes.reduce(0) { $0 + $1.allocatedSize }, 100)
         XCTAssertEqual(overview.mapNodes.first?.name, "Codex Cache")
         XCTAssertEqual(overview.mapNodes.first?.isReclaimable, true)
+    }
+
+    func testOwnerSummariesPreferOwnerHintsAndAvoidNestedDoubleCounting() throws {
+        let parent = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 100,
+            isDirectory: true,
+            category: "Codex Cache",
+            ownerHint: "Codex"
+        )
+        let child = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex/blob").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 40,
+            category: "Codex Cache",
+            ownerHint: "Codex"
+        )
+        let fallback = finding(
+            path: tempRoot.appendingPathComponent("Projects/App/node_modules").path,
+            safety: .reviewRequired,
+            action: .openGuidance,
+            open: false,
+            allocatedSize: 75,
+            isDirectory: true,
+            category: "Node Modules"
+        )
+
+        let overview = FindingAnalytics.overview(
+            findings: [child, fallback, parent],
+            scopes: [ScanScope(name: "fixture", root: tempRoot)]
+        )
+
+        XCTAssertEqual(overview.ownerSummaries.reduce(0) { $0 + $1.allocatedSize }, 175)
+        let codex = try XCTUnwrap(overview.ownerSummaries.first { $0.ownerName == "Codex" })
+        XCTAssertEqual(codex.allocatedSize, 100)
+        XCTAssertEqual(codex.expectedAutoSafeBytes, 100)
+        XCTAssertEqual(codex.dominantCategory, "Codex Cache")
+        XCTAssertTrue(codex.isReclaimable)
+        XCTAssertEqual(codex.topPaths, [parent.path])
+
+        let fallbackOwner = try XCTUnwrap(overview.ownerSummaries.first { $0.ownerName == "Node Modules" })
+        XCTAssertEqual(fallbackOwner.reviewBytes, 75)
+        XCTAssertEqual(fallbackOwner.safetyClass, .reviewRequired)
+        XCTAssertFalse(fallbackOwner.isReclaimable)
     }
 
     func testVisualMapKeepsProtectedNodesInformationalOnly() throws {
@@ -1647,7 +1698,8 @@ final class ReclaimerCoreTests: XCTestCase {
         conditions: [String] = [],
         allocatedSize: Int64 = 128,
         isDirectory: Bool = false,
-        category: String = "Fixture"
+        category: String = "Fixture",
+        ownerHint: String? = nil
     ) -> Finding {
         let matches = [
             RuleMatch(
@@ -1667,6 +1719,7 @@ final class ReclaimerCoreTests: XCTestCase {
             logicalSize: allocatedSize,
             allocatedSize: allocatedSize,
             isDirectory: isDirectory,
+            ownerHint: ownerHint,
             safetyClass: safety,
             actionKind: action,
             ruleMatches: matches,

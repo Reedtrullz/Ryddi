@@ -238,6 +238,7 @@ struct OverviewView: View {
                 PermissionCoverageView(report: model.permissionReport)
                 AccountingNotesView(notes: overview.accountingNotes)
                 DiskMapView(nodes: overview.mapNodes)
+                OwnerStorageView(summaries: overview.ownerSummaries)
                 GrowthHistoryView(
                     snapshots: model.scanSnapshots,
                     deltas: model.growthDeltas,
@@ -1617,6 +1618,89 @@ struct DiskMapView: View {
         case .preserveByDefault: return .purple
         case .neverTouch: return .red
         case nil: return .gray
+        }
+    }
+}
+
+struct OwnerStorageView: View {
+    let summaries: [OwnerStorageSummary]
+
+    private var total: Int64 {
+        max(1, summaries.reduce(0) { $0 + $1.allocatedSize })
+    }
+
+    var body: some View {
+        SectionBox(title: "Top Owners") {
+            if summaries.isEmpty {
+                Text("No ownership summary is available for this scan.")
+                    .foregroundStyle(.secondary)
+            } else {
+                GeometryReader { proxy in
+                    let width = max(proxy.size.width, 1)
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(summaries.prefix(8)) { summary in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 10) {
+                                    Image(systemName: icon(for: summary))
+                                        .foregroundStyle(color(for: summary))
+                                        .frame(width: 18)
+                                    Text(summary.ownerName)
+                                        .font(.subheadline.weight(.semibold))
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(ByteFormat.string(summary.allocatedSize))
+                                        .font(.subheadline.monospacedDigit())
+                                }
+
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(.quaternary.opacity(0.35))
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(color(for: summary).opacity(0.75))
+                                        .frame(width: max(6, width * CGFloat(Double(summary.allocatedSize) / Double(total))))
+                                }
+                                .frame(height: 12)
+
+                                HStack(spacing: 10) {
+                                    Text(summary.dominantCategory)
+                                    Text("\(summary.count) item(s)")
+                                    Text("safe \(ByteFormat.string(summary.expectedAutoSafeBytes))")
+                                    Text("review \(ByteFormat.string(summary.reviewBytes))")
+                                    Text("protected \(ByteFormat.string(summary.protectedBytes))")
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+                .frame(height: CGFloat(min(summaries.count, 8)) * 66)
+            }
+        }
+    }
+
+    private func color(for summary: OwnerStorageSummary) -> Color {
+        if summary.isReclaimable { return .green }
+        switch summary.safetyClass {
+        case .autoSafe: return .green
+        case .safeAfterCondition: return .blue
+        case .reviewRequired: return .orange
+        case .preserveByDefault: return .purple
+        case .neverTouch: return .red
+        case nil: return .gray
+        }
+    }
+
+    private func icon(for summary: OwnerStorageSummary) -> String {
+        if summary.isReclaimable { return "checkmark.circle" }
+        switch summary.safetyClass {
+        case .autoSafe: return "checkmark.circle"
+        case .safeAfterCondition: return "pause.circle"
+        case .reviewRequired: return "magnifyingglass.circle"
+        case .preserveByDefault: return "archivebox"
+        case .neverTouch: return "lock.shield"
+        case nil: return "questionmark.circle"
         }
     }
 }

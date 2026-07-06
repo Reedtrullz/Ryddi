@@ -31,8 +31,9 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 
 ## What It Handles
 
-- top-offender overview with category, safety, age, logical size, and allocated size
+- top-offender overview with category, owner/app/tool, safety, age, logical size, and allocated size
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
+- ownership-aware storage summaries that group findings by app/tool hints such as Codex, Docker, Colima, Xcode, Homebrew, and Chrome
 - local scan history snapshots and category growth deltas
 - exportable local Markdown growth reports comparing saved scan snapshots
 - menu bar disk-pressure status with report-only scan shortcut

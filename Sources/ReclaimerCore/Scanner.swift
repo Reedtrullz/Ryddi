@@ -352,7 +352,13 @@ private let resourceKeys: [URLResourceKey] = [
 
 private func ownerHint(for path: String) -> String? {
     let lower = path.lowercased()
-    if lower.contains("/.codex") || lower.contains("com.openai.codex") { return "Codex" }
+    if lower.contains("/.codex") ||
+        lower.contains("com.openai.codex") ||
+        lower.contains("/library/caches/codex") ||
+        lower.contains("/library/logs/codex")
+    {
+        return "Codex"
+    }
     if lower.contains("/.colima") { return "Colima" }
     if lower.contains("/docker") { return "Docker" }
     if lower.contains("/developer/xcode") || lower.contains("/deriveddata") { return "Xcode" }
