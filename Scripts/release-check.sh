@@ -102,6 +102,20 @@ grep -q "<path redacted>" "$scratch/receipt-report.md"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" containers --json --timeout 2 --save-audit >"$scratch/containers-smoke.json"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy protect "$root/Tests" --reason "release smoke" >"$scratch/policy-protect-smoke.txt"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy list --json >"$scratch/policy-list-smoke.json"
+RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy export --output "$scratch/policy-export.json"
+grep -q '"schemaVersion" : 1' "$scratch/policy-export.json"
+grep -q "private local paths" "$scratch/policy-export.json"
+RYDDI_CONFIG_ROOT="$scratch/config-import" "$app/Contents/MacOS/reclaimer" policy import "$scratch/policy-export.json" --json >"$scratch/policy-import-smoke.json"
+grep -q '"mode" : "merge"' "$scratch/policy-import-smoke.json"
+grep -q '"finalRuleCount" : 1' "$scratch/policy-import-smoke.json"
+RYDDI_CONFIG_ROOT="$scratch/config-import" "$app/Contents/MacOS/reclaimer" policy exclude "$root/Sources" --reason "replace smoke" >"$scratch/policy-extra-smoke.txt"
+RYDDI_CONFIG_ROOT="$scratch/config-import" "$app/Contents/MacOS/reclaimer" policy import "$scratch/policy-export.json" --replace --json >"$scratch/policy-replace-smoke.json"
+grep -q '"mode" : "replace"' "$scratch/policy-replace-smoke.json"
+grep -q '"finalRuleCount" : 1' "$scratch/policy-replace-smoke.json"
+if grep -q "replace smoke" "$scratch/policy-replace-smoke.json"; then
+  echo "policy import --replace retained a local-only rule" >&2
+  exit 1
+fi
 
 echo "==> Checking code signing state"
 signing_state="unsigned developer preview"
@@ -160,7 +174,7 @@ Verification performed:
 - bundled reclaimer plan --save-audit on disposable fixture plus redacted plans export --output saved-plan-report.md
 - bundled reclaimer execute --dry-run --save-audit on disposable fixture plus redacted receipts export --output receipt-report.md
 - bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
-- bundled reclaimer policy protect/list with temporary config root
+- bundled reclaimer policy protect/list/export/import/replace with temporary config roots
 - codesign verification when CODESIGN_IDENTITY is set
 - zip artifact and SHA-256 checksum generation
 

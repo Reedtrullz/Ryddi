@@ -347,7 +347,7 @@ struct ReclaimerCLI {
 
     static func policy(args: [String]) throws {
         guard let subcommand = args.first else {
-            throw CLIError.message("policy requires list, protect, exclude, or remove")
+            throw CLIError.message("policy requires list, protect, exclude, remove, export, or import")
         }
         let options = ParsedOptions(Array(args.dropFirst()))
         let store = UserPathPolicyStore()
@@ -382,6 +382,29 @@ struct ReclaimerCLI {
             } else {
                 print("removed policy entries for: \(UserPathPolicy.standardizedPath(args[1]))")
                 printUserPathPolicy(policy)
+            }
+        case "export":
+            let document = store.exportDocument()
+            if let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                _ = try store.writeExport(document, to: url)
+                FileHandle.standardError.write(Data("wrote user path policy export: \(url.path)\n".utf8))
+            }
+            if options.json || options.outputPath == nil {
+                printJSON(document)
+            } else {
+                printPolicyExportSummary(document)
+            }
+        case "import":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("policy import requires a policy JSON path")
+            }
+            let sourceURL = URL(fileURLWithPath: args[1]).standardizedFileURL
+            let result = try store.importDocument(from: sourceURL, merge: !options.replacePolicy)
+            if options.json {
+                printJSON(result)
+            } else {
+                printPolicyImportResult(result)
             }
         default:
             throw CLIError.message("Unknown policy subcommand: \(subcommand)")
@@ -672,6 +695,8 @@ struct ReclaimerCLI {
               policy protect PATH [--reason TEXT]
               policy exclude PATH [--reason TEXT]
               policy remove PATH [--kind protect|exclude]
+              policy export [--json] [--output PATH]
+              policy import PATH [--json] [--replace]
               plan [--json] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
                    [--output PATH] [--save-report] [--title TEXT]
                    [--path-style full|home-relative|redacted] [--redact-user-text]
@@ -721,6 +746,7 @@ struct ParsedOptions {
     var includeSystemApps: Bool { args.contains("--include-system-apps") }
     var includeOrphans: Bool { !args.contains("--no-orphans") }
     var ignoreUserPolicy: Bool { args.contains("--ignore-user-policy") }
+    var replacePolicy: Bool { args.contains("--replace") }
     var hour: Int { Int(value(after: "--hour") ?? "") ?? 9 }
     var minute: Int { Int(value(after: "--minute") ?? "") ?? 30 }
     var limit: Int { max(1, Int(value(after: "--limit") ?? "") ?? 80) }
@@ -1398,6 +1424,31 @@ func printUserPathPolicy(_ policy: UserPathPolicy) {
             let reason = rule.reason.map { " - \($0)" } ?? ""
             print("- \(rule.path)\(reason)")
         }
+    }
+}
+
+func printPolicyExportSummary(_ document: UserPathPolicyDocument) {
+    print("Ryddi user path policy export")
+    print("Rules: \(document.rules.count)")
+    print("Schema: \(document.schemaVersion)")
+    print("\nNon-claims")
+    for note in document.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printPolicyImportResult(_ result: UserPathPolicyImportResult) {
+    print("Imported user path policy")
+    print("Mode: \(result.mode)")
+    print("Source: \(result.sourcePath)")
+    print("Policy file: \(result.policyPath)")
+    print("Imported rules: \(result.importedRuleCount)")
+    print("Final rules: \(result.finalRuleCount)")
+    print("")
+    printUserPathPolicy(result.policy)
+    print("\nNon-claims")
+    for note in result.nonClaims {
+        print("- \(note)")
     }
 }
 

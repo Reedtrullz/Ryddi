@@ -40,7 +40,7 @@ storage
 ## Social Preview Copy
 
 ```text
-Ryddi helps you find, review, and safely reclaim developer and AI-agent disk bloat on macOS. It explains every finding, protects valuable state, and requires dry-run evidence before cleanup.
+Ryddi helps you find, review, and safely reclaim developer and AI-agent disk bloat on macOS. It explains every finding, protects valuable state, supports portable local policy, and requires dry-run evidence before cleanup.
 ```
 
 ## About Section
@@ -71,6 +71,7 @@ Initial MVP:
 - Open-file guard and active-handle review with `lsof` process summaries
 - Dry-run receipts and local audit store
 - Markdown evidence, growth, plan, and receipt report exports with path privacy controls
+- Local path protections/exclusions with versioned JSON export, merge import, and explicit replace import
 - App-managed holding area with restore/expire workflow
 - Permission advisor and first-run walkthrough for readable/denied/missing scan coverage and Full Disk Access guidance
 - Release-check workflow for unsigned developer preview artifacts

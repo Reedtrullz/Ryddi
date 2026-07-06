@@ -30,7 +30,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer execute --dry-run --path FIXTURE --save-audit` followed by `reclaimer receipts export --output RECEIPT.md` writes a local Markdown receipt report without rerunning cleanup.
 - [ ] `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
 - [ ] `reclaimer containers --json --timeout 2 --save-audit` emits a read-only Docker/Colima inventory, saves a local audit record, and does not execute prune/delete/stop/reset commands.
-- [ ] `reclaimer policy protect/exclude/list/remove` works with a temporary `RYDDI_CONFIG_ROOT`; protected paths are not selected for cleanup and excluded paths are absent from scan output.
+- [ ] `reclaimer policy protect/exclude/list/remove/export/import` works with temporary `RYDDI_CONFIG_ROOT` values; protected paths are not selected for cleanup, excluded paths are absent from scan output, export writes a versioned JSON document, import merges by default, and `--replace` drops local-only rules.
 - [ ] App Visual Map and Growth History render without changing reclaim gates.
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App Apps & Leftovers review scans bounded app roots and does not enable Reclaim or modify the dry-run plan.
@@ -59,7 +59,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say Apps & Leftovers is review-only and does not uninstall apps or delete app support files.
 - [ ] Release notes say native-tool reports are preview-only and do not run Docker/Colima/Homebrew/package-manager cleanup commands automatically.
 - [ ] Release notes say container inventory runs read-only inspection commands only.
-- [ ] Release notes say user protections/exclusions are local path policy and are not uploaded.
+- [ ] Release notes say user protections/exclusions are local path policy, exports can contain private paths/reasons, imports do not delete files or grant permissions, and policy data is not uploaded.
 - [ ] Release notes say permission coverage and walkthroughs are local path readability guidance and do not grant or prove global Full Disk Access.
 - [ ] Release notes say active-handle reports can include process summaries and do not quit processes or execute cleanup.
 - [ ] Release notes say evidence reports are local Markdown files that can include paths and do not execute cleanup.

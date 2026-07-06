@@ -28,6 +28,8 @@ Container inventory can run read-only Docker and Colima inspection commands. The
 
 User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
 
+Policy export writes a local JSON document containing those paths, reasons, timestamps, schema version, and non-claims. Ryddi does not upload the export. Review it before sharing because it can reveal project names, usernames, customer names, or other private path details. Policy import changes only Ryddi's local path policy; it does not delete files, run cleanup, grant Full Disk Access, or prove that imported paths still exist. Import merges by default and replaces the whole policy only when `--replace` is supplied.
+
 Evidence report export reads scan findings, disk status, scan coverage, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them.
 
 Plan report export reads a proposed reclaim plan to write local Markdown. Plan reports can include selected action paths, blocked or review-only paths, safety buckets, condition messages, and reclaim estimates. Ryddi does not upload plan reports or execute cleanup while creating them.
@@ -77,6 +79,7 @@ Ryddi data is expected under:
 ~/Library/Application Support/Ryddi/Config/user-path-policy.json
 ~/Library/Application Support/Ryddi/ScanHistory
 ~/Library/Application Support/Ryddi/Reports
+~/Library/Application Support/Ryddi/Reports/user-path-policy-*.json
 ~/Library/LaunchAgents/com.reidar.ryddi.agent.plist
 ```
 

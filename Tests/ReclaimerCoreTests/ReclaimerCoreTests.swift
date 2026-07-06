@@ -1102,6 +1102,69 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(store.load().rules(kind: .exclude).isEmpty)
     }
 
+    func testUserPathPolicyExportDocumentContainsRulesAndNonClaims() throws {
+        let store = UserPathPolicyStore(root: tempRoot.appendingPathComponent("Config", isDirectory: true))
+        let protected = tempRoot.appendingPathComponent("Projects/valuable", isDirectory: true)
+        _ = try store.add(path: protected.path, kind: .protect, reason: "client data")
+
+        let document = store.exportDocument(exportedAt: Date(timeIntervalSince1970: 10))
+
+        XCTAssertEqual(document.schemaVersion, UserPathPolicyDocument.currentSchemaVersion)
+        XCTAssertEqual(document.rules.count, 1)
+        XCTAssertEqual(document.rules.first?.path, protected.standardizedFileURL.path)
+        XCTAssertTrue(document.nonClaims.contains { $0.contains("does not delete files") })
+        XCTAssertTrue(document.nonClaims.contains { $0.contains("private local paths") })
+
+        let exportURL = tempRoot.appendingPathComponent("policy-export.json")
+        try store.writeExport(document, to: exportURL)
+        let imported = try store.importDocument(from: exportURL)
+        XCTAssertEqual(imported.importedRuleCount, 1)
+        XCTAssertEqual(imported.finalRuleCount, 1)
+    }
+
+    func testUserPathPolicyImportMergesAndUpdatesMatchingRules() throws {
+        let sourceStore = UserPathPolicyStore(root: tempRoot.appendingPathComponent("SourceConfig", isDirectory: true))
+        let targetStore = UserPathPolicyStore(root: tempRoot.appendingPathComponent("TargetConfig", isDirectory: true))
+        let shared = tempRoot.appendingPathComponent("Projects/shared", isDirectory: true)
+        let retained = tempRoot.appendingPathComponent("Projects/local-only", isDirectory: true)
+        let importedExclude = tempRoot.appendingPathComponent("Caches/noisy", isDirectory: true)
+
+        _ = try targetStore.add(path: shared.path, kind: .protect, reason: "old reason")
+        _ = try targetStore.add(path: retained.path, kind: .protect, reason: "keep local")
+        _ = try sourceStore.add(path: shared.path, kind: .protect, reason: "new reason")
+        _ = try sourceStore.add(path: importedExclude.path, kind: .exclude, reason: "ignore churn")
+        let exportURL = tempRoot.appendingPathComponent("policy-export.json")
+        try sourceStore.writeExport(to: exportURL)
+
+        let result = try targetStore.importDocument(from: exportURL)
+        let policy = result.policy
+
+        XCTAssertEqual(result.mode, "merge")
+        XCTAssertEqual(policy.rules.count, 3)
+        XCTAssertEqual(policy.matchingRule(for: shared.path, kind: .protect)?.reason, "new reason")
+        XCTAssertEqual(policy.matchingRule(for: retained.path, kind: .protect)?.reason, "keep local")
+        XCTAssertEqual(policy.matchingRule(for: importedExclude.path, kind: .exclude)?.reason, "ignore churn")
+    }
+
+    func testUserPathPolicyImportCanReplaceExistingRules() throws {
+        let sourceStore = UserPathPolicyStore(root: tempRoot.appendingPathComponent("ReplaceSource", isDirectory: true))
+        let targetStore = UserPathPolicyStore(root: tempRoot.appendingPathComponent("ReplaceTarget", isDirectory: true))
+        let oldLocal = tempRoot.appendingPathComponent("Projects/local-only", isDirectory: true)
+        let imported = tempRoot.appendingPathComponent("Projects/imported", isDirectory: true)
+
+        _ = try targetStore.add(path: oldLocal.path, kind: .protect, reason: "drop on replace")
+        _ = try sourceStore.add(path: imported.path, kind: .protect, reason: "portable")
+        let exportURL = tempRoot.appendingPathComponent("replace-policy-export.json")
+        try sourceStore.writeExport(to: exportURL)
+
+        let result = try targetStore.importDocument(from: exportURL, merge: false)
+
+        XCTAssertEqual(result.mode, "replace")
+        XCTAssertEqual(result.policy.rules.count, 1)
+        XCTAssertNil(result.policy.matchingRule(for: oldLocal.path, kind: .protect))
+        XCTAssertEqual(result.policy.matchingRule(for: imported.path, kind: .protect)?.reason, "portable")
+    }
+
     func testScannerAppliesUserExclusionsAndDoesNotMeasureExcludedDescendants() throws {
         let include = tempRoot.appendingPathComponent("Root/include.bin")
         let excluded = tempRoot.appendingPathComponent("Root/Excluded/excluded.bin")

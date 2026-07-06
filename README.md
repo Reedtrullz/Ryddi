@@ -43,7 +43,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - report privacy controls for full, home-relative, or redacted paths plus user-entered reason redaction
 - active-handle review for cleanup candidates, with process summaries and failed-check visibility
 - Finder, Quick Look, Terminal, and copy-path actions in the app
-- local user protections and exclusions for paths Ryddi should preserve or ignore
+- local user protections and exclusions for paths Ryddi should preserve or ignore, with JSON import/export
 - large-file and old-file review signals
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
@@ -107,6 +107,8 @@ swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
 swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
 swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch
+swift run --scratch-path .build reclaimer policy export --output ryddi-policy.json
+swift run --scratch-path .build reclaimer policy import ryddi-policy.json
 swift run --scratch-path .build reclaimer plan --json
 swift run --scratch-path .build reclaimer plan --path Tests --output ryddi-plan-report.md
 swift run --scratch-path .build reclaimer plans export --path-style redacted --output ryddi-plan-report-redacted.md
@@ -152,9 +154,14 @@ swift run --scratch-path .build reclaimer policy list
 swift run --scratch-path .build reclaimer policy protect ~/Projects/KeepMe --reason "active work"
 swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch --reason "ignore churn"
 swift run --scratch-path .build reclaimer policy remove ~/Downloads/NoisyScratch --kind exclude
+swift run --scratch-path .build reclaimer policy export --output ryddi-user-path-policy.json
+swift run --scratch-path .build reclaimer policy import ryddi-user-path-policy.json
+swift run --scratch-path .build reclaimer policy import ryddi-user-path-policy.json --replace
 ```
 
 Protected paths stay visible but are forced to preserve-by-default/report-only and cannot be selected by cleanup plans. Excluded paths are skipped during scans and excluded from parent directory measurement. Use `--ignore-user-policy` only for debugging or fixture verification.
+
+Policy import merges by default: matching `kind + path` rules from the import update existing local entries, while unrelated local rules remain. Use `--replace` only when you want the imported file to become the whole policy. Policy exports can contain private local paths and user-entered reasons; importing a policy changes only Ryddi's local protection/exclusion rules and does not delete files, grant macOS permissions, or prove that imported paths still exist.
 
 ## Evidence Reports
 

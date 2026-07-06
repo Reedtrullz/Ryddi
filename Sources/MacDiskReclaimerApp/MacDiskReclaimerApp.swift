@@ -743,6 +743,30 @@ struct UserPathPolicyView: View {
                     MetricTile(title: "Policy file", value: UserPathPolicyStore().policyURL.lastPathComponent)
                 }
 
+                SectionBox(title: "Portability") {
+                    HStack {
+                        Button {
+                            Task { await model.exportUserPathPolicy() }
+                        } label: {
+                            Label("Export Policy", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(model.isWorking)
+
+                        Button {
+                            NSWorkspace.shared.activateFileViewerSelecting([UserPathPolicyStore().policyURL])
+                        } label: {
+                            Label("Reveal Policy File", systemImage: "folder")
+                        }
+                        .disabled(model.isWorking || model.userPathPolicy.rules.isEmpty)
+                    }
+                    if let url = model.lastPolicyExportURL {
+                        Text(url.path)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+
                 policySection(kind: .protect)
                 policySection(kind: .exclude)
 
@@ -2166,6 +2190,7 @@ final class DashboardModel {
     var lastPlanReportExportURL: URL?
     var lastReceiptReportExportURL: URL?
     var lastGrowthReportExportURL: URL?
+    var lastPolicyExportURL: URL?
     var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.developerAgentBloat(includeUnavailable: true))
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
@@ -2444,6 +2469,21 @@ final class DashboardModel {
                 return try ReportStore().save(growthReport: report)
             }.value
             lastGrowthReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportUserPathPolicy() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let url = try await Task.detached {
+                let document = UserPathPolicyStore().exportDocument()
+                return try ReportStore().save(userPathPolicyDocument: document)
+            }.value
+            lastPolicyExportURL = url
             error = nil
         } catch {
             self.error = error.localizedDescription

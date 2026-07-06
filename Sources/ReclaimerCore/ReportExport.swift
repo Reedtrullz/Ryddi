@@ -264,10 +264,14 @@ public enum EvidenceReportBuilder {
 public final class ReportStore: @unchecked Sendable {
     private let root: URL
     private let fileManager: FileManager
+    private let encoder: JSONEncoder
 
     public init(root: URL = ReportStore.defaultRoot(), fileManager: FileManager = .default) {
         self.root = root
         self.fileManager = fileManager
+        self.encoder = JSONEncoder()
+        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        self.encoder.dateEncodingStrategy = .iso8601
     }
 
     public static func defaultRoot() -> URL {
@@ -307,6 +311,14 @@ public final class ReportStore: @unchecked Sendable {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent("growth-report-\(report.currentSnapshotID)-\(report.id).md")
         try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    @discardableResult
+    public func save(userPathPolicyDocument document: UserPathPolicyDocument) throws -> URL {
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("user-path-policy-\(document.id).json")
+        try encoder.encode(document).write(to: url, options: .atomic)
         return url
     }
 }
