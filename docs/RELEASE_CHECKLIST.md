@@ -26,9 +26,9 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer permissions --json --path Tests` reports a permission coverage level, scope counts, recommended actions, and non-claims.
 - [ ] `reclaimer permissions guide --path Tests --output permissions-guide.md` writes a first-run walkthrough with Full Disk Access steps, rescan/report-only commands, affected scopes, and non-claims.
 - [ ] `reclaimer active --path Tests --json --save-audit` reports cleanup-relevant active-handle candidates, saves a local audit record, and does not quit processes or execute cleanup.
-- [ ] `reclaimer overview --path Tests --limit 5` prints a bounded overview.
-- [ ] `reclaimer overview --path Tests --limit 5` includes owner/app/tool summaries.
-- [ ] `reclaimer overview --json --path Tests --limit 5` includes bounded `mapNodes` and `ownerSummaries`.
+- [ ] `reclaimer overview --path Tests --limit 5 --sort reclaim --group safety` prints a bounded overview with grouped top-offender rows and conservative reclaim estimates.
+- [ ] `reclaimer overview --path Tests --limit 5 --sort reclaim --group safety` includes owner/app/tool summaries.
+- [ ] `reclaimer overview --json --path Tests --limit 5 --sort reclaim --group safety` includes bounded `mapNodes`, `ownerSummaries`, and `topOffenderTable`.
 - [ ] `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` emits hierarchical `rootNodes`, bounded child rows, omitted-child summaries, and non-claims without creating a cleanup plan.
 - [ ] `reclaimer report --path Tests --limit 5 --output REPORT.md` writes a local Markdown report with scan coverage, top findings, user policy, accounting notes, and non-claims without executing cleanup.
 - [ ] `reclaimer report --path Tests --path-style redacted --redact-user-text --output REPORT.md` writes a local Markdown report without full local paths or user-entered policy reasons.

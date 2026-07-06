@@ -381,7 +381,66 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(overview.ownerSummaries.isEmpty)
         XCTAssertTrue(overview.ownerSummaries.contains { $0.ownerName == "Codex" })
         XCTAssertLessThanOrEqual(overview.topFindings.count, 3)
+        XCTAssertLessThanOrEqual(overview.topOffenderTable.rows.count, 3)
+        XCTAssertEqual(overview.topOffenderTable.sort, .allocated)
+        XCTAssertEqual(overview.topOffenderTable.group, .none)
         XCTAssertFalse(overview.accountingNotes.isEmpty)
+    }
+
+    func testTopOffenderTableSortsGroupsAndConservativelyEstimatesReclaim() throws {
+        let cache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 100,
+            isDirectory: true,
+            category: "Codex Cache",
+            ownerHint: "Codex"
+        )
+        let review = finding(
+            path: tempRoot.appendingPathComponent("Downloads/Big Installer.dmg").path,
+            safety: .reviewRequired,
+            action: .openGuidance,
+            open: false,
+            allocatedSize: 800,
+            category: "Downloads"
+        )
+        let nativeTool = finding(
+            path: tempRoot.appendingPathComponent(".colima/default/disk.img").path,
+            safety: .safeAfterCondition,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 500,
+            category: "Container VM"
+        )
+        let openCache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Browser/open-cache").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: true,
+            allocatedSize: 400,
+            isDirectory: true,
+            category: "Browser Cache"
+        )
+
+        let table = FindingAnalytics.topOffenderTable(
+            findings: [review, nativeTool, openCache, cache],
+            sort: .reclaim,
+            group: .safety,
+            limit: 10,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(table.rows.first?.path, cache.path)
+        XCTAssertEqual(table.rows.first?.estimatedImmediateReclaim, 100)
+        XCTAssertEqual(table.rows.first?.confidence, .high)
+        XCTAssertEqual(table.estimatedImmediateReclaim, 100)
+        XCTAssertTrue(table.rows.contains { $0.path == openCache.path && $0.estimatedImmediateReclaim == 0 && $0.confidence == .blocked })
+        XCTAssertTrue(table.rows.contains { $0.path == nativeTool.path && $0.reclaimabilityLabel == "Use native tool" })
+        let autoSafeSection = try XCTUnwrap(table.sections.first { $0.title == SafetyClass.autoSafe.label })
+        XCTAssertEqual(autoSafeSection.estimatedImmediateReclaim, 100)
+        XCTAssertTrue(table.nonClaims.contains { $0.contains("auto-safe trash/cache actions") })
     }
 
     func testDiskDrillDownBuildsHierarchyAndOmittedChildSummary() throws {

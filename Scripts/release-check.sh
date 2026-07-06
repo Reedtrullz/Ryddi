@@ -221,10 +221,15 @@ grep -q "Full Disk Access" "$scratch/permissions-guide.md"
 grep -q "does not grant macOS permissions" "$scratch/permissions-guide.md"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" active --json --path "$root/Tests" --min-size 1 --max-depth 1 --limit 5 --save-audit >"$scratch/active-smoke.json"
 grep -q '"candidateCount"' "$scratch/active-smoke.json"
-"$app/Contents/MacOS/reclaimer" overview --path "$root/Tests" --limit 5 >"$scratch/overview-smoke.txt"
+"$app/Contents/MacOS/reclaimer" overview --path "$root/Tests" --limit 5 --sort reclaim --group safety >"$scratch/overview-smoke.txt"
 grep -q "By owner" "$scratch/overview-smoke.txt"
-"$app/Contents/MacOS/reclaimer" overview --json --path "$root/Tests" --limit 5 >"$scratch/overview-smoke.json"
+grep -q "Estimated immediate reclaim" "$scratch/overview-smoke.txt"
+grep -q "Top-offender non-claims" "$scratch/overview-smoke.txt"
+"$app/Contents/MacOS/reclaimer" overview --json --path "$root/Tests" --limit 5 --sort reclaim --group safety >"$scratch/overview-smoke.json"
 grep -q '"ownerSummaries"' "$scratch/overview-smoke.json"
+grep -q '"topOffenderTable"' "$scratch/overview-smoke.json"
+grep -q '"estimatedImmediateReclaim"' "$scratch/overview-smoke.json"
+grep -q '"group" : "safety"' "$scratch/overview-smoke.json"
 "$app/Contents/MacOS/reclaimer" drilldown --json --path "$drill_fixture" --min-size 1 --max-depth 4 --tree-depth 4 --limit 1 >"$scratch/drilldown-smoke.json"
 grep -q '"rootNodes"' "$scratch/drilldown-smoke.json"
 grep -q '"children"' "$scratch/drilldown-smoke.json"
@@ -371,7 +376,7 @@ Verification performed:
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
-- bundled reclaimer overview --path Tests --limit 5
+- bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
 - bundled reclaimer drilldown --json on disposable nested fixture
 - bundled reclaimer apps uninstall-preview on a disposable app fixture, with redacted Markdown and saved JSON audit
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md

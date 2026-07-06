@@ -2419,17 +2419,6 @@ struct MetricTile: View {
     }
 }
 
-enum TopOffenderSort: String, CaseIterable, Identifiable {
-    case allocated = "Allocated"
-    case logical = "Logical"
-    case age = "Age"
-    case risk = "Risk"
-    case category = "Category"
-    case scope = "Scope"
-
-    var id: String { rawValue }
-}
-
 struct PermissionCoverageView: View {
     let report: PermissionAdvisorReport
 
@@ -2900,99 +2889,180 @@ struct TopOffendersView: View {
     let findings: [Finding]
     let plan: ReclaimPlan?
     @State private var sort = TopOffenderSort.allocated
+    @State private var group = TopOffenderGroup.none
 
-    private var sortedFindings: [Finding] {
-        findings.sorted { lhs, rhs in
-            switch sort {
-            case .logical:
-                return compare(lhs.logicalSize, rhs.logicalSize, lhs.path, rhs.path)
-            case .age:
-                return compare(Int64(lhs.ageInDays() ?? -1), Int64(rhs.ageInDays() ?? -1), lhs.path, rhs.path)
-            case .risk:
-                if lhs.safetyClass.riskRank == rhs.safetyClass.riskRank {
-                    return lhs.allocatedSize > rhs.allocatedSize
-                }
-                return lhs.safetyClass.riskRank < rhs.safetyClass.riskRank
-            case .category:
-                if lhs.primaryCategory == rhs.primaryCategory {
-                    return lhs.allocatedSize > rhs.allocatedSize
-                }
-                return lhs.primaryCategory < rhs.primaryCategory
-            case .scope:
-                if lhs.scopeName == rhs.scopeName {
-                    return lhs.allocatedSize > rhs.allocatedSize
-                }
-                return lhs.scopeName < rhs.scopeName
-            case .allocated:
-                return compare(lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
-            }
+    private var table: TopOffenderTable {
+        FindingAnalytics.topOffenderTable(findings: findings, sort: sort, group: group, limit: 80)
+    }
+
+    private var displayedRows: [TopOffenderRow] {
+        Array(table.rows.prefix(14))
+    }
+
+    private var displayedSections: [TopOffenderGroupSection] {
+        table.sections.map { section in
+            TopOffenderGroupSection(group: section.group, key: section.key, title: section.title, rows: Array(section.rows.prefix(8)))
         }
+    }
+
+    private var selectedPlanIDs: Set<Finding.ID> {
+        Set(plan?.items.filter(\.selected).map { $0.finding.id } ?? [])
     }
 
     var body: some View {
         SectionBox(title: "Top Offenders") {
-            Picker("Sort", selection: $sort) {
-                ForEach(TopOffenderSort.allCases) { option in
-                    Text(option.rawValue).tag(option)
+            HStack(spacing: 12) {
+                Picker("Sort", selection: $sort) {
+                    ForEach(TopOffenderSort.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
                 }
+                .pickerStyle(.menu)
+
+                Picker("Group", selection: $group) {
+                    ForEach(TopOffenderGroup.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Spacer()
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+
+            HStack(spacing: 10) {
+                MetricTile(title: "Rows", value: "\(table.rowCount)")
+                MetricTile(title: "Estimated Reclaim", value: ByteFormat.string(table.estimatedImmediateReclaim))
+                MetricTile(title: "Allocated", value: ByteFormat.string(table.allocatedSize))
+            }
 
             VStack(spacing: 0) {
-                HStack {
-                    Text("Size").frame(width: 92, alignment: .leading)
-                    Text("Safety").frame(width: 150, alignment: .leading)
-                    Text("Category").frame(width: 130, alignment: .leading)
-                    Text("Age").frame(width: 56, alignment: .leading)
-                    Text("Path")
-                    Spacer()
-                    Text("Actions").frame(width: 132, alignment: .trailing)
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 6)
-
-                ForEach(sortedFindings.prefix(14)) { finding in
-                    Divider()
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(ByteFormat.string(finding.allocatedSize))
-                            Text(ByteFormat.string(finding.logicalSize))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(width: 92, alignment: .leading)
-                        SafetyBadge(safetyClass: finding.safetyClass)
-                            .frame(width: 150, alignment: .leading)
-                        Text(finding.primaryCategory)
-                            .frame(width: 130, alignment: .leading)
-                        Text(finding.ageInDays().map { "\($0)d" } ?? "-")
-                            .frame(width: 56, alignment: .leading)
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(finding.displayName)
-                                .lineLimit(1)
-                            Text(finding.path)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        FindingActionButtons(finding: finding)
-                            .frame(width: 132, alignment: .trailing)
+                TopOffenderHeader()
+                if group == .none {
+                    ForEach(displayedRows) { row in
+                        TopOffenderRowView(row: row, isSelectedInPlan: selectedPlanIDs.contains(row.finding.id))
                     }
-                    .padding(.vertical, 7)
+                } else {
+                    ForEach(displayedSections) { section in
+                        Divider()
+                        HStack {
+                            Text(section.title)
+                                .font(.caption.weight(.semibold))
+                            Text("\(section.count) item(s)")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(ByteFormat.string(section.estimatedImmediateReclaim))
+                                .foregroundStyle(section.estimatedImmediateReclaim > 0 ? .green : .secondary)
+                                .monospacedDigit()
+                            Text(ByteFormat.string(section.allocatedSize))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .font(.caption)
+                        .padding(.top, 8)
+                        .padding(.bottom, 2)
+                        ForEach(section.rows) { row in
+                            TopOffenderRowView(row: row, isSelectedInPlan: selectedPlanIDs.contains(row.finding.id))
+                        }
+                    }
                 }
+            }
+
+            ForEach(table.nonClaims, id: \.self) { note in
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
+}
 
-    private func compare(_ lhsValue: Int64, _ rhsValue: Int64, _ lhsPath: String, _ rhsPath: String) -> Bool {
-        if lhsValue == rhsValue {
-            return lhsPath < rhsPath
+struct TopOffenderHeader: View {
+    var body: some View {
+        HStack {
+            Text("Reclaim").frame(width: 86, alignment: .leading)
+            Text("Size").frame(width: 86, alignment: .leading)
+            Text("Confidence").frame(width: 92, alignment: .leading)
+            Text("Safety").frame(width: 150, alignment: .leading)
+            Text("Category").frame(width: 130, alignment: .leading)
+            Text("Owner").frame(width: 110, alignment: .leading)
+            Text("Age").frame(width: 48, alignment: .leading)
+            Text("Path")
+            Spacer()
+            Text("Actions").frame(width: 132, alignment: .trailing)
         }
-        return lhsValue > rhsValue
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 6)
+    }
+}
+
+struct TopOffenderRowView: View {
+    let row: TopOffenderRow
+    let isSelectedInPlan: Bool
+
+    var body: some View {
+        Divider()
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ByteFormat.string(row.estimatedImmediateReclaim))
+                    .foregroundStyle(row.estimatedImmediateReclaim > 0 ? .green : .secondary)
+                Text(row.reclaimabilityLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(width: 86, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ByteFormat.string(row.allocatedSize))
+                Text(ByteFormat.string(row.logicalSize))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 86, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.confidence.label)
+                    .foregroundStyle(confidenceColor)
+                if isSelectedInPlan {
+                    Text("In plan")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                }
+            }
+            .frame(width: 92, alignment: .leading)
+            SafetyBadge(safetyClass: row.safetyClass)
+                .frame(width: 150, alignment: .leading)
+            Text(row.category)
+                .frame(width: 130, alignment: .leading)
+                .lineLimit(1)
+            Text(row.ownerName)
+                .frame(width: 110, alignment: .leading)
+                .lineLimit(1)
+            Text(row.ageDays.map { "\($0)d" } ?? "-")
+                .frame(width: 48, alignment: .leading)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.displayName)
+                    .lineLimit(1)
+                Text(row.path)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            FindingActionButtons(finding: row.finding)
+                .frame(width: 132, alignment: .trailing)
+        }
+        .padding(.vertical, 7)
+    }
+
+    private var confidenceColor: Color {
+        switch row.confidence {
+        case .high: .green
+        case .conditional: .blue
+        case .review: .orange
+        case .protected: .purple
+        case .blocked: .red
+        }
     }
 }
 

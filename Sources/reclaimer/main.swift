@@ -108,7 +108,13 @@ struct ReclaimerCLI {
         let scopes = try options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
-        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        let overview = FindingAnalytics.overview(
+            findings: findings,
+            scopes: scopes,
+            topLimit: options.limit,
+            offenderSort: try options.topOffenderSort(),
+            offenderGroup: try options.topOffenderGroup()
+        )
         if options.saveHistory {
             let url = try ScanHistoryStore().save(overview: overview)
             FileHandle.standardError.write(Data("saved scan snapshot: \(url.path)\n".utf8))
@@ -941,7 +947,10 @@ struct ReclaimerCLI {
               scan [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
-              overview [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-history] [--ignore-user-policy] [--include-user-rules]
+              overview [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
+                       [--sort size|logical|reclaim|age|risk|category|safety|scope|owner|action]
+                       [--group none|category|safety|owner|scope|action]
+                       [--save-history] [--ignore-user-policy] [--include-user-rules]
               drilldown [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N]
                         [--tree-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               rules [--json] [--include-user-rules]
@@ -1123,6 +1132,23 @@ struct ParsedOptions {
             throw CLIError.message("--preset must be one of: \(allowed)")
         }
         return preset
+    }
+
+    func topOffenderSort() throws -> TopOffenderSort {
+        guard let offenderSort = TopOffenderSort.parse(sort) else {
+            let allowed = (["size"] + TopOffenderSort.allCases.map(\.rawValue)).joined(separator: ", ")
+            throw CLIError.message("--sort must be one of: \(allowed)")
+        }
+        return offenderSort
+    }
+
+    func topOffenderGroup() throws -> TopOffenderGroup {
+        guard let raw = group else { return .none }
+        guard let offenderGroup = TopOffenderGroup(rawValue: raw) else {
+            let allowed = TopOffenderGroup.allCases.map(\.rawValue).joined(separator: ", ")
+            throw CLIError.message("--group must be one of: \(allowed)")
+        }
+        return offenderGroup
     }
 
     func scopePlan(includeUnavailable: Bool = false) throws -> ScanScopePlan {
@@ -1400,11 +1426,45 @@ func printOverview(_ overview: ScanOverview) {
     }
 
     print("\nTop offenders")
-    printFindingRows(overview.topFindings)
+    printTopOffenderTable(overview.topOffenderTable)
 
     print("\nAPFS/accounting notes")
     for note in overview.accountingNotes {
         print("- \(note)")
+    }
+}
+
+func printTopOffenderTable(_ table: TopOffenderTable) {
+    print("Sort: \(table.sort.label); group: \(table.group.label); rows: \(table.rowCount)/\(table.limit)")
+    print("Estimated immediate reclaim: \(ByteFormat.string(table.estimatedImmediateReclaim))")
+    if table.rows.isEmpty {
+        print("No top offender rows matched the current scan.")
+    } else if table.group == .none {
+        printTopOffenderRows(table.rows)
+    } else {
+        for section in table.sections {
+            print(
+                "\n\(section.title) - \(section.count) item(s), \(ByteFormat.string(section.allocatedSize)) allocated, \(ByteFormat.string(section.estimatedImmediateReclaim)) reclaim"
+            )
+            printTopOffenderRows(section.rows)
+        }
+    }
+
+    print("\nTop-offender non-claims")
+    for note in table.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printTopOffenderRows(_ rows: [TopOffenderRow]) {
+    print(
+        "\(pad("Reclaim", 11)) \(pad("Allocated", 11)) \(pad("Age", 6)) \(pad("Confidence", 12)) \(pad("Safety", 22)) \(pad("Category", 18)) \(pad("Owner", 16)) \(pad("Action", 16)) Path"
+    )
+    for row in rows {
+        let age = row.ageDays.map { "\($0)d" } ?? "-"
+        print(
+            "\(pad(ByteFormat.string(row.estimatedImmediateReclaim), 11)) \(pad(ByteFormat.string(row.allocatedSize), 11)) \(pad(age, 6)) \(pad(row.confidence.label, 12)) \(pad(row.safetyClass.label, 22)) \(pad(row.category, 18)) \(pad(row.ownerName, 16)) \(pad(row.actionKind.label, 16)) \(row.path)"
+        )
     }
 }
 

@@ -106,6 +106,294 @@ public struct OwnerStorageSummary: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public enum TopOffenderSort: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case allocated
+    case logical
+    case reclaim
+    case age
+    case risk
+    case category
+    case safety
+    case scope
+    case owner
+    case action
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .allocated: "Allocated"
+        case .logical: "Logical"
+        case .reclaim: "Reclaim"
+        case .age: "Age"
+        case .risk: "Risk"
+        case .category: "Category"
+        case .safety: "Safety"
+        case .scope: "Scope"
+        case .owner: "Owner"
+        case .action: "Action"
+        }
+    }
+
+    public static func parse(_ rawValue: String) -> TopOffenderSort? {
+        switch rawValue {
+        case "size", "allocated":
+            .allocated
+        default:
+            TopOffenderSort(rawValue: rawValue)
+        }
+    }
+}
+
+public enum TopOffenderGroup: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case none
+    case category
+    case safety
+    case owner
+    case scope
+    case action
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .none: "No grouping"
+        case .category: "Category"
+        case .safety: "Safety"
+        case .owner: "Owner"
+        case .scope: "Scope"
+        case .action: "Action"
+        }
+    }
+}
+
+public enum TopOffenderConfidence: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case high
+    case conditional
+    case review
+    case protected
+    case blocked
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .high: "High"
+        case .conditional: "Conditional"
+        case .review: "Review"
+        case .protected: "Protected"
+        case .blocked: "Blocked"
+        }
+    }
+
+    public var rank: Int {
+        switch self {
+        case .high: 0
+        case .conditional: 1
+        case .review: 2
+        case .protected: 3
+        case .blocked: 4
+        }
+    }
+}
+
+public struct TopOffenderRow: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { finding.id }
+    public let finding: Finding
+    public let path: String
+    public let displayName: String
+    public let scopeName: String
+    public let category: String
+    public let ownerName: String
+    public let safetyClass: SafetyClass
+    public let actionKind: ActionKind
+    public let logicalSize: Int64
+    public let allocatedSize: Int64
+    public let estimatedImmediateReclaim: Int64
+    public let ageDays: Int?
+    public let confidence: TopOffenderConfidence
+    public let reclaimabilityLabel: String
+    public let evidenceSummary: String
+
+    public init(finding: Finding, referenceDate: Date = Date()) {
+        self.finding = finding
+        path = finding.path
+        displayName = finding.displayName
+        scopeName = finding.scopeName
+        category = finding.primaryCategory
+        ownerName = TopOffenderRow.ownerName(for: finding)
+        safetyClass = finding.safetyClass
+        actionKind = finding.actionKind
+        logicalSize = finding.logicalSize
+        allocatedSize = finding.allocatedSize
+        ageDays = finding.ageInDays(referenceDate: referenceDate)
+        estimatedImmediateReclaim = TopOffenderRow.estimatedImmediateReclaim(for: finding)
+        confidence = TopOffenderRow.confidence(for: finding, estimatedImmediateReclaim: estimatedImmediateReclaim)
+        reclaimabilityLabel = TopOffenderRow.reclaimabilityLabel(
+            for: finding,
+            estimatedImmediateReclaim: estimatedImmediateReclaim,
+            confidence: confidence
+        )
+        evidenceSummary = TopOffenderRow.evidenceSummary(for: finding)
+    }
+
+    private static func estimatedImmediateReclaim(for finding: Finding) -> Int64 {
+        if finding.openFileStatus?.isOpen == true || finding.openFileStatus?.checkFailed != nil {
+            return 0
+        }
+        guard finding.safetyClass == .autoSafe else { return 0 }
+        guard [.deleteCache, .trash].contains(finding.actionKind) else { return 0 }
+        return finding.allocatedSize
+    }
+
+    private static func confidence(for finding: Finding, estimatedImmediateReclaim: Int64) -> TopOffenderConfidence {
+        if finding.openFileStatus?.isOpen == true || finding.openFileStatus?.checkFailed != nil {
+            return .blocked
+        }
+        if estimatedImmediateReclaim > 0 {
+            return .high
+        }
+        switch finding.safetyClass {
+        case .autoSafe, .safeAfterCondition:
+            return .conditional
+        case .reviewRequired:
+            return .review
+        case .preserveByDefault, .neverTouch:
+            return .protected
+        }
+    }
+
+    private static func reclaimabilityLabel(
+        for finding: Finding,
+        estimatedImmediateReclaim: Int64,
+        confidence: TopOffenderConfidence
+    ) -> String {
+        if confidence == .blocked {
+            if finding.openFileStatus?.isOpen == true {
+                return "Quit app first"
+            }
+            return "Open check failed"
+        }
+        if estimatedImmediateReclaim > 0 {
+            return "Can reclaim"
+        }
+        if finding.actionKind == .nativeToolCommand {
+            return "Use native tool"
+        }
+        if finding.safetyClass == .reviewRequired {
+            return "Review"
+        }
+        if [.preserveByDefault, .neverTouch].contains(finding.safetyClass) {
+            return "Keep"
+        }
+        return "Conditional"
+    }
+
+    private static func ownerName(for finding: Finding) -> String {
+        if let ownerHint = finding.ownerHint?.trimmingCharacters(in: .whitespacesAndNewlines), !ownerHint.isEmpty {
+            return ownerHint
+        }
+        let category = finding.primaryCategory.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !category.isEmpty && category != "Unknown" {
+            return category
+        }
+        let scopeName = finding.scopeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !scopeName.isEmpty {
+            return scopeName
+        }
+        return "Unknown"
+    }
+
+    private static func evidenceSummary(for finding: Finding) -> String {
+        if let match = finding.ruleMatches.first {
+            if let evidence = match.evidence.first, !evidence.isEmpty {
+                return "\(match.title): \(evidence)"
+            }
+            return match.title
+        }
+        if let evidence = finding.evidence.first {
+            return evidence.message
+        }
+        return "No rule evidence recorded."
+    }
+}
+
+public struct TopOffenderGroupSection: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { "\(group.rawValue):\(key)" }
+    public let group: TopOffenderGroup
+    public let key: String
+    public let title: String
+    public let count: Int
+    public let logicalSize: Int64
+    public let allocatedSize: Int64
+    public let estimatedImmediateReclaim: Int64
+    public let rows: [TopOffenderRow]
+
+    public init(group: TopOffenderGroup, key: String, title: String, rows: [TopOffenderRow]) {
+        self.group = group
+        self.key = key
+        self.title = title
+        self.count = rows.count
+        self.logicalSize = rows.reduce(0) { $0 + $1.logicalSize }
+        self.allocatedSize = rows.reduce(0) { $0 + $1.allocatedSize }
+        self.estimatedImmediateReclaim = rows.reduce(0) { $0 + $1.estimatedImmediateReclaim }
+        self.rows = rows
+    }
+}
+
+public struct TopOffenderTable: Codable, Hashable, Sendable {
+    public let generatedAt: Date
+    public let sort: TopOffenderSort
+    public let group: TopOffenderGroup
+    public let limit: Int
+    public let rowCount: Int
+    public let logicalSize: Int64
+    public let allocatedSize: Int64
+    public let estimatedImmediateReclaim: Int64
+    public let rows: [TopOffenderRow]
+    public let sections: [TopOffenderGroupSection]
+    public let nonClaims: [String]
+
+    public init(
+        generatedAt: Date,
+        sort: TopOffenderSort,
+        group: TopOffenderGroup,
+        limit: Int,
+        rows: [TopOffenderRow],
+        sections: [TopOffenderGroupSection],
+        nonClaims: [String] = TopOffenderTable.defaultNonClaims
+    ) {
+        self.generatedAt = generatedAt
+        self.sort = sort
+        self.group = group
+        self.limit = limit
+        self.rowCount = rows.count
+        self.logicalSize = rows.reduce(0) { $0 + $1.logicalSize }
+        self.allocatedSize = rows.reduce(0) { $0 + $1.allocatedSize }
+        self.estimatedImmediateReclaim = rows.reduce(0) { $0 + $1.estimatedImmediateReclaim }
+        self.rows = rows
+        self.sections = sections
+        self.nonClaims = nonClaims
+    }
+
+    public static let defaultNonClaims = [
+        "Top offender rows use non-overlapping scan findings to avoid known parent/child double-counting.",
+        "Estimated immediate reclaim only counts auto-safe trash/cache actions and is still subject to final open-file, permission, Trash, APFS, and snapshot behavior.",
+        "Protected, history, app state, document, VM/container, and native-tool-managed data can be large without being counted as immediate reclaim."
+    ]
+
+    public static func empty(generatedAt: Date = Date()) -> TopOffenderTable {
+        TopOffenderTable(
+            generatedAt: generatedAt,
+            sort: .allocated,
+            group: .none,
+            limit: 0,
+            rows: [],
+            sections: []
+        )
+    }
+}
+
 public struct ScanOverview: Codable, Hashable, Sendable {
     public let generatedAt: Date
     public let findingCount: Int
@@ -121,6 +409,7 @@ public struct ScanOverview: Codable, Hashable, Sendable {
     public let mapNodes: [DiskMapNode]
     public let ownerSummaries: [OwnerStorageSummary]
     public let topFindings: [Finding]
+    public let topOffenderTable: TopOffenderTable
     public let accountingNotes: [String]
 
     public init(
@@ -138,6 +427,7 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         mapNodes: [DiskMapNode],
         ownerSummaries: [OwnerStorageSummary],
         topFindings: [Finding],
+        topOffenderTable: TopOffenderTable? = nil,
         accountingNotes: [String]
     ) {
         self.generatedAt = generatedAt
@@ -154,6 +444,7 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         self.mapNodes = mapNodes
         self.ownerSummaries = ownerSummaries
         self.topFindings = topFindings
+        self.topOffenderTable = topOffenderTable ?? TopOffenderTable.empty(generatedAt: generatedAt)
         self.accountingNotes = accountingNotes
     }
 }
@@ -248,6 +539,8 @@ public enum FindingAnalytics {
         findings: [Finding],
         scopes: [ScanScope],
         topLimit: Int = 20,
+        offenderSort: TopOffenderSort = .allocated,
+        offenderGroup: TopOffenderGroup = .none,
         now: Date = Date(),
         fileManager: FileManager = .default
     ) -> ScanOverview {
@@ -263,6 +556,13 @@ public enum FindingAnalytics {
         let protected = accountingFindings
             .filter { [.preserveByDefault, .neverTouch].contains($0.safetyClass) }
             .reduce(0) { $0 + $1.allocatedSize }
+        let offenderTable = topOffenderTable(
+            findings: findings,
+            sort: offenderSort,
+            group: offenderGroup,
+            limit: topLimit,
+            now: now
+        )
 
         return ScanOverview(
             generatedAt: now,
@@ -278,8 +578,31 @@ public enum FindingAnalytics {
             scopeSummaries: scopeSummaries(scopes: scopes, fileManager: fileManager),
             mapNodes: mapNodes(from: accountingFindings),
             ownerSummaries: ownerSummaries(from: ownerAttributionFindings(findings)),
-            topFindings: Array(findings.sorted(by: sortByAllocatedThenPath).prefix(topLimit)),
+            topFindings: offenderTable.rows.map(\.finding),
+            topOffenderTable: offenderTable,
             accountingNotes: accountingNotes(logicalSize: totalLogical, allocatedSize: totalAllocated)
+        )
+    }
+
+    public static func topOffenderTable(
+        findings: [Finding],
+        sort: TopOffenderSort = .allocated,
+        group: TopOffenderGroup = .none,
+        limit: Int = 25,
+        now: Date = Date()
+    ) -> TopOffenderTable {
+        let rows = nonOverlappingFindings(findings).map { TopOffenderRow(finding: $0, referenceDate: now) }
+        let sortedRows = rows.sorted { lhs, rhs in
+            compareTopOffenderRows(lhs, rhs, sort: sort)
+        }
+        let limitedRows = Array(sortedRows.prefix(max(0, limit)))
+        return TopOffenderTable(
+            generatedAt: now,
+            sort: sort,
+            group: group,
+            limit: limit,
+            rows: limitedRows,
+            sections: topOffenderSections(from: limitedRows, group: group)
         )
     }
 
@@ -484,6 +807,115 @@ public enum FindingAnalytics {
     private static func dominantCategory(in findings: [Finding]) -> String {
         let categories = bucket(findings, by: { $0.primaryCategory })
         return categories.first?.name ?? "Unknown"
+    }
+
+    private static func topOffenderSections(
+        from rows: [TopOffenderRow],
+        group: TopOffenderGroup
+    ) -> [TopOffenderGroupSection] {
+        guard group != .none else { return [] }
+        let grouped = Dictionary(grouping: rows) { row in
+            topOffenderGroupKey(row, group: group)
+        }
+        return grouped.map { key, groupRows in
+            TopOffenderGroupSection(
+                group: group,
+                key: key,
+                title: topOffenderGroupTitle(key, group: group),
+                rows: groupRows.sorted { lhs, rhs in
+                    compareTopOffenderRows(lhs, rhs, sort: .allocated)
+                }
+            )
+        }
+        .sorted {
+            if $0.allocatedSize == $1.allocatedSize {
+                return $0.title < $1.title
+            }
+            return $0.allocatedSize > $1.allocatedSize
+        }
+    }
+
+    private static func topOffenderGroupKey(_ row: TopOffenderRow, group: TopOffenderGroup) -> String {
+        switch group {
+        case .none: "all"
+        case .category: row.category
+        case .safety: row.safetyClass.rawValue
+        case .owner: row.ownerName
+        case .scope: row.scopeName
+        case .action: row.actionKind.rawValue
+        }
+    }
+
+    private static func topOffenderGroupTitle(_ key: String, group: TopOffenderGroup) -> String {
+        switch group {
+        case .none:
+            return "All"
+        case .safety:
+            return SafetyClass(rawValue: key)?.label ?? key
+        case .action:
+            return ActionKind(rawValue: key)?.label ?? key
+        default:
+            return key
+        }
+    }
+
+    private static func compareTopOffenderRows(
+        _ lhs: TopOffenderRow,
+        _ rhs: TopOffenderRow,
+        sort: TopOffenderSort
+    ) -> Bool {
+        switch sort {
+        case .allocated:
+            return compareNumeric(lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+        case .logical:
+            return compareNumeric(lhs.logicalSize, rhs.logicalSize, lhs.path, rhs.path)
+        case .reclaim:
+            if lhs.estimatedImmediateReclaim == rhs.estimatedImmediateReclaim {
+                return compareNumeric(lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+            }
+            return lhs.estimatedImmediateReclaim > rhs.estimatedImmediateReclaim
+        case .age:
+            return compareNumeric(Int64(lhs.ageDays ?? -1), Int64(rhs.ageDays ?? -1), lhs.path, rhs.path)
+        case .risk:
+            if lhs.safetyClass.riskRank == rhs.safetyClass.riskRank {
+                return compareNumeric(lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+            }
+            return lhs.safetyClass.riskRank < rhs.safetyClass.riskRank
+        case .category:
+            return compareText(lhs.category, rhs.category, lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+        case .safety:
+            if lhs.safetyClass.riskRank == rhs.safetyClass.riskRank {
+                return compareNumeric(lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+            }
+            return lhs.safetyClass.riskRank < rhs.safetyClass.riskRank
+        case .scope:
+            return compareText(lhs.scopeName, rhs.scopeName, lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+        case .owner:
+            return compareText(lhs.ownerName, rhs.ownerName, lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+        case .action:
+            return compareText(lhs.actionKind.label, rhs.actionKind.label, lhs.allocatedSize, rhs.allocatedSize, lhs.path, rhs.path)
+        }
+    }
+
+    private static func compareText(
+        _ lhsText: String,
+        _ rhsText: String,
+        _ lhsSize: Int64,
+        _ rhsSize: Int64,
+        _ lhsPath: String,
+        _ rhsPath: String
+    ) -> Bool {
+        if lhsText == rhsText {
+            return compareNumeric(lhsSize, rhsSize, lhsPath, rhsPath)
+        }
+        return lhsText.localizedCaseInsensitiveCompare(rhsText) == .orderedAscending
+    }
+
+    private static func compareNumeric(_ lhsValue: Int64, _ rhsValue: Int64, _ lhsPath: String, _ rhsPath: String) -> Bool {
+        if lhsValue == rhsValue {
+            return lhsPath < rhsPath
+        }
+        return lhsValue > rhsValue
     }
 
     private static func accountingNotes(logicalSize: Int64, allocatedSize: Int64) -> [String] {

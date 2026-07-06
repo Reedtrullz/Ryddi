@@ -31,7 +31,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 
 ## What It Handles
 
-- top-offender overview with category, owner/app/tool, safety, age, logical size, and allocated size
+- sortable top-offender overview with category, owner/app/tool, safety, age, logical size, allocated size, confidence, and conservative reclaim estimate
 - scan presets for Developer, General Mac, and All roots, plus scope preview before scanning
 - saved custom scope sets for repeatable general cleanup, project review, or developer maintenance scans
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
@@ -103,6 +103,7 @@ swift run --scratch-path .build reclaimer scopes saved add "Weekly General" --pa
 swift run --scratch-path .build reclaimer scopes --scope-set "Weekly General"
 swift run --scratch-path .build reclaimer overview --scope-set "Weekly General"
 swift run --scratch-path .build reclaimer overview --preset general
+swift run --scratch-path .build reclaimer overview --preset general --sort reclaim --group safety --limit 25
 swift run --scratch-path .build reclaimer scan --preset all --review large
 swift run --scratch-path .build reclaimer rules
 swift run --scratch-path .build reclaimer rules user preview ryddi-user-rules.json
@@ -184,6 +185,17 @@ swift run --scratch-path .build reclaimer drilldown --path ~/Library/Caches --mi
 ```
 
 The drill-down view is for navigation and evidence review. Parent rows include descendant bytes, so parent and child rows should not be added together as independent reclaim totals, and clicking through the app drill-down does not select cleanup.
+
+## Top Offenders
+
+The overview ranks scanned items as a general Mac cleanup queue, not just a developer-cache list:
+
+```bash
+swift run --scratch-path .build reclaimer overview --preset general --sort reclaim --group safety --limit 25
+swift run --scratch-path .build reclaimer overview --preset all --sort owner --group owner --limit 40
+```
+
+Rows include allocated size, logical size, owner/category, safety class, action, cleanup confidence, and estimated immediate reclaim. The reclaim estimate is intentionally conservative: it only counts auto-safe trash/cache-style actions before final open-file, permission, Trash, APFS, and snapshot behavior.
 
 ## Active Handles
 
