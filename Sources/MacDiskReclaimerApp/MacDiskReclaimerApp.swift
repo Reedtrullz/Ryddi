@@ -64,6 +64,16 @@ struct DashboardView: View {
             }
         }
         .toolbar {
+            Picker("Scan Mode", selection: Binding(
+                get: { model.scanPreset },
+                set: { model.setScanPreset($0) }
+            )) {
+                ForEach(ScanScopePreset.allCases) { preset in
+                    Text(preset.label).tag(preset)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 320)
             Button {
                 Task { await model.scan() }
             } label: {
@@ -200,13 +210,15 @@ struct OverviewView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Evidence-first reclaim")
                 .font(.largeTitle.bold())
-            Text("The first build focuses on developer and AI-agent storage: Codex, Docker/Colima, Xcode, package caches, browser caches, and stale temp data.")
+            Text("Ryddi is a general Mac disk reclaim assistant with a developer and AI-agent cleanup pack being perfected first.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if model.isWorking {
                 ProgressView("Working...")
             }
+
+            ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedPreset: model.lastScannedPreset)
 
             if let url = model.lastReportExportURL {
                 Text("Latest report: \(url.path)")
@@ -313,9 +325,55 @@ struct OverviewView: View {
     }
 }
 
+struct ScanScopePreviewView: View {
+    let plan: ScanScopePlan
+    let lastScannedPreset: ScanScopePreset?
+
+    var body: some View {
+        SectionBox(title: "Scan Scope") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 16) {
+                    MetricTile(title: "Mode", value: plan.label)
+                    MetricTile(title: "Roots", value: "\(plan.scopes.count)")
+                    MetricTile(title: "Last scanned", value: lastScannedPreset?.label ?? "Never")
+                }
+                Text(plan.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(plan.scopes.prefix(10)) { scope in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(scope.name)
+                            .font(.caption.weight(.semibold))
+                            .frame(width: 190, alignment: .leading)
+                        Text(scope.root.path)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
+                if plan.scopes.count > 10 {
+                    Text("\(plan.scopes.count - 10) more root(s)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(plan.nonClaims.prefix(2), id: \.self) { note in
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+}
+
 struct CapabilityMatrixView: View {
     private let rows = [
-        ("Find space offenders", "Bounded Swift scanner over developer/agent scopes with size and permission evidence."),
+        ("Choose scan mode", "Shared scope presets cover Developer, General Mac, and All roots, with explicit scope preview before scanning."),
+        ("Find space offenders", "Bounded Swift scanner over preset or custom roots with size and permission evidence."),
         ("Classify safety", "Versioned JSON rules produce Auto-safe, Safe after condition, Review required, Preserve by default, and Never touch."),
         ("Inspect rules", "Bundled rules can be reviewed by safety class, action, category, match hints, conditions, recovery, and non-claims."),
         ("Explain every item", "Finding detail shows owner hints, rule matches, evidence, recovery, and conditions."),
@@ -339,7 +397,7 @@ struct CapabilityMatrixView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Feature Matrix")
                     .font(.largeTitle.bold())
-                Text("The MVP focuses on developer and AI-agent bloat while keeping review and reversibility ahead of one-click cleanup.")
+                Text("The MVP is developer-first, but the product model is a general Mac cleaner that keeps review and reversibility ahead of one-click cleanup.")
                     .foregroundStyle(.secondary)
 
                 ForEach(rows, id: \.0) { title, solution in
@@ -2341,7 +2399,7 @@ final class StatusMenuModel {
         defer { isWorking = false }
         do {
             let result = try await Task.detached {
-                let scopes = DefaultScopes.developerAgentBloat(includeUnavailable: true)
+                let scopes = DefaultScopes.scopes(for: .developer, includeUnavailable: true)
                 let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
                 let findings = scanner.scan(scopes: scopes, options: ScanOptions(includeOpenFileStatus: false))
                 let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
@@ -2370,6 +2428,8 @@ struct QueueSummary: Identifiable {
 final class DashboardModel {
     var findings: [Finding] = []
     var scanScopes: [ScanScope] = []
+    var scanPreset: ScanScopePreset = .developer
+    var lastScannedPreset: ScanScopePreset?
     var overview: ScanOverview?
     var plan: ReclaimPlan?
     var lastDryRunReceipt: ExecutionReceipt?
@@ -2390,13 +2450,17 @@ final class DashboardModel {
     var lastReceiptReportExportURL: URL?
     var lastGrowthReportExportURL: URL?
     var lastPolicyExportURL: URL?
-    var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.developerAgentBloat(includeUnavailable: true))
+    var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.scopes(for: .developer, includeUnavailable: true))
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
     var lastScanDate: Date?
     var launchAgentInstalled = false
     var error: String?
+
+    var selectedScopePlan: ScanScopePlan {
+        DefaultScopes.plan(for: scanPreset, includeUnavailable: true)
+    }
 
     var queueSummaries: [QueueSummary] {
         [
@@ -2433,6 +2497,24 @@ final class DashboardModel {
         return "This will execute \(selectedPlanCount) selected auto-safe action(s), expected immediate reclaim \(ByteFormat.string(plan.expectedImmediateReclaim)). A receipt will be saved locally."
     }
 
+    func setScanPreset(_ preset: ScanScopePreset) {
+        guard scanPreset != preset else { return }
+        scanPreset = preset
+        findings = []
+        scanScopes = []
+        overview = nil
+        plan = nil
+        lastDryRunReceipt = nil
+        lastExecutionReceipt = nil
+        lastScannedPreset = nil
+        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        error = nil
+    }
+
+    private func currentScopes(includeUnavailable: Bool) -> [ScanScope] {
+        DefaultScopes.scopes(for: scanPreset, includeUnavailable: includeUnavailable)
+    }
+
     func totalBytes(for safetyClass: SafetyClass) -> Int64 {
         findings.filter { $0.safetyClass == safetyClass }.reduce(0) { $0 + $1.allocatedSize }
     }
@@ -2454,8 +2536,9 @@ final class DashboardModel {
         isWorking = true
         defer { isWorking = false }
         do {
+            let preset = scanPreset
             let result = try await Task.detached {
-                let scopes = DefaultScopes.developerAgentBloat(includeUnavailable: true)
+                let scopes = DefaultScopes.scopes(for: preset, includeUnavailable: true)
                 let policy = UserPathPolicyStore().load()
                 let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
                 let findings = scanner.scan(
@@ -2463,14 +2546,15 @@ final class DashboardModel {
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
                 )
                 let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
-                return (scopes, findings, overview, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
+                return (preset, scopes, findings, overview, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
             }.value
-            scanScopes = result.0
-            findings = result.1
-            overview = result.2
-            userPathPolicy = result.3
-            permissionReport = result.4
-            _ = try ScanHistoryStore().save(overview: result.2)
+            lastScannedPreset = result.0
+            scanScopes = result.1
+            findings = result.2
+            overview = result.3
+            userPathPolicy = result.4
+            permissionReport = result.5
+            _ = try ScanHistoryStore().save(overview: result.3)
             loadHistory()
             plan = nil
             lastDryRunReceipt = nil
@@ -2555,8 +2639,9 @@ final class DashboardModel {
             loadAudit()
             loadHolding()
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
+            let preset = scanPreset
             let refreshed = try await Task.detached {
-                let scopes = DefaultScopes.developerAgentBloat(includeUnavailable: true)
+                let scopes = DefaultScopes.scopes(for: preset, includeUnavailable: true)
                 let policy = UserPathPolicyStore().load()
                 let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
                 let findings = scanner.scan(
@@ -2564,14 +2649,15 @@ final class DashboardModel {
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
                 )
                 let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
-                return (scopes, findings, overview, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
+                return (preset, scopes, findings, overview, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
             }.value
-            scanScopes = refreshed.0
-            findings = refreshed.1
-            overview = refreshed.2
-            userPathPolicy = refreshed.3
-            permissionReport = refreshed.4
-            _ = try ScanHistoryStore().save(overview: refreshed.2)
+            lastScannedPreset = refreshed.0
+            scanScopes = refreshed.1
+            findings = refreshed.2
+            overview = refreshed.3
+            userPathPolicy = refreshed.4
+            permissionReport = refreshed.5
+            _ = try ScanHistoryStore().save(overview: refreshed.3)
             loadHistory()
             plan = nil
             lastDryRunReceipt = nil
@@ -2694,10 +2780,11 @@ final class DashboardModel {
         defer { isWorking = false }
         do {
             let baseFindings = findings
+            let preset = scanPreset
             let report = try await Task.detached {
                 let sourceFindings: [Finding]
                 if baseFindings.isEmpty {
-                    let scopes = DefaultScopes.developerAgentBloat(includeUnavailable: true)
+                    let scopes = DefaultScopes.scopes(for: preset, includeUnavailable: true)
                     let policy = UserPathPolicyStore().load()
                     let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
                     sourceFindings = scanner.scan(
@@ -2749,7 +2836,7 @@ final class DashboardModel {
         if let overview {
             permissionReport = PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries)
         } else {
-            permissionReport = PermissionAdvisor.report(scopes: DefaultScopes.developerAgentBloat(includeUnavailable: true))
+            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
         }
     }
 
@@ -2792,7 +2879,7 @@ final class DashboardModel {
         defer { isWorking = false }
         do {
             let currentScopes = scanScopes.isEmpty
-                ? DefaultScopes.developerAgentBloat(includeUnavailable: false)
+                ? self.currentScopes(includeUnavailable: false)
                 : scanScopes
             duplicateReview = try await Task.detached {
                 try DuplicateReviewScanner().scan(

@@ -62,6 +62,48 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(catalog.nonClaims.isEmpty)
     }
 
+    func testDefaultScopePresetsSeparateGeneralAndDeveloperRoots() throws {
+        let general = DefaultScopes.plan(for: .general, home: tempRoot, includeUnavailable: true)
+        let developer = DefaultScopes.plan(for: .developer, home: tempRoot, includeUnavailable: true)
+
+        XCTAssertEqual(general.preset, .general)
+        XCTAssertTrue(general.scopes.contains { $0.name == "Downloads review" && $0.root.path.hasSuffix("/Downloads") })
+        XCTAssertTrue(general.scopes.contains { $0.name == "User caches" && $0.root.path.hasSuffix("/Library/Caches") })
+        XCTAssertFalse(general.scopes.contains { $0.name == "Device backups review" })
+        XCTAssertFalse(general.scopes.contains { $0.name == "Codex state" })
+
+        XCTAssertEqual(developer.preset, .developer)
+        XCTAssertTrue(developer.scopes.contains { $0.name == "Codex state" && $0.root.path.hasSuffix("/.codex") })
+        XCTAssertTrue(developer.scopes.contains { $0.name == "Xcode Developer" && $0.root.path.hasSuffix("/Library/Developer") })
+        XCTAssertFalse(developer.scopes.contains { $0.name == "Downloads review" })
+        XCTAssertFalse(general.nonClaims.isEmpty)
+    }
+
+    func testAllScopePresetCollapsesNestedChildRoots() throws {
+        let plan = DefaultScopes.plan(for: .all, home: tempRoot, includeUnavailable: true)
+        let paths = plan.scopes.map { $0.root.path }
+
+        XCTAssertEqual(Set(paths).count, paths.count)
+        XCTAssertTrue(plan.scopes.contains { $0.name == "User caches" && $0.root.path.hasSuffix("/Library/Caches") })
+        XCTAssertFalse(plan.scopes.contains { $0.name == "Homebrew cache" })
+        XCTAssertFalse(plan.scopes.contains { $0.name == "VS Code caches" })
+        XCTAssertTrue(plan.scopes.contains { $0.name == "Codex state" })
+        XCTAssertTrue(plan.nonClaims.contains { $0.contains("Overlapping child scopes") })
+    }
+
+    func testCustomScopePlanOverridesPresetSemantics() throws {
+        let custom = [
+            ScanScope(name: "one", root: tempRoot.appendingPathComponent("One")),
+            ScanScope(name: "duplicate", root: tempRoot.appendingPathComponent("One"))
+        ]
+        let plan = DefaultScopes.customPlan(scopes: custom)
+
+        XCTAssertNil(plan.preset)
+        XCTAssertEqual(plan.label, "Custom paths")
+        XCTAssertEqual(plan.scopes.count, 1)
+        XCTAssertTrue(plan.nonClaims.contains { $0.contains("Custom paths do not change") })
+    }
+
     func testScannerProducesStableFindingsAndDoesNotFollowSymlink() throws {
         let cache = tempRoot.appendingPathComponent("Library/Caches/Codex", isDirectory: true)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)

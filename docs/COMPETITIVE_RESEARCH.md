@@ -6,15 +6,16 @@ This is a product research snapshot for Ryddi, based on current public product p
 
 ## Executive Takeaways
 
-Ryddi should not try to look like a generic one-click optimizer. That market is crowded, trust-sensitive, and often bundled with performance, malware, RAM, and update claims that are not central to Ryddi's thesis.
+Ryddi should be useful for general Mac cleanup, but it should not look like a generic one-click optimizer. That market is crowded, trust-sensitive, and often bundled with performance, malware, RAM, and update claims that are not central to Ryddi's thesis.
 
 The stronger position is:
 
-> DaisyDisk-level space understanding + DevCleaner-style developer specificity + Hazel-like auditability, with explicit safety classes and no mystery cleanup.
+> DaisyDisk-level space understanding + practical general Mac cleanup review + DevCleaner-style developer specificity + Hazel-like auditability, with explicit safety classes and no mystery cleanup.
 
 Users will still expect the basics from mature disk tools:
 
 - a visual or at least highly scannable map of where space is going;
+- clear scan modes for general Mac cleanup, developer cleanup, and combined review;
 - top offenders ranked by actual reclaim value;
 - file preview, reveal-in-Finder, open-in-Terminal, and copy-path actions;
 - Trash-first behavior for user-visible files;
@@ -98,6 +99,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 
 | Feature | Market Expectation | Ryddi Status | Recommendation |
 | --- | --- | --- | --- |
+| Scan mode selection | Expected from tools that span simple cleanup and expert/developer use | Exists/partial | `ScanScopePreset`, `reclaimer scopes`, and the app Scan Scope preview now separate Developer, General Mac, All, and explicit custom roots. Future work should add saved/custom scope sets and per-scope scheduling. |
 | Top offenders overview | Baseline for all disk analyzers | Partial | Add a sortable, scannable table grouped by category, safety, and reclaim estimate. |
 | Owner/app/tool grouping | Expected from app uninstallers and increasingly important for developer-cleaner trust | Exists/partial | `ScanOverview.ownerSummaries`, CLI overview, app Top Owners, and evidence reports now group non-overlapping findings by owner hints or category fallback. Future work should deepen app identity confidence. |
 | Rule transparency | Rare in broad cleaners but important for open-source trust | Exists/partial | `reclaimer rules`, app Rule Catalog, and `RuleCatalogReport` expose bundled rule version, safety/action/category summaries, match hints, conditions, recovery notes, and non-claims. Future work should add user rule-pack review/import UX. |
@@ -136,11 +138,12 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 ### Product Core
 
 1. Improve overview with a sortable offender table: path, size, category, safety, age, action, confidence.
-2. Add drill-down detail pages that explain evidence and recovery.
-3. Add review queues that mirror user intent: Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, Unknown.
-4. Add large-file and old-file review mode, explicitly non-automatic.
-5. Add Finder, Quick Look, Terminal, copy-path, and exclude actions.
-6. Add local protection/exclusion management so users can tune noisy or sensitive paths.
+2. Make scan modes feel first-class: General Mac, Developer, All, custom paths, and saved per-user scope sets.
+3. Add drill-down detail pages that explain evidence and recovery.
+4. Add review queues that mirror user intent: Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, Unknown.
+5. Add large-file and old-file review mode, explicitly non-automatic.
+6. Add Finder, Quick Look, Terminal, copy-path, and exclude actions.
+7. Add local protection/exclusion management so users can tune noisy or sensitive paths.
 
 ### Safety Depth
 
@@ -170,6 +173,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 
 - Never market "speed boost" unless the app measures and proves a specific local effect.
 - Never make "clean all" the hero.
+- General Mac cleanup is in scope, but broad personal roots should remain review-first unless a specific rule proves low risk.
 - Never raw-delete VM disks, browser profiles, Photos libraries, Music libraries, GarageBand/Logic assets, Codex memories, credentials, or unknown app state.
 - Treat user documents and creative assets as preserve-by-default even if large.
 - Prefer native cleanup commands for tools that own complex state.

@@ -370,6 +370,51 @@ private func ownerHint(for path: String) -> String? {
 }
 
 public enum DefaultScopes {
+    public static func plan(
+        for preset: ScanScopePreset = .developer,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        includeUnavailable: Bool = false
+    ) -> ScanScopePlan {
+        ScanScopePlan(
+            preset: preset,
+            label: preset.label,
+            summary: preset.summary,
+            scopes: scopes(for: preset, home: home, includeUnavailable: includeUnavailable),
+            nonClaims: nonClaims(for: preset)
+        )
+    }
+
+    public static func customPlan(scopes: [ScanScope]) -> ScanScopePlan {
+        ScanScopePlan(
+            preset: nil,
+            label: "Custom paths",
+            summary: "Explicit paths supplied by the user override preset scan roots.",
+            scopes: uniqueScopes(scopes),
+            nonClaims: [
+                "Custom paths do not change Ryddi's safety rules or cleanup protections.",
+                "Scanning a path does not mean Ryddi will select it for cleanup.",
+                "Permission state is checked separately when the scan or permission advisor runs."
+            ]
+        )
+    }
+
+    public static func scopes(
+        for preset: ScanScopePreset = .developer,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        includeUnavailable: Bool = false
+    ) -> [ScanScope] {
+        switch preset {
+        case .developer:
+            return developerAgentBloat(home: home, includeUnavailable: includeUnavailable)
+        case .general:
+            return generalMacCleanup(home: home, includeUnavailable: includeUnavailable)
+        case .all:
+            let combined = generalMacCleanup(home: home, includeUnavailable: includeUnavailable)
+                + developerAgentBloat(home: home, includeUnavailable: includeUnavailable)
+            return uniqueScopes(combined, removingNestedChildren: true)
+        }
+    }
+
     public static func developerAgentBloat(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         includeUnavailable: Bool = false
@@ -401,11 +446,89 @@ public enum DefaultScopes {
             ("Playwright browsers", home.appendingPathComponent("Library/Caches/ms-playwright")),
             ("Private temp", URL(fileURLWithPath: "/private/tmp"))
         ]
-        return paths.compactMap { name, url in
-            if includeUnavailable || FileManager.default.fileExists(atPath: url.path) {
-                return ScanScope(name: name, root: url, permissionState: .unknown)
+        return scopes(from: paths, includeUnavailable: includeUnavailable)
+    }
+
+    public static func generalMacCleanup(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        includeUnavailable: Bool = false
+    ) -> [ScanScope] {
+        let paths: [(String, URL)] = [
+            ("Downloads review", home.appendingPathComponent("Downloads")),
+            ("Desktop review", home.appendingPathComponent("Desktop")),
+            ("Documents review", home.appendingPathComponent("Documents")),
+            ("Movies review", home.appendingPathComponent("Movies")),
+            ("Pictures review", home.appendingPathComponent("Pictures")),
+            ("Music review", home.appendingPathComponent("Music")),
+            ("User caches", home.appendingPathComponent("Library/Caches")),
+            ("User logs", home.appendingPathComponent("Library/Logs")),
+            ("Application Support review", home.appendingPathComponent("Library/Application Support")),
+            ("Mail downloads review", home.appendingPathComponent("Library/Containers/com.apple.mail/Data/Library/Mail Downloads")),
+            ("Messages attachments review", home.appendingPathComponent("Library/Messages/Attachments")),
+            ("Device backups review", home.appendingPathComponent("Library/Application Support/MobileSync/Backup")),
+            ("Trash review", home.appendingPathComponent(".Trash"))
+        ]
+        return scopes(from: paths, includeUnavailable: includeUnavailable, removingNestedChildren: true)
+    }
+
+    private static func scopes(
+        from paths: [(String, URL)],
+        includeUnavailable: Bool,
+        removingNestedChildren: Bool = false
+    ) -> [ScanScope] {
+        uniqueScopes(paths.compactMap { name, url in
+            let root = url.standardizedFileURL
+            if includeUnavailable || FileManager.default.fileExists(atPath: root.path) {
+                return ScanScope(name: name, root: root, permissionState: .unknown)
             }
             return nil
+        }, removingNestedChildren: removingNestedChildren)
+    }
+
+    private static func uniqueScopes(_ scopes: [ScanScope], removingNestedChildren: Bool = false) -> [ScanScope] {
+        var seen: Set<String> = []
+        let unique = scopes.compactMap { scope -> ScanScope? in
+            let path = normalized(scope.root.path)
+            guard seen.insert(path).inserted else { return nil }
+            return scope
         }
+
+        guard removingNestedChildren else {
+            return unique
+        }
+
+        return unique.filter { candidate in
+            !unique.contains { other in
+                normalized(other.root.path) != normalized(candidate.root.path)
+                    && isAncestor(other.root, of: candidate.root)
+            }
+        }
+    }
+
+    private static func normalized(_ path: String) -> String {
+        var value = URL(fileURLWithPath: path).standardizedFileURL.path
+        while value.count > 1, value.hasSuffix("/") {
+            value.removeLast()
+        }
+        return value
+    }
+
+    private static func isAncestor(_ parent: URL, of child: URL) -> Bool {
+        let parentComponents = URL(fileURLWithPath: normalized(parent.path)).pathComponents
+        let childComponents = URL(fileURLWithPath: normalized(child.path)).pathComponents
+        guard childComponents.count > parentComponents.count else { return false }
+        return Array(childComponents.prefix(parentComponents.count)) == parentComponents
+    }
+
+    private static func nonClaims(for preset: ScanScopePreset) -> [String] {
+        var notes = [
+            "Preset scopes define where Ryddi looks; rules and user policy still decide what can be planned or blocked.",
+            "Scanning personal folders is review-oriented and does not grant cleanup permission.",
+            "Permission coverage can be degraded without Full Disk Access, and missing scopes are reported rather than assumed clean."
+        ]
+        if preset == .all {
+            notes.append("Overlapping child scopes are collapsed in the All preset to reduce double-counted findings.")
+        }
+        return notes
     }
 }

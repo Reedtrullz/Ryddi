@@ -24,6 +24,8 @@ struct ReclaimerCLI {
             try status(args: args)
         case "overview":
             try overview(args: args)
+        case "scopes":
+            try scopes(args: args)
         case "rules":
             try rules(args: args)
         case "report":
@@ -73,7 +75,7 @@ struct ReclaimerCLI {
         let options = ParsedOptions(args)
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(
-            scopes: options.scopes(includeUnavailable: options.includeMissingScopes),
+            scopes: try options.scopes(includeUnavailable: options.includeMissingScopes),
             options: options.scanOptions(includeOpenFiles: options.includeOpenFiles)
         )
         let preparedFindings = options.prepare(findings)
@@ -97,7 +99,7 @@ struct ReclaimerCLI {
 
     static func overview(args: [String]) throws {
         let options = ParsedOptions(args)
-        let scopes = options.scopes(includeUnavailable: true)
+        let scopes = try options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
         let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
@@ -109,6 +111,16 @@ struct ReclaimerCLI {
             printJSON(overview)
         } else {
             printOverview(overview)
+        }
+    }
+
+    static func scopes(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let plan = try options.scopePlan(includeUnavailable: true)
+        if options.json {
+            printJSON(plan)
+        } else {
+            printScopePlan(plan)
         }
     }
 
@@ -125,7 +137,7 @@ struct ReclaimerCLI {
     static func report(args: [String]) throws {
         let options = ParsedOptions(args)
         try options.validateReportPrivacyOptions()
-        let scopes = options.scopes(includeUnavailable: true)
+        let scopes = try options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
         let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
@@ -163,7 +175,7 @@ struct ReclaimerCLI {
             return
         }
         let options = ParsedOptions(args)
-        let report = PermissionAdvisor.report(scopes: options.scopes(includeUnavailable: true))
+        let report = PermissionAdvisor.report(scopes: try options.scopes(includeUnavailable: true))
         if options.json {
             printJSON(report)
         } else {
@@ -173,7 +185,7 @@ struct ReclaimerCLI {
 
     static func permissionGuide(args: [String]) throws {
         let options = ParsedOptions(args)
-        let report = PermissionAdvisor.report(scopes: options.scopes(includeUnavailable: true))
+        let report = PermissionAdvisor.report(scopes: try options.scopes(includeUnavailable: true))
         let walkthrough = PermissionWalkthroughBuilder.build(report: report)
         if let output = options.outputPath {
             let url = URL(fileURLWithPath: output).standardizedFileURL
@@ -190,7 +202,7 @@ struct ReclaimerCLI {
 
     static func active(args: [String]) throws {
         let options = ParsedOptions(args)
-        let scopes = options.scopes(includeUnavailable: true)
+        let scopes = try options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
         let report = ActiveFileReviewScanner(openFileChecker: LsofOpenFileChecker()).review(
@@ -217,7 +229,7 @@ struct ReclaimerCLI {
         let store = ScanHistoryStore()
         switch subcommand {
         case "record":
-            let scopes = options.scopes(includeUnavailable: true)
+            let scopes = try options.scopes(includeUnavailable: true)
             let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
             let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
             let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
@@ -309,7 +321,7 @@ struct ReclaimerCLI {
             throw CLIError.message("duplicates requires at least one explicit --path because it hashes file contents locally.")
         }
         let report = try DuplicateReviewScanner()
-            .scan(scopes: options.scopes(), options: options.duplicateOptions)
+            .scan(scopes: try options.scopes(), options: options.duplicateOptions)
         if options.json {
             printJSON(report)
         } else {
@@ -330,7 +342,7 @@ struct ReclaimerCLI {
     static func native(args: [String]) throws {
         let options = ParsedOptions(args)
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let findings = scanner.scan(scopes: options.scopes(), options: options.scanOptions(includeOpenFiles: false))
+        let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
         let report = NativeToolGuidance.report(for: findings, ruleVersion: try RuleEngine.bundled().version)
         if options.saveAudit {
             let url = try AuditStore().save(nativeToolReport: report)
@@ -427,7 +439,7 @@ struct ReclaimerCLI {
         let options = ParsedOptions(args)
         try options.validateReportPrivacyOptions()
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let findings = scanner.scan(scopes: options.scopes(), options: options.scanOptions(includeOpenFiles: false))
+        let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
         let builder = PlanBuilder(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let plan = builder.buildPlan(from: findings, mode: options.reviewAll ? .reviewAll : .autoSafeOnly)
         if options.saveAudit {
@@ -528,7 +540,7 @@ struct ReclaimerCLI {
             throw CLIError.message("--no-lsof is only allowed for dry-run planning; execute --yes requires open-file checks.")
         }
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let findings = scanner.scan(scopes: options.scopes(), options: options.scanOptions(includeOpenFiles: false))
+        let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
         let builder = PlanBuilder(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let plan = builder.buildPlan(from: findings, mode: options.reviewAll ? .reviewAll : .autoSafeOnly)
         let receipt = ReclaimerExecutor(
@@ -681,18 +693,19 @@ struct ReclaimerCLI {
 
             Commands:
               status [--json] [--path PATH]
-              scan [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--include-open-files]
+              scopes [--json] [--preset developer|general|all] [--path PATH ...]
+              scan [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy]
-              overview [--json] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy]
+              overview [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy]
               rules [--json]
-              report [--json] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
+              report [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
                      [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
                      [--include-missing-scopes] [--ignore-user-policy]
-              permissions [--json] [--path PATH ...] [--include-missing-scopes]
-              permissions guide [--json] [--path PATH ...] [--output PATH] [--include-missing-scopes]
-              active [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit]
-              history record [--json] [--path PATH ...] [--limit N]
+              permissions [--json] [--preset developer|general|all] [--path PATH ...] [--include-missing-scopes]
+              permissions guide [--json] [--preset developer|general|all] [--path PATH ...] [--output PATH] [--include-missing-scopes]
+              active [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit]
+              history record [--json] [--preset developer|general|all] [--path PATH ...] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
               history report [--json] [--group category|safety|scope] [--limit N]
@@ -702,7 +715,7 @@ struct ReclaimerCLI {
                          [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
-              native [--json] [--path PATH ...] [--limit N] [--save-audit]
+              native [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-audit]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
               policy list [--json]
               policy protect PATH [--reason TEXT]
@@ -710,19 +723,19 @@ struct ReclaimerCLI {
               policy remove PATH [--kind protect|exclude]
               policy export [--json] [--output PATH]
               policy import PATH [--json] [--replace]
-              plan [--json] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
+              plan [--json] [--preset developer|general|all] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
                    [--output PATH] [--save-report] [--title TEXT]
                    [--path-style full|home-relative|redacted] [--redact-user-text]
               plans list [--json] [--limit N]
               plans export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                            [--path-style full|home-relative|redacted] [--redact-user-text]
               explain PATH [--json]
-              execute --dry-run [--json] [--path PATH ...] [--save-audit] [--ignore-user-policy]
-              execute --yes [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
+              execute --dry-run [--json] [--preset developer|general|all] [--path PATH ...] [--save-audit] [--ignore-user-policy]
+              execute --yes [--preset developer|general|all] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
               receipts list [--json] [--limit N]
               receipts export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                               [--path-style full|home-relative|redacted] [--redact-user-text]
-              archive [--json] [--path PATH ...]   # review/compression-oriented plan only
+              archive [--json] [--preset developer|general|all] [--path PATH ...]   # review/compression-oriented plan only
               schedule install [--hour H] [--minute M] [--load]
               schedule uninstall [--unload]
               schedule status
@@ -730,7 +743,8 @@ struct ReclaimerCLI {
               holding restore ID [--to PATH]
               holding expire [--older-than-days N] [--yes]
 
-            Defaults scan known developer/agent bloat locations. Execution is dry-run unless --yes is supplied.
+            Defaults use --preset developer. Use --preset general for ordinary Mac cleanup review roots
+            or --preset all for general plus developer/agent storage. Execution is dry-run unless --yes is supplied.
             """
         )
     }
@@ -763,6 +777,7 @@ struct ParsedOptions {
     var hour: Int { Int(value(after: "--hour") ?? "") ?? 9 }
     var minute: Int { Int(value(after: "--minute") ?? "") ?? 30 }
     var limit: Int { max(1, Int(value(after: "--limit") ?? "") ?? 80) }
+    var presetName: String { value(after: "--preset") ?? ScanScopePreset.developer.rawValue }
     var sort: String { value(after: "--sort") ?? "size" }
     var group: String? { value(after: "--group") }
     var growthGroup: GrowthGroup { GrowthGroup(rawValue: group ?? "category") ?? .category }
@@ -837,12 +852,28 @@ struct ParsedOptions {
         }
     }
 
-    func scopes(includeUnavailable: Bool = false) -> [ScanScope] {
+    func scopePreset() throws -> ScanScopePreset {
+        guard let preset = ScanScopePreset(rawValue: presetName) else {
+            let allowed = ScanScopePreset.allCases.map(\.rawValue).joined(separator: ", ")
+            throw CLIError.message("--preset must be one of: \(allowed)")
+        }
+        return preset
+    }
+
+    func scopePlan(includeUnavailable: Bool = false) throws -> ScanScopePlan {
         let paths = values(after: "--path")
         if !paths.isEmpty {
-            return paths.map { ScanScope(name: URL(fileURLWithPath: $0).lastPathComponent, root: URL(fileURLWithPath: $0)) }
+            let scopes = paths.map {
+                let url = URL(fileURLWithPath: $0).standardizedFileURL
+                return ScanScope(name: url.lastPathComponent, root: url)
+            }
+            return DefaultScopes.customPlan(scopes: scopes)
         }
-        return DefaultScopes.developerAgentBloat(includeUnavailable: includeUnavailable)
+        return DefaultScopes.plan(for: try scopePreset(), includeUnavailable: includeUnavailable)
+    }
+
+    func scopes(includeUnavailable: Bool = false) throws -> [ScanScope] {
+        try scopePlan(includeUnavailable: includeUnavailable).scopes
     }
 
     func scanOptions(includeOpenFiles: Bool) -> ScanOptions {
@@ -951,6 +982,21 @@ func printJSON<T: Encodable>(_ value: T) {
     encoder.dateEncodingStrategy = .iso8601
     let data = try! encoder.encode(value)
     print(String(data: data, encoding: .utf8)!)
+}
+
+func printScopePlan(_ plan: ScanScopePlan) {
+    print("Ryddi scan scopes")
+    print("Mode: \(plan.label)")
+    print(plan.summary)
+    print("Scopes: \(plan.scopes.count)")
+    print("\nRoots")
+    for scope in plan.scopes {
+        print("- \(scope.name): \(scope.root.path)")
+    }
+    print("\nNon-claims")
+    for note in plan.nonClaims {
+        print("- \(note)")
+    }
 }
 
 func printFindings(_ findings: [Finding], options: ParsedOptions) {

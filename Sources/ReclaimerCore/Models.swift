@@ -20,6 +20,55 @@ public struct ScanScope: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+public enum ScanScopePreset: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case developer
+    case general
+    case all
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .developer: "Developer"
+        case .general: "General Mac"
+        case .all: "All"
+        }
+    }
+
+    public var summary: String {
+        switch self {
+        case .developer:
+            "Developer and AI-agent storage such as Codex, containers, Xcode, package caches, IDE caches, browser caches, and build temp data."
+        case .general:
+            "General Mac cleanup review roots such as Downloads, Desktop, documents/media review, user caches, logs, app support, attachments, backups, and Trash."
+        case .all:
+            "General Mac cleanup roots plus developer and AI-agent storage, with overlapping child scopes collapsed to avoid double-counting."
+        }
+    }
+}
+
+public struct ScanScopePlan: Codable, Hashable, Sendable {
+    public let preset: ScanScopePreset?
+    public let label: String
+    public let summary: String
+    public let scopes: [ScanScope]
+    public let nonClaims: [String]
+
+    public init(
+        preset: ScanScopePreset?,
+        label: String,
+        summary: String,
+        scopes: [ScanScope],
+        nonClaims: [String]
+    ) {
+        self.preset = preset
+        self.label = label
+        self.summary = summary
+        self.scopes = scopes
+        self.nonClaims = nonClaims
+    }
+}
+
 public enum SafetyClass: String, Codable, CaseIterable, Hashable, Sendable {
     case autoSafe
     case safeAfterCondition

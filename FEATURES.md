@@ -1,12 +1,13 @@
 # Ryddi Feature Matrix
 
-Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-first reclaim assistant for developer and AI-agent storage growth.
+Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evidence-first general Mac reclaim assistant, with developer and AI-agent storage cleanup as the first deep rule pack.
 
 ## Needed MVP Features And Chosen Solutions
 
 | Feature | Best MVP solution | Implemented |
 | --- | --- | --- |
-| Find large offenders | Bounded filesystem scanner over known developer/agent roots, with explicit custom `--path` support. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
+| Choose scan scope | Named presets for Developer, General Mac, and All roots, plus explicit custom `--path` support and scope preview. | `ScanScopePreset`, `ScanScopePlan`, `DefaultScopes`, `reclaimer scopes`, app Scan Scope |
+| Find large offenders | Bounded filesystem scanner over preset or custom roots, with permission evidence. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
 | Show top offenders | Shared overview analytics with category, owner/app/tool, safety, scope, age, logical size, allocated size, and top finding summaries. | `FindingAnalytics`, `reclaimer overview`, app Top Offenders |
 | Visualize space | Proportional category map from non-overlapping allocated-size findings; informational only, not a cleanup selector. | `DiskMapNode`, app Visual Map, `overview` map nodes |
 | Explain ownership | Group non-overlapping findings by scanner owner hints or category fallback so users can see which app/tool appears responsible for storage. | `OwnerStorageSummary`, `ScanOverview.ownerSummaries`, `reclaimer overview`, app Top Owners, evidence reports |
@@ -41,6 +42,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 
 Included:
 
+- General Mac scan preset for Downloads, Desktop, personal folder review, user caches/logs, app support, attachments, device backups, and Trash review.
 - Codex storage policy: caches/temp/logs versus sessions/state/credentials.
 - Docker/Colima reporting and native cleanup guidance.
 - Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, with no automatic command execution.

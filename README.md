@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/Reedtrullz/Ryddi/actions/workflows/ci.yml/badge.svg)](https://github.com/Reedtrullz/Ryddi/actions/workflows/ci.yml)
 
-Ryddi is a local-first macOS disk reclaim assistant for developer and AI-agent storage growth.
+Ryddi is a local-first macOS disk reclaim assistant for general Mac cleanup, with a developer and AI-agent cleanup pack being perfected first.
 
 It is named from Norwegian **ryddig** / **rydde**: tidy, orderly, to clean up. The goal is not to be a scary one-click cleaner. Ryddi scans, explains, plans, and only then helps you reclaim space with receipts and guardrails.
 
 ## About
 
-Modern developer Macs accumulate a strange kind of bloat: Codex sessions and caches, Docker and Colima VM data, Xcode build products, package-manager caches, browser clones, logs, temp directories, and app-support leftovers. Some of that is pure trash. Some of it is valuable history. Some of it is dangerous to touch directly.
+Modern Macs accumulate a strange mix of bloat: Downloads, old installers, caches, logs, large media, app-support leftovers, browser data, developer build products, Codex sessions and caches, Docker and Colima VM data, Xcode artifacts, and package-manager stores. Some of that is pure trash. Some of it is valuable history. Some of it is dangerous to touch directly.
 
 Ryddi treats cleanup as evidence review:
 
@@ -32,6 +32,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 ## What It Handles
 
 - top-offender overview with category, owner/app/tool, safety, age, logical size, and allocated size
+- scan presets for Developer, General Mac, and All roots, plus scope preview before scanning
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
 - ownership-aware storage summaries that group findings by app/tool hints such as Codex, Docker, Colima, Xcode, Homebrew, and Chrome
 - local scan history snapshots and category growth deltas
@@ -90,6 +91,9 @@ swift run --scratch-path .build reclaimer help
 
 ```bash
 swift run --scratch-path .build reclaimer overview
+swift run --scratch-path .build reclaimer scopes --preset general
+swift run --scratch-path .build reclaimer overview --preset general
+swift run --scratch-path .build reclaimer scan --preset all --review large
 swift run --scratch-path .build reclaimer rules
 swift run --scratch-path .build reclaimer status
 swift run --scratch-path .build reclaimer permissions
@@ -306,13 +310,13 @@ Scripts/                     Packaging and notarization helpers
 Short description:
 
 ```text
-Local-first macOS disk reclaim assistant for developer and AI-agent bloat.
+Local-first macOS disk reclaim assistant with developer-first cleanup rules.
 ```
 
 Topics:
 
 ```text
-macos swift swiftui disk-cleanup developer-tools codex docker colima xcode local-first privacy
+macos swift swiftui disk-cleanup mac-cleaner developer-tools codex docker colima xcode local-first privacy
 ```
 
 ## License

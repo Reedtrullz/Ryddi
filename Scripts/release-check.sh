@@ -58,6 +58,13 @@ receipt_fixture="$scratch/receipt-fixture/Library/Caches/Codex"
 mkdir -p "$receipt_fixture"
 printf 'fixture cache\n' >"$receipt_fixture/cache.bin"
 "$app/Contents/MacOS/reclaimer" status --json >"$scratch/status-smoke.json"
+"$app/Contents/MacOS/reclaimer" scopes --preset general >"$scratch/scopes-general-smoke.txt"
+grep -q "Mode: General Mac" "$scratch/scopes-general-smoke.txt"
+grep -q "Downloads review" "$scratch/scopes-general-smoke.txt"
+grep -q "Scanning personal folders is review-oriented" "$scratch/scopes-general-smoke.txt"
+"$app/Contents/MacOS/reclaimer" scopes --json --preset all >"$scratch/scopes-all-smoke.json"
+grep -q '"label" : "All"' "$scratch/scopes-all-smoke.json"
+grep -q '"preset" : "all"' "$scratch/scopes-all-smoke.json"
 "$app/Contents/MacOS/reclaimer" rules >"$scratch/rules-smoke.txt"
 grep -q "Ryddi rule catalog" "$scratch/rules-smoke.txt"
 grep -q "Never Touch" "$scratch/rules-smoke.txt"
@@ -173,6 +180,7 @@ Verification performed:
 - Scripts/package-app.sh
 - bundle executable/resource checks
 - bundled reclaimer status --json
+- bundled reclaimer scopes --preset general and scopes --json --preset all
 - bundled reclaimer rules and rules --json
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md

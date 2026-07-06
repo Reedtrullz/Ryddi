@@ -11,7 +11,7 @@ ryddi
 ## Short Description
 
 ```text
-Local-first macOS disk reclaim assistant for developer and AI-agent bloat.
+Local-first macOS disk reclaim assistant with developer-first cleanup rules.
 ```
 
 ## Website
@@ -24,6 +24,7 @@ Leave blank until there is a release page or product page.
 macos
 swift
 swiftui
+mac-cleaner
 disk-cleanup
 developer-tools
 codex
@@ -40,14 +41,14 @@ storage
 ## Social Preview Copy
 
 ```text
-Ryddi helps you find, review, and safely reclaim developer and AI-agent disk bloat on macOS. It explains every finding, protects valuable state, supports portable local policy, and requires dry-run evidence before cleanup.
+Ryddi helps you find, review, and safely reclaim Mac disk bloat, with developer and AI-agent cleanup rules being perfected first. It explains every finding, protects valuable state, supports portable local policy, and requires dry-run evidence before cleanup.
 ```
 
 ## About Section
 
-Ryddi is a cautious macOS disk reclaim assistant for developer and AI-agent storage growth. It scans local disk usage, classifies findings by safety, explains evidence, checks active file handles, builds dry-run plans, and only then helps reclaim selected low-risk items.
+Ryddi is a cautious macOS disk reclaim assistant for general cleanup, with developer and AI-agent storage growth as the first deep rule pack. It scans local disk usage, classifies findings by safety, explains evidence, checks active file handles, builds dry-run plans, and only then helps reclaim selected low-risk items.
 
-It focuses on storage that commonly grows during modern development work: Codex caches and sessions, Docker/Colima state, Xcode build products, package-manager caches, browser caches, logs, temp directories, and app-support bloat.
+It can review ordinary Mac cleanup roots such as Downloads, personal folders, user caches, logs, app support, attachments, backups, and Trash. Its current depth is strongest for storage that commonly grows during modern development work: Codex caches and sessions, Docker/Colima state, Xcode build products, package-manager caches, browser caches, logs, temp directories, and app-support bloat.
 
 Ryddi is local-first: no telemetry, no path upload, no cloud analysis.
 
@@ -65,7 +66,7 @@ Review first. Reclaim safely.
 Initial MVP:
 
 - Swift core scanner and rule engine
-- CLI for scan, overview, bundled rule catalog, status, permissions, active-handle review, report, history/growth reports, plan/plans, receipts, explain, execute, schedule, and holding-area operations
+- CLI for scan scope presets, scan, overview, bundled rule catalog, status, permissions, active-handle review, report, history/growth reports, plan/plans, receipts, explain, execute, schedule, and holding-area operations
 - SwiftUI app overview, rule catalog, review queues, detail view, dry run, confirmed reclaim, audit history, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - Open-file guard and active-handle review with `lsof` process summaries

@@ -5,7 +5,7 @@ import ReclaimerCore
 struct ReclaimerAgent {
     static func main() throws {
         let scanner = try FileScanner()
-        let findings = scanner.scan(scopes: DefaultScopes.developerAgentBloat(), options: ScanOptions(includeOpenFileStatus: true))
+        let findings = scanner.scan(scopes: DefaultScopes.scopes(for: .developer), options: ScanOptions(includeOpenFileStatus: true))
         let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: findings, mode: .autoSafeOnly)
         let store = AuditStore()
         let planURL = try store.save(plan: plan)
