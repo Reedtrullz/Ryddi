@@ -243,7 +243,20 @@ struct OverviewView: View {
 
             if let plan = model.plan {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Dry-run plan").font(.headline)
+                    HStack {
+                        Text("Dry-run plan").font(.headline)
+                        Spacer()
+                        Button {
+                            Task { await model.exportPlanReport(plan) }
+                        } label: {
+                            Label("Export Plan", systemImage: "doc.plaintext")
+                        }
+                        Button {
+                            Task { await model.exportPlanReport(plan, pathStyle: .redacted) }
+                        } label: {
+                            Label("Redacted", systemImage: "eye.slash")
+                        }
+                    }
                     HStack {
                         Text("\(plan.items.filter(\.selected).count) selected")
                         Text(ByteFormat.string(plan.expectedImmediateReclaim))
@@ -264,6 +277,12 @@ struct OverviewView: View {
                         Text("Latest reclaim receipt: \(receipt.actions.count) actions, \(receipt.errors.count) errors")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                    if let url = model.lastPlanReportExportURL {
+                        Text("Latest plan report: \(url.path)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
                     }
                 }
             } else {
@@ -286,7 +305,7 @@ struct CapabilityMatrixView: View {
         ("Inventory containers", "Read-only Docker and Colima inspection records images, volumes, build cache estimates, profiles, and command outcomes."),
         ("Explain permissions", "Coverage advisor shows readable, denied, missing, and unknown scopes with Full Disk Access guidance and non-claims."),
         ("Honor user policy", "Local exclusions hide noisy paths from scans; protections keep paths visible but blocked from cleanup."),
-        ("Export reports", "Local Markdown evidence reports capture scan coverage, top findings, user policy, accounting notes, and non-claims."),
+        ("Export reports", "Local Markdown evidence, plan, and receipt reports capture scan coverage, proposed actions, saved outcomes, path privacy controls, and non-claims."),
         ("Protect active files", "Plan/executor run open-file checks, active-handle review surfaces process names, and active paths are skipped."),
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Export receipts", "Saved dry-run and execution receipts can be exported as local Markdown reports with action counts and non-claims."),
@@ -330,8 +349,23 @@ struct AuditHistoryView: View {
                     if model.recentPlans.isEmpty {
                         Text("No saved plans yet.")
                     } else {
+                        if let url = model.lastPlanReportExportURL {
+                            Text("Latest plan report: \(url.path)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                         ForEach(model.recentPlans) { plan in
-                            Text("\(plan.createdAt.formatted()) - \(plan.items.filter(\.selected).count) selected - \(ByteFormat.string(plan.expectedImmediateReclaim))")
+                            HStack {
+                                Text("\(plan.createdAt.formatted()) - \(plan.items.filter(\.selected).count) selected - \(ByteFormat.string(plan.expectedImmediateReclaim))")
+                                Spacer()
+                                Button("Export") {
+                                    Task { await model.exportPlanReport(plan) }
+                                }
+                                Button("Redacted") {
+                                    Task { await model.exportPlanReport(plan, pathStyle: .redacted) }
+                                }
+                            }
                         }
                     }
                 }
@@ -2027,6 +2061,7 @@ final class DashboardModel {
     var activeFileReview: ActiveFileReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
+    var lastPlanReportExportURL: URL?
     var lastReceiptReportExportURL: URL?
     var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.developerAgentBloat(includeUnavailable: true))
     var scanSnapshots: [ScanSnapshot] = []
@@ -2243,6 +2278,24 @@ final class DashboardModel {
                 return try ReportStore().save(report: report)
             }.value
             lastReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportPlanReport(_ plan: ReclaimPlan, pathStyle: ReportPathStyle = .full) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let url = try await Task.detached {
+                let report = ReclaimPlanReportBuilder.build(
+                    plan: plan,
+                    privacy: ReportPrivacyOptions(pathStyle: pathStyle)
+                )
+                return try ReportStore().save(planReport: report)
+            }.value
+            lastPlanReportExportURL = url
             error = nil
         } catch {
             self.error = error.localizedDescription

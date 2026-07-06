@@ -18,6 +18,8 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer overview --json --path Tests --limit 5` includes bounded `mapNodes`.
 - [ ] `reclaimer report --path Tests --limit 5 --output REPORT.md` writes a local Markdown report with scan coverage, top findings, user policy, accounting notes, and non-claims without executing cleanup.
 - [ ] `reclaimer report --path Tests --path-style redacted --redact-user-text --output REPORT.md` writes a local Markdown report without full local paths or user-entered policy reasons.
+- [ ] `reclaimer plan --path Tests --output PLAN.md` writes a local Markdown reclaim plan report with selected actions, blocked/review items, safety buckets, estimates, and non-claims without executing cleanup.
+- [ ] `reclaimer plans export --path-style redacted --output PLAN.md` exports a saved plan report with redacted action/review paths without mutating the saved plan.
 - [ ] `reclaimer history record --path Tests --limit 5` saves a local-only snapshot.
 - [ ] `reclaimer history list --limit 5` and `reclaimer history diff --group category --limit 5` read local-only snapshots.
 - [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
@@ -59,6 +61,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say permission coverage is local path readability evidence and does not grant or prove global Full Disk Access.
 - [ ] Release notes say active-handle reports can include process summaries and do not quit processes or execute cleanup.
 - [ ] Release notes say evidence reports are local Markdown files that can include paths and do not execute cleanup.
+- [ ] Release notes say plan reports summarize proposed cleanup locally and do not execute cleanup or replace dry-run receipts.
 - [ ] Release notes say receipt reports summarize saved receipts locally and do not rerun cleanup.
-- [ ] Release notes say report redaction affects exports only; saved local audit JSON and receipts can still contain original local paths.
+- [ ] Release notes say report redaction affects exports only; saved local audit JSON, plans, and receipts can still contain original local paths.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

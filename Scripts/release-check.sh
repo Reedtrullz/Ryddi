@@ -68,6 +68,16 @@ grep -q "# Ryddi Evidence Report" "$scratch/evidence-report.md"
 grep -q "Explicit Non-Claims" "$scratch/evidence-report.md"
 grep -q "<path redacted>" "$scratch/evidence-report.md"
 grep -q "Report privacy was applied" "$scratch/evidence-report.md"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" plan --path "$receipt_fixture" --min-size 1 --max-depth 1 --output "$scratch/plan-report.md" --path-style redacted --no-lsof
+grep -q "# Ryddi Plan Report" "$scratch/plan-report.md"
+grep -q "Selected Actions" "$scratch/plan-report.md"
+grep -q "does not execute cleanup" "$scratch/plan-report.md"
+grep -q "<path redacted>" "$scratch/plan-report.md"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" plan --path "$receipt_fixture" --min-size 1 --max-depth 1 --save-audit --no-lsof >"$scratch/saved-plan-smoke.txt"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" plans export --output "$scratch/saved-plan-report.md" --path-style redacted
+grep -q "# Ryddi Plan Report" "$scratch/saved-plan-report.md"
+grep -q "Report privacy was applied" "$scratch/saved-plan-report.md"
+grep -q "<path redacted>" "$scratch/saved-plan-report.md"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" execute --dry-run --path "$receipt_fixture" --min-size 1 --max-depth 1 --save-audit --no-lsof >"$scratch/receipt-dry-run-smoke.txt"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" receipts export --output "$scratch/receipt-report.md" --path-style redacted
 grep -q "# Ryddi Receipt Report" "$scratch/receipt-report.md"
@@ -128,6 +138,8 @@ Verification performed:
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5
 - bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
+- bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy
+- bundled reclaimer plan --save-audit on disposable fixture plus redacted plans export --output saved-plan-report.md
 - bundled reclaimer execute --dry-run --save-audit on disposable fixture plus redacted receipts export --output receipt-report.md
 - bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
 - bundled reclaimer policy protect/list with temporary config root

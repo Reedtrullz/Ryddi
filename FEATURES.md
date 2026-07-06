@@ -14,6 +14,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, Full Disk Access guidance, and explicit permission non-claims. | `PermissionAdvisor`, `reclaimer permissions`, app Permissions |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Export evidence reports | Produce local Markdown reports with disk status, scan coverage, safety/category buckets, top findings, user policy, accounting notes, optional path privacy controls, and explicit non-claims. | `EvidenceReportBuilder`, `ReportPrivacyOptions`, `ReportStore`, `reclaimer report`, app Export Report |
+| Export plan reports | Produce local Markdown reports for proposed reclaim plans with selected actions, blocked/review items, safety buckets, estimates, optional path privacy controls, and explicit non-claims. | `ReclaimPlanReportBuilder`, `ReportPrivacyOptions`, `reclaimer plan --output`, `reclaimer plans export`, app plan export |
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
 | Explain decisions | Every finding carries rule matches, evidence, recovery notes, and conditions. | `Finding`, `Evidence`, app detail view, `reclaimer explain` |
 | Honor user path policy | User protections keep paths visible but blocked from cleanup; user exclusions hide noisy paths from scans and parent measurements. | `UserPathPolicyStore`, `reclaimer policy`, app Protections & Exclusions |
@@ -49,6 +50,7 @@ Included:
 - Local scan history and growth deltas.
 - Menu bar disk-pressure status with report-only scan shortcut.
 - Exportable local Markdown evidence reports.
+- Exportable local Markdown reclaim plan reports.
 - Exportable local Markdown execution receipt reports.
 - Report path privacy controls: full, home-relative, redacted, plus user-entered reason redaction.
 - Active-handle review with process summaries for cleanup-relevant candidates.
@@ -88,6 +90,8 @@ Deferred:
 - `reclaimer active --path FIXTURE --json` reports cleanup candidates blocked by open handles or failed open-file checks, with process summaries when available, and does not quit processes or execute cleanup.
 - `reclaimer report --path FIXTURE --limit 5 --output REPORT.md` writes a local Markdown report with top findings, policy, accounting notes, and non-claims without executing cleanup.
 - `reclaimer report --path FIXTURE --path-style redacted --redact-user-text --output REPORT.md` writes a share-safer Markdown report without full local paths or user-entered policy reasons.
+- `reclaimer plan --path FIXTURE --output PLAN.md` writes a local Markdown reclaim plan report with selected actions, blocked/review items, safety buckets, estimates, and non-claims without executing cleanup.
+- `reclaimer plans export --path-style redacted --output PLAN.md` exports a saved plan report with redacted action/review paths without mutating the saved plan.
 - `reclaimer receipts export --output RECEIPT.md` writes a local Markdown report for a saved receipt without rerunning cleanup.
 - `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
 - `reclaimer status --json` reports disk pressure and free-space notes without scanning content.

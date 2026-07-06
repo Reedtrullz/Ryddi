@@ -293,4 +293,12 @@ public final class ReportStore: @unchecked Sendable {
         try report.markdown.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
+
+    @discardableResult
+    public func save(planReport report: ReclaimPlanReport) throws -> URL {
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("plan-report-\(report.planID)-\(report.id).md")
+        try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
 }

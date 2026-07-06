@@ -37,6 +37,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - menu bar disk-pressure status with report-only scan shortcut
 - permission/degraded-scan coverage, Full Disk Access guidance, and APFS accounting notes
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
+- exportable local Markdown reclaim plan reports with selected actions, blocked items, safety buckets, and non-claims
 - exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
 - report privacy controls for full, home-relative, or redacted paths plus user-entered reason redaction
 - active-handle review for cleanup candidates, with process summaries and failed-check visibility
@@ -104,6 +105,8 @@ swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
 swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
 swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch
 swift run --scratch-path .build reclaimer plan --json
+swift run --scratch-path .build reclaimer plan --path Tests --output ryddi-plan-report.md
+swift run --scratch-path .build reclaimer plans export --path-style redacted --output ryddi-plan-report-redacted.md
 swift run --scratch-path .build reclaimer explain ~/.codex
 swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Caches/Codex
 swift run --scratch-path .build reclaimer receipts list
@@ -161,6 +164,16 @@ swift run --scratch-path .build reclaimer report --save-report
 Reports include scan coverage, safety buckets, top categories, top findings, local protections/exclusions, APFS/accounting notes, disk-pressure notes, and explicit non-claims. They do not execute cleanup and may include local paths.
 
 Use `--path-style home-relative` to hide the home directory prefix, `--path-style redacted` or `--redact-paths` to replace report paths with `<path redacted>`, and `--redact-user-text` to hide user-entered policy reasons. Redaction affects the exported report; saved local audit records may still contain the original paths.
+
+Proposed reclaim plans can also be exported before dry run or execution:
+
+```bash
+swift run --scratch-path .build reclaimer plan --path ~/Library/Caches/Codex --output ryddi-plan-report.md
+swift run --scratch-path .build reclaimer plan --path ~/Library/Caches/Codex --save-audit
+swift run --scratch-path .build reclaimer plans export --path-style redacted --output ryddi-plan-report-redacted.md
+```
+
+Plan reports summarize selected actions, blocked or review-only items, safety buckets, conditions, estimates, and non-claims. They do not execute cleanup and are not a substitute for a dry-run receipt.
 
 Saved execution receipts can also be exported:
 

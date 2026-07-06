@@ -102,7 +102,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Partial | First slice has non-overlapping proportional category map nodes; a full treemap/sunburst with drill-down remains future work. |
 | Evidence details | Rare in broad cleaners, central to Ryddi | Partial | Make every finding answer: what is this, why matched, risk, recovery path, exact action. |
 | Dry-run plan | Strong differentiator | Partial | Keep as default. Receipt exports now add action counts and skipped/error visibility; plan diff remains future work. |
-| Exportable reports | Expected in trust-sensitive admin tools, useful for before/after review | Exists/partial | Markdown evidence reports and receipt reports now capture scan coverage, top findings, policy, accounting notes, action counts, skipped/errors, before/after free-space fields, path privacy controls, and non-claims. Future work should add plan-diff exports. |
+| Exportable reports | Expected in trust-sensitive admin tools, useful for before/after review | Exists/partial | Markdown evidence reports, reclaim plan reports, and receipt reports now capture scan coverage, proposed actions, blocked/review items, policy, accounting notes, action counts, skipped/errors, before/after free-space fields, path privacy controls, and non-claims. Future work should add richer before/after comparison exports. |
 | Active-file guard | Strong safety differentiator | Exists/partial | Active-handle review now surfaces open/process summaries and failed checks for cleanup candidates. Future work should add richer app-name mapping and notification flows. |
 | Trash-first cleanup | Expected safety behavior | Exists/partial | Use Trash for uncertain/user-visible data. Direct delete only for allowlisted caches. |
 | App-managed holding area | Strong differentiator | Exists/partial | Make restore and expiry visible in UI. Show "held until" and original path. |
@@ -146,7 +146,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 2. Add APFS size model: logical, allocated, clone/hardlink caveat, purgeable/snapshot explanation.
 3. Add final re-stat and reclassification immediately before action.
 4. Add restore UX for Trash and holding-area moves where possible.
-5. Evidence and receipt report export exist for scan and execution review, including path privacy controls. Add richer plan-diff exports.
+5. Evidence, plan, and receipt report export exist for scan, proposed cleanup, and execution review, including path privacy controls. Add richer before/after comparison exports.
 
 ### Developer/AI Niche
 

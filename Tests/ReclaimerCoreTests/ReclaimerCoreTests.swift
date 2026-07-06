@@ -221,6 +221,69 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(privacy.displayText("Path: \(cache)", knownPaths: [cache]), "Path: ~/Library/Caches/Codex")
     }
 
+    func testReclaimPlanReportIncludesSelectedBlockedAndNonClaims() {
+        let cache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 1_000,
+            isDirectory: true,
+            category: "Codex Cache"
+        )
+        let history = finding(
+            path: tempRoot.appendingPathComponent(".codex/sessions/rollout.jsonl").path,
+            safety: .preserveByDefault,
+            action: .compress,
+            open: false,
+            allocatedSize: 2_000,
+            category: "Codex History"
+        )
+        let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: [cache, history])
+
+        let report = ReclaimPlanReportBuilder.build(
+            plan: plan,
+            itemLimit: 10,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.planID, plan.id)
+        XCTAssertEqual(report.itemCount, 2)
+        XCTAssertEqual(report.selectedCount, 1)
+        XCTAssertEqual(report.blockedCount, 1)
+        XCTAssertEqual(report.expectedImmediateReclaim, 1_000)
+        XCTAssertTrue(report.markdown.contains("# Ryddi Plan Report"))
+        XCTAssertTrue(report.markdown.contains("## Selected Actions"))
+        XCTAssertTrue(report.markdown.contains("## Review And Blocked Items"))
+        XCTAssertTrue(report.markdown.contains("Path is protected by policy"))
+        XCTAssertTrue(report.markdown.contains("This report summarizes a proposed reclaim plan; it does not execute cleanup."))
+        XCTAssertTrue(report.markdown.contains("A plan report is not a dry-run receipt"))
+    }
+
+    func testReclaimPlanReportPrivacyRedactsPaths() {
+        let cache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 1_000,
+            isDirectory: true,
+            category: "Codex Cache"
+        )
+        let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: [cache])
+
+        let report = ReclaimPlanReportBuilder.build(
+            plan: plan,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted, homeDirectory: tempRoot),
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertTrue(report.markdown.contains("Report privacy was applied"))
+        XCTAssertFalse(report.markdown.contains(tempRoot.path))
+        XCTAssertFalse(report.markdown.contains(cache.path))
+    }
+
     func testReportStoreSavesMarkdown() throws {
         let report = EvidenceReport(
             id: "fixture",
@@ -327,6 +390,27 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertEqual(url.lastPathComponent, "receipt-report-receipt-fixture-report-fixture.md")
         XCTAssertEqual(try String(contentsOf: url), receiptReport.markdown)
+    }
+
+    func testReportStoreSavesReclaimPlanReport() throws {
+        let planReport = ReclaimPlanReport(
+            id: "report-fixture",
+            createdAt: Date(timeIntervalSince1970: 0),
+            title: "Plan Report",
+            markdown: "# Plan Report\n",
+            planID: "plan-fixture",
+            itemCount: 1,
+            selectedCount: 1,
+            blockedCount: 0,
+            expectedImmediateReclaim: 10,
+            nonClaims: []
+        )
+        let store = ReportStore(root: tempRoot.appendingPathComponent("Reports", isDirectory: true))
+
+        let url = try store.save(planReport: planReport)
+
+        XCTAssertEqual(url.lastPathComponent, "plan-report-plan-fixture-report-fixture.md")
+        XCTAssertEqual(try String(contentsOf: url), planReport.markdown)
     }
 
     func testVisualMapUsesNonOverlappingAllocatedSizes() throws {
@@ -1319,6 +1403,7 @@ final class ReclaimerCoreTests: XCTestCase {
         _ = try store.save(activeFileReviewReport: activeReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
+        XCTAssertEqual(store.plan(id: String(plan.id.prefix(8)))?.id, plan.id)
         XCTAssertEqual(store.recentReceipts().first?.id, receipt.id)
         XCTAssertEqual(store.receipt(id: String(receipt.id.prefix(8)))?.id, receipt.id)
         XCTAssertEqual(store.recentNativeToolReports().first?.id, nativeReport.id)

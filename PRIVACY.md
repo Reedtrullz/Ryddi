@@ -6,7 +6,7 @@ Ryddi is local-first disk cleanup software. Its job is to inspect local paths, e
 
 Ryddi does not upload paths, filenames, app lists, scan results, cleanup plans, receipts, or hardware information.
 
-Scans run on your Mac. Plans, receipts, Markdown evidence reports, and holding-area metadata are written locally under your user account. The scheduled agent is report-first and writes local audit records; it does not send reports anywhere.
+Scans run on your Mac. Plans, receipts, Markdown evidence/plan/receipt reports, and holding-area metadata are written locally under your user account. The scheduled agent is report-first and writes local audit records; it does not send reports anywhere.
 
 ## What Ryddi Reads
 
@@ -30,9 +30,11 @@ User path policy stores local exclusions and protections you create. These entri
 
 Evidence report export reads scan findings, disk status, scan coverage, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them.
 
+Plan report export reads a proposed reclaim plan to write local Markdown. Plan reports can include selected action paths, blocked or review-only paths, safety buckets, condition messages, and reclaim estimates. Ryddi does not upload plan reports or execute cleanup while creating them.
+
 Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Ryddi does not upload receipt reports or rerun cleanup while creating them.
 
-Report exports support path privacy controls. `home-relative` reports hide your home-directory prefix, `redacted` reports replace report paths with `<path redacted>`, and user-entered policy reasons can be redacted from exports. These controls affect the generated report only; saved local audit JSON and receipts can still contain original local paths.
+Report exports support path privacy controls. `home-relative` reports hide your home-directory prefix, `redacted` reports replace report paths with `<path redacted>`, and user-entered policy reasons can be redacted from exports. These controls affect the generated report only; saved local audit JSON, plans, and receipts can still contain original local paths.
 
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
@@ -42,6 +44,7 @@ Ryddi can write:
 
 - saved dry-run plans and receipts;
 - saved Markdown evidence reports;
+- saved Markdown reclaim plan reports;
 - saved Markdown receipt reports;
 - saved native-tool preview reports;
 - saved container inventory reports;

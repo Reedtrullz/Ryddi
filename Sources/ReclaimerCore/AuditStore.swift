@@ -93,6 +93,13 @@ public final class AuditStore: @unchecked Sendable {
             .compactMap { try? decoder.decode(ReclaimPlan.self, from: Data(contentsOf: $0)) }
     }
 
+    public func plan(id: String) -> ReclaimPlan? {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return recentPlans(limit: 500)
+            .first { $0.id == trimmed || $0.id.hasPrefix(trimmed) }
+    }
+
     public func recentNativeToolReports(limit: Int = 20) -> [NativeToolReport] {
         guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
             return []

@@ -46,6 +46,8 @@ struct ReclaimerCLI {
             try scan(args: args)
         case "plan":
             try plan(args: args)
+        case "plans":
+            try plans(args: args)
         case "explain":
             try explain(args: args)
         case "execute":
@@ -320,6 +322,7 @@ struct ReclaimerCLI {
 
     static func plan(args: [String]) throws {
         let options = ParsedOptions(args)
+        try options.validateReportPrivacyOptions()
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: options.scopes(), options: options.scanOptions(includeOpenFiles: false))
         let builder = PlanBuilder(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
@@ -328,10 +331,73 @@ struct ReclaimerCLI {
             let url = try AuditStore().save(plan: plan)
             FileHandle.standardError.write(Data("saved plan: \(url.path)\n".utf8))
         }
+        if options.outputPath != nil || options.saveReport {
+            let report = ReclaimPlanReportBuilder.build(
+                title: options.planReportTitle,
+                plan: plan,
+                itemLimit: options.limit,
+                privacy: options.reportPrivacy
+            )
+            if let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                FileHandle.standardError.write(Data("wrote plan report: \(url.path)\n".utf8))
+            }
+            if options.saveReport {
+                let url = try ReportStore().save(planReport: report)
+                FileHandle.standardError.write(Data("saved plan report: \(url.path)\n".utf8))
+            }
+        }
         if options.json {
             printJSON(plan)
-        } else {
+        } else if options.outputPath == nil {
             printPlan(plan)
+        }
+    }
+
+    static func plans(args: [String]) throws {
+        let subcommand = args.first ?? "list"
+        let options = ParsedOptions(Array(args.dropFirst()))
+        try options.validateReportPrivacyOptions()
+        let store = AuditStore()
+        switch subcommand {
+        case "list":
+            let plans = store.recentPlans(limit: options.limit)
+            if options.json {
+                printJSON(plans)
+            } else {
+                printPlans(plans)
+            }
+        case "export":
+            let plan = options.planID.flatMap { store.plan(id: $0) }
+                ?? store.recentPlans(limit: 1).first
+            guard let plan else {
+                throw CLIError.message("No saved plan found. Run plan --save-audit first, or pass --id for an existing plan.")
+            }
+            let report = ReclaimPlanReportBuilder.build(
+                title: options.planReportTitle,
+                plan: plan,
+                itemLimit: options.limit,
+                privacy: options.reportPrivacy
+            )
+            if let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                FileHandle.standardError.write(Data("wrote plan report: \(url.path)\n".utf8))
+            }
+            if options.saveReport {
+                let url = try ReportStore().save(planReport: report)
+                FileHandle.standardError.write(Data("saved plan report: \(url.path)\n".utf8))
+            }
+            if options.json {
+                printJSON(report)
+            } else if options.outputPath == nil {
+                print(report.markdown)
+            }
+        default:
+            throw CLIError.message("Unknown plans subcommand: \(subcommand)")
         }
     }
 
@@ -535,6 +601,11 @@ struct ReclaimerCLI {
               policy exclude PATH [--reason TEXT]
               policy remove PATH [--kind protect|exclude]
               plan [--json] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
+                   [--output PATH] [--save-report] [--title TEXT]
+                   [--path-style full|home-relative|redacted] [--redact-user-text]
+              plans list [--json] [--limit N]
+              plans export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
+                           [--path-style full|home-relative|redacted] [--redact-user-text]
               explain PATH [--json]
               execute --dry-run [--json] [--path PATH ...] [--save-audit] [--ignore-user-policy]
               execute --yes [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
@@ -591,7 +662,9 @@ struct ParsedOptions {
     var reason: String? { value(after: "--reason") }
     var outputPath: String? { value(after: "--output") }
     var reportTitle: String { value(after: "--title") ?? "Ryddi Evidence Report" }
+    var planReportTitle: String { value(after: "--title") ?? "Ryddi Plan Report" }
     var receiptReportTitle: String { value(after: "--title") ?? "Ryddi Receipt Report" }
+    var planID: String? { value(after: "--id") }
     var receiptID: String? { value(after: "--id") }
     var reportPrivacy: ReportPrivacyOptions {
         ReportPrivacyOptions(pathStyle: reportPathStyle, redactUserText: args.contains("--redact-user-text"))
@@ -1080,6 +1153,20 @@ func printPlan(_ plan: ReclaimPlan) {
     print("Expected immediate reclaim: \(ByteFormat.string(plan.expectedImmediateReclaim))")
     for line in plan.dryRunSummary {
         print(line)
+    }
+}
+
+func printPlans(_ plans: [ReclaimPlan]) {
+    if plans.isEmpty {
+        print("No saved plans.")
+        return
+    }
+    print("\(pad("Created", 22)) \(pad("Mode", 12)) \(pad("Items", 8)) \(pad("Selected", 9)) \(pad("Reclaim", 12)) Plan")
+    for plan in plans {
+        let selected = plan.items.filter(\.selected).count
+        print(
+            "\(pad(plan.createdAt.formatted(date: .numeric, time: .shortened), 22)) \(pad(plan.mode, 12)) \(pad("\(plan.items.count)", 8)) \(pad("\(selected)", 9)) \(pad(ByteFormat.string(plan.expectedImmediateReclaim), 12)) \(plan.id)"
+        )
     }
 }
 
