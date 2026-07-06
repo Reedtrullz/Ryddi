@@ -26,6 +26,8 @@ Duplicate review is different from normal metadata scanning: it reads regular fi
 
 Apps & Leftovers review reads installed app bundle metadata from local `Info.plist` files and checks common user Library locations for related support files, caches, logs, preferences, containers, launch agents, and heuristic orphan candidates. It does not upload app inventory or uninstall apps.
 
+App uninstall previews reuse the same local app inventory and related-file evidence to create a local checklist for one selected app. The preview can identify the selected app bundle as a manual Trash candidate, but related support files remain review-only/manual. Creating a preview does not quit apps, unload helpers, call vendor uninstallers, delete files, clean leftovers, or upload app inventory.
+
 AI-agent storage review reads local filesystem metadata from common Codex, Claude, Cursor, Windsurf, and Ollama roots, or from explicit paths you provide. Results can include local paths, owner hints, rule IDs, bucket names, and evidence strings. Ryddi does not upload this report, inspect prompt contents for remote analysis, or automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
 
 Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Ryddi does not upload these reports and does not execute the native commands automatically.

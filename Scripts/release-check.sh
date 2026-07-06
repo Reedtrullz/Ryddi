@@ -78,6 +78,35 @@ mkdir -p \
 printf 'drill cache\n' >"$drill_fixture/Library/Caches/Codex/cache.bin"
 printf 'drill log\n' >"$drill_fixture/Library/Logs/com.openai.codex/old.log"
 printf 'drill download\n' >"$drill_fixture/Downloads/Installers/app.dmg"
+app_fixture="$scratch/app-fixture"
+app_root="$app_fixture/Applications"
+app_home="$app_fixture/Home"
+app_bundle="$app_root/Fixture.app"
+mkdir -p \
+  "$app_bundle/Contents/MacOS" \
+  "$app_home/Library/Caches/com.example.fixture" \
+  "$app_home/Library/Preferences"
+cat >"$app_bundle/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.example.fixture</string>
+  <key>CFBundleDisplayName</key>
+  <string>Fixture</string>
+  <key>CFBundleName</key>
+  <string>Fixture</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleExecutable</key>
+  <string>Fixture</string>
+</dict>
+</plist>
+PLIST
+printf 'fixture executable\n' >"$app_bundle/Contents/MacOS/Fixture"
+printf 'fixture cache\n' >"$app_home/Library/Caches/com.example.fixture/cache.bin"
+printf 'fixture preferences\n' >"$app_home/Library/Preferences/com.example.fixture.plist"
 "$app/Contents/MacOS/reclaimer" status --json >"$scratch/status-smoke.json"
 "$app/Contents/MacOS/reclaimer" scopes --preset general >"$scratch/scopes-general-smoke.txt"
 grep -q "Mode: General Mac" "$scratch/scopes-general-smoke.txt"
@@ -126,6 +155,26 @@ grep -q '"rootNodes"' "$scratch/drilldown-smoke.json"
 grep -q '"children"' "$scratch/drilldown-smoke.json"
 grep -q '"omittedChildCount" : 1' "$scratch/drilldown-smoke.json"
 grep -q "Parent rows include measured descendant bytes" "$scratch/drilldown-smoke.json"
+"$app/Contents/MacOS/reclaimer" apps uninstall-preview \
+  --app "$app_bundle" \
+  --path "$app_root" \
+  --home "$app_home" \
+  --min-size 1 \
+  --output "$scratch/app-uninstall-preview.md" \
+  --path-style redacted
+grep -q "# Ryddi App Uninstall Preview" "$scratch/app-uninstall-preview.md"
+grep -q "Only the selected app bundle" "$scratch/app-uninstall-preview.md"
+grep -q "<path redacted>" "$scratch/app-uninstall-preview.md"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" apps uninstall-preview \
+  --json \
+  --app "$app_bundle" \
+  --path "$app_root" \
+  --home "$app_home" \
+  --min-size 1 \
+  --save-audit >"$scratch/app-uninstall-preview.json"
+grep -q '"disposition" : "trashPreview"' "$scratch/app-uninstall-preview.json"
+grep -q '"relatedItems"' "$scratch/app-uninstall-preview.json"
+find "$scratch/audit" -name 'app-uninstall-preview-*.json' -print -quit | grep -q .
 history_fixture="$scratch/history-fixture"
 history_cache="$history_fixture/Library/Caches/Codex"
 mkdir -p "$history_cache"
@@ -249,6 +298,7 @@ Verification performed:
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5
 - bundled reclaimer drilldown --json on disposable nested fixture
+- bundled reclaimer apps uninstall-preview on a disposable app fixture, with redacted Markdown and saved JSON audit
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md
 - bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
 - bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy

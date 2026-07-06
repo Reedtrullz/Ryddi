@@ -52,6 +52,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - large-file and old-file review signals
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
+- app uninstall preview reports for selected apps, with the app bundle separated from review-only related support files
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, separating reclaimable cache from valuable history and protected state
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
@@ -114,6 +115,7 @@ swift run --scratch-path .build reclaimer scan --sort category --group category 
 swift run --scratch-path .build reclaimer scan --review large --large-threshold 1000000000
 swift run --scratch-path .build reclaimer duplicates --path ~/Downloads --min-size 10000000
 swift run --scratch-path .build reclaimer apps --min-size 10000000
+swift run --scratch-path .build reclaimer apps uninstall-preview --app /Applications/Example.app --output ryddi-app-uninstall-preview.md
 swift run --scratch-path .build reclaimer agents
 swift run --scratch-path .build reclaimer agents --json --limit 40
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
@@ -182,6 +184,18 @@ swift run --scratch-path .build reclaimer agents --path ~/.codex --path ~/.claud
 ```
 
 The report groups Codex, Claude, Cursor, Windsurf, and Ollama storage into reclaimable cache, quit-first data, valuable history, protected state, and manual review. It is still report-only: agent sessions, memories, credentials, config, model state, and profiles are not deleted automatically, and cache cleanup still goes through the normal plan and dry-run gates.
+
+## App Uninstall Preview
+
+Ryddi can build a manual uninstall preview for a selected installed app:
+
+```bash
+swift run --scratch-path .build reclaimer apps --min-size 10000000
+swift run --scratch-path .build reclaimer apps uninstall-preview --app /Applications/Example.app --output ryddi-app-uninstall-preview.md
+swift run --scratch-path .build reclaimer apps uninstall-preview --bundle-id com.example.App --json --save-audit
+```
+
+The preview separates the app bundle from related support files. The app bundle can be shown as an explicit Trash candidate after review, but related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. The command does not quit apps, unload helpers, run vendor uninstallers, remove files, or clean leftovers automatically.
 
 ## Protections And Exclusions
 
@@ -337,7 +351,7 @@ Scripts/                     Packaging and notarization helpers
 ## Non-Goals For v1
 
 - automatic duplicate cleanup, smart duplicate selection, or Photos/Music duplicate management
-- app uninstall, automatic app-support cleanup, or smart leftover deletion
+- app uninstall execution, automatic app-support cleanup, or smart leftover deletion
 - malware scanning
 - RAM cleaning or "optimizer" features
 - root helper/system-wide cleanup

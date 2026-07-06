@@ -66,8 +66,8 @@ Review first. Reclaim safely.
 Initial MVP:
 
 - Swift core scanner and rule engine
-- CLI for scan scope presets, scan, overview, disk drill-down, bundled rule catalog, status, permissions, active-handle review, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
-- SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, detail view, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
+- CLI for scan scope presets, scan, overview, disk drill-down, bundled rule catalog, status, permissions, active-handle review, apps-and-leftovers review, app uninstall preview, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
+- SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, detail view, Apps & Leftovers, app uninstall preview, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - AI-agent storage buckets that separate reclaimable cache from valuable history, protected state, quit-first data, and manual review
 - Open-file guard and active-handle review with `lsof` process summaries
@@ -85,4 +85,5 @@ Known limits:
 - no Apple notarization unless Developer ID credentials are configured
 - no screenshots/GIFs for the first-run permission walkthrough yet
 - no root helper or system-wide cleanup
+- app uninstall preview does not remove apps or automatically delete app support files
 ```

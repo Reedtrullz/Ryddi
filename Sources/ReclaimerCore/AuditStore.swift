@@ -56,6 +56,13 @@ public final class AuditStore: @unchecked Sendable {
         return url
     }
 
+    public func save(appUninstallPreview: AppUninstallPreview) throws -> URL {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("app-uninstall-preview-\(appUninstallPreview.id).json")
+        try encoder.encode(appUninstallPreview).write(to: url, options: .atomic)
+        return url
+    }
+
     public func recentReceipts(limit: Int = 20) -> [ExecutionReceipt] {
         guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
             return []

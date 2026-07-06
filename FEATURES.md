@@ -24,6 +24,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review large/old files | Size and age create review-only signals, never automatic cleanup permission. | dynamic scanner review signals |
 | Review duplicates | Size-bucketed local content hashing groups identical regular files as manual review signals; no delete action or plan item is emitted. | `DuplicateReviewScanner`, `reclaimer duplicates`, app Duplicate Review |
 | Review apps & leftovers | Parse installed `.app` bundles and related Library files, then surface support data and orphan candidates as review-only guidance. | `AppReviewScanner`, `reclaimer apps`, app Apps & Leftovers |
+| Preview app uninstall | Build a selected-app uninstall checklist/report that separates the app bundle Trash preview from review-only related support files. | `AppUninstallPreview`, `reclaimer apps uninstall-preview`, app Uninstall Preview |
 | Review AI-agent storage | Scan common Codex, Claude, Cursor, Windsurf, and Ollama roots, then bucket cache/log churn separately from valuable history, protected state, and manual review. | `AgentStorageReviewBuilder`, `DefaultScopes.aiAgentStorage`, `reclaimer agents`, app AI Agent Storage |
 | Inspect in native tools | Copy path, reveal in Finder, Quick Look, and open Terminal for reviewed findings. | app finding action buttons |
 | Protect valuable data | Default preserve/never-touch for user documents, creative assets, credentials, browser profiles, VM/container state, and Codex history. | rule pack and executor protected-class checks |
@@ -67,6 +68,7 @@ Included:
 - Large-file and old-file review-only signals.
 - Duplicate-file review for explicit CLI paths and bounded app scans, with preserve-by-default files excluded unless requested.
 - Apps & Leftovers review for installed app support files and heuristic orphan candidates.
+- App uninstall preview/checklist for a selected app bundle, keeping related support files review-only and outside execution.
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, with cache/history/protected-state buckets and no automatic session/config/model cleanup.
 - Stale temp/scratch classification.
 - App overview, top offenders, owner summaries, rule catalog, permission coverage, APFS notes, review queues, item detail, feature matrix, dry-run plan, audit history, and settings copy.
@@ -74,7 +76,7 @@ Included:
 Deferred:
 
 - Automatic duplicate cleanup, smart duplicate selection, similar-file matching, and Photos/Music duplicate management.
-- App uninstall, automatic app-support cleanup, and smart leftover deletion.
+- App uninstall execution, automatic app-support cleanup, and smart leftover deletion.
 - Malware scanning.
 - App updater.
 - RAM/performance optimizer features.
@@ -113,6 +115,7 @@ Deferred:
 - `reclaimer history report --output GROWTH.md` writes a local Markdown before/after report for saved scan snapshots, with category/scope/safety grouping, path privacy controls, and non-claims.
 - `reclaimer duplicates --path FIXTURE --min-size 1` groups same-content regular files, skips protected paths, and emits review-only `openGuidance` candidates.
 - `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1` reports installed app support files and orphan candidates without creating plan items.
+- `reclaimer apps uninstall-preview --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --output PREVIEW.md` writes an uninstall preview where the app bundle is separated from review-only related files and no deletion occurs.
 - `reclaimer agents --path FIXTURE --min-size 1 --max-depth 4 --json` reports AI-agent storage buckets, including reclaimable cache, valuable history, protected state, and quit-first data without creating plan items.
 - `reclaimer native --path FIXTURE --json` emits preview-only native-tool receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
 - `reclaimer containers --json --timeout 2` emits a read-only Docker/Colima inventory, classifies missing versus not-running tools, and never emits prune/delete/stop/reset commands.
@@ -122,3 +125,4 @@ Deferred:
 - Large/old file signals remain review-only and are not selected by an auto-safe plan.
 - Duplicate review findings remain outside `PlanBuilder` and `ReclaimerExecutor`.
 - Apps & Leftovers findings remain outside `PlanBuilder` and `ReclaimerExecutor`.
+- App uninstall previews do not execute cleanup and related support files remain outside `PlanBuilder` and `ReclaimerExecutor`.

@@ -1484,7 +1484,7 @@ struct AppReviewView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Apps & Leftovers")
                             .font(.largeTitle.bold())
-                        Text("Review installed apps, related support files, and heuristic orphan candidates. Ryddi does not uninstall apps or delete files from this report.")
+                        Text("Review installed apps, related support files, heuristic orphan candidates, and manual uninstall previews. Related files stay review-only.")
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -1519,13 +1519,19 @@ struct AppReviewView: View {
                         }
                     }
 
+                    if let preview = model.appUninstallPreview {
+                        AppUninstallPreviewView(preview: preview)
+                    }
+
                     SectionBox(title: "Installed Apps With Related Files") {
                         if report.installedAppGroups.isEmpty {
                             Text("No installed-app related files matched the current threshold.")
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(report.installedAppGroups.prefix(20)) { group in
-                                AppReviewGroupView(group: group)
+                                AppReviewGroupView(group: group) {
+                                    Task { await model.previewAppUninstall(group: group) }
+                                }
                             }
                         }
                     }
@@ -1572,6 +1578,7 @@ struct AppReviewView: View {
 
 struct AppReviewGroupView: View {
     let group: AppReviewGroup
+    var previewUninstall: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1588,6 +1595,14 @@ struct AppReviewGroupView: View {
                 Text(ByteFormat.string(group.totalAllocatedSize))
                     .monospacedDigit()
                 SafetyBadge(safetyClass: group.highestRiskClass)
+                if group.isInstalled, previewUninstall != nil {
+                    Button {
+                        previewUninstall?()
+                    } label: {
+                        Label("Preview Uninstall", systemImage: "trash")
+                    }
+                    .help("Build a manual uninstall preview. This does not remove the app or related files.")
+                }
             }
             if let appPath = group.appPath {
                 Text(appPath)
@@ -1632,6 +1647,93 @@ struct AppReviewGroupView: View {
             }
         }
         .padding(.vertical, 8)
+    }
+}
+
+struct AppUninstallPreviewView: View {
+    let preview: AppUninstallPreview
+
+    var body: some View {
+        SectionBox(title: "Uninstall Preview") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(preview.selectedApp.displayName)
+                            .font(.headline)
+                        Text(preview.selectedApp.bundleIdentifier ?? preview.selectedApp.id)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    Spacer()
+                    MetricTile(title: "Trash preview", value: ByteFormat.string(preview.explicitTrashPreviewBytes))
+                    MetricTile(title: "Related review", value: ByteFormat.string(preview.relatedReviewBytes))
+                }
+
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(preview.bundleCandidate.displayName)
+                            .lineLimit(1)
+                        Text(preview.bundleCandidate.path)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .textSelection(.enabled)
+                    }
+                    Spacer()
+                    Text(preview.bundleCandidate.disposition.label)
+                        .foregroundStyle(.secondary)
+                    Text(ByteFormat.string(preview.bundleCandidate.allocatedSize))
+                        .monospacedDigit()
+                    SafetyBadge(safetyClass: preview.bundleCandidate.safetyClass)
+                    AppUninstallCandidateActionButtons(candidate: preview.bundleCandidate)
+                }
+
+                ForEach(preview.bundleCandidate.guidance.prefix(2), id: \.self) { guidance in
+                    Text(guidance)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if !preview.relatedItems.isEmpty {
+                    Divider()
+                    Text("Related files stay review-only")
+                        .font(.headline)
+                    ForEach(preview.relatedItems.prefix(6)) { item in
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.displayName)
+                                    .lineLimit(1)
+                                Text(item.path)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .textSelection(.enabled)
+                            }
+                            Spacer()
+                            Text(item.category)
+                                .foregroundStyle(.secondary)
+                            Text(ByteFormat.string(item.allocatedSize))
+                                .monospacedDigit()
+                            SafetyBadge(safetyClass: item.safetyClass)
+                            AppReviewItemActionButtons(item: item)
+                        }
+                    }
+                    if preview.relatedItems.count > 6 {
+                        Text("\(preview.relatedItems.count - 6) more related item(s)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                ForEach(preview.nonClaims.prefix(3), id: \.self) { note in
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 }
 
@@ -2562,6 +2664,43 @@ struct AppReviewItemActionButtons: View {
     }
 }
 
+struct AppUninstallCandidateActionButtons: View {
+    let candidate: AppUninstallCandidate
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button {
+                PathActions.copyPath(candidate.path)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .help("Copy path")
+
+            Button {
+                PathActions.revealInFinder(candidate.path)
+            } label: {
+                Image(systemName: "folder")
+            }
+            .help("Reveal in Finder")
+
+            Button {
+                PathActions.quickLook(candidate.path)
+            } label: {
+                Image(systemName: "eye")
+            }
+            .help("Quick Look")
+
+            Button {
+                PathActions.openTerminal(at: candidate.path, isDirectory: candidate.isDirectory)
+            } label: {
+                Image(systemName: "terminal")
+            }
+            .help("Open Terminal here")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
 enum PathActions {
     static func copyPath(_ path: String) {
         #if os(macOS)
@@ -2872,6 +3011,7 @@ final class DashboardModel {
     var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
     var duplicateReview: DuplicateReview?
     var appReview: AppReviewReport?
+    var appUninstallPreview: AppUninstallPreview?
     var agentStorageReview: AgentStorageReview?
     var containerInventory: ContainerInventoryReport?
     var activeFileReview: ActiveFileReviewReport?
@@ -3357,6 +3497,31 @@ final class DashboardModel {
                     )
                 )
             }.value
+            appUninstallPreview = nil
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func previewAppUninstall(group: AppReviewGroup) async {
+        guard let report = appReview else {
+            error = "Run an app review before building an uninstall preview."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let selector = AppUninstallSelector(
+                appPath: group.appPath,
+                bundleIdentifier: group.bundleIdentifier,
+                displayName: group.ownerName
+            )
+            let preview = try await Task.detached {
+                try AppUninstallPreviewBuilder.build(report: report, selector: selector)
+            }.value
+            appUninstallPreview = preview
+            _ = try AuditStore().save(appUninstallPreview: preview)
             error = nil
         } catch {
             self.error = error.localizedDescription

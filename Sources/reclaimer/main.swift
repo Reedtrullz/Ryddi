@@ -354,12 +354,44 @@ struct ReclaimerCLI {
     }
 
     static func apps(args: [String]) throws {
+        if args.first == "uninstall-preview" {
+            try appUninstallPreview(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
         let report = try AppReviewScanner().scan(options: options.appReviewOptions)
         if options.json {
             printJSON(report)
         } else {
             printAppReview(report, options: options)
+        }
+    }
+
+    static func appUninstallPreview(args: [String]) throws {
+        let options = ParsedOptions(args)
+        try options.validateReportPrivacyOptions()
+        let report = try AppReviewScanner().scan(options: options.appReviewOptions)
+        let preview = try AppUninstallPreviewBuilder.build(report: report, selector: options.appUninstallSelector)
+        if options.saveAudit {
+            let url = try AuditStore().save(appUninstallPreview: preview)
+            FileHandle.standardError.write(Data("saved app uninstall preview: \(url.path)\n".utf8))
+        }
+        if let output = options.outputPath {
+            let markdown = AppUninstallPreviewMarkdownBuilder.build(
+                preview: preview,
+                title: options.appUninstallPreviewTitle,
+                itemLimit: options.limit,
+                privacy: options.reportPrivacy
+            )
+            let url = URL(fileURLWithPath: output).standardizedFileURL
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            FileHandle.standardError.write(Data("wrote app uninstall preview: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(preview)
+        } else if options.outputPath == nil {
+            printAppUninstallPreview(preview, options: options)
         }
     }
 
@@ -789,6 +821,9 @@ struct ReclaimerCLI {
                          [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
+              apps uninstall-preview [--json] (--app PATH | --bundle-id ID | --name NAME)
+                   [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N] [--output PATH]
+                   [--save-audit] [--path-style full|home-relative|redacted] [--redact-user-text]
               agents [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N]
                      [--include-missing-scopes] [--ignore-user-policy]
               native [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-audit]
@@ -870,6 +905,7 @@ struct ParsedOptions {
     var planReportTitle: String { value(after: "--title") ?? "Ryddi Plan Report" }
     var receiptReportTitle: String { value(after: "--title") ?? "Ryddi Receipt Report" }
     var growthReportTitle: String { value(after: "--title") ?? "Ryddi Growth Report" }
+    var appUninstallPreviewTitle: String { value(after: "--title") ?? "Ryddi App Uninstall Preview" }
     var planID: String? { value(after: "--id") }
     var receiptID: String? { value(after: "--id") }
     var currentSnapshotID: String? { value(after: "--current-id") }
@@ -996,6 +1032,14 @@ struct ParsedOptions {
             includeSystemApplications: includeSystemApps,
             includeOrphanCandidates: includeOrphans,
             minimumRelatedSize: minSize
+        )
+    }
+
+    var appUninstallSelector: AppUninstallSelector {
+        AppUninstallSelector(
+            appPath: value(after: "--app"),
+            bundleIdentifier: value(after: "--bundle-id"),
+            displayName: value(after: "--name")
         )
     }
 
@@ -1468,6 +1512,48 @@ func printAppGroups(_ groups: [AppReviewGroup], options: ParsedOptions) {
     }
     if groups.count > options.limit {
         print("... \(groups.count - options.limit) more app group(s)")
+    }
+}
+
+func printAppUninstallPreview(_ preview: AppUninstallPreview, options: ParsedOptions) {
+    print("Ryddi app uninstall preview \(preview.id)")
+    print("Generated: \(preview.createdAt.formatted())")
+    print("App: \(preview.selectedApp.displayName)")
+    if let bundleIdentifier = preview.selectedApp.bundleIdentifier {
+        print("Bundle id: \(bundleIdentifier)")
+    }
+    print("Bundle path: \(preview.bundleCandidate.path)")
+    print("Bundle action: \(preview.bundleCandidate.actionKind.label) / \(preview.bundleCandidate.disposition.label)")
+    print("Explicit Trash preview bytes: \(ByteFormat.string(preview.explicitTrashPreviewBytes))")
+    print("Related review bytes: \(ByteFormat.string(preview.relatedReviewBytes))")
+    print("Total bytes under review: \(ByteFormat.string(preview.totalBytesUnderReview))")
+
+    print("\nBundle guidance")
+    for line in preview.bundleCandidate.guidance {
+        print("- \(line)")
+    }
+
+    print("\nRelated files")
+    if preview.relatedItems.isEmpty {
+        print("No related support files matched the current app-review threshold.")
+    } else {
+        print("\(pad("Bytes", 12)) \(pad("Safety", 22)) \(pad("Action", 16)) \(pad("Category", 18)) Path")
+        for item in preview.relatedItems.prefix(options.limit) {
+            print("\(pad(ByteFormat.string(item.allocatedSize), 12)) \(pad(item.safetyClass.label, 22)) \(pad(item.actionKind.label, 16)) \(pad(item.category, 18)) \(item.path)")
+        }
+        if preview.relatedItems.count > options.limit {
+            print("... \(preview.relatedItems.count - options.limit) more related item(s)")
+        }
+    }
+
+    print("\nNotes")
+    for note in preview.notes {
+        print("- \(note)")
+    }
+
+    print("\nNon-claims")
+    for note in preview.nonClaims {
+        print("- \(note)")
     }
 }
 

@@ -1025,6 +1025,86 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(group.items.contains { $0.category == "App preferences" && $0.safetyClass == .preserveByDefault && $0.actionKind == .reportOnly })
     }
 
+    func testAppUninstallPreviewKeepsRelatedFilesReviewOnly() throws {
+        let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
+        let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
+        let app = appRoot.appendingPathComponent("Fixture.app", isDirectory: true)
+        try createAppBundle(
+            at: app,
+            bundleIdentifier: "com.example.fixture",
+            displayName: "Fixture"
+        )
+        let executable = app.appendingPathComponent("Contents/MacOS/Fixture")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 4, count: 512).write(to: executable)
+        let cache = home.appendingPathComponent("Library/Caches/com.example.fixture/cache.bin")
+        let preferences = home.appendingPathComponent("Library/Preferences/com.example.fixture.plist")
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: preferences.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 512).write(to: cache)
+        try Data(repeating: 2, count: 512).write(to: preferences)
+
+        let appReview = try AppReviewScanner().scan(
+            options: AppReviewOptions(
+                appRoots: [appRoot],
+                home: home,
+                minimumRelatedSize: 1,
+                measurementDepth: 2
+            )
+        )
+        let preview = try AppUninstallPreviewBuilder.build(
+            report: appReview,
+            selector: AppUninstallSelector(appPath: app.path),
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(preview.bundleCandidate.disposition, .trashPreview)
+        XCTAssertEqual(preview.bundleCandidate.actionKind, .trash)
+        XCTAssertGreaterThan(preview.explicitTrashPreviewBytes, 0)
+        XCTAssertEqual(preview.relatedItems.count, 2)
+        XCTAssertTrue(preview.relatedItems.allSatisfy { $0.actionKind != .trash && $0.actionKind != .deleteCache })
+        XCTAssertTrue(preview.nonClaims.contains { $0.contains("related files remain review-only") })
+
+        let markdown = AppUninstallPreviewMarkdownBuilder.build(
+            preview: preview,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted, homeDirectory: tempRoot)
+        )
+        XCTAssertTrue(markdown.contains("# Ryddi App Uninstall Preview"))
+        XCTAssertTrue(markdown.contains("<path redacted>"))
+        XCTAssertTrue(markdown.contains("Only the selected app bundle"))
+    }
+
+    func testAppUninstallPreviewBlocksProtectedAppleApps() throws {
+        let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
+        let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
+        let app = appRoot.appendingPathComponent("Logic Pro.app", isDirectory: true)
+        try createAppBundle(
+            at: app,
+            bundleIdentifier: "com.apple.logic10",
+            displayName: "Logic Pro"
+        )
+
+        let appReview = try AppReviewScanner().scan(
+            options: AppReviewOptions(
+                appRoots: [appRoot],
+                home: home,
+                minimumRelatedSize: 1,
+                measurementDepth: 2
+            )
+        )
+        let preview = try AppUninstallPreviewBuilder.build(
+            report: appReview,
+            selector: AppUninstallSelector(bundleIdentifier: "com.apple.logic10"),
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(preview.bundleCandidate.disposition, .protectedAppBlocked)
+        XCTAssertEqual(preview.bundleCandidate.safetyClass, .preserveByDefault)
+        XCTAssertEqual(preview.bundleCandidate.actionKind, .reportOnly)
+        XCTAssertEqual(preview.explicitTrashPreviewBytes, 0)
+        XCTAssertTrue(preview.bundleCandidate.evidence.contains { $0.message.contains("Apple app bundle") || $0.message.contains("GarageBand and Logic") })
+    }
+
     func testAppReviewSurfacesOrphanCandidatesAsReviewOnly() throws {
         let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
         let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
