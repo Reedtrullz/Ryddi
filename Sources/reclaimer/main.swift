@@ -44,6 +44,8 @@ struct ReclaimerCLI {
             try history(args: args)
         case "duplicates":
             try duplicates(args: args)
+        case "downloads":
+            try downloads(args: args)
         case "trash":
             try trash(args: args)
         case "apps":
@@ -591,6 +593,32 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printDuplicateReview(report, options: options)
+        }
+    }
+
+    static func downloads(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let root = options.value(after: "--path")
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+        let measurementDepth = max(0, Int(options.value(after: "--max-depth") ?? "") ?? 6)
+        let report = DownloadsReviewScanner().review(
+            options: DownloadsReviewOptions(
+                root: root,
+                limit: options.limit,
+                oldDays: options.oldDays,
+                measurementDepth: measurementDepth,
+                includeHidden: options.args.contains("--include-hidden")
+            )
+        )
+        if options.saveAudit {
+            let url = try AuditStore().save(downloadsReviewReport: report)
+            FileHandle.standardError.write(Data("saved downloads review report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printDownloadsReview(report, options: options)
         }
     }
 
@@ -1246,6 +1274,7 @@ struct ReclaimerCLI {
                              [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
               duplicates [--json] --path PATH ... [--min-size BYTES] [--max-depth N] [--limit N]
                          [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
+              downloads [--json] [--path DOWNLOADS_ROOT] [--limit N] [--old-days N] [--max-depth N] [--include-hidden] [--save-audit]
               trash [--json] [--path TRASH_ROOT] [--limit N] [--max-depth N] [--save-audit]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
@@ -2571,6 +2600,59 @@ func printAgentRetentionReport(_ report: AgentRetentionReport, options: ParsedOp
                 print("  next: \(firstStep)")
             }
         }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printDownloadsReview(_ report: DownloadsReviewReport, options: ParsedOptions) {
+    print("Ryddi Downloads review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Root: \(report.rootPath)")
+    print("Permission: \(report.permissionState.rawValue)")
+    print("Items measured: \(report.itemCount)")
+    print("Allocated in Downloads: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Review candidates: \(ByteFormat.string(report.reviewCandidateBytes))")
+    print("Installers/apps: \(ByteFormat.string(report.installerBytes))")
+    print("Archives: \(ByteFormat.string(report.archiveBytes))")
+    print("Old candidates: \(ByteFormat.string(report.oldCandidateBytes))")
+
+    if !report.notes.isEmpty {
+        print("\nNotes")
+        for note in report.notes {
+            print("- \(note)")
+        }
+    }
+
+    if !report.kindSummaries.isEmpty {
+        print("\nBy kind")
+        for summary in report.kindSummaries {
+            print("- \(pad(summary.kind.label, 18)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
+    if report.largestItems.isEmpty {
+        print("\nNo Downloads items found at the configured root.")
+    } else {
+        print("\nLargest Downloads items")
+        print("\(pad("Allocated", 11)) \(pad("Kind", 18)) \(pad("Age", 8)) \(pad("Modified", 12)) Path")
+        for item in report.largestItems.prefix(options.limit) {
+            let modified = item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "unknown"
+            let age = item.ageDays.map { "\($0)d" } ?? "unknown"
+            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.kind.label, 18)) \(pad(age, 8)) \(pad(modified, 12)) \(item.path)")
+            print("  - \(item.recommendation)")
+            if let guidance = item.guidance.first {
+                print("  next: \(guidance)")
+            }
+        }
+    }
+
+    print("\nGuidance")
+    for line in report.guidance {
+        print("- \(line)")
     }
 
     print("\nNon-claims")

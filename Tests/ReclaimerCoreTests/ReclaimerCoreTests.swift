@@ -1726,6 +1726,61 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
     }
 
+    func testDownloadsReviewClassifiesInstallersArchivesAndOldFilesWithoutMutating() throws {
+        let downloads = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let oldInstaller = downloads.appendingPathComponent("OldInstaller.dmg")
+        let package = downloads.appendingPathComponent("Package.pkg")
+        let archive = downloads.appendingPathComponent("Archive.zip")
+        let oldNote = downloads.appendingPathComponent("old-note.txt")
+        let hidden = downloads.appendingPathComponent(".hidden-download")
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 4096).write(to: oldInstaller)
+        try Data(repeating: 2, count: 1024).write(to: package)
+        try Data(repeating: 3, count: 2048).write(to: archive)
+        try Data(repeating: 4, count: 512).write(to: oldNote)
+        try Data(repeating: 5, count: 128).write(to: hidden)
+        let oldDate = Date(timeIntervalSince1970: 1_700_000_000)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: oldInstaller.path)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: oldNote.path)
+
+        let report = DownloadsReviewScanner().review(
+            options: DownloadsReviewOptions(root: downloads, limit: 10, oldDays: 30, measurementDepth: 4, includeHidden: true),
+            createdAt: Date(timeIntervalSince1970: 1_720_000_000)
+        )
+
+        XCTAssertEqual(report.permissionState, .readable)
+        XCTAssertEqual(report.rootPath, downloads.path)
+        XCTAssertGreaterThanOrEqual(report.itemCount, 5)
+        XCTAssertTrue(report.largestItems.contains { $0.displayName == "OldInstaller.dmg" && $0.kind == .diskImage })
+        XCTAssertTrue(report.largestItems.contains { $0.displayName == "Package.pkg" && $0.kind == .packageInstaller })
+        XCTAssertTrue(report.largestItems.contains { $0.displayName == "Archive.zip" && $0.kind == .archive })
+        XCTAssertTrue(report.largestItems.contains { $0.displayName == "old-note.txt" && $0.signals.contains("old-download") })
+        XCTAssertTrue(report.largestItems.contains { $0.displayName == ".hidden-download" })
+        XCTAssertGreaterThanOrEqual(report.installerBytes, 5_120)
+        XCTAssertGreaterThanOrEqual(report.archiveBytes, 2_048)
+        XCTAssertGreaterThan(report.oldCandidateBytes, 0)
+        XCTAssertTrue(report.guidance.contains { $0.contains("Finder") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("does not delete") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oldInstaller.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: package.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: archive.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oldNote.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: hidden.path))
+    }
+
+    func testDownloadsReviewReportsMissingRootAsCoverageEvidence() throws {
+        let missing = tempRoot.appendingPathComponent("missing-downloads", isDirectory: true)
+        let report = DownloadsReviewScanner().review(
+            options: DownloadsReviewOptions(root: missing, limit: 10, oldDays: 90, measurementDepth: 4),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.permissionState, .missing)
+        XCTAssertEqual(report.totalAllocatedSize, 0)
+        XCTAssertTrue(report.notes.contains { $0.contains("does not exist") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
+    }
+
     func testDuplicateReviewExcludesPreserveByDefaultUnlessRequested() throws {
         let documents = tempRoot.appendingPathComponent("Documents", isDirectory: true)
         try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
@@ -2947,6 +3002,10 @@ final class ReclaimerCoreTests: XCTestCase {
             options: TrashReviewOptions(root: tempRoot.appendingPathComponent(".Trash"), limit: 10, measurementDepth: 4),
             createdAt: Date(timeIntervalSince1970: 0)
         )
+        let downloadsReport = DownloadsReviewScanner().review(
+            options: DownloadsReviewOptions(root: tempRoot.appendingPathComponent("Downloads"), limit: 10, oldDays: 90, measurementDepth: 4),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
 
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
@@ -2955,6 +3014,7 @@ final class ReclaimerCoreTests: XCTestCase {
         _ = try store.save(containerInventoryReport: containerReport)
         _ = try store.save(activeFileReviewReport: activeReport)
         _ = try store.save(trashReviewReport: trashReport)
+        _ = try store.save(downloadsReviewReport: downloadsReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.plan(id: String(plan.id.prefix(8)))?.id, plan.id)
@@ -2965,6 +3025,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.recentContainerInventoryReports().first?.id, containerReport.id)
         XCTAssertEqual(store.recentActiveFileReviewReports().first?.id, activeReport.id)
         XCTAssertEqual(store.recentTrashReviewReports().first?.id, trashReport.id)
+        XCTAssertEqual(store.recentDownloadsReviewReports().first?.id, downloadsReport.id)
     }
 
     private final class FakeToolRunner: ToolCommandRunning, @unchecked Sendable {

@@ -51,6 +51,8 @@ struct DashboardView: View {
                 LargeOldReviewView(model: model)
             } else if selectedSection == "Duplicates" {
                 DuplicateReviewView(model: model)
+            } else if selectedSection == "Downloads" {
+                DownloadsReviewView(model: model)
             } else if selectedSection == "Trash" {
                 TrashReviewView(model: model)
             } else if selectedSection == "Containers" {
@@ -209,6 +211,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Duplicates"
                 }
+                Button("Downloads Review") {
+                    selectedFinding = nil
+                    selectedSection = "Downloads"
+                }
                 Button("Trash Review") {
                     selectedFinding = nil
                     selectedSection = "Trash"
@@ -326,6 +332,7 @@ struct OverviewView: View {
                 MetricTile(title: "Audit receipts", value: "\(model.recentReceipts.count)")
                 MetricTile(title: "Snapshots", value: "\(model.scanSnapshots.count)")
                 MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
+                MetricTile(title: "Downloads", value: model.downloadsReview.map { ByteFormat.string($0.reviewCandidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
                 MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
                 MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
@@ -1188,6 +1195,16 @@ struct AuditHistoryView: View {
                     }
                 }
 
+                SectionBox(title: "Downloads Review Reports") {
+                    if model.recentDownloadsReviewReports.isEmpty {
+                        Text("No Downloads review reports yet.")
+                    } else {
+                        ForEach(model.recentDownloadsReviewReports) { report in
+                            Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.displayedItemCount) shown - \(ByteFormat.string(report.reviewCandidateBytes)) candidates")
+                        }
+                    }
+                }
+
                 SectionBox(title: "App Uninstall Receipts") {
                     if model.recentAppUninstallReceipts.isEmpty {
                         Text("No app-uninstall receipts yet.")
@@ -1869,6 +1886,158 @@ struct DuplicateReviewView: View {
                     }
                 } else {
                     ContentUnavailableView("No duplicate review yet", systemImage: "rectangle.on.rectangle", description: Text("Run a duplicate scan to build a review-only list of identical regular files."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct DownloadsReviewView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Downloads Review")
+                            .font(.largeTitle.bold())
+                        Text("Review old downloads, installers, archives, and app bundles. Ryddi classifies candidates and saves evidence; Finder remains the place to move, archive, or Trash files.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.reviewDownloads() }
+                    } label: {
+                        Label("Review Downloads", systemImage: "tray.and.arrow.down")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                if let report = model.downloadsReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Review candidates", value: ByteFormat.string(report.reviewCandidateBytes))
+                        MetricTile(title: "Installers/apps", value: ByteFormat.string(report.installerBytes))
+                        MetricTile(title: "Archives", value: ByteFormat.string(report.archiveBytes))
+                        MetricTile(title: "Old", value: ByteFormat.string(report.oldCandidateBytes))
+                        MetricTile(title: "Permission", value: report.permissionState.rawValue)
+                    }
+
+                    SectionBox(title: "Downloads Root") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(report.rootPath)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                            HStack {
+                                Button {
+#if os(macOS)
+                                    NSWorkspace.shared.open(URL(fileURLWithPath: report.rootPath))
+#endif
+                                } label: {
+                                    Label("Open In Finder", systemImage: "folder")
+                                }
+                                Spacer()
+                            }
+                            ForEach(report.notes, id: \.self) { note in
+                                Text(note)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "By Kind") {
+                        if report.kindSummaries.isEmpty {
+                            Text("No Downloads entries found at the configured root.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 6) {
+                                ForEach(report.kindSummaries) { summary in
+                                    HStack {
+                                        Text(summary.kind.label)
+                                        Spacer()
+                                        Text("\(summary.itemCount)")
+                                            .monospacedDigit()
+                                            .foregroundStyle(.secondary)
+                                        Text(ByteFormat.string(summary.allocatedSize))
+                                            .frame(width: 90, alignment: .trailing)
+                                            .monospacedDigit()
+                                    }
+                                    .font(.caption)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Largest Downloads Items") {
+                        if report.largestItems.isEmpty {
+                            Text("No Downloads items found at the configured root.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 0) {
+                                HStack {
+                                    Text("Allocated").frame(width: 92, alignment: .leading)
+                                    Text("Kind").frame(width: 116, alignment: .leading)
+                                    Text("Age").frame(width: 64, alignment: .leading)
+                                    Text("Path")
+                                    Spacer()
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                ForEach(report.largestItems.prefix(40)) { item in
+                                    Divider()
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(ByteFormat.string(item.allocatedSize))
+                                                .frame(width: 92, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text(item.kind.label)
+                                                .frame(width: 116, alignment: .leading)
+                                            Text(item.ageDays.map { "\($0)d" } ?? "unknown")
+                                                .frame(width: 64, alignment: .leading)
+                                            Text(item.path)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                                .textSelection(.enabled)
+                                            Spacer()
+                                        }
+                                        .font(.caption)
+                                        Text(item.recommendation)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(.vertical, 6)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Guidance") {
+                        ForEach(report.guidance, id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    SectionBox(title: "Non-Claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No Downloads review yet", systemImage: "tray.and.arrow.down", description: Text("Run Downloads Review to inspect installers, archives, old downloads, and other space candidates without moving anything."))
                 }
 
                 if let error = model.error {
@@ -4436,6 +4605,7 @@ final class DashboardModel {
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
     var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
     var recentTrashReviewReports: [TrashReviewReport] = []
+    var recentDownloadsReviewReports: [DownloadsReviewReport] = []
     var recentAppUninstallReceipts: [AppUninstallExecutionReceipt] = []
     var heldItems: [HeldItem] = []
     var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
@@ -4449,6 +4619,7 @@ final class DashboardModel {
     var containerInventory: ContainerInventoryReport?
     var activeFileReview: ActiveFileReviewReport?
     var trashReview: TrashReviewReport?
+    var downloadsReview: DownloadsReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
     var lastPlanReportExportURL: URL?
@@ -5066,6 +5237,7 @@ final class DashboardModel {
         recentContainerInventoryReports = store.recentContainerInventoryReports()
         recentActiveFileReviewReports = store.recentActiveFileReviewReports()
         recentTrashReviewReports = store.recentTrashReviewReports()
+        recentDownloadsReviewReports = store.recentDownloadsReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
     }
@@ -5166,6 +5338,24 @@ final class DashboardModel {
             }.value
             trashReview = report
             _ = try AuditStore().save(trashReviewReport: report)
+            loadAudit()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reviewDownloads() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = await Task.detached {
+                DownloadsReviewScanner().review(
+                    options: DownloadsReviewOptions(limit: 80, oldDays: 90, measurementDepth: 6)
+                )
+            }.value
+            downloadsReview = report
+            _ = try AuditStore().save(downloadsReviewReport: report)
             loadAudit()
             error = nil
         } catch {

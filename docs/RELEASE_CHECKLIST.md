@@ -46,6 +46,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer history list --limit 5` and `reclaimer history diff --group category --limit 5` read local-only snapshots.
 - [ ] `reclaimer history report --output GROWTH.md` writes a local Markdown saved-snapshot comparison report with deltas, scan coverage, path privacy controls, and non-claims.
 - [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
+- [ ] `reclaimer downloads --path FIXTURE/Downloads --json --save-audit` reports old downloads, installers, archives, and largest items, saves a local audit record, and does not move, archive, Trash, or delete files.
 - [ ] `reclaimer trash --path FIXTURE/.Trash --json --save-audit` reports Trash size/largest items, saves a local audit record, and does not empty, restore, move, or delete files.
 - [ ] `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` reports installed app support files and orphan candidates without emitting a cleanup plan.
 - [ ] `reclaimer apps uninstall-preview --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --output PREVIEW.md` writes a selected-app uninstall checklist where related files remain review-only and no deletion occurs.

@@ -55,6 +55,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - first-class large-file and old-file review mode with category/safety summaries, row actions, and no automatic cleanup
 - archive-candidate review checklist for large/old personal files, with keep/archive/Trash-review/cleanup-plan/blocked recommendations
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
+- report-only Downloads review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
 - report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
@@ -287,6 +288,17 @@ swift run --scratch-path .build reclaimer apps uninstall --yes --app /Applicatio
 ```
 
 The preview separates the app bundle from related support files. `apps uninstall --dry-run` writes a receipt for moving only the selected app bundle to Trash. `apps uninstall --yes` performs that app-bundle Trash move after open-file, user-policy, and final bundle protection checks. Related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. Ryddi does not quit apps, unload helpers, run vendor uninstallers, or clean leftovers automatically.
+
+## Downloads Review
+
+Ryddi can review `~/Downloads` for old downloads, installers, archives, and app bundles without moving anything:
+
+```bash
+swift run --scratch-path .build reclaimer downloads --json --save-audit
+swift run --scratch-path .build reclaimer downloads --path ~/Downloads --old-days 90 --limit 40
+```
+
+Downloads Review reports the configured Downloads root, permission state, total size, installer/archive/old-download candidate bytes, kind summaries, largest items, and Finder guidance. It is report-only: Ryddi does not delete, move, archive, compress, or Trash Downloads entries.
 
 ## Trash Review
 

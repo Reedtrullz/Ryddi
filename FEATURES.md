@@ -26,6 +26,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review large/old files | Size and age create review-only signals, with a dedicated review mode that prefers concrete child files and never grants automatic cleanup permission. | `LargeOldReviewReport`, `FindingAnalytics.largeOldReviewReport`, `reclaimer large`, app Large & Old Files |
 | Review archive candidates | Convert large/old review rows into a local checklist with keep, archive, Trash-review, cleanup-plan, manual-review, and blocked recommendations, without moving or compressing files. | `ArchiveReviewReport`, `ArchiveReviewBuilder`, `reclaimer archive`, app Archive Candidates panel |
 | Review duplicates | Size-bucketed local content hashing groups identical regular files as manual review signals; no delete action or plan item is emitted. | `DuplicateReviewScanner`, `reclaimer duplicates`, app Duplicate Review |
+| Review Downloads | Report old downloads, installers, archives, app bundles, kind summaries, largest items, Finder guidance, and local audit history without moving or deleting files. | `DownloadsReviewScanner`, `DownloadsReviewReport`, `reclaimer downloads`, app Downloads Review |
 | Review Trash | Report the configured user Trash root, permission state, total size, largest immediate Trash items, Finder guidance, and local audit history without emptying or restoring anything. | `TrashReviewScanner`, `TrashReviewReport`, `reclaimer trash`, app Trash Review |
 | Review apps & leftovers | Parse installed `.app` bundles and related Library files, then surface support data and orphan candidates as review-only guidance. | `AppReviewScanner`, `reclaimer apps`, app Apps & Leftovers |
 | Preview and confirm app uninstall | Build a selected-app uninstall checklist/report, then optionally move only the selected app bundle to Trash after a clean dry run and explicit confirmation. Related support files remain review-only. | `AppUninstallPreview`, `AppUninstallExecutor`, `reclaimer apps uninstall-preview`, `reclaimer apps uninstall`, app Uninstall Preview |
@@ -79,6 +80,7 @@ Included:
 - Archive-candidate review checklists for large/old personal cleanup candidates, with redacted Markdown export and no automatic compression, Trash, or delete action.
 - Duplicate-file review for explicit CLI paths and bounded app scans, with preserve-by-default files excluded unless requested.
 - Trash Review for the current user Trash root, including largest items, permission state, Finder guidance, audit saving, and no empty-Trash execution.
+- Downloads Review for old downloads, installers, archives, app bundles, permission state, Finder guidance, audit saving, and no move/delete execution.
 - Apps & Leftovers review for installed app support files and heuristic orphan candidates.
 - App uninstall preview/checklist plus explicit app-bundle Trash execution after dry run and confirmation, keeping related support files review-only and outside execution.
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, with cache/history/protected-state buckets and no automatic session/config/model cleanup.

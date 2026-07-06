@@ -64,6 +64,13 @@ trash_fixture="$scratch/trash-fixture/.Trash"
 mkdir -p "$trash_fixture"
 printf 'old download\n' >"$trash_fixture/old-download.dmg"
 printf 'hidden trash\n' >"$trash_fixture/.hidden-trash"
+downloads_fixture="$scratch/downloads-fixture/Downloads"
+mkdir -p "$downloads_fixture"
+printf 'installer image\n' >"$downloads_fixture/FixtureInstaller.dmg"
+printf 'package installer\n' >"$downloads_fixture/FixturePackage.pkg"
+printf 'download archive\n' >"$downloads_fixture/FixtureArchive.zip"
+printf 'old loose note\n' >"$downloads_fixture/old-note.txt"
+touch -t 202401010101 "$downloads_fixture/FixtureInstaller.dmg" "$downloads_fixture/old-note.txt"
 agent_fixture="$scratch/agent-fixture"
 mkdir -p \
   "$agent_fixture/.codex/cache" \
@@ -333,6 +340,25 @@ grep -q "Trash Review is report-only" "$scratch/trash-smoke.json"
 find "$scratch/audit" -name 'trash-review-*.json' -print -quit | grep -q 'trash-review-'
 test -f "$trash_fixture/old-download.dmg"
 test -f "$trash_fixture/.hidden-trash"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" downloads --json \
+  --path "$downloads_fixture" \
+  --limit 20 \
+  --old-days 30 \
+  --max-depth 4 \
+  --save-audit >"$scratch/downloads-smoke.json"
+grep -q '"permissionState" : "readable"' "$scratch/downloads-smoke.json"
+grep -q '"displayName" : "FixtureInstaller.dmg"' "$scratch/downloads-smoke.json"
+grep -q '"kind" : "diskImage"' "$scratch/downloads-smoke.json"
+grep -q '"displayName" : "FixturePackage.pkg"' "$scratch/downloads-smoke.json"
+grep -q '"kind" : "packageInstaller"' "$scratch/downloads-smoke.json"
+grep -q '"displayName" : "FixtureArchive.zip"' "$scratch/downloads-smoke.json"
+grep -q '"kind" : "archive"' "$scratch/downloads-smoke.json"
+grep -q "Downloads Review is report-only" "$scratch/downloads-smoke.json"
+find "$scratch/audit" -name 'downloads-review-*.json' -print -quit | grep -q 'downloads-review-'
+test -f "$downloads_fixture/FixtureInstaller.dmg"
+test -f "$downloads_fixture/FixturePackage.pkg"
+test -f "$downloads_fixture/FixtureArchive.zip"
+test -f "$downloads_fixture/old-note.txt"
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
@@ -595,6 +621,7 @@ Verification performed:
 - bundled reclaimer agents retention --json on disposable Codex/Claude/Cursor/Ollama fixture
 - bundled reclaimer native --json and native run --dry-run --json on disposable Homebrew fixture
 - bundled reclaimer trash --json on disposable Trash fixture, with audit save and no emptying
+- bundled reclaimer downloads --json on disposable Downloads fixture, with audit save and no file moves/deletes
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
