@@ -225,6 +225,39 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(overview.accountingNotes.isEmpty)
     }
 
+    func testDiskDrillDownBuildsHierarchyAndOmittedChildSummary() throws {
+        let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
+        let logs = tempRoot.appendingPathComponent("Library/Logs/com.openai.codex/old.log")
+        let download = tempRoot.appendingPathComponent("Downloads/installer.dmg")
+        for (index, url) in [cache, logs, download].enumerated() {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(repeating: UInt8(index + 1), count: 256 + index).write(to: url)
+        }
+
+        let scopes = [ScanScope(name: "fixture", root: tempRoot)]
+        let findings = try FileScanner(openFileChecker: NoOpenFilesChecker()).scan(
+            scopes: scopes,
+            options: ScanOptions(minimumFindingSize: 1, maximumFindingDepth: 4, measurementDepth: 8)
+        )
+        let report = DiskDrillDownBuilder.build(
+            findings: findings,
+            scopes: scopes,
+            maxDepth: 4,
+            childLimit: 1,
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let root = try XCTUnwrap(report.rootNodes.first { $0.path == tempRoot.path })
+        XCTAssertGreaterThan(report.nodeCount, 3)
+        XCTAssertGreaterThan(report.totalAllocatedSize, 0)
+        XCTAssertEqual(root.childCount, 2)
+        XCTAssertEqual(root.children.count, 1)
+        XCTAssertEqual(root.omittedChildCount, 1)
+        XCTAssertGreaterThan(root.omittedAllocatedSize, 0)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("Parent rows include measured descendant bytes") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("Map nodes are informational only") })
+    }
+
     func testEvidenceReportIncludesSafetyPolicyAndNonClaims() throws {
         let protectedPath = tempRoot.appendingPathComponent("Projects/KeepMe", isDirectory: true)
         let excludedPath = tempRoot.appendingPathComponent("Downloads/Noisy", isDirectory: true)

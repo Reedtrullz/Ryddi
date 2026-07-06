@@ -9,7 +9,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Choose scan scope | Named presets for Developer, General Mac, and All roots, plus explicit custom `--path` support and scope preview. | `ScanScopePreset`, `ScanScopePlan`, `DefaultScopes`, `reclaimer scopes`, app Scan Scope |
 | Find large offenders | Bounded filesystem scanner over preset or custom roots, with permission evidence. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
 | Show top offenders | Shared overview analytics with category, owner/app/tool, safety, scope, age, logical size, allocated size, and top finding summaries. | `FindingAnalytics`, `reclaimer overview`, app Top Offenders |
-| Visualize space | Proportional category map from non-overlapping allocated-size findings; informational only, not a cleanup selector. | `DiskMapNode`, app Visual Map, `overview` map nodes |
+| Visualize space | Proportional category map plus bounded hierarchical drill-down from scan findings; informational only, not a cleanup selector. | `DiskMapNode`, `DiskDrillDownReport`, `reclaimer drilldown`, app Visual Map and Disk Drilldown |
 | Explain ownership | Group non-overlapping findings by scanner owner hints or category fallback so users can see which app/tool appears responsible for storage. | `OwnerStorageSummary`, `ScanOverview.ownerSummaries`, `reclaimer overview`, app Top Owners, evidence reports |
 | Track growth | Local scan snapshots compare category/scope/safety growth between scans and export local before/after Markdown reports. | `ScanHistoryStore`, `GrowthReportBuilder`, `reclaimer history`, `reclaimer history report`, app Growth History |
 | Watch disk pressure | Menu bar status item and CLI status report current free space using explicit warning/critical thresholds. | `DiskStatusReader`, `reclaimer status`, app menu bar |
@@ -52,7 +52,7 @@ Included:
 - Local user protections and exclusions, plus user path policy JSON import/export.
 - Xcode and package-manager cache classification.
 - SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter developer cache review.
-- Proportional visual map by category.
+- Proportional visual map by category plus a bounded hierarchical disk drill-down.
 - Local scan history and growth deltas.
 - Exportable local Markdown growth reports for saved snapshot comparisons.
 - Menu bar disk-pressure status with report-only scan shortcut.
@@ -95,6 +95,7 @@ Deferred:
 - `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records signing state, and creates a zip/checksum/manifest.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, owner summaries, and APFS notes.
+- `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` reports hierarchical scan nodes, omitted-child summaries, and non-claims without creating plan items.
 - `reclaimer rules --json` reports the bundled rule version, safety/action/category summaries, rule sections, match hints, conditions, recovery notes, and non-claims without scanning or executing cleanup.
 - `reclaimer permissions --json --path FIXTURE` reports coverage level, readable/denied/missing counts, recommended actions, and non-claims.
 - `reclaimer permissions guide --path FIXTURE --output GUIDE.md` writes a local Markdown first-run walkthrough with Full Disk Access steps, rescan/report-only commands, affected scopes, and non-claims.

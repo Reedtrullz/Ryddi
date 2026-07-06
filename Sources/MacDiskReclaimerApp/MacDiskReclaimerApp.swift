@@ -269,6 +269,9 @@ struct OverviewView: View {
                 PermissionCoverageView(report: model.permissionReport)
                 AccountingNotesView(notes: overview.accountingNotes)
                 DiskMapView(nodes: overview.mapNodes)
+                if let report = model.diskDrillDown {
+                    DiskDrillDownView(report: report)
+                }
                 OwnerStorageView(summaries: overview.ownerSummaries)
                 GrowthHistoryView(
                     snapshots: model.scanSnapshots,
@@ -2121,6 +2124,105 @@ struct DiskMapView: View {
     }
 }
 
+struct DiskDrillDownView: View {
+    let report: DiskDrillDownReport
+
+    var body: some View {
+        SectionBox(title: "Disk Drilldown") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Hierarchical scan findings by allocated size. Parent rows include descendant bytes; use this for navigation, not as additive reclaim math.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 16) {
+                    MetricTile(title: "Nodes", value: "\(report.nodeCount)")
+                    MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
+                    MetricTile(title: "Depth", value: "\(report.maxDepth)")
+                }
+
+                if report.rootNodes.isEmpty {
+                    Text("No drill-down nodes were produced for this scan.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(report.rootNodes.prefix(6)) { node in
+                            DiskDrillDownNodeView(node: node)
+                        }
+                    }
+                }
+
+                ForEach(report.nonClaims.prefix(2), id: \.self) { note in
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+}
+
+struct DiskDrillDownNodeView: View {
+    let node: DiskDrillDownNode
+
+    var body: some View {
+        if node.children.isEmpty {
+            nodeRow
+                .padding(.vertical, 3)
+        } else {
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(node.children) { child in
+                        DiskDrillDownNodeView(node: child)
+                            .padding(.leading, 12)
+                    }
+                    if node.omittedChildCount > 0 {
+                        Text("\(node.omittedChildCount) more child item(s), \(ByteFormat.string(node.omittedAllocatedSize)) omitted by the display limit")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 12)
+                    }
+                }
+            } label: {
+                nodeRow
+                    .padding(.vertical, 3)
+            }
+        }
+    }
+
+    private var nodeRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(ByteFormat.string(node.allocatedSize))
+                    .font(.caption.monospacedDigit())
+                    .frame(width: 92, alignment: .leading)
+                Text(node.displayName.isEmpty ? node.path : node.displayName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                Text(node.category)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                SafetyBadge(safetyClass: node.safetyClass)
+            }
+            HStack(spacing: 8) {
+                Text(node.actionKind.label)
+                if let owner = node.ownerHint {
+                    Text(owner)
+                }
+                Text(node.path)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+            .font(.caption2.monospaced())
+            .foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct OwnerStorageView: View {
     let summaries: [OwnerStorageSummary]
 
@@ -2757,6 +2859,7 @@ final class DashboardModel {
     var scanPreset: ScanScopePreset = .developer
     var lastScannedPreset: ScanScopePreset?
     var overview: ScanOverview?
+    var diskDrillDown: DiskDrillDownReport?
     var plan: ReclaimPlan?
     var lastDryRunReceipt: ExecutionReceipt?
     var lastExecutionReceipt: ExecutionReceipt?
@@ -2831,6 +2934,7 @@ final class DashboardModel {
         findings = []
         scanScopes = []
         overview = nil
+        diskDrillDown = nil
         plan = nil
         agentStorageReview = nil
         lastDryRunReceipt = nil
@@ -2875,14 +2979,16 @@ final class DashboardModel {
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
                 )
                 let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
-                return (preset, scopes, findings, overview, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
+                let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
+                return (preset, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
             }.value
             lastScannedPreset = result.0
             scanScopes = result.1
             findings = result.2
             overview = result.3
-            userPathPolicy = result.4
-            permissionReport = result.5
+            diskDrillDown = result.4
+            userPathPolicy = result.5
+            permissionReport = result.6
             _ = try ScanHistoryStore().save(overview: result.3)
             loadHistory()
             plan = nil
@@ -2980,14 +3086,16 @@ final class DashboardModel {
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
                 )
                 let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
-                return (preset, scopes, findings, overview, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
+                let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
+                return (preset, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
             }.value
             lastScannedPreset = refreshed.0
             scanScopes = refreshed.1
             findings = refreshed.2
             overview = refreshed.3
-            userPathPolicy = refreshed.4
-            permissionReport = refreshed.5
+            diskDrillDown = refreshed.4
+            userPathPolicy = refreshed.5
+            permissionReport = refreshed.6
             _ = try ScanHistoryStore().save(overview: refreshed.3)
             loadHistory()
             plan = nil

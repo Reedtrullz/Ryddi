@@ -14,6 +14,8 @@ Ryddi reads filesystem metadata such as path, file type, size, allocated size, m
 
 Scan presets control which local roots are inspected. Developer mode focuses on developer and AI-agent storage, General Mac mode includes broader review roots such as Downloads, Desktop, personal media/document folders, user caches/logs, app support, attachments, backups, and Trash, and All combines both while collapsing overlapping roots. Presets do not upload data, grant cleanup permission, or change safety rules.
 
+Disk drill-down reports reuse local scan metadata to build a bounded hierarchy of paths, sizes, safety classes, actions, categories, owner hints, and short evidence strings. Ryddi does not upload drill-down reports, and drill-down navigation does not select or execute cleanup.
+
 Active-handle review runs bounded open-file checks over cleanup-relevant candidates and can save a local report. These reports can include local paths, process names, pids, failed-check messages, safety classes, and guidance. Ryddi does not upload active-handle reports, quit processes, or execute cleanup while creating them.
 
 Disk status and the menu bar item read local volume capacity/free-space metadata. They do not inspect file contents or send disk pressure information anywhere.

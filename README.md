@@ -34,6 +34,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - top-offender overview with category, owner/app/tool, safety, age, logical size, and allocated size
 - scan presets for Developer, General Mac, and All roots, plus scope preview before scanning
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
+- hierarchical disk drill-down for scanned roots, with bounded child rows, safety/action/category hints, and explicit non-additive accounting notes
 - ownership-aware storage summaries that group findings by app/tool hints such as Codex, Docker, Colima, Xcode, Homebrew, and Chrome
 - local scan history snapshots and category growth deltas
 - exportable local Markdown growth reports comparing saved scan snapshots
@@ -93,6 +94,7 @@ swift run --scratch-path .build reclaimer help
 
 ```bash
 swift run --scratch-path .build reclaimer overview
+swift run --scratch-path .build reclaimer drilldown --preset general --max-depth 3 --limit 8
 swift run --scratch-path .build reclaimer scopes --preset general
 swift run --scratch-path .build reclaimer overview --preset general
 swift run --scratch-path .build reclaimer scan --preset all --review large
@@ -146,6 +148,17 @@ swift run --scratch-path .build reclaimer permissions guide --output ryddi-permi
 ```
 
 The permission advisor reports readable, denied, missing, and unknown scopes; recommends when to review Full Disk Access; and keeps explicit non-claims because path readability is not cleanup permission. The walkthrough adds first-run steps, a settings URL, rescan/report-only commands, affected scopes, and a local Markdown export. It does not grant macOS permissions or prove that Full Disk Access is enabled.
+
+## Disk Drilldown
+
+Ryddi can render a bounded hierarchy for scanned roots:
+
+```bash
+swift run --scratch-path .build reclaimer drilldown --preset general --max-depth 3 --limit 8
+swift run --scratch-path .build reclaimer drilldown --path ~/Library/Caches --min-size 1000000 --tree-depth 4
+```
+
+The drill-down view is for navigation and evidence review. Parent rows include descendant bytes, so parent and child rows should not be added together as independent reclaim totals, and clicking through the app drill-down does not select cleanup.
 
 ## Active Handles
 

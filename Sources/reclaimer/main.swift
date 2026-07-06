@@ -24,6 +24,8 @@ struct ReclaimerCLI {
             try status(args: args)
         case "overview":
             try overview(args: args)
+        case "drilldown":
+            try drilldown(args: args)
         case "scopes":
             try scopes(args: args)
         case "rules":
@@ -115,6 +117,24 @@ struct ReclaimerCLI {
             printJSON(overview)
         } else {
             printOverview(overview)
+        }
+    }
+
+    static func drilldown(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let scopes = try options.scopes(includeUnavailable: options.includeMissingScopes)
+        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
+        let report = DiskDrillDownBuilder.build(
+            findings: options.prepare(findings),
+            scopes: scopes,
+            maxDepth: options.drilldownDepth,
+            childLimit: options.limit
+        )
+        if options.json {
+            printJSON(report)
+        } else {
+            printDiskDrillDown(report)
         }
     }
 
@@ -750,6 +770,8 @@ struct ReclaimerCLI {
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy]
               overview [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy]
+              drilldown [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N]
+                        [--tree-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy]
               rules [--json]
               report [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
                      [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
@@ -833,6 +855,7 @@ struct ParsedOptions {
     var hour: Int { Int(value(after: "--hour") ?? "") ?? 9 }
     var minute: Int { Int(value(after: "--minute") ?? "") ?? 30 }
     var limit: Int { max(1, Int(value(after: "--limit") ?? "") ?? 80) }
+    var drilldownDepth: Int { max(0, Int(value(after: "--tree-depth") ?? value(after: "--max-depth") ?? "") ?? 3) }
     var presetName: String { value(after: "--preset") ?? ScanScopePreset.developer.rawValue }
     var sort: String { value(after: "--sort") ?? "size" }
     var group: String? { value(after: "--group") }
@@ -1129,6 +1152,43 @@ func printOverview(_ overview: ScanOverview) {
     print("\nAPFS/accounting notes")
     for note in overview.accountingNotes {
         print("- \(note)")
+    }
+}
+
+func printDiskDrillDown(_ report: DiskDrillDownReport) {
+    print("Ryddi disk drill-down")
+    print("Generated: \(report.generatedAt.formatted())")
+    print("Scanned roots: \(report.scannedRoots.count)")
+    print("Nodes: \(report.nodeCount)")
+    print("Allocated scanned: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Logical scanned: \(ByteFormat.string(report.totalLogicalSize))")
+    print("Tree depth: \(report.maxDepth)")
+    print("Child limit: \(report.childLimit)")
+
+    print("\nHierarchy")
+    if report.rootNodes.isEmpty {
+        print("No drill-down nodes were produced for the current scan.")
+    } else {
+        for node in report.rootNodes {
+            printDiskDrillDownNode(node)
+        }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printDiskDrillDownNode(_ node: DiskDrillDownNode, indent: String = "") {
+    let owner = node.ownerHint.map { " \($0)" } ?? ""
+    let path = node.depth == 0 ? node.path : node.displayName
+    print("\(indent)- \(ByteFormat.string(node.allocatedSize)) \(node.safetyClass.label) \(node.category)\(owner) \(path)")
+    if node.omittedChildCount > 0 {
+        print("\(indent)  ... \(node.omittedChildCount) more child item(s), \(ByteFormat.string(node.omittedAllocatedSize))")
+    }
+    for child in node.children {
+        printDiskDrillDownNode(child, indent: indent + "  ")
     }
 }
 

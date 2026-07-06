@@ -20,6 +20,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer overview --path Tests --limit 5` prints a bounded overview.
 - [ ] `reclaimer overview --path Tests --limit 5` includes owner/app/tool summaries.
 - [ ] `reclaimer overview --json --path Tests --limit 5` includes bounded `mapNodes` and `ownerSummaries`.
+- [ ] `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` emits hierarchical `rootNodes`, bounded child rows, omitted-child summaries, and non-claims without creating a cleanup plan.
 - [ ] `reclaimer report --path Tests --limit 5 --output REPORT.md` writes a local Markdown report with scan coverage, top findings, user policy, accounting notes, and non-claims without executing cleanup.
 - [ ] `reclaimer report --path Tests --path-style redacted --redact-user-text --output REPORT.md` writes a local Markdown report without full local paths or user-entered policy reasons.
 - [ ] `reclaimer plan --path Tests --output PLAN.md` writes a local Markdown reclaim plan report with selected actions, blocked/review items, safety buckets, estimates, and non-claims without executing cleanup.
@@ -37,7 +38,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer recovery restore HOLDING_ID --to DESTINATION` restores a disposable app-held fixture and refuses overwrite conflicts.
 - [ ] `reclaimer containers --json --timeout 2 --save-audit` emits a read-only Docker/Colima inventory, saves a local audit record, and does not execute prune/delete/stop/reset commands.
 - [ ] `reclaimer policy protect/exclude/list/remove/export/import` works with temporary `RYDDI_CONFIG_ROOT` values; protected paths are not selected for cleanup, excluded paths are absent from scan output, export writes a versioned JSON document, import merges by default, and `--replace` drops local-only rules.
-- [ ] App Visual Map and Growth History render without changing reclaim gates.
+- [ ] App Visual Map, Disk Drilldown, and Growth History render without changing reclaim gates.
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App Apps & Leftovers review scans bounded app roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App AI Agent Storage review separates reclaimable cache from valuable history/protected state and does not enable Reclaim or modify the dry-run plan.
@@ -72,6 +73,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say permission coverage and walkthroughs are local path readability guidance and do not grant or prove global Full Disk Access.
 - [ ] Release notes say active-handle reports can include process summaries and do not quit processes or execute cleanup.
 - [ ] Release notes say evidence reports are local Markdown files that can include paths and do not execute cleanup.
+- [ ] Release notes say disk drill-down is local scan metadata navigation, parent/child rows are not additive reclaim totals, and drill-down does not select cleanup.
 - [ ] Release notes say growth reports compare saved local scan snapshots, can include paths, and do not prove exact current disk state or execute cleanup.
 - [ ] Release notes say plan reports summarize proposed cleanup locally and do not execute cleanup or replace dry-run receipts.
 - [ ] Release notes say receipt reports summarize saved receipts locally and do not rerun cleanup.

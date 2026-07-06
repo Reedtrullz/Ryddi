@@ -66,8 +66,8 @@ Review first. Reclaim safely.
 Initial MVP:
 
 - Swift core scanner and rule engine
-- CLI for scan scope presets, scan, overview, bundled rule catalog, status, permissions, active-handle review, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
-- SwiftUI app overview, rule catalog, review queues, detail view, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
+- CLI for scan scope presets, scan, overview, disk drill-down, bundled rule catalog, status, permissions, active-handle review, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
+- SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, detail view, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - AI-agent storage buckets that separate reclaimable cache from valuable history, protected state, quit-first data, and manual review
 - Open-file guard and active-handle review with `lsof` process summaries

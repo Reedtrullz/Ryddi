@@ -103,7 +103,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Top offenders overview | Baseline for all disk analyzers | Partial | Add a sortable, scannable table grouped by category, safety, and reclaim estimate. |
 | Owner/app/tool grouping | Expected from app uninstallers and increasingly important for developer-cleaner trust | Exists/partial | `ScanOverview.ownerSummaries`, CLI overview, app Top Owners, and evidence reports now group non-overlapping findings by owner hints or category fallback. Future work should deepen app identity confidence. |
 | Rule transparency | Rare in broad cleaners but important for open-source trust | Exists/partial | `reclaimer rules`, app Rule Catalog, and `RuleCatalogReport` expose bundled rule version, safety/action/category summaries, match hints, conditions, recovery notes, and non-claims. Future work should add user rule-pack review/import UX. |
-| Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Partial | First slice has non-overlapping proportional category map nodes; a full treemap/sunburst with drill-down remains future work. |
+| Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Exists/partial | Ryddi now has non-overlapping proportional category map nodes plus bounded hierarchical drill-down via `reclaimer drilldown` and app Disk Drilldown. A full treemap/sunburst with richer spatial interaction remains future work. |
 | Evidence details | Rare in broad cleaners, central to Ryddi | Partial | Make every finding answer: what is this, why matched, risk, recovery path, exact action. |
 | Dry-run plan | Strong differentiator | Partial | Keep as default. Receipt exports now add action counts and skipped/error visibility; plan diff remains future work. |
 | Exportable reports | Expected in trust-sensitive admin tools, useful for before/after review | Exists/partial | Markdown evidence reports, growth reports, reclaim plan reports, and receipt reports now capture scan coverage, saved-snapshot deltas, proposed actions, blocked/review items, policy, accounting notes, action counts, skipped/errors, before/after free-space fields, path privacy controls, and non-claims. Future work should add richer trend charts and visual comparisons. |
@@ -186,7 +186,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 The first public release should have:
 
 - CLI commands for scan, plan, explain, dry-run, execute, holding, and schedule.
-- SwiftUI app with overview, queues, details, plan builder, and audit history.
+- SwiftUI app with overview, visual map/drill-down, queues, details, plan builder, and audit history.
 - Rules for Codex, Docker/Colima, Xcode, package caches, browser caches, temp dirs, and large-file review.
 - Dry-run receipts and local audit history.
 - Recovery Center for app-held restores and receipt-based guidance.

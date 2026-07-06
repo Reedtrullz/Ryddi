@@ -70,6 +70,14 @@ printf 'session fixture\n' >"$agent_fixture/.codex/sessions/2026/07/session.json
 printf 'claude project fixture\n' >"$agent_fixture/.claude/projects/project.jsonl"
 printf 'ollama model fixture\n' >"$agent_fixture/.ollama/models/blobs/model.bin"
 printf 'cursor cache fixture\n' >"$agent_fixture/Library/Application Support/Cursor/Cache/cache.bin"
+drill_fixture="$scratch/drill-fixture"
+mkdir -p \
+  "$drill_fixture/Library/Caches/Codex" \
+  "$drill_fixture/Library/Logs/com.openai.codex" \
+  "$drill_fixture/Downloads/Installers"
+printf 'drill cache\n' >"$drill_fixture/Library/Caches/Codex/cache.bin"
+printf 'drill log\n' >"$drill_fixture/Library/Logs/com.openai.codex/old.log"
+printf 'drill download\n' >"$drill_fixture/Downloads/Installers/app.dmg"
 "$app/Contents/MacOS/reclaimer" status --json >"$scratch/status-smoke.json"
 "$app/Contents/MacOS/reclaimer" scopes --preset general >"$scratch/scopes-general-smoke.txt"
 grep -q "Mode: General Mac" "$scratch/scopes-general-smoke.txt"
@@ -113,6 +121,11 @@ grep -q '"candidateCount"' "$scratch/active-smoke.json"
 grep -q "By owner" "$scratch/overview-smoke.txt"
 "$app/Contents/MacOS/reclaimer" overview --json --path "$root/Tests" --limit 5 >"$scratch/overview-smoke.json"
 grep -q '"ownerSummaries"' "$scratch/overview-smoke.json"
+"$app/Contents/MacOS/reclaimer" drilldown --json --path "$drill_fixture" --min-size 1 --max-depth 4 --tree-depth 4 --limit 1 >"$scratch/drilldown-smoke.json"
+grep -q '"rootNodes"' "$scratch/drilldown-smoke.json"
+grep -q '"children"' "$scratch/drilldown-smoke.json"
+grep -q '"omittedChildCount" : 1' "$scratch/drilldown-smoke.json"
+grep -q "Parent rows include measured descendant bytes" "$scratch/drilldown-smoke.json"
 history_fixture="$scratch/history-fixture"
 history_cache="$history_fixture/Library/Caches/Codex"
 mkdir -p "$history_cache"
@@ -235,6 +248,7 @@ Verification performed:
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5
+- bundled reclaimer drilldown --json on disposable nested fixture
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md
 - bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
 - bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy
