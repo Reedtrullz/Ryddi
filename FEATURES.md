@@ -11,7 +11,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Visualize space | Proportional category map from non-overlapping allocated-size findings; informational only, not a cleanup selector. | `DiskMapNode`, app Visual Map, `overview` map nodes |
 | Track growth | Local scan snapshots compare category/scope/safety growth between the latest two scans. | `ScanHistoryStore`, `reclaimer history`, app Growth History |
 | Watch disk pressure | Menu bar status item and CLI status report current free space using explicit warning/critical thresholds. | `DiskStatusReader`, `reclaimer status`, app menu bar |
-| Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, Full Disk Access guidance, and explicit permission non-claims. | `PermissionAdvisor`, `reclaimer permissions`, app Permissions |
+| Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, first-run Full Disk Access walkthrough steps, exportable guidance, and explicit permission non-claims. | `PermissionAdvisor`, `PermissionWalkthroughBuilder`, `reclaimer permissions`, `reclaimer permissions guide`, app Permissions |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Export evidence reports | Produce local Markdown reports with disk status, scan coverage, safety/category buckets, top findings, user policy, accounting notes, optional path privacy controls, and explicit non-claims. | `EvidenceReportBuilder`, `ReportPrivacyOptions`, `ReportStore`, `reclaimer report`, app Export Report |
 | Export plan reports | Produce local Markdown reports for proposed reclaim plans with selected actions, blocked/review items, safety buckets, estimates, optional path privacy controls, and explicit non-claims. | `ReclaimPlanReportBuilder`, `ReportPrivacyOptions`, `reclaimer plan --output`, `reclaimer plans export`, app plan export |
@@ -54,7 +54,7 @@ Included:
 - Exportable local Markdown execution receipt reports.
 - Report path privacy controls: full, home-relative, redacted, plus user-entered reason redaction.
 - Active-handle review with process summaries for cleanup-relevant candidates.
-- Permission advisor for readable/denied/missing scope coverage and Full Disk Access guidance.
+- Permission advisor and first-run walkthrough for readable/denied/missing scope coverage, Full Disk Access guidance, degraded-mode labels, rescan commands, and permission non-claims.
 - Browser cache versus browser profile distinction.
 - Large-file and old-file review-only signals.
 - Duplicate-file review for explicit CLI paths and bounded app scans, with preserve-by-default files excluded unless requested.
@@ -73,7 +73,7 @@ Deferred:
 - Mac App Store sandbox packaging.
 - Automatic deletion of safe-after-condition or review-required items.
 - Automatic execution of native Docker/Colima/Homebrew/package-manager cleanup commands.
-- Full Disk Access onboarding beyond the current advisor, settings shortcut, and degraded-mode labels.
+- Screenshot/GIF walkthrough for Full Disk Access onboarding in release materials.
 
 ## Acceptance Criteria
 
@@ -87,6 +87,7 @@ Deferred:
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, and APFS notes.
 - `reclaimer permissions --json --path FIXTURE` reports coverage level, readable/denied/missing counts, recommended actions, and non-claims.
+- `reclaimer permissions guide --path FIXTURE --output GUIDE.md` writes a local Markdown first-run walkthrough with Full Disk Access steps, rescan/report-only commands, affected scopes, and non-claims.
 - `reclaimer active --path FIXTURE --json` reports cleanup candidates blocked by open handles or failed open-file checks, with process summaries when available, and does not quit processes or execute cleanup.
 - `reclaimer report --path FIXTURE --limit 5 --output REPORT.md` writes a local Markdown report with top findings, policy, accounting notes, and non-claims without executing cleanup.
 - `reclaimer report --path FIXTURE --path-style redacted --redact-user-text --output REPORT.md` writes a share-safer Markdown report without full local paths or user-entered policy reasons.

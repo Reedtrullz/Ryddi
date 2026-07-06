@@ -35,7 +35,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
 - local scan history snapshots and category growth deltas
 - menu bar disk-pressure status with report-only scan shortcut
-- permission/degraded-scan coverage, Full Disk Access guidance, and APFS accounting notes
+- permission/degraded-scan coverage, first-run Full Disk Access walkthrough, and APFS accounting notes
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
 - exportable local Markdown reclaim plan reports with selected actions, blocked items, safety buckets, and non-claims
 - exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
@@ -89,6 +89,7 @@ swift run --scratch-path .build reclaimer help
 swift run --scratch-path .build reclaimer overview
 swift run --scratch-path .build reclaimer status
 swift run --scratch-path .build reclaimer permissions
+swift run --scratch-path .build reclaimer permissions guide --output ryddi-permissions-guide.md
 swift run --scratch-path .build reclaimer active --path ~/Library/Caches --limit 25
 swift run --scratch-path .build reclaimer overview --save-history --path Tests --limit 5
 swift run --scratch-path .build reclaimer report --path Tests --limit 10 --output ryddi-report.md
@@ -124,9 +125,10 @@ Ryddi can summarize current scan coverage before you review cleanup candidates:
 ```bash
 swift run --scratch-path .build reclaimer permissions
 swift run --scratch-path .build reclaimer permissions --json --path ~/Library
+swift run --scratch-path .build reclaimer permissions guide --output ryddi-permissions-guide.md
 ```
 
-The permission advisor reports readable, denied, missing, and unknown scopes; recommends when to review Full Disk Access; and keeps explicit non-claims because path readability is not cleanup permission.
+The permission advisor reports readable, denied, missing, and unknown scopes; recommends when to review Full Disk Access; and keeps explicit non-claims because path readability is not cleanup permission. The walkthrough adds first-run steps, a settings URL, rescan/report-only commands, affected scopes, and a local Markdown export. It does not grant macOS permissions or prove that Full Disk Access is enabled.
 
 ## Active Handles
 

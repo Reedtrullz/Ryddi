@@ -1378,6 +1378,9 @@ struct PermissionCoverageView: View {
 
 struct PermissionOnboardingView: View {
     let model: DashboardModel
+    private var walkthrough: PermissionWalkthrough {
+        PermissionWalkthroughBuilder.build(report: model.permissionReport)
+    }
 
     var body: some View {
         ScrollView {
@@ -1404,6 +1407,15 @@ struct PermissionOnboardingView: View {
                         Label("Open Full Disk Access Settings", systemImage: "lock.shield")
                     }
                     .help("Open macOS Privacy & Security settings for Full Disk Access")
+                }
+
+                SectionBox(title: "First-run Walkthrough") {
+                    ForEach(walkthrough.steps) { step in
+                        PermissionWalkthroughStepRow(step: step)
+                        if step.id != walkthrough.steps.last?.id {
+                            Divider()
+                        }
+                    }
                 }
 
                 SectionBox(title: "Scope Readback") {
@@ -1441,10 +1453,67 @@ struct PermissionOnboardingView: View {
     }
 }
 
+struct PermissionWalkthroughStepRow: View {
+    let step: PermissionWalkthroughStep
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(step.status.label)
+                    .font(.caption.bold())
+                    .foregroundStyle(permissionStepColor(step.status))
+                    .frame(width: 104, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(step.title)
+                        .font(.headline)
+                    Text(step.detail)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if !step.affectedScopes.isEmpty {
+                Text(step.affectedScopes.joined(separator: ", "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 104)
+            }
+
+            HStack {
+                if step.settingsURL != nil {
+                    Button {
+                        PathActions.openFullDiskAccessSettings()
+                    } label: {
+                        Label(step.actionLabel ?? "Open Settings", systemImage: "lock.shield")
+                    }
+                    .help("Open macOS Privacy & Security settings for Full Disk Access")
+                }
+                if let command = step.command {
+                    Button {
+                        PathActions.copyText(command)
+                    } label: {
+                        Label("Copy Command", systemImage: "doc.on.doc")
+                    }
+                    .help(command)
+                }
+            }
+            .padding(.leading, 104)
+        }
+    }
+}
+
 func permissionColor(_ level: PermissionCoverageLevel) -> Color {
     switch level {
     case .complete: .green
     case .degraded: .orange
+    case .blocked: .red
+    }
+}
+
+func permissionStepColor(_ status: PermissionWalkthroughStepStatus) -> Color {
+    switch status {
+    case .done: .green
+    case .recommended: .orange
+    case .optional: .secondary
     case .blocked: .red
     }
 }
@@ -1763,6 +1832,13 @@ enum PathActions {
         #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(path, forType: .string)
+        #endif
+    }
+
+    static func copyText(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
         #endif
     }
 

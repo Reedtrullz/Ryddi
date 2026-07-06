@@ -60,6 +60,10 @@ printf 'fixture cache\n' >"$receipt_fixture/cache.bin"
 "$app/Contents/MacOS/reclaimer" status --json >"$scratch/status-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
+"$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
+grep -q "# Ryddi Permission Walkthrough" "$scratch/permissions-guide.md"
+grep -q "Full Disk Access" "$scratch/permissions-guide.md"
+grep -q "does not grant macOS permissions" "$scratch/permissions-guide.md"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" active --json --path "$root/Tests" --min-size 1 --max-depth 1 --limit 5 --save-audit >"$scratch/active-smoke.json"
 grep -q '"candidateCount"' "$scratch/active-smoke.json"
 "$app/Contents/MacOS/reclaimer" overview --path "$root/Tests" --limit 5 >"$scratch/overview-smoke.txt"
@@ -135,6 +139,7 @@ Verification performed:
 - bundle executable/resource checks
 - bundled reclaimer status --json
 - bundled reclaimer permissions --json --path Tests
+- bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5
 - bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy

@@ -146,12 +146,33 @@ struct ReclaimerCLI {
     }
 
     static func permissions(args: [String]) throws {
+        if args.first == "guide" {
+            try permissionGuide(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
         let report = PermissionAdvisor.report(scopes: options.scopes(includeUnavailable: true))
         if options.json {
             printJSON(report)
         } else {
             printPermissionAdvisorReport(report)
+        }
+    }
+
+    static func permissionGuide(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let report = PermissionAdvisor.report(scopes: options.scopes(includeUnavailable: true))
+        let walkthrough = PermissionWalkthroughBuilder.build(report: report)
+        if let output = options.outputPath {
+            let url = URL(fileURLWithPath: output).standardizedFileURL
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try walkthrough.markdown.write(to: url, atomically: true, encoding: .utf8)
+            FileHandle.standardError.write(Data("wrote permission walkthrough: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(walkthrough)
+        } else if options.outputPath == nil {
+            print(walkthrough.markdown)
         }
     }
 
@@ -586,6 +607,7 @@ struct ReclaimerCLI {
                      [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
                      [--include-missing-scopes] [--ignore-user-policy]
               permissions [--json] [--path PATH ...] [--include-missing-scopes]
+              permissions guide [--json] [--path PATH ...] [--output PATH] [--include-missing-scopes]
               active [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit]
               history record [--json] [--path PATH ...] [--limit N]
               history list [--json] [--limit N]

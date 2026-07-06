@@ -107,7 +107,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Trash-first cleanup | Expected safety behavior | Exists/partial | Use Trash for uncertain/user-visible data. Direct delete only for allowlisted caches. |
 | App-managed holding area | Strong differentiator | Exists/partial | Make restore and expiry visible in UI. Show "held until" and original path. |
 | User exclusions/protections | Expected from Hazel-like automation and serious cleanup tools | Exists/partial | Local path policy now supports scan exclusions and cleanup protections. Future work should add import/export and richer rule conditions. |
-| Full Disk Access onboarding | Expected for any serious disk scanner | Exists/partial | Permission advisor now reports coverage level, denied/missing scopes, Full Disk Access actions, and non-claims; richer first-run walkthrough remains future work. |
+| Full Disk Access onboarding | Expected for any serious disk scanner | Exists/partial | Permission advisor and walkthrough now report coverage level, denied/missing scopes, Full Disk Access actions, rescan/report-only commands, affected scopes, exportable guidance, and non-claims; screenshots/GIFs remain future release polish. |
 | APFS physical accounting | Expected by expert users; DaisyDisk/Spacie benchmark this | Exists/partial | Logical/allocated notes and non-overlap accounting exist; clone/hardlink/purgeable/snapshot depth remains future work. |
 | Large file review | Baseline | Exists | Large and old files are review-required signals, not automatic cleanup permission. |
 | Duplicate finder | Common suite feature | Experimental review-only slice | Keep local hashing explicit and bounded. No smart selection, no automatic deletion, no Photos/Music/iCloud duplicate management. |
@@ -142,7 +142,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 
 ### Safety Depth
 
-1. Permission advisor now covers readable/denied/missing scopes and Full Disk Access guidance. Add richer first-run walkthrough and screenshots.
+1. Permission advisor and first-run walkthrough now cover readable/denied/missing scopes, Full Disk Access guidance, rescan/report-only commands, affected scopes, exportable guidance, and non-claims. Add screenshots/GIFs for release polish.
 2. Add APFS size model: logical, allocated, clone/hardlink caveat, purgeable/snapshot explanation.
 3. Add final re-stat and reclassification immediately before action.
 4. Add restore UX for Trash and holding-area moves where possible.

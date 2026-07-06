@@ -16,7 +16,7 @@ Active-handle review runs bounded open-file checks over cleanup-relevant candida
 
 Disk status and the menu bar item read local volume capacity/free-space metadata. They do not inspect file contents or send disk pressure information anywhere.
 
-Permission coverage checks use local filesystem existence and readability checks for configured scan roots. They can report readable, denied, missing, and unknown scope states, but they do not grant macOS permissions or prove that Full Disk Access is globally enabled.
+Permission coverage checks use local filesystem existence and readability checks for configured scan roots. They can report readable, denied, missing, and unknown scope states, but they do not grant macOS permissions or prove that Full Disk Access is globally enabled. Permission walkthrough exports are local Markdown/JSON guidance derived from the same local readback; opening settings or saving a guide does not change macOS privacy state.
 
 Duplicate review is different from normal metadata scanning: it reads regular file bytes to compute local SHA-256 content hashes for same-size candidates. File contents are not stored, uploaded, or sent to any remote service. The duplicate CLI requires explicit `--path` roots, and preserve-by-default files are excluded unless the user explicitly opts into that review.
 

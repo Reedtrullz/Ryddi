@@ -607,6 +607,50 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("cannot prove macOS Full Disk Access") })
     }
 
+    func testPermissionWalkthroughGuidesDegradedCoverageWithoutGrantingPermission() {
+        let report = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Mail", path: "/fixture/Library/Mail", permissionState: .denied, message: "Path exists but is not readable."),
+                ScopeAccessSummary(name: "Colima", path: "/fixture/.colima", permissionState: .missing, message: "Path is not present.")
+            ],
+            now: Date(timeIntervalSince1970: 10)
+        )
+
+        let walkthrough = PermissionWalkthroughBuilder.build(report: report, now: Date(timeIntervalSince1970: 10))
+
+        XCTAssertEqual(walkthrough.coverageLevel, .degraded)
+        XCTAssertEqual(walkthrough.readableCount, 1)
+        XCTAssertEqual(walkthrough.totalCount, 3)
+        XCTAssertEqual(walkthrough.steps.first { $0.id == "open-full-disk-access" }?.status, .recommended)
+        XCTAssertEqual(walkthrough.steps.first { $0.id == "open-full-disk-access" }?.affectedScopes, ["Mail"])
+        XCTAssertEqual(walkthrough.steps.first { $0.id == "keep-degraded-mode-visible" }?.status, .recommended)
+        XCTAssertTrue(walkthrough.steps.contains { $0.command == "reclaimer permissions guide --output ryddi-permissions-guide.md" })
+        XCTAssertTrue(walkthrough.nonClaims.contains("This walkthrough does not grant macOS permissions."))
+        XCTAssertTrue(walkthrough.nonClaims.contains("Opening System Settings does not prove Full Disk Access is enabled."))
+        XCTAssertTrue(walkthrough.markdown.contains("# Ryddi Permission Walkthrough"))
+        XCTAssertTrue(walkthrough.markdown.contains("Explicit Non-Claims"))
+        XCTAssertTrue(walkthrough.markdown.contains("does not grant macOS permissions"))
+    }
+
+    func testPermissionWalkthroughKeepsFullDiskAccessOptionalForCompleteCoverage() {
+        let report = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Caches", path: "/fixture/Library/Caches", permissionState: .readable, message: "Directory is readable.")
+            ],
+            now: Date(timeIntervalSince1970: 20)
+        )
+
+        let walkthrough = PermissionWalkthroughBuilder.build(report: report, now: Date(timeIntervalSince1970: 20))
+
+        XCTAssertEqual(walkthrough.coverageLevel, .complete)
+        XCTAssertEqual(walkthrough.steps.first { $0.id == "open-full-disk-access" }?.status, .optional)
+        XCTAssertEqual(walkthrough.steps.first { $0.id == "keep-degraded-mode-visible" }?.status, .done)
+        XCTAssertTrue(walkthrough.markdown.contains("Coverage: Complete"))
+        XCTAssertTrue(walkthrough.markdown.contains("Readable scopes: 2/2"))
+    }
+
     func testDuplicateReviewGroupsOnlySameContent() throws {
         let duplicatesRoot = tempRoot.appendingPathComponent("Duplicates", isDirectory: true)
         try FileManager.default.createDirectory(at: duplicatesRoot, withIntermediateDirectories: true)

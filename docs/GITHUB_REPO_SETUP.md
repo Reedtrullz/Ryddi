@@ -72,13 +72,13 @@ Initial MVP:
 - Dry-run receipts and local audit store
 - Markdown evidence, plan, and receipt report exports with path privacy controls
 - App-managed holding area with restore/expire workflow
-- Permission advisor for readable/denied/missing scan coverage and Full Disk Access guidance
+- Permission advisor and first-run walkthrough for readable/denied/missing scan coverage and Full Disk Access guidance
 - Release-check workflow for unsigned developer preview artifacts
 
 Known limits:
 
 - unsigned local bundle unless built with `CODESIGN_IDENTITY`
 - no Apple notarization unless Developer ID credentials are configured
-- no richer first-run permission walkthrough yet
+- no screenshots/GIFs for the first-run permission walkthrough yet
 - no root helper or system-wide cleanup
 ```
