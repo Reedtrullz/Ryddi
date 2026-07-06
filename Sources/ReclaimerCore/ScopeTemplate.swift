@@ -65,6 +65,7 @@ public enum ScopeTemplateCatalog {
             appLeftovers(home: home, includeUnavailable: includeUnavailable),
             browserCaches(home: home, includeUnavailable: includeUnavailable),
             packageCaches(home: home, includeUnavailable: includeUnavailable),
+            xcodeMaintenance(home: home, includeUnavailable: includeUnavailable),
             deviceBackups(home: home, includeUnavailable: includeUnavailable),
             aiAgentStorage(home: home, includeUnavailable: includeUnavailable),
             developerMaintenance(home: home, includeUnavailable: includeUnavailable)
@@ -205,6 +206,39 @@ public enum ScopeTemplateCatalog {
                 ],
                 includeUnavailable: includeUnavailable
             )
+        )
+    }
+
+    private static func xcodeMaintenance(home: URL, includeUnavailable: Bool) -> ScopeTemplate {
+        ScopeTemplate(
+            id: "xcode-review",
+            name: "Xcode Review",
+            group: "Developer",
+            summary: "Xcode DerivedData, module/documentation caches, archives, device support, simulator state, runtimes, logs, and protected developer settings.",
+            recommendedUse: "Run after large build sessions or before reviewing old simulators, runtimes, archives, and device-support folders.",
+            scopes: scopes(
+                [
+                    ("Xcode DerivedData", home.appendingPathComponent("Library/Developer/Xcode/DerivedData")),
+                    ("Xcode module cache", home.appendingPathComponent("Library/Developer/Xcode/ModuleCache.noindex")),
+                    ("Xcode documentation cache", home.appendingPathComponent("Library/Developer/Xcode/DocumentationCache")),
+                    ("Xcode products", home.appendingPathComponent("Library/Developer/Xcode/Products")),
+                    ("Xcode archives", home.appendingPathComponent("Library/Developer/Xcode/Archives")),
+                    ("Xcode iOS DeviceSupport", home.appendingPathComponent("Library/Developer/Xcode/iOS DeviceSupport")),
+                    ("Xcode watchOS DeviceSupport", home.appendingPathComponent("Library/Developer/Xcode/watchOS DeviceSupport")),
+                    ("Xcode tvOS DeviceSupport", home.appendingPathComponent("Library/Developer/Xcode/tvOS DeviceSupport")),
+                    ("CoreSimulator devices", home.appendingPathComponent("Library/Developer/CoreSimulator/Devices")),
+                    ("CoreSimulator runtimes", home.appendingPathComponent("Library/Developer/CoreSimulator/Profiles/Runtimes")),
+                    ("CoreSimulator logs", home.appendingPathComponent("Library/Logs/CoreSimulator")),
+                    ("Xcode CoreSimulator logs", home.appendingPathComponent("Library/Developer/CoreSimulator/Logs")),
+                    ("Xcode preview simulators", home.appendingPathComponent("Library/Developer/Xcode/UserData/Previews/Simulator Devices"))
+                ],
+                includeUnavailable: includeUnavailable,
+                removingNestedChildren: true
+            ),
+            nonClaims: defaultNonClaims + [
+                "The Xcode Review template is a scan-root shortcut; it does not delete DerivedData, archives, device support, simulator state, runtimes, or Xcode settings.",
+                "Xcode UserData, signing profiles, accounts, templates, preferences, snippets, and other developer state remain protected by review rules."
+            ]
         )
     }
 

@@ -60,6 +60,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - report-only Package Cache review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native-tool guidance, and local audit history
 - report-only Device Backups review for local iPhone/iPad MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, and local audit history
 - report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
+- report-only Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulators, protected Xcode UserData, and local audit history
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, separating reclaimable cache from valuable history and protected state
@@ -68,7 +69,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - Docker and Colima reporting with native-tool guidance
 - read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
 - native-tool command preview and execution receipts for selected non-destructive Homebrew/package-manager cleanup commands, while Docker/Colima destructive commands remain guidance-only
-- Xcode DerivedData and developer cache review
+- Xcode DerivedData, module cache, archive, DeviceSupport, simulator, runtime, and developer-state review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
 - Browser cache versus browser profile separation
 - Stale temp/scratch review
@@ -144,6 +145,7 @@ swift run --scratch-path .build reclaimer agents
 swift run --scratch-path .build reclaimer agents --json --limit 40
 swift run --scratch-path .build reclaimer agents retention --profile balanced
 swift run --scratch-path .build reclaimer packages --json --save-audit
+swift run --scratch-path .build reclaimer xcode --json --save-audit
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
@@ -169,11 +171,12 @@ Execution is dry-run unless `--yes` is supplied. Even with `--yes`, the executor
 
 ## Scope Templates And Saved Scope Sets
 
-Ryddi's presets cover broad modes. Built-in templates cover common review jobs such as weekly general cleanup, personal large-file review, app leftovers, browser caches, package caches, AI-agent storage, and developer maintenance:
+Ryddi's presets cover broad modes. Built-in templates cover common review jobs such as weekly general cleanup, personal large-file review, app leftovers, browser caches, package caches, Xcode review, AI-agent storage, and developer maintenance:
 
 ```bash
 swift run --scratch-path .build reclaimer scopes templates list
 swift run --scratch-path .build reclaimer scopes templates show weekly-general
+swift run --scratch-path .build reclaimer scopes templates show xcode-review
 swift run --scratch-path .build reclaimer scan --template weekly-general
 swift run --scratch-path .build reclaimer scopes templates save weekly-general --name "Weekly General"
 ```
@@ -325,6 +328,18 @@ swift run --scratch-path .build reclaimer packages --path ~/Library/Caches/Homeb
 ```
 
 Package Cache Review reports readable/missing cache roots, package-manager and cache-kind summaries, largest cache items, protected config/auth paths, and native cleanup guidance. It is report-only: Ryddi does not delete, move, Trash, prune, purge, or modify package-manager files, and it does not treat tokens, credentials, registries, mirrors, settings, or project behavior as cache.
+
+## Xcode Review
+
+Ryddi can review Xcode developer storage without modifying it:
+
+```bash
+swift run --scratch-path .build reclaimer xcode --json --save-audit
+swift run --scratch-path .build reclaimer xcode --home ~ --old-days 180 --limit 40
+swift run --scratch-path .build reclaimer scopes --template xcode-review
+```
+
+Xcode Review reports readable/missing roots, Xcode kind summaries, largest DerivedData/module/documentation/product caches, Archives, DeviceSupport folders, simulator devices, simulator runtimes, logs, preview simulator data, protected developer-state roots, and native Xcode/simctl guidance. It is report-only: Ryddi does not delete, move, Trash, prune, purge, reset simulators, modify Xcode files, or treat Xcode UserData, signing profiles, accounts, templates, preferences, snippets, archives, device-support folders, simulator state, or runtimes as automatically safe.
 
 ## Device Backups Review
 

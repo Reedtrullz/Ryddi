@@ -48,7 +48,7 @@ Ryddi helps you find, review, and safely reclaim Mac disk bloat, with developer 
 
 Ryddi is a cautious macOS disk reclaim assistant for general cleanup, with developer and AI-agent storage growth as the first deep rule pack. It scans local disk usage, classifies findings by safety, explains evidence, checks active file handles, builds dry-run plans, and only then helps reclaim selected low-risk items.
 
-It can review ordinary Mac cleanup roots such as Downloads, personal folders, user caches, logs, app support, attachments, backups, and Trash. Its current depth is strongest for storage that commonly grows during modern development work: Codex, Claude, Cursor, Windsurf, and Ollama storage; Docker/Colima state; Xcode build products; package-manager caches; browser caches; logs; temp directories; and app-support bloat.
+It can review ordinary Mac cleanup roots such as Downloads, personal folders, user caches, logs, app support, attachments, backups, and Trash. Its current depth is strongest for storage that commonly grows during modern development work: Codex, Claude, Cursor, Windsurf, and Ollama storage; Docker/Colima state; Xcode caches, archives, DeviceSupport, simulator state, and runtimes; package-manager caches; browser caches; logs; temp directories; and app-support bloat.
 
 Ryddi is local-first: no telemetry, no path upload, no cloud analysis.
 
@@ -66,14 +66,15 @@ Review first. Reclaim safely.
 Initial MVP:
 
 - Swift core scanner and rule engine
-- CLI for scan scope presets, built-in scope templates, saved scope sets, scan, overview, review queues, large/old review, disk drill-down, bundled rule catalog, status, permissions, active-handle review, Downloads Review, Browser Cache Review, Package Cache Review, Device Backups Review, apps-and-leftovers review, app uninstall preview/execution receipts, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
-- SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, Large & Old Files, detail view, Downloads Review, Browser Cache Review, Package Cache Review, Device Backups Review, Apps & Leftovers, app uninstall preview/execution receipts, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
+- CLI for scan scope presets, built-in scope templates, saved scope sets, scan, overview, review queues, large/old review, disk drill-down, bundled rule catalog, status, permissions, active-handle review, Downloads Review, Browser Cache Review, Package Cache Review, Xcode Review, Device Backups Review, apps-and-leftovers review, app uninstall preview/execution receipts, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
+- SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, Large & Old Files, detail view, Downloads Review, Browser Cache Review, Package Cache Review, Xcode Review, Device Backups Review, Apps & Leftovers, app uninstall preview/execution receipts, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - AI-agent storage buckets and retention profiles that separate reclaimable cache, old-history compression review, protected state, quit-first data, and manual review
 - Native-tool command preview and execution receipts for selected non-destructive/non-placeholder cleanup commands, with Docker/Colima destructive commands kept guidance-only
 - Report-only Downloads Review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
 - Report-only Browser Cache Review for cache roots, protected profile roots, quit-first guidance, and local audit history
 - Report-only Package Cache Review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native cleanup guidance, and local audit history
+- Report-only Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulator data, protected developer-state roots, Xcode/simctl guidance, and local audit history
 - Report-only Device Backups Review for local iPhone/iPad MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, and local audit history
 - Report-only Trash Review for current user Trash size, largest items, Finder guidance, and local audit history
 - Open-file guard and active-handle review with `lsof` process summaries
@@ -94,4 +95,5 @@ Known limits:
 - no screenshots/GIFs for the first-run permission walkthrough yet
 - no root helper or system-wide cleanup
 - app uninstall execution can move only the selected app bundle to Trash after dry run and confirmation; related app support files stay review-only
+- Xcode Review does not delete, move, Trash, prune, purge, reset simulators, or modify Xcode files
 ```

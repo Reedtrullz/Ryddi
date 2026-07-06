@@ -124,6 +124,61 @@ cat >"$device_backup_a/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+xcode_fixture="$scratch/xcode-fixture"
+xcode_derived="$xcode_fixture/Library/Developer/Xcode/DerivedData/ReleaseSmoke-abc/Build/Products"
+xcode_module="$xcode_fixture/Library/Developer/Xcode/ModuleCache.noindex/Swift"
+xcode_docs="$xcode_fixture/Library/Developer/Xcode/DocumentationCache"
+xcode_archive="$xcode_fixture/Library/Developer/Xcode/Archives/2026-01-01/ReleaseSmoke.xcarchive"
+xcode_device_support="$xcode_fixture/Library/Developer/Xcode/iOS DeviceSupport/17.2/Symbols"
+xcode_simulator="$xcode_fixture/Library/Developer/CoreSimulator/Devices/SIM-1"
+xcode_runtime="$xcode_fixture/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 17.simruntime/Contents"
+xcode_logs="$xcode_fixture/Library/Logs/CoreSimulator"
+xcode_user_data="$xcode_fixture/Library/Developer/Xcode/UserData/CodeSnippets"
+xcode_profiles="$xcode_fixture/Library/MobileDevice/Provisioning Profiles"
+mkdir -p \
+  "$xcode_derived" \
+  "$xcode_module" \
+  "$xcode_docs" \
+  "$xcode_archive/dSYMs/ReleaseSmoke.app.dSYM/Contents/Resources/DWARF" \
+  "$xcode_device_support" \
+  "$xcode_simulator/data/Containers/Data/Application" \
+  "$xcode_runtime" \
+  "$xcode_logs" \
+  "$xcode_user_data" \
+  "$xcode_profiles"
+printf 'object file\n' >"$xcode_derived/app.o"
+printf 'module cache\n' >"$xcode_module/Swift.pcm"
+printf 'documentation cache\n' >"$xcode_docs/doc.db"
+printf 'archive symbols\n' >"$xcode_archive/dSYMs/ReleaseSmoke.app.dSYM/Contents/Resources/DWARF/ReleaseSmoke"
+printf 'device symbols\n' >"$xcode_device_support/symbol.bin"
+printf 'simulator app data\n' >"$xcode_simulator/data/Containers/Data/Application/app.db"
+printf 'simulator runtime\n' >"$xcode_runtime/runtime.bin"
+printf 'simulator log\n' >"$xcode_logs/sim.log"
+printf 'snippet should stay protected\n' >"$xcode_user_data/snippet.codesnippet"
+printf 'profile should stay protected\n' >"$xcode_profiles/profile.mobileprovision"
+cat >"$xcode_archive/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>ApplicationProperties</key>
+  <dict>
+    <key>ApplicationName</key>
+    <string>ReleaseSmoke</string>
+  </dict>
+</dict>
+</plist>
+PLIST
+cat >"$xcode_simulator/device.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>name</key>
+  <string>Release Smoke iPhone</string>
+</dict>
+</plist>
+PLIST
 agent_fixture="$scratch/agent-fixture"
 mkdir -p \
   "$agent_fixture/.codex/cache" \
@@ -205,6 +260,7 @@ grep -q '"preset" : "all"' "$scratch/scopes-all-smoke.json"
 grep -q "Ryddi scope templates" "$scratch/scope-templates-list.txt"
 grep -q "Weekly General Review" "$scratch/scope-templates-list.txt"
 grep -q "Package Manager Caches" "$scratch/scope-templates-list.txt"
+grep -q "Xcode Review" "$scratch/scope-templates-list.txt"
 grep -q "Device Backups Review" "$scratch/scope-templates-list.txt"
 "$app/Contents/MacOS/reclaimer" scopes templates show weekly-general --json >"$scratch/scope-template-show.json"
 grep -q '"id" : "weekly-general"' "$scratch/scope-template-show.json"
@@ -465,6 +521,33 @@ find "$scratch/audit" -name 'device-backup-review-*.json' -print -quit | grep -q
 test -f "$device_backup_a/00/backup-data.bin"
 test -f "$device_backup_a/Info.plist"
 test -f "$device_backup_b/01/backup-data.bin"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" xcode --json \
+  --home "$xcode_fixture" \
+  --limit 30 \
+  --old-days 30 \
+  --max-depth 8 \
+  --include-missing-scopes \
+  --save-audit >"$scratch/xcode-smoke.json"
+grep -q '"kind" : "derivedData"' "$scratch/xcode-smoke.json"
+grep -q '"kind" : "moduleCache"' "$scratch/xcode-smoke.json"
+grep -q '"kind" : "documentationCache"' "$scratch/xcode-smoke.json"
+grep -q '"kind" : "archives"' "$scratch/xcode-smoke.json"
+grep -q '"kind" : "deviceSupport"' "$scratch/xcode-smoke.json"
+grep -q '"kind" : "simulatorDevices"' "$scratch/xcode-smoke.json"
+grep -q '"kind" : "simulatorRuntimes"' "$scratch/xcode-smoke.json"
+grep -q '"kind" : "simulatorLogs"' "$scratch/xcode-smoke.json"
+grep -q "Xcode Review is report-only" "$scratch/xcode-smoke.json"
+grep -q "Protected Xcode developer state" "$scratch/xcode-smoke.json"
+find "$scratch/audit" -name 'xcode-review-*.json' -print -quit | grep -q 'xcode-review-'
+test -f "$xcode_derived/app.o"
+test -f "$xcode_module/Swift.pcm"
+test -f "$xcode_archive/Info.plist"
+test -f "$xcode_device_support/symbol.bin"
+test -f "$xcode_simulator/data/Containers/Data/Application/app.db"
+test -f "$xcode_runtime/runtime.bin"
+test -f "$xcode_logs/sim.log"
+test -f "$xcode_user_data/snippet.codesnippet"
+test -f "$xcode_profiles/profile.mobileprovision"
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
@@ -731,6 +814,7 @@ Verification performed:
 - bundled reclaimer browsers --json on disposable browser cache/profile fixture, with audit save and no profile/cache mutation
 - bundled reclaimer packages --json on disposable package cache/config fixture, with audit save and no cache/config mutation
 - bundled reclaimer device-backups --json on disposable MobileSync backup fixture, with audit save and no backup mutation
+- bundled reclaimer xcode --json on disposable Xcode developer fixture, with audit save and no Xcode state mutation
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root

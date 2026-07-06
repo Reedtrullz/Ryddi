@@ -59,6 +59,8 @@ struct DashboardView: View {
                 PackageCacheReviewView(model: model)
             } else if selectedSection == "DeviceBackups" {
                 DeviceBackupReviewView(model: model)
+            } else if selectedSection == "Xcode" {
+                XcodeReviewView(model: model)
             } else if selectedSection == "Trash" {
                 TrashReviewView(model: model)
             } else if selectedSection == "Containers" {
@@ -233,6 +235,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "DeviceBackups"
                 }
+                Button("Xcode Review") {
+                    selectedFinding = nil
+                    selectedSection = "Xcode"
+                }
                 Button("Trash Review") {
                     selectedFinding = nil
                     selectedSection = "Trash"
@@ -354,6 +360,7 @@ struct OverviewView: View {
                 MetricTile(title: "Browser caches", value: model.browserCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Package caches", value: model.packageCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Device backups", value: model.deviceBackupReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
+                MetricTile(title: "Xcode cache", value: model.xcodeReview.map { ByteFormat.string($0.rebuildableCacheBytes) } ?? "Not reviewed")
                 MetricTile(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
                 MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
                 MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
@@ -1253,6 +1260,16 @@ struct AuditHistoryView: View {
                     } else {
                         ForEach(model.recentDeviceBackupReviewReports) { report in
                             Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.backupCount) backup(s) - \(ByteFormat.string(report.totalAllocatedSize))")
+                        }
+                    }
+                }
+
+                SectionBox(title: "Xcode Review Reports") {
+                    if model.recentXcodeReviewReports.isEmpty {
+                        Text("No Xcode review reports yet.")
+                    } else {
+                        ForEach(model.recentXcodeReviewReports) { report in
+                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.rebuildableCacheBytes)) rebuildable - \(ByteFormat.string(report.reviewRequiredBytes)) review")
                         }
                     }
                 }
@@ -2645,6 +2662,191 @@ struct DeviceBackupReviewView: View {
                     }
                 } else {
                     ContentUnavailableView("No device backup review yet", systemImage: "iphone", description: Text("Run Device Backups Review to inspect MobileSync backup size, age, encryption, and metadata without modifying backups."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct XcodeReviewView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Xcode Review")
+                            .font(.largeTitle.bold())
+                        Text("Review Xcode build caches, archives, device support, simulator state, runtimes, logs, and protected developer settings separately.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.reviewXcode() }
+                    } label: {
+                        Label("Review Xcode", systemImage: "hammer")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                if let report = model.xcodeReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Rebuildable", value: ByteFormat.string(report.rebuildableCacheBytes))
+                        MetricTile(title: "Needs review", value: ByteFormat.string(report.reviewRequiredBytes))
+                        MetricTile(title: "Simulator state", value: ByteFormat.string(report.simulatorStateBytes))
+                        MetricTile(title: "Measured items", value: "\(report.itemCount)")
+                        MetricTile(title: "Xcode roots", value: "\(report.rootSummaries.count)")
+                    }
+
+                    SectionBox(title: "By Xcode Kind") {
+                        if report.kindSummaries.isEmpty {
+                            Text("No Xcode items found in readable roots.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 6) {
+                                ForEach(report.kindSummaries) { summary in
+                                    HStack {
+                                        Text(summary.name)
+                                        Spacer()
+                                        Text("\(summary.itemCount)")
+                                            .monospacedDigit()
+                                            .foregroundStyle(.secondary)
+                                        Text(ByteFormat.string(summary.allocatedSize))
+                                            .frame(width: 90, alignment: .trailing)
+                                            .monospacedDigit()
+                                    }
+                                    .font(.caption)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Xcode Roots") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(report.rootSummaries) { root in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(root.kind.label)
+                                            .font(.caption.weight(.semibold))
+                                        Text(root.permissionState.rawValue)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(ByteFormat.string(root.allocatedSize))
+                                            .font(.caption.monospacedDigit())
+                                    }
+                                    Text(root.rootPath)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                    Text(root.nativeCleanupHint)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(root.note)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Largest Xcode Items") {
+                        if report.largestItems.isEmpty {
+                            Text("No Xcode items found in readable roots.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 0) {
+                                HStack {
+                                    Text("Allocated").frame(width: 92, alignment: .leading)
+                                    Text("Kind").frame(width: 142, alignment: .leading)
+                                    Text("Age").frame(width: 70, alignment: .leading)
+                                    Text("Path")
+                                    Spacer()
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                ForEach(report.largestItems.prefix(40)) { item in
+                                    Divider()
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(ByteFormat.string(item.allocatedSize))
+                                                .frame(width: 92, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text(item.kind.label)
+                                                .frame(width: 142, alignment: .leading)
+                                            Text(item.ageDays.map { "\($0)d" } ?? "unknown")
+                                                .frame(width: 70, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text(item.path)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                                .textSelection(.enabled)
+                                            Spacer()
+                                        }
+                                        .font(.caption)
+                                        Text(item.recommendation)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(.vertical, 6)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Protected Xcode Developer State") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(report.protectedStateRoots) { protectedRoot in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(protectedRoot.permissionState.rawValue)
+                                        .font(.caption.weight(.semibold))
+                                    Text(protectedRoot.path)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                    Text(protectedRoot.note)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Guidance") {
+                        ForEach(report.guidance, id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    SectionBox(title: "Non-Claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No Xcode review yet", systemImage: "hammer", description: Text("Run Xcode Review to inspect developer caches, archives, device support, simulator state, and protected Xcode settings without modifying files."))
                 }
 
                 if let error = model.error {
@@ -5216,6 +5418,7 @@ final class DashboardModel {
     var recentBrowserCacheReviewReports: [BrowserCacheReviewReport] = []
     var recentPackageCacheReviewReports: [PackageCacheReviewReport] = []
     var recentDeviceBackupReviewReports: [DeviceBackupReviewReport] = []
+    var recentXcodeReviewReports: [XcodeReviewReport] = []
     var recentAppUninstallReceipts: [AppUninstallExecutionReceipt] = []
     var heldItems: [HeldItem] = []
     var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
@@ -5233,6 +5436,7 @@ final class DashboardModel {
     var browserCacheReview: BrowserCacheReviewReport?
     var packageCacheReview: PackageCacheReviewReport?
     var deviceBackupReview: DeviceBackupReviewReport?
+    var xcodeReview: XcodeReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
     var lastPlanReportExportURL: URL?
@@ -5854,6 +6058,7 @@ final class DashboardModel {
         recentBrowserCacheReviewReports = store.recentBrowserCacheReviewReports()
         recentPackageCacheReviewReports = store.recentPackageCacheReviewReports()
         recentDeviceBackupReviewReports = store.recentDeviceBackupReviewReports()
+        recentXcodeReviewReports = store.recentXcodeReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
     }
@@ -6026,6 +6231,24 @@ final class DashboardModel {
             }.value
             deviceBackupReview = report
             _ = try AuditStore().save(deviceBackupReviewReport: report)
+            loadAudit()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reviewXcode() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = await Task.detached {
+                XcodeReviewScanner().review(
+                    options: XcodeReviewOptions(limit: 80, oldDays: 180, measurementDepth: 10, includeMissingRoots: true)
+                )
+            }.value
+            xcodeReview = report
+            _ = try AuditStore().save(xcodeReviewReport: report)
             loadAudit()
             error = nil
         } catch {

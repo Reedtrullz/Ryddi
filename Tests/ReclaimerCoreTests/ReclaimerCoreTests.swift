@@ -376,6 +376,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(templates.count, 6)
         XCTAssertEqual(Set(templates.map(\.id)).count, templates.count)
         XCTAssertTrue(templates.contains { $0.id == "weekly-general" })
+        XCTAssertTrue(templates.contains { $0.id == "xcode-review" })
         XCTAssertTrue(templates.contains { $0.id == "ai-agent-storage" })
 
         let plan = try ScopeTemplateCatalog.plan(reference: "weekly-general", home: home, includeUnavailable: false)
@@ -384,6 +385,12 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(plan.scopes.contains { $0.name == "User caches" })
         XCTAssertFalse(plan.scopes.contains { $0.name == "Desktop review" })
         XCTAssertTrue(plan.nonClaims.contains { $0.contains("suggested scan roots only") })
+
+        let xcode = try ScopeTemplateCatalog.find("xcode-review", home: home, includeUnavailable: true)
+        XCTAssertEqual(xcode.name, "Xcode Review")
+        XCTAssertTrue(xcode.scopes.contains { $0.name == "Xcode DerivedData" })
+        XCTAssertTrue(xcode.scopes.contains { $0.name == "CoreSimulator devices" })
+        XCTAssertTrue(xcode.nonClaims.contains { $0.contains("does not delete DerivedData") })
     }
 
     func testScopeTemplateCanBeMaterializedAsSavedScopeSet() throws {
@@ -1949,6 +1956,111 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
     }
 
+    func testXcodeReviewSeparatesRebuildableCachesFromValuableDeveloperState() throws {
+        let derivedData = tempRoot.appendingPathComponent("Library/Developer/Xcode/DerivedData", isDirectory: true)
+        let moduleCache = tempRoot.appendingPathComponent("Library/Developer/Xcode/ModuleCache.noindex", isDirectory: true)
+        let documentationCache = tempRoot.appendingPathComponent("Library/Developer/Xcode/DocumentationCache", isDirectory: true)
+        let archives = tempRoot.appendingPathComponent("Library/Developer/Xcode/Archives", isDirectory: true)
+        let deviceSupport = tempRoot.appendingPathComponent("Library/Developer/Xcode/iOS DeviceSupport", isDirectory: true)
+        let simulatorDevices = tempRoot.appendingPathComponent("Library/Developer/CoreSimulator/Devices", isDirectory: true)
+        let simulatorRuntimes = tempRoot.appendingPathComponent("Library/Developer/CoreSimulator/Profiles/Runtimes", isDirectory: true)
+        let simulatorLogs = tempRoot.appendingPathComponent("Library/Logs/CoreSimulator", isDirectory: true)
+        let userData = tempRoot.appendingPathComponent("Library/Developer/Xcode/UserData", isDirectory: true)
+        let provisioningProfiles = tempRoot.appendingPathComponent("Library/MobileDevice/Provisioning Profiles", isDirectory: true)
+
+        let fixtureFiles: [URL] = [
+            derivedData.appendingPathComponent("FixtureApp-abc/Build/Products/app.o"),
+            moduleCache.appendingPathComponent("Swift/Swift.pcm"),
+            documentationCache.appendingPathComponent("doc.db"),
+            archives.appendingPathComponent("2026-01-01/Fixture.xcarchive/dSYMs/Fixture.app.dSYM/Contents/Resources/DWARF/Fixture"),
+            deviceSupport.appendingPathComponent("17.2/Symbols/symbol.bin"),
+            simulatorDevices.appendingPathComponent("SIM-1/data/Containers/Data/Application/app.db"),
+            simulatorRuntimes.appendingPathComponent("iOS 17.simruntime/Contents/runtime.bin"),
+            simulatorLogs.appendingPathComponent("sim.log"),
+            userData.appendingPathComponent("CodeSnippets/snippet.codesnippet"),
+            provisioningProfiles.appendingPathComponent("profile.mobileprovision")
+        ]
+        for (index, url) in fixtureFiles.enumerated() {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(repeating: UInt8(index + 1), count: 512 + index).write(to: url)
+        }
+
+        let archiveInfo: [String: Any] = [
+            "ApplicationProperties": [
+                "ApplicationName": "FixtureApp"
+            ]
+        ]
+        let archivePlist = try PropertyListSerialization.data(fromPropertyList: archiveInfo, format: .xml, options: 0)
+        try archivePlist.write(to: archives.appendingPathComponent("2026-01-01/Fixture.xcarchive/Info.plist"))
+
+        let devicePlist = try PropertyListSerialization.data(
+            fromPropertyList: ["name": "Fixture iPhone 15"],
+            format: .xml,
+            options: 0
+        )
+        try devicePlist.write(to: simulatorDevices.appendingPathComponent("SIM-1/device.plist"))
+
+        let report = XcodeReviewScanner().review(
+            options: XcodeReviewOptions(
+                roots: [
+                    derivedData,
+                    moduleCache,
+                    documentationCache,
+                    archives,
+                    deviceSupport,
+                    simulatorDevices,
+                    simulatorRuntimes,
+                    simulatorLogs
+                ],
+                protectedStateRoots: [userData, provisioningProfiles],
+                limit: 20,
+                oldDays: 30,
+                measurementDepth: 8
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        XCTAssertEqual(report.rootSummaries.filter { $0.permissionState == .readable }.count, 8)
+        XCTAssertTrue(report.kindSummaries.contains { $0.name == XcodeArtifactKind.derivedData.label })
+        XCTAssertTrue(report.kindSummaries.contains { $0.name == XcodeArtifactKind.moduleCache.label })
+        XCTAssertTrue(report.kindSummaries.contains { $0.name == XcodeArtifactKind.documentationCache.label })
+        XCTAssertTrue(report.kindSummaries.contains { $0.name == XcodeArtifactKind.archives.label })
+        XCTAssertTrue(report.kindSummaries.contains { $0.name == XcodeArtifactKind.deviceSupport.label })
+        XCTAssertTrue(report.kindSummaries.contains { $0.name == XcodeArtifactKind.simulatorDevices.label })
+        XCTAssertTrue(report.kindSummaries.contains { $0.name == XcodeArtifactKind.simulatorRuntimes.label })
+        XCTAssertTrue(report.kindSummaries.contains { $0.name == XcodeArtifactKind.simulatorLogs.label })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .archives && $0.displayName == "FixtureApp.xcarchive" })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .simulatorDevices && $0.displayName == "Fixture iPhone 15" })
+        XCTAssertGreaterThan(report.rebuildableCacheBytes, 0)
+        XCTAssertGreaterThan(report.reviewRequiredBytes, 0)
+        XCTAssertGreaterThan(report.simulatorStateBytes, 0)
+        XCTAssertEqual(report.protectedStateRoots.filter { $0.permissionState == .readable }.count, 2)
+        XCTAssertFalse(report.largestItems.contains { $0.path.contains("/UserData/") || $0.path.contains("/Provisioning Profiles/") })
+        XCTAssertTrue(report.guidance.contains { $0.contains("Quit Xcode") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: userData.appendingPathComponent("CodeSnippets/snippet.codesnippet").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: provisioningProfiles.appendingPathComponent("profile.mobileprovision").path))
+    }
+
+    func testXcodeReviewReportsMissingRootAsCoverageEvidence() throws {
+        let missing = tempRoot.appendingPathComponent("Library/Developer/Xcode/DerivedData", isDirectory: true)
+        let report = XcodeReviewScanner().review(
+            options: XcodeReviewOptions(
+                roots: [missing],
+                protectedStateRoots: [],
+                limit: 10,
+                measurementDepth: 4,
+                includeMissingRoots: true
+            ),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.rootSummaries.first?.permissionState, .missing)
+        XCTAssertEqual(report.totalAllocatedSize, 0)
+        XCTAssertTrue(report.rootSummaries.first?.note.contains("does not exist") == true)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("does not delete") })
+    }
+
     func testDuplicateReviewExcludesPreserveByDefaultUnlessRequested() throws {
         let documents = tempRoot.appendingPathComponent("Documents", isDirectory: true)
         try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
@@ -3200,6 +3312,15 @@ final class ReclaimerCoreTests: XCTestCase {
             ),
             createdAt: Date(timeIntervalSince1970: 0)
         )
+        let xcodeReport = XcodeReviewScanner().review(
+            options: XcodeReviewOptions(
+                roots: [tempRoot.appendingPathComponent("Library/Developer/Xcode/DerivedData")],
+                protectedStateRoots: [],
+                limit: 10,
+                measurementDepth: 4
+            ),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
 
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
@@ -3212,6 +3333,7 @@ final class ReclaimerCoreTests: XCTestCase {
         _ = try store.save(browserCacheReviewReport: browserReport)
         _ = try store.save(packageCacheReviewReport: packageReport)
         _ = try store.save(deviceBackupReviewReport: deviceBackupReport)
+        _ = try store.save(xcodeReviewReport: xcodeReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.plan(id: String(plan.id.prefix(8)))?.id, plan.id)
@@ -3226,6 +3348,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.recentBrowserCacheReviewReports().first?.id, browserReport.id)
         XCTAssertEqual(store.recentPackageCacheReviewReports().first?.id, packageReport.id)
         XCTAssertEqual(store.recentDeviceBackupReviewReports().first?.id, deviceBackupReport.id)
+        XCTAssertEqual(store.recentXcodeReviewReports().first?.id, xcodeReport.id)
     }
 
     private final class FakeToolRunner: ToolCommandRunning, @unchecked Sendable {

@@ -52,6 +52,8 @@ struct ReclaimerCLI {
             try packages(args: args)
         case "device-backups":
             try deviceBackups(args: args)
+        case "xcode":
+            try xcode(args: args)
         case "trash":
             try trash(args: args)
         case "apps":
@@ -707,6 +709,34 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printDeviceBackupReview(report, options: options)
+        }
+    }
+
+    static func xcode(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let home = options.value(after: "--home")
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let roots = options.values(after: "--path").map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let measurementDepth = max(0, Int(options.value(after: "--max-depth") ?? "") ?? 10)
+        let report = XcodeReviewScanner().review(
+            options: XcodeReviewOptions(
+                home: home,
+                roots: roots.isEmpty ? nil : roots,
+                limit: options.limit,
+                oldDays: options.oldDays,
+                measurementDepth: measurementDepth,
+                includeMissingRoots: options.includeMissingScopes
+            )
+        )
+        if options.saveAudit {
+            let url = try AuditStore().save(xcodeReviewReport: report)
+            FileHandle.standardError.write(Data("saved Xcode review report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printXcodeReview(report, options: options)
         }
     }
 
@@ -1366,6 +1396,7 @@ struct ReclaimerCLI {
               browsers [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               packages [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               device-backups [--json] [--path BACKUP_ROOT] [--home HOME] [--limit N] [--old-days N] [--max-depth N] [--save-audit]
+              xcode [--json] [--path XCODE_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               trash [--json] [--path TRASH_ROOT] [--limit N] [--max-depth N] [--save-audit]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
@@ -2928,6 +2959,69 @@ func printDeviceBackupReview(_ report: DeviceBackupReviewReport, options: Parsed
                 print("  next: \(guidance)")
             }
         }
+    }
+
+    print("\nGuidance")
+    for line in report.guidance {
+        print("- \(line)")
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printXcodeReview(_ report: XcodeReviewReport, options: ParsedOptions) {
+    print("Ryddi Xcode review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Xcode roots: \(report.rootSummaries.count)")
+    print("Items measured: \(report.itemCount)")
+    print("Allocated Xcode bytes: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Logical Xcode bytes: \(ByteFormat.string(report.totalLogicalSize))")
+    print("Rebuildable cache bytes: \(ByteFormat.string(report.rebuildableCacheBytes))")
+    print("Review-required bytes: \(ByteFormat.string(report.reviewRequiredBytes))")
+    print("Simulator-state bytes: \(ByteFormat.string(report.simulatorStateBytes))")
+
+    if !report.kindSummaries.isEmpty {
+        print("\nBy Xcode kind")
+        for summary in report.kindSummaries {
+            print("- \(pad(summary.name, 22)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
+    print("\nXcode roots")
+    if report.rootSummaries.isEmpty {
+        print("No Xcode roots were inspected.")
+    } else {
+        for root in report.rootSummaries {
+            print("- \(root.kind.label): \(root.permissionState.rawValue), \(ByteFormat.string(root.allocatedSize)), \(root.itemCount) item(s)")
+            print("  \(root.rootPath)")
+            print("  \(root.nativeCleanupHint)")
+            print("  \(root.note)")
+        }
+    }
+
+    if report.largestItems.isEmpty {
+        print("\nNo Xcode items found in readable roots.")
+    } else {
+        print("\nLargest Xcode items")
+        print("\(pad("Allocated", 11)) \(pad("Kind", 22)) \(pad("Age", 8)) \(pad("Modified", 12)) Path")
+        for item in report.largestItems.prefix(options.limit) {
+            let modified = item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "unknown"
+            let age = item.ageDays.map { "\($0)d" } ?? "unknown"
+            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.kind.label, 22)) \(pad(age, 8)) \(pad(modified, 12)) \(item.path)")
+            print("  - \(item.recommendation)")
+            if let guidance = item.guidance.first {
+                print("  next: \(guidance)")
+            }
+        }
+    }
+
+    print("\nProtected Xcode developer state")
+    for protectedRoot in report.protectedStateRoots {
+        print("- \(protectedRoot.permissionState.rawValue) - \(protectedRoot.path)")
+        print("  \(protectedRoot.note)")
     }
 
     print("\nGuidance")

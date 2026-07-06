@@ -29,6 +29,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review Downloads | Report old downloads, installers, archives, app bundles, kind summaries, largest items, Finder guidance, and local audit history without moving or deleting files. | `DownloadsReviewScanner`, `DownloadsReviewReport`, `reclaimer downloads`, app Downloads Review |
 | Review browser caches | Report browser cache roots, browser/cache-kind summaries, largest cache items, protected profile roots, and quit-first guidance without modifying cache or profile state. | `BrowserCacheReviewScanner`, `BrowserCacheReviewReport`, `reclaimer browsers`, app Browser Cache Review |
 | Review package caches | Report Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, package-manager/cache-kind summaries, largest cache items, protected config/auth paths, and native cleanup guidance without modifying package-manager state. | `PackageCacheReviewScanner`, `PackageCacheReviewReport`, `reclaimer packages`, app Package Cache Review |
+| Review Xcode storage | Report DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulator data, protected Xcode developer-state roots, and Xcode/simctl guidance without modifying Xcode state. | `XcodeReviewScanner`, `XcodeReviewReport`, `reclaimer xcode`, app Xcode Review |
 | Review device backups | Report local iPhone/iPad MobileSync backup roots, size, age, encryption state, parsed metadata, missing metadata, Apple/Finder guidance, and local audit history without modifying backups. | `DeviceBackupReviewScanner`, `DeviceBackupReviewReport`, `reclaimer device-backups`, app Device Backups Review |
 | Review Trash | Report the configured user Trash root, permission state, total size, largest immediate Trash items, Finder guidance, and local audit history without emptying or restoring anything. | `TrashReviewScanner`, `TrashReviewReport`, `reclaimer trash`, app Trash Review |
 | Review apps & leftovers | Parse installed `.app` bundles and related Library files, then surface support data and orphan candidates as review-only guidance. | `AppReviewScanner`, `reclaimer apps`, app Apps & Leftovers |
@@ -55,7 +56,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 Included:
 
 - General Mac scan preset for Downloads, Desktop, personal folder review, user caches/logs, app support, attachments, device backups, and Trash review.
-- Built-in scope templates for weekly general review, personal large-file review, app leftovers, browser caches, package caches, device backups, AI-agent storage, and developer maintenance.
+- Built-in scope templates for weekly general review, personal large-file review, app leftovers, browser caches, package caches, Xcode review, device backups, AI-agent storage, and developer maintenance.
 - Sortable/groupable top-offender table for general cleanup and developer cleanup scans, including confidence and estimated immediate reclaim.
 - Shared review queues for Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, and Unknown findings, including single-queue CLI reports and app row-to-detail navigation.
 - Saved custom scope sets for repeatable general cleanup, project-specific review, and developer maintenance scans, with local JSON import/export.
@@ -65,6 +66,7 @@ Included:
 - Read-only Docker/Colima live inventory for native storage estimates and profile/object context.
 - Local user protections and exclusions, plus user path policy JSON import/export.
 - Local user rule-pack preview/import/export for custom review/protection signals, disabled by default unless a scan passes `--include-user-rules` or the app User Rules scan toggle is on.
+- Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulator data, protected developer-state roots, Xcode/simctl guidance, audit saving, and no Xcode-state mutation.
 - Xcode and package-manager cache classification.
 - SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter developer cache review.
 - Proportional visual map by category plus a bounded hierarchical disk drill-down.
@@ -86,6 +88,7 @@ Included:
 - Downloads Review for old downloads, installers, archives, app bundles, permission state, Finder guidance, audit saving, and no move/delete execution.
 - Browser Cache Review for cache roots, browser/cache-kind summaries, protected profile roots, quit-first guidance, audit saving, and no browser/profile mutation.
 - Package Cache Review for package-manager cache roots, package-manager/cache-kind summaries, protected config/auth paths, native cleanup guidance, audit saving, and no package-manager mutation.
+- Xcode Review for Xcode cache, archive, device-support, simulator, runtime, log, preview, and protected developer-state roots, audit saving, and no Xcode mutation.
 - Device Backups Review for local MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, audit saving, and no backup mutation.
 - Apps & Leftovers review for installed app support files and heuristic orphan candidates.
 - App uninstall preview/checklist plus explicit app-bundle Trash execution after dry run and confirmation, keeping related support files review-only and outside execution.
@@ -127,6 +130,7 @@ Deferred:
 - `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` reports hierarchical scan nodes, omitted-child summaries, and non-claims without creating plan items.
 - `reclaimer browsers --path FIXTURE/Library/Caches/Google/Chrome --home FIXTURE --json --save-audit` reports cache roots, protected profile roots, browser/cache-kind summaries, and non-claims without mutating cache or profile files.
 - `reclaimer packages --home FIXTURE --json --save-audit` reports package-manager cache roots, protected config/auth paths, package-manager/cache-kind summaries, native cleanup guidance, and non-claims without mutating package-manager files.
+- `reclaimer xcode --home FIXTURE --json --save-audit` reports Xcode cache, archive, DeviceSupport, simulator, runtime, log, preview, and protected developer-state roots, saves a local audit record, and does not mutate Xcode files.
 - `reclaimer rules --json` reports the bundled rule version, safety/action/category summaries, rule sections, match hints, conditions, recovery notes, and non-claims without scanning or executing cleanup.
 - `reclaimer scopes saved add/list/show/export/import` stores reusable scan roots locally, supports merge/replace import, and keeps non-claims that scope sets do not change cleanup safety.
 - `reclaimer scopes templates list/show/save` exposes built-in guided templates, can materialize a template into a saved scope set, and keeps non-claims that templates do not change cleanup safety.
@@ -174,3 +178,4 @@ Deferred:
 - Apps & Leftovers findings remain outside `PlanBuilder` and `ReclaimerExecutor`.
 - App uninstall receipts can move only the selected app bundle to Trash; related support files remain outside `PlanBuilder`, `ReclaimerExecutor`, and app-uninstall execution.
 - Device Backups Review remains report-only and never emits cleanup-plan selections or backup deletion actions.
+- Xcode Review remains report-only and never emits cleanup-plan selections, raw simulator reset/delete actions, archive deletion actions, runtime deletion actions, or Xcode developer-state mutations.

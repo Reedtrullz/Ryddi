@@ -12,7 +12,7 @@ Scans run on your Mac. Plans, receipts, Markdown evidence/plan/receipt reports, 
 
 Ryddi reads filesystem metadata such as path, file type, size, allocated size, modification date, and readability. When requested by a plan or action, it can run open-file checks so active files are skipped.
 
-Scan presets control which local roots are inspected. Developer mode focuses on developer and AI-agent storage, General Mac mode includes broader review roots such as Downloads, Desktop, personal media/document folders, user caches/logs, app support, attachments, backups, and Trash, and All combines both while collapsing overlapping roots. Saved scope sets store user-chosen scan roots for repeatable scans. Presets and saved scope sets do not upload data, grant cleanup permission, or change safety rules.
+Scan presets control which local roots are inspected. Developer mode focuses on developer and AI-agent storage, General Mac mode includes broader review roots such as Downloads, Desktop, personal media/document folders, user caches/logs, app support, attachments, backups, and Trash, and All combines both while collapsing overlapping roots. Built-in templates and saved scope sets store scan roots for repeatable scans. Presets, templates, and saved scope sets do not upload data, grant cleanup permission, or change safety rules.
 
 Disk drill-down reports reuse local scan metadata to build a bounded hierarchy of paths, sizes, safety classes, actions, categories, owner hints, and short evidence strings. Ryddi does not upload drill-down reports, and drill-down navigation does not select or execute cleanup.
 
@@ -29,6 +29,8 @@ Apps & Leftovers review reads installed app bundle metadata from local `Info.pli
 App uninstall previews reuse the same local app inventory and related-file evidence to create a local checklist for one selected app. The preview can identify the selected app bundle as a manual Trash candidate, but related support files remain review-only/manual. Creating a preview does not quit apps, unload helpers, call vendor uninstallers, delete files, clean leftovers, or upload app inventory.
 
 Device Backups Review reads local filesystem metadata from the configured MobileSync backup root and, when present, each backup folder's local `Info.plist`. Reports can include local backup paths, device names, product names/types, last-backup dates, encryption state, metadata state, size, age, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, or modify device backups.
+
+Xcode Review reads local filesystem metadata from configured Xcode and CoreSimulator roots and, when present, local archive `Info.plist` files and simulator `device.plist` files. Reports can include local paths, app/archive names, simulator names, runtime names, DeviceSupport versions, protected Xcode developer-state paths, sizes, ages, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, reset simulators, modify Xcode files, or treat Xcode UserData, signing profiles, accounts, templates, preferences, snippets, archives, DeviceSupport, simulator state, or runtimes as automatically safe.
 
 AI-agent storage review reads local filesystem metadata from common Codex, Claude, Cursor, Windsurf, and Ollama roots, or from explicit paths you provide. Results can include local paths, owner hints, rule IDs, bucket names, and evidence strings. Ryddi does not upload this report, inspect prompt contents for remote analysis, or automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
 
@@ -70,7 +72,7 @@ Ryddi can write:
 - saved native-tool preview reports;
 - saved container inventory reports;
 - saved active-file review reports;
-- saved report-only review reports for Downloads, browser caches, package caches, device backups, and Trash;
+- saved report-only review reports for Downloads, browser caches, package caches, Xcode storage, device backups, and Trash;
 - saved user path policy for protections and exclusions;
 - saved user rule packs for custom review/protection signals;
 - saved scope sets for repeatable scan roots;
