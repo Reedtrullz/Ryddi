@@ -29,7 +29,6 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer history report --output GROWTH.md` writes a local Markdown saved-snapshot comparison report with deltas, scan coverage, path privacy controls, and non-claims.
 - [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
 - [ ] `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` reports installed app support files and orphan candidates without emitting a cleanup plan.
-- [ ] `reclaimer agents --path FIXTURE --min-size 1 --max-depth 4 --json` reports AI-agent storage buckets for cache, history, protected state, and quit-first data without emitting a cleanup plan.
 - [ ] `reclaimer native --path FIXTURE --json --save-audit` emits preview-only native-tool receipts and saves a local audit record without executing native cleanup commands.
 - [ ] `reclaimer execute --dry-run --path FIXTURE --save-audit` followed by `reclaimer receipts export --output RECEIPT.md` writes a local Markdown receipt report without rerunning cleanup.
 - [ ] `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
@@ -40,7 +39,6 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] App Visual Map and Growth History render without changing reclaim gates.
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App Apps & Leftovers review scans bounded app roots and does not enable Reclaim or modify the dry-run plan.
-- [ ] App AI Agent Storage review separates reclaimable cache from valuable history/protected state and does not enable Reclaim or modify the dry-run plan.
 - [ ] App Recovery Center shows app-held restore rows separately from receipt-only guidance.
 - [ ] App menu bar status item shows disk pressure and report-only scan controls without enabling cleanup actions.
 - [ ] Manual GitHub Actions workflow `Release Preview Artifact` uploads the unsigned preview zip, checksum, and manifest when run.
@@ -65,7 +63,6 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say menu bar status is disk-pressure/report-only, not RAM cleaning or performance optimization.
 - [ ] Release notes say duplicate review uses local hashes and does not automatically select or delete duplicates.
 - [ ] Release notes say Apps & Leftovers is review-only and does not uninstall apps or delete app support files.
-- [ ] Release notes say AI Agent Storage review is report-only and does not automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
 - [ ] Release notes say native-tool reports are preview-only and do not run Docker/Colima/Homebrew/package-manager cleanup commands automatically.
 - [ ] Release notes say container inventory runs read-only inspection commands only.
 - [ ] Release notes say user protections/exclusions are local path policy, exports can contain private paths/reasons, imports do not delete files or grant permissions, and policy data is not uploaded.

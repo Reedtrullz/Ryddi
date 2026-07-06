@@ -44,52 +44,6 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(cache.actionKind, .deleteCache)
     }
 
-    func testAgentStorageReviewSeparatesCacheHistoryAndProtectedState() throws {
-        let codexCache = tempRoot.appendingPathComponent(".codex/cache/blob.bin")
-        let codexSession = tempRoot.appendingPathComponent(".codex/sessions/2026/07/session.jsonl")
-        let codexAuth = tempRoot.appendingPathComponent(".codex/auth.json")
-        let claudeProject = tempRoot.appendingPathComponent(".claude/projects/project.jsonl")
-        let cursorCache = tempRoot.appendingPathComponent("Library/Application Support/Cursor/Cache/cache.bin")
-        let ollamaModel = tempRoot.appendingPathComponent(".ollama/models/blobs/model.bin")
-
-        for url in [codexCache, codexSession, codexAuth, claudeProject, cursorCache, ollamaModel] {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(repeating: UInt8(url.path.count % 255), count: 256).write(to: url)
-        }
-
-        let scopes = DefaultScopes.aiAgentStorage(home: tempRoot, includeUnavailable: false)
-        let findings = try FileScanner(openFileChecker: NoOpenFilesChecker()).scan(
-            scopes: scopes,
-            options: ScanOptions(
-                minimumFindingSize: 1,
-                maximumFindingDepth: 4,
-                measurementDepth: 8,
-                includeOpenFileStatus: false
-            )
-        )
-        let report = AgentStorageReviewBuilder.build(
-            findings: findings,
-            scopes: scopes,
-            limit: 30,
-            generatedAt: Date(timeIntervalSince1970: 0)
-        )
-
-        XCTAssertGreaterThan(report.itemCount, 0)
-        XCTAssertGreaterThan(report.reclaimableBytes, 0)
-        XCTAssertTrue(report.bucketSummaries.contains { $0.bucket == .reclaimableCache && $0.bytes > 0 })
-        XCTAssertTrue(report.bucketSummaries.contains { $0.bucket == .valuableHistory && $0.bytes > 0 })
-        XCTAssertTrue(report.bucketSummaries.contains { $0.bucket == .protectedState && $0.bytes > 0 })
-        XCTAssertTrue(report.bucketSummaries.contains { $0.bucket == .quitFirst && $0.bytes > 0 })
-        XCTAssertTrue(report.ownerSummaries.contains { $0.owner == "Codex" })
-        XCTAssertTrue(report.ownerSummaries.contains { $0.owner == "Claude" })
-        XCTAssertTrue(report.ownerSummaries.contains { $0.owner == "Cursor" })
-        XCTAssertTrue(report.ownerSummaries.contains { $0.owner == "Ollama" })
-        XCTAssertTrue(report.items.contains { $0.path.hasSuffix("/.codex/auth.json") && $0.bucket == .protectedState })
-        XCTAssertTrue(report.items.contains { $0.path.contains("/.codex/sessions/") && $0.bucket == .valuableHistory })
-        XCTAssertTrue(report.items.contains { $0.path.contains("/.claude/projects/") && $0.bucket == .valuableHistory })
-        XCTAssertTrue(report.nonClaims.contains { $0.contains("does not delete agent sessions") })
-    }
-
     func testRuleCatalogExplainsSafetyBucketsAndNeverTouchRules() throws {
         let catalog = try RuleEngine.bundled().catalog(generatedAt: Date(timeIntervalSince1970: 0))
 

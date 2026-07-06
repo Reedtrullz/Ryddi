@@ -48,7 +48,7 @@ Ryddi helps you find, review, and safely reclaim Mac disk bloat, with developer 
 
 Ryddi is a cautious macOS disk reclaim assistant for general cleanup, with developer and AI-agent storage growth as the first deep rule pack. It scans local disk usage, classifies findings by safety, explains evidence, checks active file handles, builds dry-run plans, and only then helps reclaim selected low-risk items.
 
-It can review ordinary Mac cleanup roots such as Downloads, personal folders, user caches, logs, app support, attachments, backups, and Trash. Its current depth is strongest for storage that commonly grows during modern development work: Codex, Claude, Cursor, Windsurf, and Ollama storage; Docker/Colima state; Xcode build products; package-manager caches; browser caches; logs; temp directories; and app-support bloat.
+It can review ordinary Mac cleanup roots such as Downloads, personal folders, user caches, logs, app support, attachments, backups, and Trash. Its current depth is strongest for storage that commonly grows during modern development work: Codex caches and sessions, Docker/Colima state, Xcode build products, package-manager caches, browser caches, logs, temp directories, and app-support bloat.
 
 Ryddi is local-first: no telemetry, no path upload, no cloud analysis.
 
@@ -66,10 +66,9 @@ Review first. Reclaim safely.
 Initial MVP:
 
 - Swift core scanner and rule engine
-- CLI for scan scope presets, scan, overview, bundled rule catalog, status, permissions, active-handle review, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
-- SwiftUI app overview, rule catalog, review queues, detail view, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
+- CLI for scan scope presets, scan, overview, bundled rule catalog, status, permissions, active-handle review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
+- SwiftUI app overview, rule catalog, review queues, detail view, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
-- AI-agent storage buckets that separate reclaimable cache from valuable history, protected state, quit-first data, and manual review
 - Open-file guard and active-handle review with `lsof` process summaries
 - Dry-run receipts and local audit store
 - Markdown evidence, growth, plan, and receipt report exports with path privacy controls

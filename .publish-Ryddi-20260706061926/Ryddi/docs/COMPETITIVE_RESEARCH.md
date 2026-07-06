@@ -119,7 +119,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | App uninstaller | Common suite/app-cleaner feature | Review-only Apps & Leftovers slice | Keep app inventory/support/orphan review separate from cleanup plans. Actual uninstall, bulk deletion, and smart leftover deletion remain future work. |
 | Developer cache packs | Ryddi beachhead | Partial | Go deeper on Xcode, SwiftPM, node_modules, JetBrains, VS Code, Android/Flutter, Docker/Colima. |
 | Docker/Colima cleanup | Risky but important for target user | Exists/partial | Native-tool preview receipts describe inspect/prune/reset commands, risk, and non-claims; read-only inventory now adds Docker storage buckets, objects, Colima profiles, and command outcomes. Future work is explicit user-controlled native cleanup with before/after receipts. Never raw-delete VM disks automatically. |
-| Codex/AI-agent cleanup | Ryddi-specific differentiator | Exists/partial | `reclaimer agents`, `DefaultScopes.aiAgentStorage`, and app AI Agent Storage now review Codex, Claude, Cursor, Windsurf, and Ollama roots with cache/history/protected/manual buckets. Future work should add saved trend reports, per-tool retention policies, and explicit user-controlled compression flows. |
+| Codex/AI-agent cleanup | Ryddi-specific differentiator | Partial | Keep sessions/memories/config protected. Classify cache/tmp/logs separately from valuable transcripts. |
 | Scheduled maintenance | Expected from automation tools | Partial | LaunchAgent should report first. Only allow unattended cleanup for explicit allowlisted classes. |
 | Menu bar/status item | Common in Sensei/Cleaner One/BuhoCleaner | Exists/partial | Disk-pressure status and report-only scan controls exist; reminders/notifications remain future work. |
 | Notarized releases | Expected for trust | Planned | Add signed/notarized release process and GitHub release artifacts. |
@@ -156,7 +156,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 
 ### Developer/AI Niche
 
-1. AI-agent storage review now separates Codex, Claude, Cursor, Windsurf, and Ollama cache/log churn from valuable history and protected state. Next: saved trend reports, per-tool retention profiles, compression workflows, and deeper non-Codex rule packs.
+1. Codex rule pack: cache/tmp/logs as reclaimable; sessions/transcripts as valuable review; auth/config/memories/state as never-touch.
 2. Container rule pack: Docker/Colima inventory, volumes/images/build cache, native prune guidance, VM disk warnings. First preview receipts and read-only live inventory exist; future work should add explicit before/after native command receipts under user control.
 3. Xcode rule pack: DerivedData, ModuleCache, DeviceSupport, Archives, simulator logs, old runtimes with version/age gates.
 4. Package manager rule packs: Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM.

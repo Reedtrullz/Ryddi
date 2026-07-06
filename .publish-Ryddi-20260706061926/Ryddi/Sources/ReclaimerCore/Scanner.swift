@@ -359,12 +359,6 @@ private func ownerHint(for path: String) -> String? {
     {
         return "Codex"
     }
-    if lower.contains("/.claude") || lower.contains("/application support/claude") {
-        return "Claude"
-    }
-    if lower.contains("/application support/cursor") { return "Cursor" }
-    if lower.contains("/application support/windsurf") { return "Windsurf" }
-    if lower.contains("/.ollama") { return "Ollama" }
     if lower.contains("/.colima") { return "Colima" }
     if lower.contains("/docker") { return "Docker" }
     if lower.contains("/developer/xcode") || lower.contains("/deriveddata") { return "Xcode" }
@@ -429,9 +423,6 @@ public enum DefaultScopes {
             ("Codex state", home.appendingPathComponent(".codex")),
             ("Codex desktop logs", home.appendingPathComponent("Library/Logs/com.openai.codex")),
             ("Codex app cache", home.appendingPathComponent("Library/Caches/Codex")),
-            ("Claude state", home.appendingPathComponent(".claude")),
-            ("Claude app support", home.appendingPathComponent("Library/Application Support/Claude")),
-            ("Ollama models", home.appendingPathComponent(".ollama")),
             ("Colima", home.appendingPathComponent(".colima")),
             ("Docker", home.appendingPathComponent(".docker")),
             ("Xcode Developer", home.appendingPathComponent("Library/Developer")),
@@ -454,23 +445,6 @@ public enum DefaultScopes {
             ("Flutter pub cache", home.appendingPathComponent(".pub-cache")),
             ("Playwright browsers", home.appendingPathComponent("Library/Caches/ms-playwright")),
             ("Private temp", URL(fileURLWithPath: "/private/tmp"))
-        ]
-        return scopes(from: paths, includeUnavailable: includeUnavailable)
-    }
-
-    public static func aiAgentStorage(
-        home: URL = FileManager.default.homeDirectoryForCurrentUser,
-        includeUnavailable: Bool = false
-    ) -> [ScanScope] {
-        let paths: [(String, URL)] = [
-            ("Codex state", home.appendingPathComponent(".codex")),
-            ("Codex desktop logs", home.appendingPathComponent("Library/Logs/com.openai.codex")),
-            ("Codex app cache", home.appendingPathComponent("Library/Caches/Codex")),
-            ("Claude state", home.appendingPathComponent(".claude")),
-            ("Claude app support", home.appendingPathComponent("Library/Application Support/Claude")),
-            ("Cursor app support", home.appendingPathComponent("Library/Application Support/Cursor")),
-            ("Windsurf app support", home.appendingPathComponent("Library/Application Support/Windsurf")),
-            ("Ollama models", home.appendingPathComponent(".ollama"))
         ]
         return scopes(from: paths, includeUnavailable: includeUnavailable)
     }

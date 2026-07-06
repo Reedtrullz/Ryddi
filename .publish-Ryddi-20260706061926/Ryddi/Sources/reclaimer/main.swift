@@ -40,8 +40,6 @@ struct ReclaimerCLI {
             try duplicates(args: args)
         case "apps":
             try apps(args: args)
-        case "agents":
-            try agents(args: args)
         case "native":
             try native(args: args)
         case "containers":
@@ -340,28 +338,6 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printAppReview(report, options: options)
-        }
-    }
-
-    static func agents(args: [String]) throws {
-        let options = ParsedOptions(args)
-        let scopes: [ScanScope]
-        if options.hasPath {
-            scopes = try options.scopes(includeUnavailable: options.includeMissingScopes)
-        } else {
-            scopes = DefaultScopes.aiAgentStorage(includeUnavailable: options.includeMissingScopes)
-        }
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
-        let report = AgentStorageReviewBuilder.build(
-            findings: options.prepare(findings),
-            scopes: scopes,
-            limit: options.limit
-        )
-        if options.json {
-            printJSON(report)
-        } else {
-            printAgentStorageReview(report, options: options)
         }
     }
 
@@ -767,8 +743,6 @@ struct ReclaimerCLI {
                          [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
-              agents [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N]
-                     [--include-missing-scopes] [--ignore-user-policy]
               native [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-audit]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
               policy list [--json]
@@ -1408,53 +1382,6 @@ func printAppGroups(_ groups: [AppReviewGroup], options: ParsedOptions) {
     }
     if groups.count > options.limit {
         print("... \(groups.count - options.limit) more app group(s)")
-    }
-}
-
-func printAgentStorageReview(_ report: AgentStorageReview, options: ParsedOptions) {
-    print("Ryddi AI agent storage review")
-    print("Generated: \(report.createdAt.formatted())")
-    print("Scanned roots: \(report.scannedRoots.count)")
-    print("Agent items: \(report.itemCount)")
-    print("Allocated reviewed: \(ByteFormat.string(report.totalBytes))")
-    print("Reclaimable cache: \(ByteFormat.string(report.reclaimableBytes))")
-    print("Protected/history: \(ByteFormat.string(report.protectedBytes))")
-
-    print("\nBy bucket")
-    if report.bucketSummaries.isEmpty {
-        print("No agent storage matched the current roots.")
-    } else {
-        for summary in report.bucketSummaries {
-            print("- \(pad(summary.bucket.label, 20)) \(pad(ByteFormat.string(summary.bytes), 10)) \(summary.count) item(s)")
-            print("  \(summary.bucket.guidance)")
-        }
-    }
-
-    if !report.ownerSummaries.isEmpty {
-        print("\nBy owner")
-        print("\(pad("Owner", 14)) \(pad("Bytes", 11)) \(pad("Reclaim", 11)) \(pad("Protected", 11)) Dominant bucket")
-        for summary in report.ownerSummaries.prefix(options.limit) {
-            print("\(pad(summary.owner, 14)) \(pad(ByteFormat.string(summary.bytes), 11)) \(pad(ByteFormat.string(summary.reclaimableBytes), 11)) \(pad(ByteFormat.string(summary.protectedBytes), 11)) \(summary.dominantBucket.label)")
-        }
-    }
-
-    if !report.items.isEmpty {
-        print("\nItems")
-        print("\(pad("Bytes", 11)) \(pad("Owner", 12)) \(pad("Bucket", 20)) \(pad("Safety", 22)) \(pad("Action", 16)) Path")
-        for item in report.items.prefix(options.limit) {
-            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.owner, 12)) \(pad(item.bucket.label, 20)) \(pad(item.safetyClass.label, 22)) \(pad(item.actionKind.label, 16)) \(item.path)")
-            if let firstGuidance = item.guidance.first {
-                print("  - \(firstGuidance)")
-            }
-            if let firstRule = item.ruleIDs.first {
-                print("  rule: \(firstRule)")
-            }
-        }
-    }
-
-    print("\nNon-claims")
-    for note in report.nonClaims {
-        print("- \(note)")
     }
 }
 

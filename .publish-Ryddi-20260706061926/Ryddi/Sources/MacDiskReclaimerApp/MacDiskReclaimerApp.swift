@@ -45,8 +45,6 @@ struct DashboardView: View {
                 DuplicateReviewView(model: model)
             } else if selectedSection == "Containers" {
                 ContainerInventoryView(model: model)
-            } else if selectedSection == "Agents" {
-                AgentStorageReviewView(model: model)
             } else if selectedSection == "Permissions" {
                 PermissionOnboardingView(model: model)
             } else if selectedSection == "Active" {
@@ -161,10 +159,6 @@ struct DashboardView: View {
                 Button("Container Inventory") {
                     selectedFinding = nil
                     selectedSection = "Containers"
-                }
-                Button("AI Agent Storage") {
-                    selectedFinding = nil
-                    selectedSection = "Agents"
                 }
                 Button("Permissions") {
                     selectedFinding = nil
@@ -393,7 +387,6 @@ struct CapabilityMatrixView: View {
         ("Review duplicates", "Local content hashes group identical regular files as manual review signals, never cleanup actions."),
         ("Review apps & leftovers", "Installed app support files and orphan candidates are surfaced as guidance, not uninstall actions."),
         ("Inventory containers", "Read-only Docker and Colima inspection records images, volumes, build cache estimates, profiles, and command outcomes."),
-        ("Review AI agent storage", "Codex, Claude, Cursor, Windsurf, and Ollama roots are bucketed into reclaimable cache, quit-first data, valuable history, protected state, and manual review."),
         ("Explain permissions", "Coverage advisor shows readable, denied, missing, and unknown scopes with Full Disk Access guidance and non-claims."),
         ("Honor user policy", "Local exclusions hide noisy paths from scans; protections keep paths visible but blocked from cleanup."),
         ("Export reports", "Local Markdown evidence, plan, and receipt reports capture scan coverage, proposed actions, saved outcomes, path privacy controls, and non-claims."),
@@ -1305,166 +1298,6 @@ struct DuplicateReviewView: View {
             }
             .padding(24)
         }
-    }
-}
-
-struct AgentStorageReviewView: View {
-    let model: DashboardModel
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("AI Agent Storage")
-                            .font(.largeTitle.bold())
-                        Text("Focused review for Codex, Claude, Cursor, Windsurf, and Ollama storage, with valuable sessions and protected state separated from cache and log churn.")
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
-                    Button {
-                        Task { await model.reviewAgentStorage() }
-                    } label: {
-                        Label("Review Agents", systemImage: "sparkles.rectangle.stack")
-                    }
-                    .disabled(model.isWorking)
-                }
-
-                if model.isWorking {
-                    ProgressView("Reviewing agent storage...")
-                }
-
-                if let report = model.agentStorageReview {
-                    HStack(spacing: 16) {
-                        MetricTile(title: "Agent items", value: "\(report.itemCount)")
-                        MetricTile(title: "Reviewed", value: ByteFormat.string(report.totalBytes))
-                        MetricTile(title: "Reclaimable", value: ByteFormat.string(report.reclaimableBytes))
-                        MetricTile(title: "Protected", value: ByteFormat.string(report.protectedBytes))
-                    }
-
-                    SectionBox(title: "Buckets") {
-                        if report.bucketSummaries.isEmpty {
-                            Text("No agent storage matched the current roots.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(report.bucketSummaries) { summary in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(summary.bucket.label)
-                                            .font(.subheadline.weight(.semibold))
-                                        Spacer()
-                                        Text("\(ByteFormat.string(summary.bytes)) - \(summary.count) item(s)")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Text(summary.bucket.guidance)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Divider()
-                            }
-                        }
-                    }
-
-                    SectionBox(title: "Owners") {
-                        if report.ownerSummaries.isEmpty {
-                            Text("No agent owners were detected.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(report.ownerSummaries) { summary in
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(summary.owner)
-                                            .font(.subheadline.weight(.semibold))
-                                        Text(summary.dominantBucket.label)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Text(ByteFormat.string(summary.reclaimableBytes))
-                                        .foregroundStyle(.green)
-                                    Text(ByteFormat.string(summary.protectedBytes))
-                                        .foregroundStyle(.secondary)
-                                    Text(ByteFormat.string(summary.bytes))
-                                        .monospacedDigit()
-                                }
-                            }
-                        }
-                    }
-
-                    SectionBox(title: "Top Agent Items") {
-                        if report.items.isEmpty {
-                            Text("No agent items were detected.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(report.items.prefix(30)) { item in
-                                AgentStorageItemRow(item: item)
-                                Divider()
-                            }
-                        }
-                    }
-
-                    SectionBox(title: "Non-Claims") {
-                        ForEach(report.nonClaims, id: \.self) { note in
-                            Text(note)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } else {
-                    ContentUnavailableView("No agent review yet", systemImage: "sparkles.rectangle.stack", description: Text("Run an agent storage review to separate cache churn from sessions, memories, config, and model state."))
-                }
-
-                if let error = model.error {
-                    Text(error)
-                        .foregroundStyle(.red)
-                }
-            }
-            .padding(24)
-        }
-    }
-}
-
-struct AgentStorageItemRow: View {
-    let item: AgentStorageItem
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(item.displayName)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Text(ByteFormat.string(item.allocatedSize))
-                    .monospacedDigit()
-            }
-            HStack {
-                Text(item.owner)
-                Text(item.bucket.label)
-                Text(item.safetyClass.label)
-                Text(item.actionKind.label)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            Text(item.path)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-            if let guidance = item.guidance.first {
-                Text(guidance)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !item.ruleIDs.isEmpty {
-                Text("Rules: \(item.ruleIDs.prefix(3).joined(separator: ", "))")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 
@@ -2769,7 +2602,6 @@ final class DashboardModel {
     var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
     var duplicateReview: DuplicateReview?
     var appReview: AppReviewReport?
-    var agentStorageReview: AgentStorageReview?
     var containerInventory: ContainerInventoryReport?
     var activeFileReview: ActiveFileReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
@@ -2832,7 +2664,6 @@ final class DashboardModel {
         scanScopes = []
         overview = nil
         plan = nil
-        agentStorageReview = nil
         lastDryRunReceipt = nil
         lastExecutionReceipt = nil
         lastScannedPreset = nil
@@ -3248,32 +3079,6 @@ final class DashboardModel {
                         measurementDepth: 3
                     )
                 )
-            }.value
-            error = nil
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func reviewAgentStorage() async {
-        isWorking = true
-        defer { isWorking = false }
-        do {
-            agentStorageReview = try await Task.detached {
-                let scopes = DefaultScopes.aiAgentStorage(includeUnavailable: false)
-                let policy = UserPathPolicyStore().load()
-                let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
-                let findings = scanner.scan(
-                    scopes: scopes,
-                    options: ScanOptions(
-                        minimumFindingSize: 1,
-                        maximumFindingDepth: 3,
-                        measurementDepth: 7,
-                        includeOpenFileStatus: false,
-                        userPathPolicy: policy
-                    )
-                )
-                return AgentStorageReviewBuilder.build(findings: findings, scopes: scopes, limit: 80)
             }.value
             error = nil
         } catch {

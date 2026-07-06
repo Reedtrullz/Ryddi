@@ -1,0 +1,25 @@
+name: Release Preview Artifact
+
+on:
+  workflow_dispatch:
+
+jobs:
+  developer-preview:
+    name: Build unsigned developer preview
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Release check
+        run: Scripts/release-check.sh
+
+      - name: Upload developer preview artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ryddi-developer-preview
+          if-no-files-found: error
+          path: |
+            dist/Ryddi-developer-preview.zip
+            dist/Ryddi-developer-preview.zip.sha256
+            dist/Ryddi-release-manifest.txt
