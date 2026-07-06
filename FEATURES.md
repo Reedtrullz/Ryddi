@@ -6,7 +6,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 
 | Feature | Best MVP solution | Implemented |
 | --- | --- | --- |
-| Choose scan scope | Named presets for Developer, General Mac, and All roots, explicit custom `--path` support, saved scope sets, and scope preview. | `ScanScopePreset`, `ScanScopePlan`, `SavedScopeSetStore`, `DefaultScopes`, `reclaimer scopes`, app Scan Scope, app Scope Sets |
+| Choose scan scope | Named presets for Developer, General Mac, and All roots, built-in guided templates, explicit custom `--path` support, saved scope sets, and scope preview. | `ScanScopePreset`, `ScopeTemplateCatalog`, `ScanScopePlan`, `SavedScopeSetStore`, `DefaultScopes`, `reclaimer scopes`, app Scan Scope, app Scope Sets |
 | Find large offenders | Bounded filesystem scanner over preset or custom roots, with permission evidence. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
 | Show top offenders | Shared overview analytics with sortable/groupable rows by category, owner/app/tool, safety, scope, age, action, logical size, allocated size, confidence, and conservative reclaim estimate. | `TopOffenderTable`, `FindingAnalytics`, `reclaimer overview --sort --group`, app Top Offenders |
 | Organize review queues | Shared user-intent queues separate safe maintenance, quit-first data, native-tool stores, valuable history, protected personal/app assets, and unknown review items, with single-queue filtering and evidence-detail navigation. | `ReviewQueueReport`, `ReviewQueueDetailReport`, `FindingAnalytics.reviewQueueReport`, `reclaimer queues --queue`, app Review Queues |
@@ -39,7 +39,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review recovery | Combine app-held items and saved receipts into a recovery view that separates Ryddi-restorable items from Trash review, dry-run/skipped no-ops, native-tool guidance, and non-recoverable direct deletes. | `RecoveryCenter`, `reclaimer recovery`, app Recovery Center |
 | Prefer native cleanup | Report Docker/Colima/package-manager cleanup as preview-only native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims rather than deleting stores directly. | `NativeToolGuidance`, `reclaimer native`, app native receipt preview |
 | Inventory containers | Run bounded read-only Docker/Colima inspection commands and record storage buckets, images, containers, volumes, profiles, missing/not-running states, and command outcomes. | `ContainerInventoryScanner`, `reclaimer containers`, app Container Inventory |
-| Automate conservatively | Scheduled jobs are report-only, can target Developer/General/All presets or saved scope sets, and can be previewed before installation; unattended destructive cleanup is not enabled in v1. | `ScheduleConfiguration`, `LaunchAgentManager`, `ReclaimerAgent`, `schedule preview`, `schedule install` |
+| Automate conservatively | Scheduled jobs are report-only, can target Developer/General/All presets, built-in templates, or saved scope sets, and can be previewed before installation; unattended destructive cleanup is not enabled in v1. | `ScheduleConfiguration`, `LaunchAgentManager`, `ReclaimerAgent`, `schedule preview`, `schedule install` |
 | Keep local audit trail | Save plans, receipts, native reports, container reports, and active-file reports under Application Support with local-only JSON. | `AuditStore`, app Audit History |
 | Package for direct distribution | Build an unsigned developer preview or signed app bundle, verify release-shaped artifacts, create checksum/manifest output, and leave notarization as an explicit credentialed step. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, release-preview workflow |
 | Stay private | No telemetry, cloud upload, or remote AI analysis. | architecture and README policy |
@@ -49,6 +49,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 Included:
 
 - General Mac scan preset for Downloads, Desktop, personal folder review, user caches/logs, app support, attachments, device backups, and Trash review.
+- Built-in scope templates for weekly general review, personal large-file review, app leftovers, browser caches, package caches, AI-agent storage, and developer maintenance.
 - Sortable/groupable top-offender table for general cleanup and developer cleanup scans, including confidence and estimated immediate reclaim.
 - Shared review queues for Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, and Unknown findings, including single-queue CLI reports and app row-to-detail navigation.
 - Saved custom scope sets for repeatable general cleanup, project-specific review, and developer maintenance scans, with local JSON import/export.
@@ -113,9 +114,11 @@ Deferred:
 - `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` reports hierarchical scan nodes, omitted-child summaries, and non-claims without creating plan items.
 - `reclaimer rules --json` reports the bundled rule version, safety/action/category summaries, rule sections, match hints, conditions, recovery notes, and non-claims without scanning or executing cleanup.
 - `reclaimer scopes saved add/list/show/export/import` stores reusable scan roots locally, supports merge/replace import, and keeps non-claims that scope sets do not change cleanup safety.
+- `reclaimer scopes templates list/show/save` exposes built-in guided templates, can materialize a template into a saved scope set, and keeps non-claims that templates do not change cleanup safety.
+- `reclaimer scan --template weekly-general` scans the template roots while preserving all normal rules, policies, dry-run gates, and never-touch protections.
 - `reclaimer scan --scope-set NAME` scans the saved roots while preserving all normal rules, policies, dry-run gates, and never-touch protections.
-- `reclaimer schedule preview --preset general --kind evidence` and `reclaimer schedule preview --scope-set NAME` print the exact report-only LaunchAgent plist without installing it.
-- `reclaimer schedule install --scope-set NAME` writes a per-user LaunchAgent for that saved scope set and still only runs `plan --json --save-audit` unless evidence reports are explicitly selected.
+- `reclaimer schedule preview --preset general --kind evidence`, `reclaimer schedule preview --template weekly-general`, and `reclaimer schedule preview --scope-set NAME` print the exact report-only LaunchAgent plist without installing it.
+- `reclaimer schedule install --template weekly-general` or `--scope-set NAME` writes a per-user LaunchAgent for that scope and still only runs `plan --json --save-audit` unless evidence reports are explicitly selected.
 - `reclaimer rules user preview RULES.json --json` validates custom rules, rejects cleanup-granting rules, and reports import non-claims without mutating local config.
 - `reclaimer rules user import RULES.json --json` stores local user rules without enabling them by default.
 - `reclaimer scan --include-user-rules --path FIXTURE --min-size 1 --json` includes accepted user rules while preserving bundled never-touch protections.

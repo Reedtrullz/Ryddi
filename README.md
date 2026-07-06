@@ -101,6 +101,8 @@ swift run --scratch-path .build reclaimer help
 swift run --scratch-path .build reclaimer overview
 swift run --scratch-path .build reclaimer drilldown --preset general --max-depth 3 --limit 8
 swift run --scratch-path .build reclaimer scopes --preset general
+swift run --scratch-path .build reclaimer scopes templates list
+swift run --scratch-path .build reclaimer scopes --template weekly-general
 swift run --scratch-path .build reclaimer scopes saved add "Weekly General" --path ~/Downloads --path ~/Library/Caches
 swift run --scratch-path .build reclaimer scopes --scope-set "Weekly General"
 swift run --scratch-path .build reclaimer overview --scope-set "Weekly General"
@@ -154,9 +156,18 @@ swift run --scratch-path .build reclaimer holding list
 
 Execution is dry-run unless `--yes` is supplied. Even with `--yes`, the executor refuses protected classes, revalidates the path, reclassifies it, and skips open files.
 
-## Saved Scope Sets
+## Scope Templates And Saved Scope Sets
 
-Ryddi's presets cover common modes, but saved scope sets let you reuse specific local roots:
+Ryddi's presets cover broad modes. Built-in templates cover common review jobs such as weekly general cleanup, personal large-file review, app leftovers, browser caches, package caches, AI-agent storage, and developer maintenance:
+
+```bash
+swift run --scratch-path .build reclaimer scopes templates list
+swift run --scratch-path .build reclaimer scopes templates show weekly-general
+swift run --scratch-path .build reclaimer scan --template weekly-general
+swift run --scratch-path .build reclaimer scopes templates save weekly-general --name "Weekly General"
+```
+
+Saved scope sets let you reuse specific local roots or customize a saved copy of a template:
 
 ```bash
 swift run --scratch-path .build reclaimer scopes saved add "Weekly General" --path ~/Downloads --path ~/Library/Caches --summary "General cleanup review"
@@ -167,7 +178,7 @@ swift run --scratch-path .build reclaimer scopes saved export --output ryddi-sco
 swift run --scratch-path .build reclaimer scopes saved import ryddi-scope-sets.json
 ```
 
-Saved scope sets store scan roots only. They do not grant cleanup permission, change safety rules, or make any path auto-cleanable. Exports can contain private local paths, so review them before sharing.
+Templates and saved scope sets store scan roots only. They do not grant cleanup permission, change safety rules, or make any path auto-cleanable. Saved scope exports can contain private local paths, so review them before sharing.
 
 ## Permission Coverage
 
@@ -402,10 +413,11 @@ Unsigned preview artifacts are intentionally labeled as developer previews. They
 swift run --scratch-path .build reclaimer schedule install
 ```
 
-The LaunchAgent is report-first. It can target the Developer, General Mac, or All preset, or a saved scope set such as a weekly Downloads/cache review:
+The LaunchAgent is report-first. It can target the Developer, General Mac, or All preset, a built-in template, or a saved scope set such as a weekly Downloads/cache review:
 
 ```bash
 swift run --scratch-path .build reclaimer schedule preview --preset general --kind evidence
+swift run --scratch-path .build reclaimer schedule preview --template weekly-general
 swift run --scratch-path .build reclaimer schedule preview --scope-set "Weekly General"
 swift run --scratch-path .build reclaimer schedule install --scope-set "Weekly General" --hour 9 --minute 30
 ```

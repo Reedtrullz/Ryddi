@@ -122,6 +122,22 @@ grep -q "Scanning personal folders is review-oriented" "$scratch/scopes-general-
 "$app/Contents/MacOS/reclaimer" scopes --json --preset all >"$scratch/scopes-all-smoke.json"
 grep -q '"label" : "All"' "$scratch/scopes-all-smoke.json"
 grep -q '"preset" : "all"' "$scratch/scopes-all-smoke.json"
+"$app/Contents/MacOS/reclaimer" scopes templates list --include-missing-scopes >"$scratch/scope-templates-list.txt"
+grep -q "Ryddi scope templates" "$scratch/scope-templates-list.txt"
+grep -q "Weekly General Review" "$scratch/scope-templates-list.txt"
+grep -q "Package Manager Caches" "$scratch/scope-templates-list.txt"
+"$app/Contents/MacOS/reclaimer" scopes templates show weekly-general --json >"$scratch/scope-template-show.json"
+grep -q '"id" : "weekly-general"' "$scratch/scope-template-show.json"
+grep -q '"recommendedUse"' "$scratch/scope-template-show.json"
+"$app/Contents/MacOS/reclaimer" scopes --template weekly-general --json >"$scratch/scope-template-plan.json"
+grep -q '"label" : "Weekly General Review"' "$scratch/scope-template-plan.json"
+grep -q "Scope templates are suggested scan roots only" "$scratch/scope-template-plan.json"
+RYDDI_CONFIG_ROOT="$scratch/template-config" "$app/Contents/MacOS/reclaimer" scopes templates save weekly-general \
+  --name "Weekly Template Copy" \
+  --json >"$scratch/scope-template-save.json"
+grep -q '"name" : "Weekly Template Copy"' "$scratch/scope-template-save.json"
+RYDDI_CONFIG_ROOT="$scratch/template-config" "$app/Contents/MacOS/reclaimer" scopes saved show "Weekly Template Copy" >"$scratch/scope-template-saved-show.txt"
+grep -q "Saved scope set: Weekly Template Copy" "$scratch/scope-template-saved-show.txt"
 scope_fixture="$scratch/scope-fixture"
 mkdir -p "$scope_fixture/Downloads" "$scope_fixture/Library/Caches/Codex"
 printf 'scope download\n' >"$scope_fixture/Downloads/app.dmg"
@@ -173,6 +189,14 @@ RYDDI_CONFIG_ROOT="$scratch/scope-config" "$app/Contents/MacOS/reclaimer" schedu
 grep -q '"kind" : "savedScopeSet"' "$scratch/schedule-scope-set-preview.json"
 grep -q '"value" : "General Fixture"' "$scratch/schedule-scope-set-preview.json"
 grep -q '"--scope-set"' "$scratch/schedule-scope-set-preview.json"
+"$app/Contents/MacOS/reclaimer" schedule preview \
+  --json \
+  --kind evidence \
+  --template weekly-general \
+  --cli-path "$app/Contents/MacOS/reclaimer" >"$scratch/schedule-template-preview.json"
+grep -q '"kind" : "template"' "$scratch/schedule-template-preview.json"
+grep -q '"value" : "weekly-general"' "$scratch/schedule-template-preview.json"
+grep -q '"--template"' "$scratch/schedule-template-preview.json"
 "$app/Contents/MacOS/reclaimer" rules >"$scratch/rules-smoke.txt"
 grep -q "Ryddi rule catalog" "$scratch/rules-smoke.txt"
 grep -q "Never Touch" "$scratch/rules-smoke.txt"

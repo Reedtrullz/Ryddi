@@ -196,6 +196,10 @@ struct ReclaimerCLI {
     }
 
     static func scopes(args: [String]) throws {
+        if args.first == "templates" {
+            try scopeTemplates(args: Array(args.dropFirst()))
+            return
+        }
         if args.first == "saved" {
             try savedScopes(args: Array(args.dropFirst()))
             return
@@ -206,6 +210,50 @@ struct ReclaimerCLI {
             printJSON(plan)
         } else {
             printScopePlan(plan)
+        }
+    }
+
+    static func scopeTemplates(args: [String]) throws {
+        let subcommand = args.first ?? "list"
+        let options = ParsedOptions(Array(args.dropFirst()))
+        switch subcommand {
+        case "list":
+            let templates = ScopeTemplateCatalog.all(includeUnavailable: options.includeMissingScopes)
+            if options.json {
+                printJSON(templates)
+            } else {
+                printScopeTemplates(templates)
+            }
+        case "show":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("scopes templates show requires a template id or name")
+            }
+            let template = try ScopeTemplateCatalog.find(args[1], includeUnavailable: true)
+            if options.json {
+                printJSON(template)
+            } else {
+                printScopeTemplate(template)
+            }
+        case "save":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("scopes templates save requires a template id or name")
+            }
+            let template = try ScopeTemplateCatalog.find(args[1], includeUnavailable: true)
+            let name = options.value(after: "--name") ?? template.name
+            let summary = options.summary ?? template.summary
+            let set = try SavedScopeSetStore().upsert(
+                name: name,
+                paths: template.scopes.map(\.root.path),
+                summary: summary
+            )
+            if options.json {
+                printJSON(set)
+            } else {
+                print("saved scope set from template: \(template.name)")
+                printSavedScopeSet(set)
+            }
+        default:
+            throw CLIError.message("Unknown scopes templates subcommand: \(subcommand)")
         }
     }
 
@@ -1030,42 +1078,45 @@ struct ReclaimerCLI {
 
             Commands:
               status [--json] [--path PATH]
-              scopes [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
+              scopes [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
+              scopes templates list [--json] [--include-missing-scopes]
+              scopes templates show TEMPLATE_ID [--json]
+              scopes templates save TEMPLATE_ID [--name NAME] [--summary TEXT] [--json]
               scopes saved list [--json]
               scopes saved show NAME_OR_ID [--json]
               scopes saved add NAME --path PATH ... [--summary TEXT] [--json]
               scopes saved remove NAME_OR_ID [--json]
               scopes saved export [--json] [--output PATH]
               scopes saved import PATH [--json] [--replace]
-              scan [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--include-open-files]
+              scan [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
-              overview [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
+              overview [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
                        [--sort size|logical|reclaim|age|risk|category|safety|scope|owner|action]
                        [--group none|category|safety|owner|scope|action]
                        [--save-history] [--ignore-user-policy] [--include-user-rules]
-              queues [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
+              queues [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
                      [--min-size BYTES] [--max-depth N] [--include-open-files] [--limit N]
                      [--queue safe-maintenance|quit-app-first|use-native-tool|valuable-history|personal-app-assets|unknown]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
-              large [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
+              large [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
                     [--min-size BYTES] [--max-depth N] [--large-threshold BYTES] [--old-days N]
                     [--review large|old|all] [--sort size|logical|age|category|owner|safety] [--limit N]
                     [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
-              drilldown [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N]
+              drilldown [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N]
                         [--tree-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               rules [--json] [--include-user-rules]
               rules user list [--json]
               rules user preview PATH [--json]
               rules user import PATH [--json] [--replace]
               rules user export [--json] [--output PATH]
-              report [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--output PATH] [--save-report]
+              report [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--output PATH] [--save-report]
                      [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
-              permissions [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--include-missing-scopes]
-              permissions guide [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--output PATH] [--include-missing-scopes]
-              active [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit] [--include-user-rules]
-              history record [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
+              permissions [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--include-missing-scopes]
+              permissions guide [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--output PATH] [--include-missing-scopes]
+              active [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit] [--include-user-rules]
+              history record [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
               history report [--json] [--group category|safety|scope] [--limit N]
@@ -1078,9 +1129,9 @@ struct ReclaimerCLI {
               apps uninstall-preview [--json] (--app PATH | --bundle-id ID | --name NAME)
                    [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N] [--output PATH]
                    [--save-audit] [--path-style full|home-relative|redacted] [--redact-user-text]
-              agents [--json] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N]
+              agents [--json] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
-              native [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
+              native [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
               policy list [--json]
               policy protect PATH [--reason TEXT]
@@ -1088,28 +1139,28 @@ struct ReclaimerCLI {
               policy remove PATH [--kind protect|exclude]
               policy export [--json] [--output PATH]
               policy import PATH [--json] [--replace]
-              plan [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
+              plan [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
                    [--output PATH] [--save-report] [--title TEXT]
                    [--path-style full|home-relative|redacted] [--redact-user-text]
               plans list [--json] [--limit N]
               plans export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                            [--path-style full|home-relative|redacted] [--redact-user-text]
               explain PATH [--json] [--include-user-rules]
-              execute --dry-run [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--save-audit] [--ignore-user-policy] [--include-user-rules]
-              execute --yes [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
+              execute --dry-run [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--save-audit] [--ignore-user-policy] [--include-user-rules]
+              execute --yes [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
               receipts list [--json] [--limit N]
               receipts export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                               [--path-style full|home-relative|redacted] [--redact-user-text]
               recovery [list] [--json] [--limit N]
               recovery restore HOLDING_ID [--to PATH]
-              archive [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
+              archive [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
                       [--min-size BYTES] [--max-depth N] [--large-threshold BYTES] [--old-days N]
                       [--review large|old|all] [--sort size|logical|age|category|owner|safety] [--limit N]
                       [--output PATH] [--save-report] [--title TEXT]
                       [--path-style full|home-relative|redacted] [--redact-user-text]
                       [--include-missing-scopes] [--include-open-files] [--ignore-user-policy] [--include-user-rules]
-              schedule preview [--json] [--kind plan|evidence] [--preset developer|general|all] [--scope-set NAME_OR_ID] [--hour H] [--minute M] [--limit N] [--include-user-rules] [--cli-path PATH]
-              schedule install [--kind plan|evidence] [--preset developer|general|all] [--scope-set NAME_OR_ID] [--hour H] [--minute M] [--limit N] [--include-user-rules] [--load]
+              schedule preview [--json] [--kind plan|evidence] [--preset developer|general|all] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID] [--hour H] [--minute M] [--limit N] [--include-user-rules] [--cli-path PATH]
+              schedule install [--kind plan|evidence] [--preset developer|general|all] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID] [--hour H] [--minute M] [--limit N] [--include-user-rules] [--load]
               schedule uninstall [--unload]
               schedule status [--json]
               holding list [--json]
@@ -1117,7 +1168,7 @@ struct ReclaimerCLI {
               holding expire [--older-than-days N] [--yes]
 
             Defaults use --preset developer. Use --preset general for ordinary Mac cleanup review roots
-            or --preset all for general plus developer/agent storage. Use saved scope sets for repeatable
+            or --preset all for general plus developer/agent storage. Use templates for guided cleanup modes, or saved scope sets for repeatable
             custom roots. User rule packs are local and opt-in
             per scan with --include-user-rules. Execution is dry-run unless --yes is supplied.
             """
@@ -1143,7 +1194,7 @@ struct ParsedOptions {
     var includeMissingScopes: Bool { args.contains("--include-missing-scopes") }
     var noLsof: Bool { args.contains("--no-lsof") }
     var hasPath: Bool { !values(after: "--path").isEmpty }
-    var hasCustomScopeSelection: Bool { hasPath || scopeSetReference != nil }
+    var hasCustomScopeSelection: Bool { hasPath || scopeTemplateReference != nil || scopeSetReference != nil }
     var includePreserve: Bool { args.contains("--include-preserve") }
     var showExcluded: Bool { args.contains("--show-excluded") }
     var includeSystemApps: Bool { args.contains("--include-system-apps") }
@@ -1176,6 +1227,7 @@ struct ParsedOptions {
     var receiptID: String? { value(after: "--id") }
     var currentSnapshotID: String? { value(after: "--current-id") }
     var previousSnapshotID: String? { value(after: "--previous-id") }
+    var scopeTemplateReference: String? { value(after: "--template") }
     var scopeSetReference: String? { value(after: "--scope-set") }
     var reportPrivacy: ReportPrivacyOptions {
         ReportPrivacyOptions(pathStyle: reportPathStyle, redactUserText: args.contains("--redact-user-text"))
@@ -1280,7 +1332,13 @@ struct ParsedOptions {
             throw CLIError.message("--minute must be between 0 and 59")
         }
         let selection: ScheduledScopeSelection
-        if let scopeSetReference {
+        if scopeTemplateReference != nil, scopeSetReference != nil {
+            throw CLIError.message("--template and --scope-set cannot be used together")
+        }
+        if let scopeTemplateReference {
+            _ = try ScopeTemplateCatalog.find(scopeTemplateReference, includeUnavailable: true)
+            selection = ScheduledScopeSelection(template: scopeTemplateReference)
+        } else if let scopeSetReference {
             _ = try SavedScopeSetStore().find(scopeSetReference)
             selection = ScheduledScopeSelection(savedScopeSet: scopeSetReference)
         } else {
@@ -1314,6 +1372,12 @@ struct ParsedOptions {
                 return ScanScope(name: url.lastPathComponent, root: url)
             }
             return DefaultScopes.customPlan(scopes: scopes)
+        }
+        if scopeTemplateReference != nil, scopeSetReference != nil {
+            throw CLIError.message("--template and --scope-set cannot be used together")
+        }
+        if let scopeTemplateReference {
+            return try ScopeTemplateCatalog.plan(reference: scopeTemplateReference, includeUnavailable: includeUnavailable)
         }
         if let scopeSetReference {
             return try SavedScopeSetStore().plan(reference: scopeSetReference)
@@ -1480,6 +1544,41 @@ func printScopePlan(_ plan: ScanScopePlan) {
     }
     print("\nNon-claims")
     for note in plan.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printScopeTemplates(_ templates: [ScopeTemplate]) {
+    print("Ryddi scope templates")
+    print("Templates: \(templates.count)")
+    let groups = Dictionary(grouping: templates, by: \.group)
+    for group in groups.keys.sorted() {
+        print("\n\(group)")
+        for template in (groups[group] ?? []).sorted(by: { $0.name < $1.name }) {
+            print("- \(template.name) (\(template.id), \(template.scopes.count) root(s))")
+            print("  \(template.summary)")
+        }
+    }
+    print("\nNon-claims")
+    for note in ScopeTemplateCatalog.defaultNonClaims {
+        print("- \(note)")
+    }
+}
+
+func printScopeTemplate(_ template: ScopeTemplate) {
+    print("Ryddi scope template")
+    print("Name: \(template.name)")
+    print("ID: \(template.id)")
+    print("Group: \(template.group)")
+    print("Recommended use: \(template.recommendedUse)")
+    print(template.summary)
+    print("Scopes: \(template.scopes.count)")
+    print("\nRoots")
+    for scope in template.scopes {
+        print("- \(scope.name): \(scope.root.path)")
+    }
+    print("\nNon-claims")
+    for note in template.nonClaims {
         print("- \(note)")
     }
 }

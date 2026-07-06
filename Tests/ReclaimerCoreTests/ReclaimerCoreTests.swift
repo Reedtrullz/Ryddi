@@ -290,6 +290,41 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(plan.nonClaims.contains { $0.contains("do not change Ryddi's safety rules") })
     }
 
+    func testScopeTemplateCatalogBuildsGuidedPlans() throws {
+        let home = tempRoot.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("Downloads"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("Library/Caches"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("Library/Logs"), withIntermediateDirectories: true)
+
+        let templates = ScopeTemplateCatalog.all(home: home, includeUnavailable: true)
+        XCTAssertGreaterThanOrEqual(templates.count, 6)
+        XCTAssertEqual(Set(templates.map(\.id)).count, templates.count)
+        XCTAssertTrue(templates.contains { $0.id == "weekly-general" })
+        XCTAssertTrue(templates.contains { $0.id == "ai-agent-storage" })
+
+        let plan = try ScopeTemplateCatalog.plan(reference: "weekly-general", home: home, includeUnavailable: false)
+        XCTAssertEqual(plan.label, "Weekly General Review")
+        XCTAssertTrue(plan.scopes.contains { $0.name == "Downloads review" })
+        XCTAssertTrue(plan.scopes.contains { $0.name == "User caches" })
+        XCTAssertFalse(plan.scopes.contains { $0.name == "Desktop review" })
+        XCTAssertTrue(plan.nonClaims.contains { $0.contains("suggested scan roots only") })
+    }
+
+    func testScopeTemplateCanBeMaterializedAsSavedScopeSet() throws {
+        let home = tempRoot.appendingPathComponent("home", isDirectory: true)
+        let store = SavedScopeSetStore(root: tempRoot.appendingPathComponent("config", isDirectory: true))
+        let template = try ScopeTemplateCatalog.find("package-caches", home: home, includeUnavailable: true)
+        let saved = try store.upsert(
+            name: template.name,
+            paths: template.scopes.map(\.root.path),
+            summary: template.summary
+        )
+        XCTAssertEqual(saved.name, "Package Manager Caches")
+        XCTAssertGreaterThan(saved.scopes.count, 4)
+        XCTAssertEqual(try store.find("package manager caches").id, saved.id)
+        XCTAssertTrue(saved.plan.nonClaims.contains { $0.contains("Saved scope sets store scan roots only") })
+    }
+
     func testSavedScopeSetImportMergesAndReplaces() throws {
         let localStore = SavedScopeSetStore(root: tempRoot.appendingPathComponent("local-config", isDirectory: true))
         let sourceStore = SavedScopeSetStore(root: tempRoot.appendingPathComponent("source-config", isDirectory: true))
@@ -2527,6 +2562,27 @@ final class ReclaimerCoreTests: XCTestCase {
             "12"
         ])
         XCTAssertTrue(preview.nonClaims.contains { $0.contains("do not call execute") })
+    }
+
+    func testLaunchAgentPlistCanScheduleScopeTemplate() {
+        let schedule = ScheduleConfiguration(
+            reportKind: .evidence,
+            scopeSelection: ScheduledScopeSelection(template: "weekly-general"),
+            limit: 10
+        )
+        let preview = LaunchAgentManager().preview(cliPath: "/tmp/reclaimer", home: tempRoot, schedule: schedule)
+        XCTAssertEqual(preview.schedule.scopeSelection.kind, .template)
+        XCTAssertEqual(preview.programArguments, [
+            "/tmp/reclaimer",
+            "report",
+            "--json",
+            "--save-report",
+            "--template",
+            "weekly-general",
+            "--limit",
+            "10"
+        ])
+        XCTAssertTrue(preview.nonClaims.contains { $0.contains("preset, template, or saved scope set") })
     }
 
     func testLaunchAgentPlistEscapesXMLValues() {

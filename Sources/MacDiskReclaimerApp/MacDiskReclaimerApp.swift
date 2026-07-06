@@ -100,6 +100,17 @@ struct DashboardView: View {
             .pickerStyle(.menu)
             .frame(width: 190)
             .disabled(model.savedScopeSets.isEmpty)
+            Picker("Template", selection: Binding(
+                get: { model.selectedScopeTemplateID ?? "" },
+                set: { model.setScopeTemplate($0.isEmpty ? nil : $0) }
+            )) {
+                Text("No template").tag("")
+                ForEach(model.scopeTemplates) { template in
+                    Text(template.name).tag(template.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 210)
             Toggle(isOn: Binding(
                 get: { model.includeUserRulesInScans },
                 set: { model.setIncludeUserRulesInScans($0) }
@@ -451,9 +462,55 @@ struct SavedScopeSetView: View {
 
                 HStack(spacing: 16) {
                     MetricTile(title: "Saved", value: "\(model.savedScopeSets.count)")
+                    MetricTile(title: "Templates", value: "\(model.scopeTemplates.count)")
                     MetricTile(title: "Active", value: model.selectedScopePlan.label)
                     MetricTile(title: "Roots", value: "\(model.selectedScopePlan.scopes.count)")
                     MetricTile(title: "Config", value: SavedScopeSetStore().scopeSetURL.lastPathComponent)
+                }
+
+                SectionBox(title: "Built-In Templates") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Templates are guided scan roots for common general-cleaner and developer-cleaner reviews. Use one directly, or save it as a local scope set before customizing.")
+                            .foregroundStyle(.secondary)
+                        ForEach(model.scopeTemplates) { template in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(template.name)
+                                            .font(.headline)
+                                        Text("\(template.group) - \(template.recommendedUse)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Button {
+                                        model.setScopeTemplate(template.id)
+                                    } label: {
+                                        Label(model.selectedScopeTemplateID == template.id ? "Selected" : "Use", systemImage: "scope")
+                                    }
+                                    .disabled(model.selectedScopeTemplateID == template.id)
+                                    Button {
+                                        model.saveScopeTemplate(template)
+                                    } label: {
+                                        Label("Save Copy", systemImage: "plus")
+                                    }
+                                }
+                                Text(template.summary)
+                                    .foregroundStyle(.secondary)
+                                Text("\(template.scopes.count) root(s)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 6)
+                            Divider()
+                        }
+                        ForEach(ScopeTemplateCatalog.defaultNonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
 
                 SectionBox(title: "Create From Current Scope") {
@@ -616,7 +673,7 @@ struct ScanScopeMiniList: View {
 
 struct CapabilityMatrixView: View {
     private let rows = [
-        ("Choose scan mode", "Shared scope presets cover Developer, General Mac, and All roots, with explicit scope preview and saved custom scope sets before scanning."),
+        ("Choose scan mode", "Shared presets, built-in templates, and saved custom scope sets cover Developer, General Mac, All, and guided review roots before scanning."),
         ("Find space offenders", "Bounded Swift scanner over preset or custom roots with size and permission evidence."),
         ("Classify safety", "Versioned JSON rules produce Auto-safe, Safe after condition, Review required, Preserve by default, and Never touch."),
         ("Inspect rules", "Bundled rules can be reviewed by safety class, action, category, match hints, conditions, recovery, and non-claims."),
@@ -632,7 +689,7 @@ struct CapabilityMatrixView: View {
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Export receipts", "Saved dry-run and execution receipts can be exported as local Markdown reports with action counts and non-claims."),
         ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
-        ("Schedule maintenance", "Per-user LaunchAgent writes report-only plans for the selected preset or saved scope set, no root helper."),
+        ("Schedule maintenance", "Per-user LaunchAgent writes report-only plans for the selected preset, template, or saved scope set, no root helper."),
         ("Keep audit trail", "Plans and receipts are stored locally under Application Support."),
         ("Protect personal value", "Codex history, browser profiles, GarageBand/Logic assets, documents, credentials, and VM/container state are preserve/never-touch by default.")
     ]
@@ -2405,12 +2462,18 @@ struct AutomationView: View {
         if let set = model.selectedSavedScopeSet {
             return "Saved scope set: \(set.name)"
         }
+        if let template = model.selectedScopeTemplate {
+            return "Template: \(template.name)"
+        }
         return "Preset: \(model.scanPreset.label)"
     }
 
     private var scheduledCommandText: String {
         if let set = model.selectedSavedScopeSet {
             return "reclaimer plan --json --save-audit --scope-set \(set.id)"
+        }
+        if let template = model.selectedScopeTemplate {
+            return "reclaimer plan --json --save-audit --template \(template.id)"
         }
         return "reclaimer plan --json --save-audit --preset \(model.scanPreset.rawValue)"
     }
@@ -3992,6 +4055,7 @@ final class DashboardModel {
     var findings: [Finding] = []
     var scanScopes: [ScanScope] = []
     var scanPreset: ScanScopePreset = .developer
+    var selectedScopeTemplateID: String?
     var savedScopeSets: [SavedScopeSet] = []
     var selectedSavedScopeSetID: String?
     var includeUserRulesInScans = false
@@ -4035,7 +4099,19 @@ final class DashboardModel {
         if let selectedSavedScopeSet {
             return selectedSavedScopeSet.plan
         }
+        if let selectedScopeTemplate {
+            return selectedScopeTemplate.plan
+        }
         return DefaultScopes.plan(for: scanPreset, includeUnavailable: true)
+    }
+
+    var scopeTemplates: [ScopeTemplate] {
+        ScopeTemplateCatalog.all(includeUnavailable: true)
+    }
+
+    var selectedScopeTemplate: ScopeTemplate? {
+        guard let selectedScopeTemplateID else { return nil }
+        return try? ScopeTemplateCatalog.find(selectedScopeTemplateID, includeUnavailable: true)
     }
 
     var selectedSavedScopeSet: SavedScopeSet? {
@@ -4076,19 +4152,37 @@ final class DashboardModel {
     }
 
     func setScanPreset(_ preset: ScanScopePreset) {
-        guard scanPreset != preset || selectedSavedScopeSetID != nil else { return }
+        guard scanPreset != preset || selectedSavedScopeSetID != nil || selectedScopeTemplateID != nil else { return }
         scanPreset = preset
+        selectedScopeTemplateID = nil
         selectedSavedScopeSetID = nil
         resetScanState()
         permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
         error = nil
     }
 
+    func setScopeTemplate(_ id: String?) {
+        let normalizedID = id?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextID = normalizedID?.isEmpty == true ? nil : normalizedID
+        guard selectedScopeTemplateID != nextID || selectedSavedScopeSetID != nil else { return }
+        selectedScopeTemplateID = nextID
+        selectedSavedScopeSetID = nil
+        if nextID != nil, selectedScopeTemplate == nil {
+            selectedScopeTemplateID = nil
+            error = "Built-in scope template is no longer available."
+        } else {
+            error = nil
+        }
+        resetScanState()
+        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+    }
+
     func setSavedScopeSet(_ id: String?) {
         let normalizedID = id?.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextID = normalizedID?.isEmpty == true ? nil : normalizedID
-        guard selectedSavedScopeSetID != nextID else { return }
+        guard selectedSavedScopeSetID != nextID || selectedScopeTemplateID != nil else { return }
         selectedSavedScopeSetID = nextID
+        selectedScopeTemplateID = nil
         if nextID != nil, selectedSavedScopeSet == nil {
             selectedSavedScopeSetID = nil
             error = "Saved scope set is no longer available."
@@ -4121,6 +4215,10 @@ final class DashboardModel {
     private func currentScopes(includeUnavailable: Bool) -> [ScanScope] {
         if let selectedSavedScopeSet {
             return selectedSavedScopeSet.plan.scopes
+        }
+        if let selectedScopeTemplateID,
+           let plan = try? ScopeTemplateCatalog.plan(reference: selectedScopeTemplateID, includeUnavailable: includeUnavailable) {
+            return plan.scopes
         }
         return DefaultScopes.scopes(for: scanPreset, includeUnavailable: includeUnavailable)
     }
@@ -4464,6 +4562,25 @@ final class DashboardModel {
                 summary: summary
             )
             savedScopeSets = SavedScopeSetStore().list()
+            selectedScopeTemplateID = nil
+            selectedSavedScopeSetID = set.id
+            resetScanState()
+            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func saveScopeTemplate(_ template: ScopeTemplate) {
+        do {
+            let set = try SavedScopeSetStore().upsert(
+                name: template.name,
+                paths: template.scopes.map(\.root.path),
+                summary: template.summary
+            )
+            savedScopeSets = SavedScopeSetStore().list()
+            selectedScopeTemplateID = nil
             selectedSavedScopeSetID = set.id
             resetScanState()
             permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
@@ -4793,6 +4910,8 @@ final class DashboardModel {
             let selection: ScheduledScopeSelection
             if let selectedSavedScopeSetID {
                 selection = ScheduledScopeSelection(savedScopeSet: selectedSavedScopeSetID)
+            } else if let selectedScopeTemplateID {
+                selection = ScheduledScopeSelection(template: selectedScopeTemplateID)
             } else {
                 selection = ScheduledScopeSelection(preset: scanPreset)
             }

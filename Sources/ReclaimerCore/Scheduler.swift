@@ -24,6 +24,7 @@ public enum ScheduledReportKind: String, Codable, CaseIterable, Hashable, Sendab
 public struct ScheduledScopeSelection: Codable, Hashable, Sendable {
     public enum Kind: String, Codable, Hashable, Sendable {
         case preset
+        case template
         case savedScopeSet
     }
 
@@ -40,10 +41,17 @@ public struct ScheduledScopeSelection: Codable, Hashable, Sendable {
         self.value = reference.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    public init(template reference: String) {
+        self.kind = .template
+        self.value = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     public var commandArguments: [String] {
         switch kind {
         case .preset:
             return ["--preset", value]
+        case .template:
+            return ["--template", value]
         case .savedScopeSet:
             return ["--scope-set", value]
         }
@@ -53,6 +61,8 @@ public struct ScheduledScopeSelection: Codable, Hashable, Sendable {
         switch kind {
         case .preset:
             return "Preset: \(value)"
+        case .template:
+            return "Template: \(value)"
         case .savedScopeSet:
             return "Saved scope set: \(value)"
         }
@@ -86,7 +96,7 @@ public struct ScheduleConfiguration: Codable, Hashable, Sendable {
     public var nonClaims: [String] {
         [
             "Scheduled jobs are report-only; they do not call execute, --yes, prune, reset, or vendor uninstallers.",
-            "A scheduled scope selects roots to inspect; it does not make personal files cleanup candidates.",
+            "A scheduled preset, template, or saved scope set selects roots to inspect; it does not make personal files cleanup candidates.",
             "If a saved scope set is renamed or removed, that scheduled run should fail visibly instead of falling back to a broader scan."
         ]
     }
