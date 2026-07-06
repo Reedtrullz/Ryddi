@@ -50,15 +50,19 @@ public enum ExecutionReceiptReportBuilder {
     public static func build(
         title: String = "Ryddi Receipt Report",
         receipt: ExecutionReceipt,
+        privacy: ReportPrivacyOptions = .default,
         now: Date = Date()
     ) -> ExecutionReceiptReport {
-        let nonClaims = [
+        var nonClaims = [
             "This report summarizes a saved receipt; it does not execute cleanup.",
             "Dry-run reclaimed bytes are estimates, not verified free-space gains.",
             "Filesystem free-space deltas can differ from action totals because of APFS snapshots, purgeable storage, clones, caches, and concurrent system activity.",
             "Skipped and error actions require review before retrying.",
             "A receipt proves what Ryddi recorded locally, not that macOS granted broader permissions or that external native tools changed state."
         ]
+        if privacy.pathStyle != .full || privacy.redactUserText {
+            nonClaims.append("Report privacy was applied (\(privacy.summary)); saved local receipts may still contain full original paths.")
+        }
         let id = UUID().uuidString
         let dryRunCount = receipt.actions.filter { $0.status == "dry-run" }.count
         let doneCount = receipt.actions.filter { $0.status == "done" }.count
@@ -79,6 +83,7 @@ public enum ExecutionReceiptReportBuilder {
             errorCount: errorCount,
             totalReclaimed: totalReclaimed,
             freeSpaceDelta: delta,
+            privacy: privacy,
             nonClaims: nonClaims
         )
         return ExecutionReceiptReport(
@@ -109,6 +114,7 @@ public enum ExecutionReceiptReportBuilder {
         errorCount: Int,
         totalReclaimed: Int64,
         freeSpaceDelta: Int64?,
+        privacy: ReportPrivacyOptions,
         nonClaims: [String]
     ) -> String {
         var lines: [String] = []
@@ -148,6 +154,7 @@ public enum ExecutionReceiptReportBuilder {
         if receipt.actions.isEmpty {
             lines.append("No selected actions were recorded.")
         } else {
+            let knownPaths = receipt.actions.map(\.path)
             lines.append(table(
                 headers: ["Status", "Action", "Reclaimed", "Path", "Message"],
                 rows: receipt.actions.map {
@@ -155,8 +162,8 @@ public enum ExecutionReceiptReportBuilder {
                         $0.status,
                         $0.action.label,
                         ByteFormat.string($0.reclaimedBytes),
-                        $0.path,
-                        $0.message
+                        privacy.displayPath($0.path),
+                        privacy.displayText($0.message, knownPaths: knownPaths)
                     ]
                 }
             ))
@@ -165,8 +172,9 @@ public enum ExecutionReceiptReportBuilder {
 
         if !receipt.errors.isEmpty {
             lines.append("## Errors")
+            let knownPaths = receipt.actions.map(\.path)
             for error in receipt.errors {
-                lines.append("- \(error)")
+                lines.append("- \(privacy.displayText(error, knownPaths: knownPaths))")
             }
             lines.append("")
         }

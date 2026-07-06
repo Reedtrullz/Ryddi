@@ -17,12 +17,14 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer overview --path Tests --limit 5` prints a bounded overview.
 - [ ] `reclaimer overview --json --path Tests --limit 5` includes bounded `mapNodes`.
 - [ ] `reclaimer report --path Tests --limit 5 --output REPORT.md` writes a local Markdown report with scan coverage, top findings, user policy, accounting notes, and non-claims without executing cleanup.
+- [ ] `reclaimer report --path Tests --path-style redacted --redact-user-text --output REPORT.md` writes a local Markdown report without full local paths or user-entered policy reasons.
 - [ ] `reclaimer history record --path Tests --limit 5` saves a local-only snapshot.
 - [ ] `reclaimer history list --limit 5` and `reclaimer history diff --group category --limit 5` read local-only snapshots.
 - [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
 - [ ] `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` reports installed app support files and orphan candidates without emitting a cleanup plan.
 - [ ] `reclaimer native --path FIXTURE --json --save-audit` emits preview-only native-tool receipts and saves a local audit record without executing native cleanup commands.
 - [ ] `reclaimer execute --dry-run --path FIXTURE --save-audit` followed by `reclaimer receipts export --output RECEIPT.md` writes a local Markdown receipt report without rerunning cleanup.
+- [ ] `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
 - [ ] `reclaimer containers --json --timeout 2 --save-audit` emits a read-only Docker/Colima inventory, saves a local audit record, and does not execute prune/delete/stop/reset commands.
 - [ ] `reclaimer policy protect/exclude/list/remove` works with a temporary `RYDDI_CONFIG_ROOT`; protected paths are not selected for cleanup and excluded paths are absent from scan output.
 - [ ] App Visual Map and Growth History render without changing reclaim gates.
@@ -58,4 +60,5 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say active-handle reports can include process summaries and do not quit processes or execute cleanup.
 - [ ] Release notes say evidence reports are local Markdown files that can include paths and do not execute cleanup.
 - [ ] Release notes say receipt reports summarize saved receipts locally and do not rerun cleanup.
+- [ ] Release notes say report redaction affects exports only; saved local audit JSON and receipts can still contain original local paths.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

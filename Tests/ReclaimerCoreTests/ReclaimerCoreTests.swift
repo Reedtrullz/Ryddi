@@ -180,6 +180,47 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(report.protectedBytes, 2_000)
     }
 
+    func testEvidenceReportPrivacyCanRedactPathsAndUserText() throws {
+        let cache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 1_000,
+            isDirectory: true,
+            category: "Codex Cache"
+        )
+        let scopes = [ScanScope(name: "fixture", root: tempRoot)]
+        let overview = FindingAnalytics.overview(findings: [cache], scopes: scopes, topLimit: 1)
+        let policy = UserPathPolicy(rules: [
+            UserPathRule(kind: .protect, path: cache.path, reason: "private client project", createdAt: Date(timeIntervalSince1970: 0))
+        ])
+
+        let report = EvidenceReportBuilder.build(
+            overview: overview,
+            findings: [cache],
+            scopes: scopes,
+            userPathPolicy: policy,
+            topLimit: 1,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted, redactUserText: true, homeDirectory: tempRoot)
+        )
+
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertTrue(report.markdown.contains("<redacted>"))
+        XCTAssertTrue(report.markdown.contains("Report privacy was applied"))
+        XCTAssertFalse(report.markdown.contains(tempRoot.path))
+        XCTAssertFalse(report.markdown.contains("private client project"))
+    }
+
+    func testReportPrivacyCanRenderHomeRelativePaths() {
+        let privacy = ReportPrivacyOptions(pathStyle: .homeRelative, homeDirectory: tempRoot)
+        let cache = tempRoot.appendingPathComponent("Library/Caches/Codex").path
+
+        XCTAssertEqual(ReportPathStyle(rawValue: "home-relative"), .homeRelative)
+        XCTAssertEqual(privacy.displayPath(cache), "~/Library/Caches/Codex")
+        XCTAssertEqual(privacy.displayText("Path: \(cache)", knownPaths: [cache]), "Path: ~/Library/Caches/Codex")
+    }
+
     func testReportStoreSavesMarkdown() throws {
         let report = EvidenceReport(
             id: "fixture",
@@ -234,6 +275,34 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.markdown.contains("Open-file check blocked action."))
         XCTAssertTrue(report.markdown.contains("fixture top-level error"))
         XCTAssertTrue(report.markdown.contains("This report summarizes a saved receipt; it does not execute cleanup."))
+    }
+
+    func testExecutionReceiptReportPrivacyRedactsPathsAndMessages() {
+        let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin").path
+        let receipt = ExecutionReceipt(
+            id: "receipt-fixture",
+            createdAt: Date(timeIntervalSince1970: 0),
+            ruleVersion: "test-rules",
+            mode: ExecutionMode.perform.rawValue,
+            beforeFreeBytes: nil,
+            afterFreeBytes: nil,
+            actions: [
+                ExecutionActionReceipt(path: cache, action: .trash, status: "done", message: "Moved to app holding area: \(cache).")
+            ],
+            userConfirmed: true,
+            errors: ["\(cache): fixture error"]
+        )
+
+        let report = ExecutionReceiptReportBuilder.build(
+            receipt: receipt,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted, homeDirectory: tempRoot),
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertTrue(report.markdown.contains("Report privacy was applied"))
+        XCTAssertFalse(report.markdown.contains(tempRoot.path))
+        XCTAssertFalse(report.markdown.contains(cache))
     }
 
     func testReportStoreSavesExecutionReceiptReport() throws {

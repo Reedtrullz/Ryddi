@@ -70,7 +70,7 @@ Initial MVP:
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - Open-file guard and active-handle review with `lsof` process summaries
 - Dry-run receipts and local audit store
-- Markdown evidence and receipt report exports
+- Markdown evidence and receipt report exports with path privacy controls
 - App-managed holding area with restore/expire workflow
 - Permission advisor for readable/denied/missing scan coverage and Full Disk Access guidance
 - Release-check workflow for unsigned developer preview artifacts

@@ -63,13 +63,16 @@ grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" active --json --path "$root/Tests" --min-size 1 --max-depth 1 --limit 5 --save-audit >"$scratch/active-smoke.json"
 grep -q '"candidateCount"' "$scratch/active-smoke.json"
 "$app/Contents/MacOS/reclaimer" overview --path "$root/Tests" --limit 5 >"$scratch/overview-smoke.txt"
-RYDDI_REPORT_ROOT="$scratch/reports" "$app/Contents/MacOS/reclaimer" report --path "$root/Tests" --limit 5 --output "$scratch/evidence-report.md" --ignore-user-policy
+RYDDI_REPORT_ROOT="$scratch/reports" "$app/Contents/MacOS/reclaimer" report --path "$root/Tests" --limit 5 --output "$scratch/evidence-report.md" --ignore-user-policy --path-style redacted --redact-user-text
 grep -q "# Ryddi Evidence Report" "$scratch/evidence-report.md"
 grep -q "Explicit Non-Claims" "$scratch/evidence-report.md"
+grep -q "<path redacted>" "$scratch/evidence-report.md"
+grep -q "Report privacy was applied" "$scratch/evidence-report.md"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" execute --dry-run --path "$receipt_fixture" --min-size 1 --max-depth 1 --save-audit --no-lsof >"$scratch/receipt-dry-run-smoke.txt"
-RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" receipts export --output "$scratch/receipt-report.md"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" receipts export --output "$scratch/receipt-report.md" --path-style redacted
 grep -q "# Ryddi Receipt Report" "$scratch/receipt-report.md"
 grep -q "does not execute cleanup" "$scratch/receipt-report.md"
+grep -q "<path redacted>" "$scratch/receipt-report.md"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" containers --json --timeout 2 --save-audit >"$scratch/containers-smoke.json"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy protect "$root/Tests" --reason "release smoke" >"$scratch/policy-protect-smoke.txt"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy list --json >"$scratch/policy-list-smoke.json"
@@ -124,8 +127,8 @@ Verification performed:
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5
-- bundled reclaimer report --path Tests --limit 5 --output evidence-report.md
-- bundled reclaimer execute --dry-run --save-audit on disposable fixture plus receipts export --output receipt-report.md
+- bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
+- bundled reclaimer execute --dry-run --save-audit on disposable fixture plus redacted receipts export --output receipt-report.md
 - bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
 - bundled reclaimer policy protect/list with temporary config root
 - codesign verification when CODESIGN_IDENTITY is set

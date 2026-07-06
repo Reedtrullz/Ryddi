@@ -43,16 +43,20 @@ public enum EvidenceReportBuilder {
         diskStatus: DiskStatusSnapshot? = nil,
         userPathPolicy: UserPathPolicy = .empty,
         topLimit: Int = 25,
+        privacy: ReportPrivacyOptions = .default,
         now: Date = Date()
     ) -> EvidenceReport {
         let id = UUID().uuidString
-        let nonClaims = [
+        var nonClaims = [
             "No cleanup was executed by this report.",
             "Reclaim estimates use scan-time allocated bytes and are not a promise of exact Finder or df free-space gains.",
             "Missing or denied scopes can make this report incomplete until macOS permissions are granted.",
             "Protected and excluded user policy is local-only and may contain paths or reasons entered on this Mac.",
             "VM, container, browser profile, credential, creative asset, and unknown app-state data require review or native tools rather than raw deletion."
         ]
+        if privacy.pathStyle != .full || privacy.redactUserText {
+            nonClaims.append("Report privacy was applied (\(privacy.summary)); saved local audit data may still contain full original paths.")
+        }
         let markdown = markdown(
             id: id,
             title: title,
@@ -63,6 +67,7 @@ public enum EvidenceReportBuilder {
             diskStatus: diskStatus,
             userPathPolicy: userPathPolicy,
             topLimit: topLimit,
+            privacy: privacy,
             nonClaims: nonClaims
         )
         return EvidenceReport(
@@ -88,6 +93,7 @@ public enum EvidenceReportBuilder {
         diskStatus: DiskStatusSnapshot?,
         userPathPolicy: UserPathPolicy,
         topLimit: Int,
+        privacy: ReportPrivacyOptions,
         nonClaims: [String]
     ) -> String {
         var lines: [String] = []
@@ -116,7 +122,7 @@ public enum EvidenceReportBuilder {
         if let diskStatus {
             lines.append("## Disk Status")
             var rows = [
-                ["Path", diskStatus.path],
+                ["Path", privacy.displayPath(diskStatus.path)],
                 ["Pressure", diskStatus.pressure.label],
                 ["Free", diskStatus.statusLine]
             ]
@@ -137,7 +143,7 @@ public enum EvidenceReportBuilder {
             lines.append(table(
                 headers: ["State", "Scope", "Path", "Note"],
                 rows: overview.scopeSummaries.map {
-                    [$0.permissionState.rawValue, $0.name, $0.path, $0.message]
+                    [$0.permissionState.rawValue, $0.name, privacy.displayPath($0.path), privacy.displayText($0.message, knownPaths: [$0.path])]
                 }
             ))
         }
@@ -164,7 +170,7 @@ public enum EvidenceReportBuilder {
                         $0.safetyClass.label,
                         $0.primaryCategory,
                         $0.actionKind.label,
-                        $0.path
+                        privacy.displayPath($0.path)
                     ]
                 }
             ))
@@ -178,7 +184,7 @@ public enum EvidenceReportBuilder {
             lines.append(table(
                 headers: ["Policy", "Path", "Reason", "Descendants"],
                 rows: userPathPolicy.rules.map {
-                    [$0.kind.label, $0.path, $0.reason ?? "-", $0.includeDescendants ? "yes" : "no"]
+                    [$0.kind.label, privacy.displayPath($0.path), privacy.displayUserText($0.reason), $0.includeDescendants ? "yes" : "no"]
                 }
             ))
         }

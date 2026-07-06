@@ -32,6 +32,8 @@ Evidence report export reads scan findings, disk status, scan coverage, and user
 
 Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Ryddi does not upload receipt reports or rerun cleanup while creating them.
 
+Report exports support path privacy controls. `home-relative` reports hide your home-directory prefix, `redacted` reports replace report paths with `<path redacted>`, and user-entered policy reasons can be redacted from exports. These controls affect the generated report only; saved local audit JSON and receipts can still contain original local paths.
+
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
 ## What Ryddi Writes

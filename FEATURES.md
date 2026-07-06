@@ -13,7 +13,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Watch disk pressure | Menu bar status item and CLI status report current free space using explicit warning/critical thresholds. | `DiskStatusReader`, `reclaimer status`, app menu bar |
 | Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, Full Disk Access guidance, and explicit permission non-claims. | `PermissionAdvisor`, `reclaimer permissions`, app Permissions |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
-| Export evidence reports | Produce local Markdown reports with disk status, scan coverage, safety/category buckets, top findings, user policy, accounting notes, and explicit non-claims. | `EvidenceReportBuilder`, `ReportStore`, `reclaimer report`, app Export Report |
+| Export evidence reports | Produce local Markdown reports with disk status, scan coverage, safety/category buckets, top findings, user policy, accounting notes, optional path privacy controls, and explicit non-claims. | `EvidenceReportBuilder`, `ReportPrivacyOptions`, `ReportStore`, `reclaimer report`, app Export Report |
 | Classify safety | Versioned data-driven rules, not hard-coded mystery heuristics. | `Resources/rules.json`, `RuleEngine` |
 | Explain decisions | Every finding carries rule matches, evidence, recovery notes, and conditions. | `Finding`, `Evidence`, app detail view, `reclaimer explain` |
 | Honor user path policy | User protections keep paths visible but blocked from cleanup; user exclusions hide noisy paths from scans and parent measurements. | `UserPathPolicyStore`, `reclaimer policy`, app Protections & Exclusions |
@@ -24,7 +24,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Protect valuable data | Default preserve/never-touch for user documents, creative assets, credentials, browser profiles, VM/container state, and Codex history. | rule pack and executor protected-class checks |
 | Handle active files | Check open handles before planning/execution, surface process names in an active-handle review, and skip active paths. | `LsofOpenFileChecker`, `ActiveFileReviewScanner`, `PlanBuilder`, `ReclaimerExecutor`, `reclaimer active`, app Active Handles |
 | Avoid blind deletes | Build a dry-run plan first; UI exposes dry-run receipts and enables reclaim only after a clean dry run. | `ReclaimPlan`, `ExecutionReceipt`, app Dry Run/Reclaim |
-| Export receipts | Convert saved dry-run/execution receipts into local Markdown with action counts, before/after free-space fields, skipped/errors, and non-claims. | `ExecutionReceiptReportBuilder`, `reclaimer receipts export`, app Audit History export |
+| Export receipts | Convert saved dry-run/execution receipts into local Markdown with action counts, before/after free-space fields, skipped/errors, optional path privacy controls, and non-claims. | `ExecutionReceiptReportBuilder`, `ReportPrivacyOptions`, `reclaimer receipts export`, app Audit History export |
 | Reclaim safely | Use Trash for uncertain/user-visible data, direct delete only for allowlisted caches, compression only for cold files, holding area for reversible moves, with app confirmation before execution. | `ReclaimerExecutor`, app Reclaim confirmation |
 | Restore held items | Store holding metadata so held items can be listed, restored, or expired after review. | `HoldingStore`, `reclaimer holding`, app Holding Area |
 | Prefer native cleanup | Report Docker/Colima/package-manager cleanup as preview-only native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims rather than deleting stores directly. | `NativeToolGuidance`, `reclaimer native`, app native receipt preview |
@@ -50,6 +50,7 @@ Included:
 - Menu bar disk-pressure status with report-only scan shortcut.
 - Exportable local Markdown evidence reports.
 - Exportable local Markdown execution receipt reports.
+- Report path privacy controls: full, home-relative, redacted, plus user-entered reason redaction.
 - Active-handle review with process summaries for cleanup-relevant candidates.
 - Permission advisor for readable/denied/missing scope coverage and Full Disk Access guidance.
 - Browser cache versus browser profile distinction.
@@ -86,7 +87,9 @@ Deferred:
 - `reclaimer permissions --json --path FIXTURE` reports coverage level, readable/denied/missing counts, recommended actions, and non-claims.
 - `reclaimer active --path FIXTURE --json` reports cleanup candidates blocked by open handles or failed open-file checks, with process summaries when available, and does not quit processes or execute cleanup.
 - `reclaimer report --path FIXTURE --limit 5 --output REPORT.md` writes a local Markdown report with top findings, policy, accounting notes, and non-claims without executing cleanup.
+- `reclaimer report --path FIXTURE --path-style redacted --redact-user-text --output REPORT.md` writes a share-safer Markdown report without full local paths or user-entered policy reasons.
 - `reclaimer receipts export --output RECEIPT.md` writes a local Markdown report for a saved receipt without rerunning cleanup.
+- `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
 - `reclaimer status --json` reports disk pressure and free-space notes without scanning content.
 - `reclaimer history record/list/diff` stores local scan snapshots and reports category/scope/safety deltas.
 - `reclaimer duplicates --path FIXTURE --min-size 1` groups same-content regular files, skips protected paths, and emits review-only `openGuidance` candidates.

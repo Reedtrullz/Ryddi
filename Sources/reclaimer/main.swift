@@ -110,6 +110,7 @@ struct ReclaimerCLI {
 
     static func report(args: [String]) throws {
         let options = ParsedOptions(args)
+        try options.validateReportPrivacyOptions()
         let scopes = options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
@@ -121,7 +122,8 @@ struct ReclaimerCLI {
             scopes: scopes,
             diskStatus: DiskStatusReader().snapshot(),
             userPathPolicy: options.userPathPolicy,
-            topLimit: options.limit
+            topLimit: options.limit,
+            privacy: options.reportPrivacy
         )
 
         if let output = options.outputPath {
@@ -384,6 +386,7 @@ struct ReclaimerCLI {
     static func receipts(args: [String]) throws {
         let subcommand = args.first ?? "list"
         let options = ParsedOptions(Array(args.dropFirst()))
+        try options.validateReportPrivacyOptions()
         let store = AuditStore()
         switch subcommand {
         case "list":
@@ -401,7 +404,8 @@ struct ReclaimerCLI {
             }
             let report = ExecutionReceiptReportBuilder.build(
                 title: options.receiptReportTitle,
-                receipt: receipt
+                receipt: receipt,
+                privacy: options.reportPrivacy
             )
             if let output = options.outputPath {
                 let url = URL(fileURLWithPath: output).standardizedFileURL
@@ -513,7 +517,8 @@ struct ReclaimerCLI {
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy]
               overview [--json] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy]
               report [--json] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
-                     [--title TEXT] [--include-missing-scopes] [--ignore-user-policy]
+                     [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
+                     [--include-missing-scopes] [--ignore-user-policy]
               permissions [--json] [--path PATH ...] [--include-missing-scopes]
               active [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit]
               history record [--json] [--path PATH ...] [--limit N]
@@ -535,6 +540,7 @@ struct ReclaimerCLI {
               execute --yes [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
               receipts list [--json] [--limit N]
               receipts export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
+                              [--path-style full|home-relative|redacted] [--redact-user-text]
               archive [--json] [--path PATH ...]   # review/compression-oriented plan only
               schedule install [--hour H] [--minute M] [--load]
               schedule uninstall [--unload]
@@ -587,6 +593,21 @@ struct ParsedOptions {
     var reportTitle: String { value(after: "--title") ?? "Ryddi Evidence Report" }
     var receiptReportTitle: String { value(after: "--title") ?? "Ryddi Receipt Report" }
     var receiptID: String? { value(after: "--id") }
+    var reportPrivacy: ReportPrivacyOptions {
+        ReportPrivacyOptions(pathStyle: reportPathStyle, redactUserText: args.contains("--redact-user-text"))
+    }
+    var reportPathStyle: ReportPathStyle {
+        if args.contains("--redact-paths") {
+            return .redacted
+        }
+        if args.contains("--home-relative") {
+            return .homeRelative
+        }
+        if let raw = value(after: "--path-style"), let style = ReportPathStyle(rawValue: raw) {
+            return style
+        }
+        return .full
+    }
     var policyKind: UserPathPolicyKind? {
         switch value(after: "--kind") {
         case "protect": .protect
@@ -620,6 +641,13 @@ struct ParsedOptions {
     func value(after flag: String) -> String? {
         guard let index = args.firstIndex(of: flag), args.indices.contains(index + 1) else { return nil }
         return args[index + 1]
+    }
+
+    func validateReportPrivacyOptions() throws {
+        if let raw = value(after: "--path-style"), ReportPathStyle(rawValue: raw) == nil {
+            let allowed = ReportPathStyle.allCases.map(\.rawValue).joined(separator: ", ")
+            throw CLIError.message("--path-style must be one of: \(allowed)")
+        }
     }
 
     func scopes(includeUnavailable: Bool = false) -> [ScanScope] {

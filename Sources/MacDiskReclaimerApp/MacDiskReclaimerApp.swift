@@ -84,6 +84,12 @@ struct DashboardView: View {
                 Label("Export Report", systemImage: "square.and.arrow.up")
             }
             .disabled(model.overview == nil || model.findings.isEmpty)
+            Button {
+                Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
+            } label: {
+                Label("Export Redacted", systemImage: "eye.slash")
+            }
+            .disabled(model.overview == nil || model.findings.isEmpty)
             Button(role: .destructive) {
                 showingReclaimConfirmation = true
             } label: {
@@ -346,6 +352,9 @@ struct AuditHistoryView: View {
                                 Spacer()
                                 Button("Export") {
                                     Task { await model.exportReceiptReport(receipt) }
+                                }
+                                Button("Redacted") {
+                                    Task { await model.exportReceiptReport(receipt, pathStyle: .redacted) }
                                 }
                             }
                         }
@@ -2210,7 +2219,7 @@ final class DashboardModel {
         }
     }
 
-    func exportEvidenceReport() async {
+    func exportEvidenceReport(pathStyle: ReportPathStyle = .full, redactUserText: Bool = false) async {
         guard let currentOverview = overview, !findings.isEmpty else {
             error = "Run a scan before exporting an evidence report."
             return
@@ -2228,7 +2237,8 @@ final class DashboardModel {
                     findings: currentFindings,
                     scopes: currentScopes,
                     diskStatus: DiskStatusReader().snapshot(),
-                    userPathPolicy: currentPolicy
+                    userPathPolicy: currentPolicy,
+                    privacy: ReportPrivacyOptions(pathStyle: pathStyle, redactUserText: redactUserText)
                 )
                 return try ReportStore().save(report: report)
             }.value
@@ -2239,12 +2249,15 @@ final class DashboardModel {
         }
     }
 
-    func exportReceiptReport(_ receipt: ExecutionReceipt) async {
+    func exportReceiptReport(_ receipt: ExecutionReceipt, pathStyle: ReportPathStyle = .full) async {
         isWorking = true
         defer { isWorking = false }
         do {
             let url = try await Task.detached {
-                let report = ExecutionReceiptReportBuilder.build(receipt: receipt)
+                let report = ExecutionReceiptReportBuilder.build(
+                    receipt: receipt,
+                    privacy: ReportPrivacyOptions(pathStyle: pathStyle)
+                )
                 return try ReportStore().save(executionReceiptReport: report)
             }.value
             lastReceiptReportExportURL = url

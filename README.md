@@ -38,6 +38,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - permission/degraded-scan coverage, Full Disk Access guidance, and APFS accounting notes
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
 - exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
+- report privacy controls for full, home-relative, or redacted paths plus user-entered reason redaction
 - active-handle review for cleanup candidates, with process summaries and failed-check visibility
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - local user protections and exclusions for paths Ryddi should preserve or ignore
@@ -90,6 +91,7 @@ swift run --scratch-path .build reclaimer permissions
 swift run --scratch-path .build reclaimer active --path ~/Library/Caches --limit 25
 swift run --scratch-path .build reclaimer overview --save-history --path Tests --limit 5
 swift run --scratch-path .build reclaimer report --path Tests --limit 10 --output ryddi-report.md
+swift run --scratch-path .build reclaimer report --path Tests --path-style redacted --redact-user-text --output ryddi-report-redacted.md
 swift run --scratch-path .build reclaimer history list
 swift run --scratch-path .build reclaimer history diff --group category
 swift run --scratch-path .build reclaimer scan
@@ -106,6 +108,7 @@ swift run --scratch-path .build reclaimer explain ~/.codex
 swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Caches/Codex
 swift run --scratch-path .build reclaimer receipts list
 swift run --scratch-path .build reclaimer receipts export --output ryddi-receipt-report.md
+swift run --scratch-path .build reclaimer receipts export --path-style redacted --output ryddi-receipt-report-redacted.md
 swift run --scratch-path .build reclaimer holding list
 ```
 
@@ -156,6 +159,8 @@ swift run --scratch-path .build reclaimer report --save-report
 ```
 
 Reports include scan coverage, safety buckets, top categories, top findings, local protections/exclusions, APFS/accounting notes, disk-pressure notes, and explicit non-claims. They do not execute cleanup and may include local paths.
+
+Use `--path-style home-relative` to hide the home directory prefix, `--path-style redacted` or `--redact-paths` to replace report paths with `<path redacted>`, and `--redact-user-text` to hide user-entered policy reasons. Redaction affects the exported report; saved local audit records may still contain the original paths.
 
 Saved execution receipts can also be exported:
 
