@@ -90,6 +90,82 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("does not delete agent sessions") })
     }
 
+    func testAgentRetentionProfilesRecommendCleanupCompressionAndProtection() throws {
+        let oldCache = tempRoot.appendingPathComponent(".codex/cache/old-blob.bin")
+        let recentCache = tempRoot.appendingPathComponent(".codex/cache/recent-blob.bin")
+        let oldSession = tempRoot.appendingPathComponent(".codex/sessions/2025/12/session.jsonl")
+        let codexAuth = tempRoot.appendingPathComponent(".codex/auth.json")
+
+        for url in [oldCache, recentCache, oldSession, codexAuth] {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(repeating: UInt8(url.path.count % 255), count: 1024).write(to: url)
+        }
+
+        let day: TimeInterval = 24 * 60 * 60
+        let referenceDate = Date(timeIntervalSince1970: 2_000_000_000)
+        let oldDate = referenceDate.addingTimeInterval(-(200 * day))
+        let recentDate = referenceDate.addingTimeInterval(-(2 * day))
+        let oldPaths = [
+            oldCache,
+            oldSession,
+            codexAuth,
+            oldCache.deletingLastPathComponent(),
+            oldSession.deletingLastPathComponent(),
+            oldSession.deletingLastPathComponent().deletingLastPathComponent(),
+            tempRoot.appendingPathComponent(".codex/sessions")
+        ]
+        for url in oldPaths {
+            try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: url.path)
+        }
+        try FileManager.default.setAttributes([.modificationDate: recentDate], ofItemAtPath: recentCache.path)
+
+        let scopes = DefaultScopes.aiAgentStorage(home: tempRoot, includeUnavailable: false)
+        let findings = try FileScanner(openFileChecker: NoOpenFilesChecker()).scan(
+            scopes: scopes,
+            options: ScanOptions(
+                minimumFindingSize: 1,
+                maximumFindingDepth: 5,
+                measurementDepth: 8,
+                includeOpenFileStatus: false
+            )
+        )
+        let review = AgentStorageReviewBuilder.build(
+            findings: findings,
+            scopes: scopes,
+            limit: 80,
+            generatedAt: referenceDate
+        )
+        let report = AgentRetentionBuilder.build(
+            review: review,
+            profile: .balanced,
+            limit: 80,
+            referenceDate: referenceDate,
+            generatedAt: referenceDate
+        )
+
+        XCTAssertTrue(report.recommendations.contains {
+            $0.path.hasSuffix("/.codex/cache/old-blob.bin") &&
+                $0.recommendation == .cleanupPlan &&
+                $0.eligibleForCleanupPlan
+        })
+        XCTAssertTrue(report.recommendations.contains {
+            $0.path.hasSuffix("/.codex/cache/recent-blob.bin") &&
+                $0.recommendation == .keep
+        })
+        XCTAssertTrue(report.recommendations.contains {
+            $0.path.contains("/.codex/sessions/") &&
+                $0.recommendation == .compressAfterReview
+        })
+        XCTAssertTrue(report.recommendations.contains {
+            $0.path.hasSuffix("/.codex/auth.json") &&
+                $0.recommendation == .protect
+        })
+        XCTAssertGreaterThan(report.cleanupCandidateBytes, 0)
+        XCTAssertGreaterThan(report.compressionCandidateBytes, 0)
+        XCTAssertGreaterThan(report.protectedBytes, 0)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("does not delete, compress, move, or modify agent files") })
+    }
+
     func testRuleCatalogExplainsSafetyBucketsAndNeverTouchRules() throws {
         let catalog = try RuleEngine.bundled().catalog(generatedAt: Date(timeIntervalSince1970: 0))
 

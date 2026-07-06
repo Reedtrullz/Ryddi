@@ -29,6 +29,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review apps & leftovers | Parse installed `.app` bundles and related Library files, then surface support data and orphan candidates as review-only guidance. | `AppReviewScanner`, `reclaimer apps`, app Apps & Leftovers |
 | Preview and confirm app uninstall | Build a selected-app uninstall checklist/report, then optionally move only the selected app bundle to Trash after a clean dry run and explicit confirmation. Related support files remain review-only. | `AppUninstallPreview`, `AppUninstallExecutor`, `reclaimer apps uninstall-preview`, `reclaimer apps uninstall`, app Uninstall Preview |
 | Review AI-agent storage | Scan common Codex, Claude, Cursor, Windsurf, and Ollama roots, then bucket cache/log churn separately from valuable history, protected state, and manual review. | `AgentStorageReviewBuilder`, `DefaultScopes.aiAgentStorage`, `reclaimer agents`, app AI Agent Storage |
+| Review AI-agent retention | Apply conservative, balanced, or aggressive report-only retention profiles so old cache can become cleanup-plan guidance, old history can become compression-review guidance, and protected state stays blocked. | `AgentRetentionBuilder`, `AgentRetentionProfile`, `reclaimer agents retention`, app AI Agent Storage |
 | Inspect in native tools | Copy path, reveal in Finder, Quick Look, and open Terminal for reviewed findings. | app finding action buttons |
 | Protect valuable data | Default preserve/never-touch for user documents, creative assets, credentials, browser profiles, VM/container state, and Codex history. | rule pack and executor protected-class checks |
 | Handle active files | Check open handles before planning/execution, surface process names in an active-handle review, and skip active paths. | `LsofOpenFileChecker`, `ActiveFileReviewScanner`, `PlanBuilder`, `ReclaimerExecutor`, `reclaimer active`, app Active Handles |
@@ -79,6 +80,7 @@ Included:
 - Apps & Leftovers review for installed app support files and heuristic orphan candidates.
 - App uninstall preview/checklist plus explicit app-bundle Trash execution after dry run and confirmation, keeping related support files review-only and outside execution.
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, with cache/history/protected-state buckets and no automatic session/config/model cleanup.
+- AI-agent retention profiles for conservative, balanced, or aggressive report-only guidance; profiles never delete sessions, memories, config, credentials, model state, or unknown state.
 - Stale temp/scratch classification.
 - App overview, sortable top offenders, shared review queues, Large & Old Files, owner summaries, rule catalog, permission coverage, APFS notes, item detail, feature matrix, dry-run plan, audit history, and settings copy.
 
@@ -144,6 +146,7 @@ Deferred:
 - `reclaimer apps uninstall --dry-run --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` writes an app-uninstall receipt showing that only the selected app bundle would move to Trash.
 - `reclaimer apps uninstall --yes --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` moves only the selected app bundle to Trash after open-file checks, user policy checks, and final bundle protection checks; related support files remain untouched.
 - `reclaimer agents --path FIXTURE --min-size 1 --max-depth 4 --json` reports AI-agent storage buckets, including reclaimable cache, valuable history, protected state, and quit-first data without creating plan items.
+- `reclaimer agents retention --path FIXTURE --profile balanced --min-size 1 --max-depth 4 --json` reports cleanup-plan, compression-review, keep, and protect recommendations without deleting, compressing, moving, or modifying agent files.
 - `reclaimer native --path FIXTURE --json` emits preview-only native-tool receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
 - `reclaimer containers --json --timeout 2` emits a read-only Docker/Colima inventory, classifies missing versus not-running tools, and never emits prune/delete/stop/reset commands.
 - `reclaimer policy protect/exclude/list/remove/export/import` writes local-only path policy, protects configured paths from cleanup selection, excludes configured paths from scan output, exports a versioned JSON document, imports by merge by default, and supports explicit `--replace`.

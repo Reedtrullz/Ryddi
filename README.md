@@ -58,6 +58,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, separating reclaimable cache from valuable history and protected state
+- AI-agent retention profiles that recommend old cache cleanup plans, old history compression review, and protected-state keep rules without modifying files
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
 - read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
@@ -135,6 +136,7 @@ swift run --scratch-path .build reclaimer apps --min-size 10000000
 swift run --scratch-path .build reclaimer apps uninstall-preview --app /Applications/Example.app --output ryddi-app-uninstall-preview.md
 swift run --scratch-path .build reclaimer agents
 swift run --scratch-path .build reclaimer agents --json --limit 40
+swift run --scratch-path .build reclaimer agents retention --profile balanced
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
 swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
@@ -260,9 +262,13 @@ Ryddi can run a focused review over common AI-agent roots:
 swift run --scratch-path .build reclaimer agents
 swift run --scratch-path .build reclaimer agents --json --limit 40
 swift run --scratch-path .build reclaimer agents --path ~/.codex --path ~/.claude
+swift run --scratch-path .build reclaimer agents retention --profile conservative
+swift run --scratch-path .build reclaimer agents retention --profile balanced --json --limit 40
 ```
 
 The report groups Codex, Claude, Cursor, Windsurf, and Ollama storage into reclaimable cache, quit-first data, valuable history, protected state, and manual review. It is still report-only: agent sessions, memories, credentials, config, model state, and profiles are not deleted automatically, and cache cleanup still goes through the normal plan and dry-run gates.
+
+Retention profiles are also report-only. `conservative`, `balanced`, and `aggressive` change the age thresholds used to recommend old cache cleanup plans, quit-then-cleanup review, compression review for old sessions/history, and protected-state keep rules. They do not delete, compress, move, or modify agent files.
 
 ## App Uninstall Preview
 

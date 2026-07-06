@@ -69,7 +69,7 @@ Initial MVP:
 - CLI for scan scope presets, built-in scope templates, saved scope sets, scan, overview, review queues, large/old review, disk drill-down, bundled rule catalog, status, permissions, active-handle review, apps-and-leftovers review, app uninstall preview/execution receipts, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
 - SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, Large & Old Files, detail view, Apps & Leftovers, app uninstall preview/execution receipts, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
-- AI-agent storage buckets that separate reclaimable cache from valuable history, protected state, quit-first data, and manual review
+- AI-agent storage buckets and retention profiles that separate reclaimable cache, old-history compression review, protected state, quit-first data, and manual review
 - Open-file guard and active-handle review with `lsof` process summaries
 - Dry-run receipts and local audit store
 - Markdown evidence, growth, plan, and receipt report exports with path privacy controls

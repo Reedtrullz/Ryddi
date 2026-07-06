@@ -668,7 +668,35 @@ struct ReclaimerCLI {
     }
 
     static func agents(args: [String]) throws {
+        if args.first == "retention" {
+            try agentRetention(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
+        let report = try agentStorageReview(options: options)
+        if options.json {
+            printJSON(report)
+        } else {
+            printAgentStorageReview(report, options: options)
+        }
+    }
+
+    static func agentRetention(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let review = try agentStorageReview(options: options)
+        let report = AgentRetentionBuilder.build(
+            review: review,
+            profile: try options.agentRetentionProfile(),
+            limit: options.limit
+        )
+        if options.json {
+            printJSON(report)
+        } else {
+            printAgentRetentionReport(report, options: options)
+        }
+    }
+
+    private static func agentStorageReview(options: ParsedOptions) throws -> AgentStorageReview {
         let scopes: [ScanScope]
         if options.hasCustomScopeSelection {
             scopes = try options.scopes(includeUnavailable: options.includeMissingScopes)
@@ -682,11 +710,7 @@ struct ReclaimerCLI {
             scopes: scopes,
             limit: options.limit
         )
-        if options.json {
-            printJSON(report)
-        } else {
-            printAgentStorageReview(report, options: options)
-        }
+        return report
     }
 
     static func native(args: [String]) throws {
@@ -1166,6 +1190,8 @@ struct ReclaimerCLI {
                    [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--save-audit] [--ignore-user-policy]
               agents [--json] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
+              agents retention [--json] [--profile conservative|balanced|aggressive] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID]
+                     [--min-size BYTES] [--max-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               native [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
               policy list [--json]
@@ -1352,6 +1378,15 @@ struct ParsedOptions {
             throw CLIError.message("--review must be one of: \(allowed)")
         }
         return mode
+    }
+
+    func agentRetentionProfile() throws -> AgentRetentionProfile {
+        let raw = value(after: "--profile")?.lowercased() ?? AgentRetentionProfile.balanced.rawValue
+        guard let profile = AgentRetentionProfile(rawValue: raw) else {
+            let allowed = AgentRetentionProfile.allCases.map(\.rawValue).joined(separator: ", ")
+            throw CLIError.message("--profile must be one of: \(allowed)")
+        }
+        return profile
     }
 
     func scheduleConfiguration() throws -> ScheduleConfiguration {
@@ -2425,6 +2460,45 @@ func printAgentStorageReview(_ report: AgentStorageReview, options: ParsedOption
             }
             if let firstRule = item.ruleIDs.first {
                 print("  rule: \(firstRule)")
+            }
+        }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printAgentRetentionReport(_ report: AgentRetentionReport, options: ParsedOptions) {
+    print("Ryddi AI agent retention report")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Profile: \(report.profile.label)")
+    print(report.profileSummary)
+    print("Reviewed items: \(report.reviewedItemCount)")
+    print("Allocated reviewed: \(ByteFormat.string(report.totalBytes))")
+    print("Cleanup candidates: \(ByteFormat.string(report.cleanupCandidateBytes))")
+    print("Compression candidates: \(ByteFormat.string(report.compressionCandidateBytes))")
+    print("Protected: \(ByteFormat.string(report.protectedBytes))")
+
+    print("\nBy recommendation")
+    if report.summaries.isEmpty {
+        print("No agent retention recommendations matched the current roots.")
+    } else {
+        for summary in report.summaries {
+            print("- \(pad(summary.recommendation.label, 22)) \(pad(ByteFormat.string(summary.bytes), 10)) \(summary.count) item(s)")
+        }
+    }
+
+    if !report.recommendations.isEmpty {
+        print("\nRecommendations")
+        print("\(pad("Bytes", 11)) \(pad("Owner", 12)) \(pad("Recommendation", 22)) \(pad("Bucket", 20)) \(pad("Age", 8)) Path")
+        for row in report.recommendations.prefix(options.limit) {
+            let age = row.ageDays.map { "\($0)d" } ?? "unknown"
+            print("\(pad(ByteFormat.string(row.allocatedSize), 11)) \(pad(row.owner, 12)) \(pad(row.recommendation.label, 22)) \(pad(row.bucket.label, 20)) \(pad(age, 8)) \(row.path)")
+            print("  - \(row.reason)")
+            if let firstStep = row.nextSteps.first {
+                print("  next: \(firstStep)")
             }
         }
     }

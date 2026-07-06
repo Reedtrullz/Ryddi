@@ -86,6 +86,7 @@ public struct AgentStorageItem: Codable, Hashable, Identifiable, Sendable {
     public let displayName: String
     public let allocatedSize: Int64
     public let logicalSize: Int64
+    public let modificationDate: Date?
     public let safetyClass: SafetyClass
     public let actionKind: ActionKind
     public let ruleIDs: [String]
@@ -100,6 +101,7 @@ public struct AgentStorageItem: Codable, Hashable, Identifiable, Sendable {
         displayName: String,
         allocatedSize: Int64,
         logicalSize: Int64,
+        modificationDate: Date?,
         safetyClass: SafetyClass,
         actionKind: ActionKind,
         ruleIDs: [String],
@@ -113,6 +115,7 @@ public struct AgentStorageItem: Codable, Hashable, Identifiable, Sendable {
         self.displayName = displayName
         self.allocatedSize = allocatedSize
         self.logicalSize = logicalSize
+        self.modificationDate = modificationDate
         self.safetyClass = safetyClass
         self.actionKind = actionKind
         self.ruleIDs = ruleIDs
@@ -216,6 +219,7 @@ public enum AgentStorageReviewBuilder {
             displayName: finding.displayName,
             allocatedSize: finding.allocatedSize,
             logicalSize: finding.logicalSize,
+            modificationDate: finding.modificationDate,
             safetyClass: finding.safetyClass,
             actionKind: finding.actionKind,
             ruleIDs: ruleIDs,
@@ -410,4 +414,387 @@ public enum AgentStorageReviewBuilder {
         "Windsurf",
         "Ollama"
     ]
+}
+
+public enum AgentRetentionProfile: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case conservative
+    case balanced
+    case aggressive
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .conservative: "Conservative"
+        case .balanced: "Balanced"
+        case .aggressive: "Aggressive"
+        }
+    }
+
+    public var summary: String {
+        switch self {
+        case .conservative:
+            "Prefer long retention. Review old cache/log churn and compress old history only after it is clearly cold."
+        case .balanced:
+            "Reduce routine growth while preserving useful sessions, memories, credentials, config, and model state."
+        case .aggressive:
+            "Surface shorter-retention candidates for machines under disk pressure while still blocking protected state."
+        }
+    }
+
+    public var cacheAgeDays: Int {
+        switch self {
+        case .conservative: 30
+        case .balanced: 14
+        case .aggressive: 7
+        }
+    }
+
+    public var quitFirstAgeDays: Int {
+        switch self {
+        case .conservative: 45
+        case .balanced: 21
+        case .aggressive: 10
+        }
+    }
+
+    public var historyCompressAgeDays: Int {
+        switch self {
+        case .conservative: 365
+        case .balanced: 180
+        case .aggressive: 90
+        }
+    }
+
+    public var manualReviewAgeDays: Int {
+        switch self {
+        case .conservative: 365
+        case .balanced: 180
+        case .aggressive: 90
+        }
+    }
+}
+
+public enum AgentRetentionRecommendationKind: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case cleanupPlan
+    case quitThenCleanup
+    case compressAfterReview
+    case manualReview
+    case keep
+    case protect
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .cleanupPlan: "Use Cleanup Plan"
+        case .quitThenCleanup: "Quit Then Cleanup"
+        case .compressAfterReview: "Compress After Review"
+        case .manualReview: "Manual Review"
+        case .keep: "Keep"
+        case .protect: "Protect"
+        }
+    }
+}
+
+public struct AgentRetentionSummary: Codable, Hashable, Identifiable, Sendable {
+    public var id: AgentRetentionRecommendationKind { recommendation }
+    public let recommendation: AgentRetentionRecommendationKind
+    public let count: Int
+    public let bytes: Int64
+
+    public init(recommendation: AgentRetentionRecommendationKind, count: Int, bytes: Int64) {
+        self.recommendation = recommendation
+        self.count = count
+        self.bytes = bytes
+    }
+}
+
+public struct AgentRetentionRecommendation: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let owner: String
+    public let bucket: AgentStorageBucket
+    public let path: String
+    public let displayName: String
+    public let allocatedSize: Int64
+    public let ageDays: Int?
+    public let recommendation: AgentRetentionRecommendationKind
+    public let actionKind: ActionKind
+    public let eligibleForCleanupPlan: Bool
+    public let reason: String
+    public let nextSteps: [String]
+
+    public init(
+        id: String,
+        owner: String,
+        bucket: AgentStorageBucket,
+        path: String,
+        displayName: String,
+        allocatedSize: Int64,
+        ageDays: Int?,
+        recommendation: AgentRetentionRecommendationKind,
+        actionKind: ActionKind,
+        eligibleForCleanupPlan: Bool,
+        reason: String,
+        nextSteps: [String]
+    ) {
+        self.id = id
+        self.owner = owner
+        self.bucket = bucket
+        self.path = path
+        self.displayName = displayName
+        self.allocatedSize = allocatedSize
+        self.ageDays = ageDays
+        self.recommendation = recommendation
+        self.actionKind = actionKind
+        self.eligibleForCleanupPlan = eligibleForCleanupPlan
+        self.reason = reason
+        self.nextSteps = nextSteps
+    }
+}
+
+public struct AgentRetentionReport: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let createdAt: Date
+    public let profile: AgentRetentionProfile
+    public let profileSummary: String
+    public let reviewedItemCount: Int
+    public let totalBytes: Int64
+    public let cleanupCandidateBytes: Int64
+    public let compressionCandidateBytes: Int64
+    public let protectedBytes: Int64
+    public let summaries: [AgentRetentionSummary]
+    public let recommendations: [AgentRetentionRecommendation]
+    public let nonClaims: [String]
+
+    public init(
+        id: String = UUID().uuidString,
+        createdAt: Date = Date(),
+        profile: AgentRetentionProfile,
+        profileSummary: String,
+        reviewedItemCount: Int,
+        totalBytes: Int64,
+        cleanupCandidateBytes: Int64,
+        compressionCandidateBytes: Int64,
+        protectedBytes: Int64,
+        summaries: [AgentRetentionSummary],
+        recommendations: [AgentRetentionRecommendation],
+        nonClaims: [String]
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.profile = profile
+        self.profileSummary = profileSummary
+        self.reviewedItemCount = reviewedItemCount
+        self.totalBytes = totalBytes
+        self.cleanupCandidateBytes = cleanupCandidateBytes
+        self.compressionCandidateBytes = compressionCandidateBytes
+        self.protectedBytes = protectedBytes
+        self.summaries = summaries
+        self.recommendations = recommendations
+        self.nonClaims = nonClaims
+    }
+}
+
+public enum AgentRetentionBuilder {
+    public static func build(
+        review: AgentStorageReview,
+        profile: AgentRetentionProfile = .balanced,
+        limit: Int = 80,
+        referenceDate: Date = Date(),
+        generatedAt: Date = Date()
+    ) -> AgentRetentionReport {
+        let rows = review.items
+            .map { recommendation(for: $0, profile: profile, referenceDate: referenceDate) }
+            .sorted(by: sortRecommendations)
+        let limitedRows = Array(rows.prefix(limit))
+        return AgentRetentionReport(
+            createdAt: generatedAt,
+            profile: profile,
+            profileSummary: profile.summary,
+            reviewedItemCount: review.items.count,
+            totalBytes: review.totalBytes,
+            cleanupCandidateBytes: rows
+                .filter { [.cleanupPlan, .quitThenCleanup].contains($0.recommendation) }
+                .reduce(0) { $0 + $1.allocatedSize },
+            compressionCandidateBytes: rows
+                .filter { $0.recommendation == .compressAfterReview }
+                .reduce(0) { $0 + $1.allocatedSize },
+            protectedBytes: rows
+                .filter { $0.recommendation == .protect }
+                .reduce(0) { $0 + $1.allocatedSize },
+            summaries: summaries(from: rows),
+            recommendations: limitedRows,
+            nonClaims: [
+                "This retention report does not delete, compress, move, or modify agent files.",
+                "Agent sessions, memories, credentials, config, model state, and unknown app state remain protected or review-only.",
+                "Cleanup recommendations still require the normal plan, dry-run, open-file checks, and final confirmation before any action.",
+                "Compression recommendations are review guidance only; Ryddi does not compress agent history from this report."
+            ]
+        )
+    }
+
+    private static func recommendation(
+        for item: AgentStorageItem,
+        profile: AgentRetentionProfile,
+        referenceDate: Date
+    ) -> AgentRetentionRecommendation {
+        let ageDays = item.modificationDate.map { ageInDays(from: $0, referenceDate: referenceDate) }
+        let decision: (AgentRetentionRecommendationKind, ActionKind, Bool, String, [String])
+
+        switch item.bucket {
+        case .reclaimableCache:
+            if let ageDays, ageDays >= profile.cacheAgeDays {
+                decision = (
+                    .cleanupPlan,
+                    item.actionKind,
+                    item.safetyClass == .autoSafe,
+                    "\(item.owner) cache/log data is at least \(profile.cacheAgeDays) days old under the \(profile.label) profile.",
+                    [
+                        "Run a normal Ryddi plan and dry-run before cleanup.",
+                        "Confirm the owning app or agent is not actively using this path."
+                    ]
+                )
+            } else {
+                decision = (
+                    .keep,
+                    .reportOnly,
+                    false,
+                    ageReason(ageDays: ageDays, threshold: profile.cacheAgeDays, label: "cache/log"),
+                    ["Let this cache age or review manually if disk pressure is urgent."]
+                )
+            }
+        case .quitFirst:
+            if let ageDays, ageDays >= profile.quitFirstAgeDays {
+                decision = (
+                    .quitThenCleanup,
+                    item.actionKind,
+                    false,
+                    "\(item.owner) quit-first data is at least \(profile.quitFirstAgeDays) days old under the \(profile.label) profile.",
+                    [
+                        "Quit \(item.owner), rescan active handles, then use normal dry-run cleanup guidance.",
+                        "Do not force-delete while the owning app or agent is running."
+                    ]
+                )
+            } else {
+                decision = (
+                    .keep,
+                    .reportOnly,
+                    false,
+                    ageReason(ageDays: ageDays, threshold: profile.quitFirstAgeDays, label: "quit-first"),
+                    ["Keep until it is older or the owning app is clearly idle."]
+                )
+            }
+        case .valuableHistory:
+            if let ageDays, ageDays >= profile.historyCompressAgeDays {
+                decision = (
+                    .compressAfterReview,
+                    .compress,
+                    false,
+                    "\(item.owner) history is at least \(profile.historyCompressAgeDays) days old under the \(profile.label) profile.",
+                    [
+                        "Review for useful provenance before compressing or archiving.",
+                        "Keep recent or active project/session history unmodified."
+                    ]
+                )
+            } else {
+                decision = (
+                    .keep,
+                    .reportOnly,
+                    false,
+                    ageReason(ageDays: ageDays, threshold: profile.historyCompressAgeDays, label: "history"),
+                    ["Keep this history available unless you deliberately archive it elsewhere."]
+                )
+            }
+        case .protectedState:
+            decision = (
+                .protect,
+                .reportOnly,
+                false,
+                "Protected agent state is not a retention cleanup candidate.",
+                ["Do not remove unless you are intentionally resetting credentials, config, memories, profiles, or model state."]
+            )
+        case .manualReview, .unknown:
+            if let ageDays, ageDays >= profile.manualReviewAgeDays {
+                decision = (
+                    .manualReview,
+                    .openGuidance,
+                    false,
+                    "\(item.owner) review-only data is at least \(profile.manualReviewAgeDays) days old under the \(profile.label) profile.",
+                    ["Open in Finder or Terminal and confirm it is not unique work before moving anything."]
+                )
+            } else {
+                decision = (
+                    .keep,
+                    .reportOnly,
+                    false,
+                    ageReason(ageDays: ageDays, threshold: profile.manualReviewAgeDays, label: "review-only"),
+                    ["Keep or inspect manually; Ryddi does not have enough evidence for automated retention."]
+                )
+            }
+        }
+
+        return AgentRetentionRecommendation(
+            id: item.id,
+            owner: item.owner,
+            bucket: item.bucket,
+            path: item.path,
+            displayName: item.displayName,
+            allocatedSize: item.allocatedSize,
+            ageDays: ageDays,
+            recommendation: decision.0,
+            actionKind: decision.1,
+            eligibleForCleanupPlan: decision.2,
+            reason: decision.3,
+            nextSteps: decision.4
+        )
+    }
+
+    private static func summaries(from rows: [AgentRetentionRecommendation]) -> [AgentRetentionSummary] {
+        let grouped = Dictionary(grouping: rows, by: \.recommendation)
+        return AgentRetentionRecommendationKind.allCases.compactMap { recommendation in
+            guard let items = grouped[recommendation], !items.isEmpty else { return nil }
+            return AgentRetentionSummary(
+                recommendation: recommendation,
+                count: items.count,
+                bytes: items.reduce(0) { $0 + $1.allocatedSize }
+            )
+        }
+    }
+
+    private static func sortRecommendations(_ lhs: AgentRetentionRecommendation, _ rhs: AgentRetentionRecommendation) -> Bool {
+        let lhsRank = rank(lhs.recommendation)
+        let rhsRank = rank(rhs.recommendation)
+        if lhsRank == rhsRank {
+            if lhs.allocatedSize == rhs.allocatedSize {
+                return lhs.path < rhs.path
+            }
+            return lhs.allocatedSize > rhs.allocatedSize
+        }
+        return lhsRank < rhsRank
+    }
+
+    private static func rank(_ recommendation: AgentRetentionRecommendationKind) -> Int {
+        switch recommendation {
+        case .cleanupPlan: 0
+        case .quitThenCleanup: 1
+        case .compressAfterReview: 2
+        case .manualReview: 3
+        case .keep: 4
+        case .protect: 5
+        }
+    }
+
+    private static func ageInDays(from date: Date, referenceDate: Date) -> Int {
+        let seconds = referenceDate.timeIntervalSince(date)
+        guard seconds >= 0 else { return 0 }
+        return Int(seconds / (24 * 60 * 60))
+    }
+
+    private static func ageReason(ageDays: Int?, threshold: Int, label: String) -> String {
+        guard let ageDays else {
+            return "Age is unknown; \(label) retention needs a known modification date before profile guidance."
+        }
+        return "Age \(ageDays) day(s) is below the \(threshold)-day \(label) retention threshold."
+    }
 }

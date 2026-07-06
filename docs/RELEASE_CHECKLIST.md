@@ -50,6 +50,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer apps uninstall-preview --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --output PREVIEW.md` writes a selected-app uninstall checklist where related files remain review-only and no deletion occurs.
 - [ ] `reclaimer apps uninstall --dry-run --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` writes an app-uninstall receipt where only the selected app bundle would move to Trash and related files remain untouched.
 - [ ] `reclaimer agents --path FIXTURE --min-size 1 --max-depth 4 --json` reports AI-agent storage buckets for cache, history, protected state, and quit-first data without emitting a cleanup plan.
+- [ ] `reclaimer agents retention --path FIXTURE --profile balanced --min-size 1 --max-depth 4 --json` reports cleanup-plan, compression-review, keep, and protect recommendations without deleting, compressing, moving, or modifying agent files.
 - [ ] `reclaimer native --path FIXTURE --json --save-audit` emits preview-only native-tool receipts and saves a local audit record without executing native cleanup commands.
 - [ ] `reclaimer execute --dry-run --path FIXTURE --save-audit` followed by `reclaimer receipts export --output RECEIPT.md` writes a local Markdown receipt report without rerunning cleanup.
 - [ ] `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.

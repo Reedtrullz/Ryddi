@@ -70,6 +70,18 @@ printf 'session fixture\n' >"$agent_fixture/.codex/sessions/2026/07/session.json
 printf 'claude project fixture\n' >"$agent_fixture/.claude/projects/project.jsonl"
 printf 'ollama model fixture\n' >"$agent_fixture/.ollama/models/blobs/model.bin"
 printf 'cursor cache fixture\n' >"$agent_fixture/Library/Application Support/Cursor/Cache/cache.bin"
+touch -t 202401010101 \
+  "$agent_fixture/.codex/cache" \
+  "$agent_fixture/.codex/cache/blob.bin" \
+  "$agent_fixture/.codex/sessions" \
+  "$agent_fixture/.codex/sessions/2026" \
+  "$agent_fixture/.codex/sessions/2026/07" \
+  "$agent_fixture/.codex/sessions/2026/07/session.jsonl" \
+  "$agent_fixture/.codex/auth.json" \
+  "$agent_fixture/.claude/projects" \
+  "$agent_fixture/.claude/projects/project.jsonl" \
+  "$agent_fixture/Library/Application Support/Cursor/Cache" \
+  "$agent_fixture/Library/Application Support/Cursor/Cache/cache.bin"
 drill_fixture="$scratch/drill-fixture"
 mkdir -p \
   "$drill_fixture/Library/Caches/Codex" \
@@ -269,6 +281,20 @@ grep -q '"bucket" : "valuableHistory"' "$scratch/agents-smoke.json"
 grep -q '"bucket" : "protectedState"' "$scratch/agents-smoke.json"
 grep -q '"bucket" : "quitFirst"' "$scratch/agents-smoke.json"
 grep -q "does not delete agent sessions" "$scratch/agents-smoke.json"
+"$app/Contents/MacOS/reclaimer" agents retention --json \
+  --path "$agent_fixture/.codex" \
+  --path "$agent_fixture/.claude" \
+  --path "$agent_fixture/.ollama" \
+  --path "$agent_fixture/Library/Application Support/Cursor" \
+  --profile balanced \
+  --min-size 1 \
+  --max-depth 4 \
+  --limit 50 >"$scratch/agents-retention-smoke.json"
+grep -q '"profile" : "balanced"' "$scratch/agents-retention-smoke.json"
+grep -q '"recommendation" : "cleanupPlan"' "$scratch/agents-retention-smoke.json"
+grep -q '"recommendation" : "compressAfterReview"' "$scratch/agents-retention-smoke.json"
+grep -q '"recommendation" : "protect"' "$scratch/agents-retention-smoke.json"
+grep -q "does not delete, compress, move, or modify agent files" "$scratch/agents-retention-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
@@ -528,6 +554,7 @@ Verification performed:
 - bundled reclaimer scopes --preset general and scopes --json --preset all
 - bundled reclaimer rules and rules --json
 - bundled reclaimer agents --json on disposable Codex/Claude/Cursor/Ollama fixture
+- bundled reclaimer agents retention --json on disposable Codex/Claude/Cursor/Ollama fixture
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root

@@ -1845,6 +1845,7 @@ struct DuplicateReviewView: View {
 
 struct AgentStorageReviewView: View {
     let model: DashboardModel
+    @State private var retentionProfile: AgentRetentionProfile = .balanced
 
     var body: some View {
         ScrollView {
@@ -1858,12 +1859,31 @@ struct AgentStorageReviewView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer()
-                    Button {
-                        Task { await model.reviewAgentStorage() }
-                    } label: {
-                        Label("Review Agents", systemImage: "sparkles.rectangle.stack")
+                    VStack(alignment: .trailing, spacing: 10) {
+                        Button {
+                            Task { await model.reviewAgentStorage() }
+                        } label: {
+                            Label("Review Agents", systemImage: "sparkles.rectangle.stack")
+                        }
+                        .disabled(model.isWorking)
+
+                        HStack(spacing: 8) {
+                            Picker("Retention profile", selection: $retentionProfile) {
+                                ForEach(AgentRetentionProfile.allCases) { profile in
+                                    Text(profile.label).tag(profile)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 300)
+
+                            Button {
+                                Task { await model.reviewAgentRetention(profile: retentionProfile) }
+                            } label: {
+                                Label("Retention Report", systemImage: "calendar.badge.clock")
+                            }
+                            .disabled(model.isWorking)
+                        }
                     }
-                    .disabled(model.isWorking)
                 }
 
                 if model.isWorking {
@@ -1939,6 +1959,44 @@ struct AgentStorageReviewView: View {
                         }
                     }
 
+                    if let retentionReport = model.agentRetentionReport {
+                        SectionBox(title: "Retention Report") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(spacing: 16) {
+                                    MetricTile(title: "Profile", value: retentionReport.profile.label)
+                                    MetricTile(title: "Cleanup", value: ByteFormat.string(retentionReport.cleanupCandidateBytes))
+                                    MetricTile(title: "Compress", value: ByteFormat.string(retentionReport.compressionCandidateBytes))
+                                    MetricTile(title: "Protected", value: ByteFormat.string(retentionReport.protectedBytes))
+                                }
+                                Text(retentionReport.profileSummary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                if !retentionReport.summaries.isEmpty {
+                                    ForEach(retentionReport.summaries) { summary in
+                                        HStack {
+                                            Text(summary.recommendation.label)
+                                                .font(.subheadline.weight(.semibold))
+                                            Spacer()
+                                            Text("\(ByteFormat.string(summary.bytes)) - \(summary.count) item(s)")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                                Divider()
+                                ForEach(retentionReport.recommendations.prefix(20)) { recommendation in
+                                    AgentRetentionRecommendationRow(recommendation: recommendation)
+                                    Divider()
+                                }
+                                ForEach(retentionReport.nonClaims, id: \.self) { note in
+                                    Text(note)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+
                     SectionBox(title: "Non-Claims") {
                         ForEach(report.nonClaims, id: \.self) { note in
                             Text(note)
@@ -1997,6 +2055,51 @@ struct AgentStorageItemRow: View {
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct AgentRetentionRecommendationRow: View {
+    let recommendation: AgentRetentionRecommendation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(recommendation.displayName)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(ByteFormat.string(recommendation.allocatedSize))
+                    .monospacedDigit()
+            }
+            HStack {
+                Text(recommendation.owner)
+                Text(recommendation.recommendation.label)
+                Text(recommendation.bucket.label)
+                if let ageDays = recommendation.ageDays {
+                    Text("\(ageDays)d old")
+                } else {
+                    Text("age unknown")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            Text(recommendation.path)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Text(recommendation.reason)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let firstStep = recommendation.nextSteps.first {
+                Text(firstStep)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 4)
@@ -4131,6 +4234,7 @@ final class DashboardModel {
     var lastAppUninstallDryRunReceipt: AppUninstallExecutionReceipt?
     var lastAppUninstallReceipt: AppUninstallExecutionReceipt?
     var agentStorageReview: AgentStorageReview?
+    var agentRetentionReport: AgentRetentionReport?
     var containerInventory: ContainerInventoryReport?
     var activeFileReview: ActiveFileReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
@@ -4959,6 +5063,47 @@ final class DashboardModel {
                 )
                 return AgentStorageReviewBuilder.build(findings: findings, scopes: scopes, limit: 80)
             }.value
+            agentRetentionReport = nil
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reviewAgentRetention(profile: AgentRetentionProfile) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let includeUserRules = includeUserRulesInScans
+            let existingReview = agentStorageReview
+            let result = try await Task.detached { () -> (AgentStorageReview, AgentRetentionReport) in
+                let review: AgentStorageReview
+                if let existingReview {
+                    review = existingReview
+                } else {
+                    let scopes = DefaultScopes.aiAgentStorage(includeUnavailable: false)
+                    let policy = UserPathPolicyStore().load()
+                    let scanner = try FileScanner(
+                        ruleEngine: try RuleEngine.bundled(includingUserRules: includeUserRules),
+                        openFileChecker: NoOpenFilesChecker()
+                    )
+                    let findings = scanner.scan(
+                        scopes: scopes,
+                        options: ScanOptions(
+                            minimumFindingSize: 1,
+                            maximumFindingDepth: 3,
+                            measurementDepth: 7,
+                            includeOpenFileStatus: false,
+                            userPathPolicy: policy
+                        )
+                    )
+                    review = AgentStorageReviewBuilder.build(findings: findings, scopes: scopes, limit: 80)
+                }
+                let retentionReport = AgentRetentionBuilder.build(review: review, profile: profile, limit: 80)
+                return (review, retentionReport)
+            }.value
+            agentStorageReview = result.0
+            agentRetentionReport = result.1
             error = nil
         } catch {
             self.error = error.localizedDescription
