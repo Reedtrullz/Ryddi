@@ -402,13 +402,27 @@ Unsigned preview artifacts are intentionally labeled as developer previews. They
 swift run --scratch-path .build reclaimer schedule install
 ```
 
-The LaunchAgent is report-first and runs:
+The LaunchAgent is report-first. It can target the Developer, General Mac, or All preset, or a saved scope set such as a weekly Downloads/cache review:
 
 ```bash
-reclaimer plan --json --save-audit
+swift run --scratch-path .build reclaimer schedule preview --preset general --kind evidence
+swift run --scratch-path .build reclaimer schedule preview --scope-set "Weekly General"
+swift run --scratch-path .build reclaimer schedule install --scope-set "Weekly General" --hour 9 --minute 30
 ```
 
-It does not run destructive cleanup unattended.
+The default installed job runs a dry-run plan:
+
+```bash
+reclaimer plan --json --save-audit --preset developer
+```
+
+Evidence reports are also supported for broader general-cleaner check-ins:
+
+```bash
+reclaimer report --json --save-report --preset general
+```
+
+It does not run destructive cleanup unattended, does not call `execute --yes`, and does not run Docker/Colima/Homebrew/package-manager prune commands. A scheduled scope controls where Ryddi looks; it does not make personal files auto-cleanable.
 
 ## Native Tool Reports
 

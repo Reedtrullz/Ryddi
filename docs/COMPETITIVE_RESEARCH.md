@@ -99,7 +99,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 
 | Feature | Market Expectation | Ryddi Status | Recommendation |
 | --- | --- | --- | --- |
-| Scan mode selection | Expected from tools that span simple cleanup and expert/developer use | Exists/partial | `ScanScopePreset`, `SavedScopeSetStore`, `reclaimer scopes`, `reclaimer scopes saved`, app Scan Scope, and app Scope Sets now separate Developer, General Mac, All, explicit custom roots, and saved per-user scope sets. Future work should add per-scope scheduling and richer scope templates. |
+| Scan mode selection | Expected from tools that span simple cleanup and expert/developer use | Exists/partial | `ScanScopePreset`, `SavedScopeSetStore`, `reclaimer scopes`, `reclaimer scopes saved`, app Scan Scope, and app Scope Sets now separate Developer, General Mac, All, explicit custom roots, saved per-user scope sets, and report-only scheduling against those scopes. Future work should add richer scope templates. |
 | Top offenders overview | Baseline for all disk analyzers | Exists/partial | `TopOffenderTable`, CLI overview `--sort/--group`, and app Top Offenders now show path, size, category, safety, age, action, owner, confidence, and conservative reclaim estimate. Future work should add richer row filtering and visual table/detail transitions. |
 | Owner/app/tool grouping | Expected from app uninstallers and increasingly important for developer-cleaner trust | Exists/partial | `ScanOverview.ownerSummaries`, CLI overview, app Top Owners, and evidence reports now group non-overlapping findings by owner hints or category fallback. Future work should deepen app identity confidence. |
 | Rule transparency | Rare in broad cleaners but important for open-source trust | Exists/partial | `reclaimer rules`, app Rule Catalog, and `RuleCatalogReport` expose bundled and opt-in user rule sources, safety/action/category summaries, match hints, conditions, recovery notes, and non-claims. `reclaimer rules user preview/import/export` and app Rule Catalog preview/import/export add local user rule-pack review with validation that rejects cleanup-granting imports. Future work should add shared rule-pack signing and richer provenance review. |
@@ -121,7 +121,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Developer cache packs | Ryddi beachhead | Partial | Go deeper on Xcode, SwiftPM, node_modules, JetBrains, VS Code, Android/Flutter, Docker/Colima. |
 | Docker/Colima cleanup | Risky but important for target user | Exists/partial | Native-tool preview receipts describe inspect/prune/reset commands, risk, and non-claims; read-only inventory now adds Docker storage buckets, objects, Colima profiles, and command outcomes. Future work is explicit user-controlled native cleanup with before/after receipts. Never raw-delete VM disks automatically. |
 | Codex/AI-agent cleanup | Ryddi-specific differentiator | Exists/partial | `reclaimer agents`, `DefaultScopes.aiAgentStorage`, and app AI Agent Storage now review Codex, Claude, Cursor, Windsurf, and Ollama roots with cache/history/protected/manual buckets. Future work should add saved trend reports, per-tool retention policies, and explicit user-controlled compression flows. |
-| Scheduled maintenance | Expected from automation tools | Partial | LaunchAgent should report first. Only allow unattended cleanup for explicit allowlisted classes. |
+| Scheduled maintenance | Expected from automation tools | Exists/partial | `ScheduleConfiguration`, `schedule preview`, and `schedule install` now generate XML-safe report-only LaunchAgent plists for Developer/General/All presets or saved scope sets. Only allow unattended cleanup for explicit allowlisted classes in a future release. |
 | Menu bar/status item | Common in Sensei/Cleaner One/BuhoCleaner | Exists/partial | Disk-pressure status and report-only scan controls exist; reminders/notifications remain future work. |
 | Notarized releases | Expected for trust | Planned | Add signed/notarized release process and GitHub release artifacts. |
 | CI/test badge | Expected for open-source trust | Exists | GitHub Actions runs Swift build/test on `main`. |
@@ -139,7 +139,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 
 ### Product Core
 
-1. Make scan modes feel first-class: General Mac, Developer, All, custom paths, and saved per-user scope sets now exist; next depth is per-scope scheduling and richer templates.
+1. Make scan modes feel first-class: General Mac, Developer, All, custom paths, saved per-user scope sets, and scope-aware scheduled reports now exist; next depth is richer templates.
 2. Add drill-down detail pages that explain evidence and recovery.
 3. Shared review queues now mirror user intent and support queue-specific reports plus app row-to-detail navigation; next depth is saved queue filters and bulk actions.
 4. Large-file and old-file review mode plus archive-candidate checklists now exist; next depth is saved filters, evidence-detail transitions, and user-controlled archive/Trash workflows.

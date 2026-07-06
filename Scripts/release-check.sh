@@ -148,6 +148,31 @@ grep -q '"sets"' "$scratch/scope-set-export.json"
 RYDDI_CONFIG_ROOT="$scratch/scope-import-config" "$app/Contents/MacOS/reclaimer" scopes saved import "$scratch/scope-set-export.json" --replace --json >"$scratch/scope-set-import.json"
 grep -q '"mode" : "replace"' "$scratch/scope-set-import.json"
 grep -q '"finalSetCount" : 1' "$scratch/scope-set-import.json"
+RYDDI_CONFIG_ROOT="$scratch/scope-config" "$app/Contents/MacOS/reclaimer" schedule preview \
+  --kind evidence \
+  --preset general \
+  --hour 7 \
+  --minute 15 \
+  --limit 25 \
+  --cli-path "$app/Contents/MacOS/reclaimer" >"$scratch/schedule-general-preview.plist"
+grep -q "Ryddi scheduled report preview" "$scratch/schedule-general-preview.plist"
+grep -q "<string>report</string>" "$scratch/schedule-general-preview.plist"
+grep -q "<string>--save-report</string>" "$scratch/schedule-general-preview.plist"
+grep -q "<string>general</string>" "$scratch/schedule-general-preview.plist"
+grep -q "<integer>7</integer>" "$scratch/schedule-general-preview.plist"
+if grep -q "<string>execute</string>" "$scratch/schedule-general-preview.plist"; then
+  echo "schedule preview unexpectedly includes execute" >&2
+  exit 1
+fi
+RYDDI_CONFIG_ROOT="$scratch/scope-config" "$app/Contents/MacOS/reclaimer" schedule preview \
+  --json \
+  --scope-set "General Fixture" \
+  --hour 8 \
+  --minute 45 \
+  --cli-path "$app/Contents/MacOS/reclaimer" >"$scratch/schedule-scope-set-preview.json"
+grep -q '"kind" : "savedScopeSet"' "$scratch/schedule-scope-set-preview.json"
+grep -q '"value" : "General Fixture"' "$scratch/schedule-scope-set-preview.json"
+grep -q '"--scope-set"' "$scratch/schedule-scope-set-preview.json"
 "$app/Contents/MacOS/reclaimer" rules >"$scratch/rules-smoke.txt"
 grep -q "Ryddi rule catalog" "$scratch/rules-smoke.txt"
 grep -q "Never Touch" "$scratch/rules-smoke.txt"

@@ -936,15 +936,29 @@ struct ReclaimerCLI {
 
     static func schedule(args: [String]) throws {
         guard let subcommand = args.first else {
-            throw CLIError.message("schedule requires install, uninstall, or status")
+            throw CLIError.message("schedule requires preview, install, uninstall, or status")
         }
         let manager = LaunchAgentManager()
         switch subcommand {
+        case "preview":
+            let options = ParsedOptions(Array(args.dropFirst()))
+            let cli = options.value(after: "--cli-path")
+                ?? URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path
+            let schedule = try options.scheduleConfiguration()
+            let preview = manager.preview(cliPath: cli, schedule: schedule)
+            if options.json {
+                printJSON(preview)
+            } else {
+                printSchedulePreview(preview)
+                print(manager.plist(cliPath: cli, logPath: preview.logPath, schedule: schedule))
+            }
         case "install":
             let cli = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path
-            let options = ParsedOptions(args)
-            let url = try manager.install(cliPath: cli, schedule: ScheduleConfiguration(hour: options.hour, minute: options.minute))
+            let options = ParsedOptions(Array(args.dropFirst()))
+            let schedule = try options.scheduleConfiguration()
+            let url = try manager.install(cliPath: cli, schedule: schedule)
             print("installed launch agent plist: \(url.path)")
+            print("scheduled report: \(schedule.reportKind.label), \(schedule.scopeSelection.summary), \(String(format: "%02d:%02d", schedule.hour, schedule.minute))")
             if args.contains("--load") {
                 try manager.load()
                 print("loaded launch agent")
@@ -959,7 +973,12 @@ struct ReclaimerCLI {
             print("removed launch agent plist if present")
         case "status":
             let path = manager.installedPath()
-            print(FileManager.default.fileExists(atPath: path.path) ? "installed: \(path.path)" : "not installed")
+            let installed = FileManager.default.fileExists(atPath: path.path)
+            if ParsedOptions(Array(args.dropFirst())).json {
+                printJSON(ScheduleStatusOutput(installed: installed, path: path.path))
+            } else {
+                print(installed ? "installed: \(path.path)" : "not installed")
+            }
         default:
             throw CLIError.message("Unknown schedule subcommand: \(subcommand)")
         }
@@ -1089,9 +1108,10 @@ struct ReclaimerCLI {
                       [--output PATH] [--save-report] [--title TEXT]
                       [--path-style full|home-relative|redacted] [--redact-user-text]
                       [--include-missing-scopes] [--include-open-files] [--ignore-user-policy] [--include-user-rules]
-              schedule install [--hour H] [--minute M] [--load]
+              schedule preview [--json] [--kind plan|evidence] [--preset developer|general|all] [--scope-set NAME_OR_ID] [--hour H] [--minute M] [--limit N] [--include-user-rules] [--cli-path PATH]
+              schedule install [--kind plan|evidence] [--preset developer|general|all] [--scope-set NAME_OR_ID] [--hour H] [--minute M] [--limit N] [--include-user-rules] [--load]
               schedule uninstall [--unload]
-              schedule status
+              schedule status [--json]
               holding list [--json]
               holding restore ID [--to PATH]
               holding expire [--older-than-days N] [--yes]
@@ -1247,6 +1267,35 @@ struct ParsedOptions {
         return mode
     }
 
+    func scheduleConfiguration() throws -> ScheduleConfiguration {
+        let kindName = value(after: "--kind") ?? ScheduledReportKind.plan.rawValue
+        guard let reportKind = ScheduledReportKind(rawValue: kindName) else {
+            let allowed = ScheduledReportKind.allCases.map(\.rawValue).joined(separator: ", ")
+            throw CLIError.message("--kind must be one of: \(allowed)")
+        }
+        guard (0...23).contains(hour) else {
+            throw CLIError.message("--hour must be between 0 and 23")
+        }
+        guard (0...59).contains(minute) else {
+            throw CLIError.message("--minute must be between 0 and 59")
+        }
+        let selection: ScheduledScopeSelection
+        if let scopeSetReference {
+            _ = try SavedScopeSetStore().find(scopeSetReference)
+            selection = ScheduledScopeSelection(savedScopeSet: scopeSetReference)
+        } else {
+            selection = ScheduledScopeSelection(preset: try scopePreset())
+        }
+        return ScheduleConfiguration(
+            hour: hour,
+            minute: minute,
+            reportKind: reportKind,
+            scopeSelection: selection,
+            limit: limit,
+            includeUserRules: includeUserRules
+        )
+    }
+
     func reviewQueueID() throws -> ReviewQueueID? {
         guard let raw = value(after: "--queue") else { return nil }
         guard let queueID = ReviewQueueID.parse(raw) else {
@@ -1388,12 +1437,36 @@ enum CLIError: LocalizedError {
     }
 }
 
+struct ScheduleStatusOutput: Encodable {
+    let installed: Bool
+    let path: String
+}
+
 func printJSON<T: Encodable>(_ value: T) {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     encoder.dateEncodingStrategy = .iso8601
     let data = try! encoder.encode(value)
     print(String(data: data, encoding: .utf8)!)
+}
+
+func printSchedulePreview(_ preview: LaunchAgentPreview) {
+    print("Ryddi scheduled report preview")
+    print("Label: \(preview.label)")
+    print("Plist: \(preview.plistPath)")
+    print("Log: \(preview.logPath)")
+    print("Report: \(preview.schedule.reportKind.label)")
+    print("Scope: \(preview.schedule.scopeSelection.summary)")
+    print("Time: \(String(format: "%02d:%02d", preview.schedule.hour, preview.schedule.minute))")
+    print("Program arguments:")
+    for argument in preview.programArguments {
+        print("- \(argument)")
+    }
+    print("\nNon-claims")
+    for note in preview.nonClaims {
+        print("- \(note)")
+    }
+    print("\nPlist")
 }
 
 func printScopePlan(_ plan: ScanScopePlan) {

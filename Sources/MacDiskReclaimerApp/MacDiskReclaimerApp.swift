@@ -632,7 +632,7 @@ struct CapabilityMatrixView: View {
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Export receipts", "Saved dry-run and execution receipts can be exported as local Markdown reports with action counts and non-claims."),
         ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
-        ("Schedule maintenance", "Per-user LaunchAgent writes saved report plans, no root helper."),
+        ("Schedule maintenance", "Per-user LaunchAgent writes report-only plans for the selected preset or saved scope set, no root helper."),
         ("Keep audit trail", "Plans and receipts are stored locally under Application Support."),
         ("Protect personal value", "Codex history, browser profiles, GarageBand/Logic assets, documents, credentials, and VM/container state are preserve/never-touch by default.")
     ]
@@ -2401,11 +2401,25 @@ struct FindingDetailView: View {
 struct AutomationView: View {
     let model: DashboardModel
 
+    private var scheduledScopeText: String {
+        if let set = model.selectedSavedScopeSet {
+            return "Saved scope set: \(set.name)"
+        }
+        return "Preset: \(model.scanPreset.label)"
+    }
+
+    private var scheduledCommandText: String {
+        if let set = model.selectedSavedScopeSet {
+            return "reclaimer plan --json --save-audit --scope-set \(set.id)"
+        }
+        return "reclaimer plan --json --save-audit --preset \(model.scanPreset.rawValue)"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Automation")
                 .font(.largeTitle.bold())
-            Text("Automation is report-first. Installing the LaunchAgent writes a plist that runs a saved dry-run plan report; it does not load or run until you choose to load it with launchctl.")
+            Text("Automation is report-first. Installing the LaunchAgent writes a plist for the current scan scope; it does not load or run until you choose to load it with launchctl.")
                 .foregroundStyle(.secondary)
 
             HStack {
@@ -2414,12 +2428,26 @@ struct AutomationView: View {
             }
 
             HStack {
-                Button("Install Report Schedule") {
+                MetricTile(title: "Scheduled scope", value: scheduledScopeText)
+                MetricTile(title: "Scheduled report", value: "Dry-run plan")
+                MetricTile(title: "Default time", value: "09:30")
+            }
+
+            HStack {
+                Button("Install Current Scope Schedule") {
                     model.installSchedule()
                 }
                 Button("Remove Schedule") {
                     model.removeSchedule()
                 }
+            }
+
+            SectionBox(title: "Report command") {
+                Text(scheduledCommandText)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                Text("Scheduled scopes select where Ryddi looks. They do not grant cleanup permission or enable unattended deletion.")
+                    .foregroundStyle(.secondary)
             }
 
             SectionBox(title: "Manual load command") {
@@ -3770,7 +3798,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Automation") {
-                Text("Scheduled maintenance is report-first. Install the LaunchAgent from the CLI after reviewing a dry run.")
+                Text("Scheduled maintenance is report-first. Preview from the CLI or install the selected scope from Automation after reviewing a dry run.")
             }
             Section("Privacy") {
                 Text("No paths, filenames, app lists, or cleanup history leave this Mac.")
@@ -4762,7 +4790,14 @@ final class DashboardModel {
             let cliPath = FileManager.default.isExecutableFile(atPath: bundledCLI.path)
                 ? bundledCLI.path
                 : (Bundle.main.executableURL?.path ?? "/usr/local/bin/reclaimer")
-            _ = try LaunchAgentManager().install(cliPath: cliPath)
+            let selection: ScheduledScopeSelection
+            if let selectedSavedScopeSetID {
+                selection = ScheduledScopeSelection(savedScopeSet: selectedSavedScopeSetID)
+            } else {
+                selection = ScheduledScopeSelection(preset: scanPreset)
+            }
+            let schedule = ScheduleConfiguration(scopeSelection: selection)
+            _ = try LaunchAgentManager().install(cliPath: cliPath, schedule: schedule)
             refreshAutomation()
         } catch {
             self.error = error.localizedDescription

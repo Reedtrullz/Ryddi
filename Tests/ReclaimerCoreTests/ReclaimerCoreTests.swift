@@ -2479,7 +2479,60 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(plist.contains("<string>plan</string>"))
         XCTAssertTrue(plist.contains("<string>--json</string>"))
         XCTAssertTrue(plist.contains("<string>--save-audit</string>"))
+        XCTAssertTrue(plist.contains("<string>--preset</string>"))
+        XCTAssertTrue(plist.contains("<string>developer</string>"))
         XCTAssertTrue(plist.contains("com.reidar.ryddi.agent"))
+        XCTAssertFalse(plist.contains("<string>execute</string>"))
+        XCTAssertFalse(plist.contains("<string>--yes</string>"))
+        XCTAssertFalse(plist.contains("<string>prune</string>"))
+        XCTAssertFalse(plist.contains("<string>reset</string>"))
+    }
+
+    func testLaunchAgentPlistCanScheduleGeneralEvidenceReport() {
+        let schedule = ScheduleConfiguration(
+            hour: 7,
+            minute: 15,
+            reportKind: .evidence,
+            scopeSelection: ScheduledScopeSelection(preset: .general),
+            limit: 25,
+            includeUserRules: true
+        )
+        let plist = LaunchAgentManager().plist(cliPath: "/tmp/reclaimer", logPath: "/tmp/reclaimer.log", schedule: schedule)
+        XCTAssertTrue(plist.contains("<string>report</string>"))
+        XCTAssertTrue(plist.contains("<string>--save-report</string>"))
+        XCTAssertTrue(plist.contains("<string>--preset</string>"))
+        XCTAssertTrue(plist.contains("<string>general</string>"))
+        XCTAssertTrue(plist.contains("<string>--include-user-rules</string>"))
+        XCTAssertTrue(plist.contains("<integer>7</integer>"))
+        XCTAssertTrue(plist.contains("<integer>15</integer>"))
+        XCTAssertFalse(plist.contains("<string>execute</string>"))
+        XCTAssertFalse(plist.contains("<string>--yes</string>"))
+    }
+
+    func testLaunchAgentPlistCanScheduleSavedScopeSet() {
+        let schedule = ScheduleConfiguration(
+            scopeSelection: ScheduledScopeSelection(savedScopeSet: "weekly-general"),
+            limit: 12
+        )
+        let preview = LaunchAgentManager().preview(cliPath: "/tmp/reclaimer", home: tempRoot, schedule: schedule)
+        XCTAssertEqual(preview.schedule.scopeSelection.kind, .savedScopeSet)
+        XCTAssertEqual(preview.programArguments, [
+            "/tmp/reclaimer",
+            "plan",
+            "--json",
+            "--save-audit",
+            "--scope-set",
+            "weekly-general",
+            "--limit",
+            "12"
+        ])
+        XCTAssertTrue(preview.nonClaims.contains { $0.contains("do not call execute") })
+    }
+
+    func testLaunchAgentPlistEscapesXMLValues() {
+        let plist = LaunchAgentManager().plist(cliPath: "/tmp/reclaimer & helper", logPath: "/tmp/reclaimer <log>.txt")
+        XCTAssertTrue(plist.contains("/tmp/reclaimer &amp; helper"))
+        XCTAssertTrue(plist.contains("/tmp/reclaimer &lt;log&gt;.txt"))
     }
 
     func testAuditStoreRoundTripsPlansAndReceipts() throws {
