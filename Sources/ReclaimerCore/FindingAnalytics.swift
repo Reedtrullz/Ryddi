@@ -542,6 +542,162 @@ public struct ReviewQueueReport: Codable, Hashable, Sendable {
     ]
 }
 
+public enum LargeOldReviewMode: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case all
+    case large
+    case old
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .all: "Large & Old"
+        case .large: "Large"
+        case .old: "Old"
+        }
+    }
+}
+
+public enum LargeOldReviewKind: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case large
+    case old
+    case largeAndOld
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .large: "Large"
+        case .old: "Old"
+        case .largeAndOld: "Large and Old"
+        }
+    }
+}
+
+public struct LargeOldReviewRow: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { row.id }
+    public let row: TopOffenderRow
+    public let kind: LargeOldReviewKind
+    public let path: String
+    public let displayName: String
+    public let scopeName: String
+    public let category: String
+    public let ownerName: String
+    public let safetyClass: SafetyClass
+    public let actionKind: ActionKind
+    public let logicalSize: Int64
+    public let allocatedSize: Int64
+    public let ageDays: Int?
+    public let reviewReason: String
+
+    public init(row: TopOffenderRow, kind: LargeOldReviewKind) {
+        self.row = row
+        self.kind = kind
+        path = row.path
+        displayName = row.displayName
+        scopeName = row.scopeName
+        category = row.category
+        ownerName = row.ownerName
+        safetyClass = row.safetyClass
+        actionKind = row.actionKind
+        logicalSize = row.logicalSize
+        allocatedSize = row.allocatedSize
+        ageDays = row.ageDays
+        reviewReason = LargeOldReviewRow.reason(for: row, kind: kind)
+    }
+
+    private static func reason(for row: TopOffenderRow, kind: LargeOldReviewKind) -> String {
+        let age = row.ageDays.map { ", \($0) days old" } ?? ""
+        switch kind {
+        case .large:
+            return "Large item\(age); inspect before archiving or moving to Trash."
+        case .old:
+            return "Old item\(age); age is a review signal, not cleanup permission."
+        case .largeAndOld:
+            return "Large and old item\(age); review value, ownership, and recovery path first."
+        }
+    }
+}
+
+public struct LargeOldReviewReport: Codable, Hashable, Sendable {
+    public let generatedAt: Date
+    public let mode: LargeOldReviewMode
+    public let limit: Int
+    public let totalCount: Int
+    public let largeCount: Int
+    public let oldCount: Int
+    public let largeAndOldCount: Int
+    public let totalLogicalSize: Int64
+    public let totalAllocatedSize: Int64
+    public let reviewRequiredBytes: Int64
+    public let protectedBytes: Int64
+    public let estimatedImmediateReclaim: Int64
+    public let kindSummaries: [BucketSummary]
+    public let categorySummaries: [BucketSummary]
+    public let safetySummaries: [BucketSummary]
+    public let rows: [LargeOldReviewRow]
+    public let nonClaims: [String]
+
+    public init(
+        generatedAt: Date,
+        mode: LargeOldReviewMode,
+        limit: Int,
+        rows: [LargeOldReviewRow],
+        accountingRows: [LargeOldReviewRow]? = nil,
+        nonClaims: [String] = LargeOldReviewReport.defaultNonClaims
+    ) {
+        let accountingRows = accountingRows ?? rows
+        self.generatedAt = generatedAt
+        self.mode = mode
+        self.limit = limit
+        totalCount = accountingRows.count
+        largeCount = accountingRows.filter { [.large, .largeAndOld].contains($0.kind) }.count
+        oldCount = accountingRows.filter { [.old, .largeAndOld].contains($0.kind) }.count
+        largeAndOldCount = accountingRows.filter { $0.kind == .largeAndOld }.count
+        totalLogicalSize = accountingRows.reduce(0) { $0 + $1.logicalSize }
+        totalAllocatedSize = accountingRows.reduce(0) { $0 + $1.allocatedSize }
+        reviewRequiredBytes = accountingRows
+            .filter { [.safeAfterCondition, .reviewRequired].contains($0.safetyClass) }
+            .reduce(0) { $0 + $1.allocatedSize }
+        protectedBytes = accountingRows
+            .filter { [.preserveByDefault, .neverTouch].contains($0.safetyClass) }
+            .reduce(0) { $0 + $1.allocatedSize }
+        estimatedImmediateReclaim = accountingRows.reduce(0) { $0 + $1.row.estimatedImmediateReclaim }
+        kindSummaries = LargeOldReviewReport.bucket(accountingRows, by: { $0.kind.label })
+        categorySummaries = LargeOldReviewReport.bucket(accountingRows, by: { $0.category })
+        safetySummaries = LargeOldReviewReport.bucket(accountingRows, by: { $0.safetyClass.label })
+        self.rows = rows
+        self.nonClaims = nonClaims
+    }
+
+    public static let defaultNonClaims = [
+        "Large and old review signals do not grant cleanup permission or bypass safety classes.",
+        "These rows are review surfaces for Finder, Quick Look, archiving, or explicit Trash decisions; Ryddi does not auto-select them for cleanup.",
+        "Allocated bytes shown here are not promised immediate free space because APFS clones, snapshots, purgeable data, permissions, and Trash behavior can change the result."
+    ]
+
+    private static func bucket(
+        _ rows: [LargeOldReviewRow],
+        by key: (LargeOldReviewRow) -> String
+    ) -> [BucketSummary] {
+        let grouped = Dictionary(grouping: rows, by: key)
+        return grouped.map { name, items in
+            BucketSummary(
+                name: name,
+                count: items.count,
+                logicalSize: items.reduce(0) { $0 + $1.logicalSize },
+                allocatedSize: items.reduce(0) { $0 + $1.allocatedSize }
+            )
+        }
+        .sorted {
+            if $0.allocatedSize == $1.allocatedSize {
+                return $0.name < $1.name
+            }
+            return $0.allocatedSize > $1.allocatedSize
+        }
+    }
+}
+
 public struct ScanOverview: Codable, Hashable, Sendable {
     public let generatedAt: Date
     public let findingCount: Int
@@ -788,6 +944,33 @@ public enum FindingAnalytics {
             }
             .prefix(max(0, limit))
             .map { $0 }
+    }
+
+    public static func largeOldReviewReport(
+        findings: [Finding],
+        mode: LargeOldReviewMode = .all,
+        sort: TopOffenderSort = .allocated,
+        limit: Int = 25,
+        now: Date = Date()
+    ) -> LargeOldReviewReport {
+        let allRows = largeOldReviewFindings(findings)
+            .map { TopOffenderRow(finding: $0, referenceDate: now) }
+            .compactMap { row -> LargeOldReviewRow? in
+                guard let kind = largeOldReviewKind(for: row) else { return nil }
+                guard largeOldReviewMode(mode, contains: kind) else { return nil }
+                return LargeOldReviewRow(row: row, kind: kind)
+            }
+            .sorted { lhs, rhs in
+                compareLargeOldRows(lhs, rhs, sort: sort)
+            }
+        let displayRows = allRows.prefix(max(0, limit)).map { $0 }
+        return LargeOldReviewReport(
+            generatedAt: now,
+            mode: mode,
+            limit: limit,
+            rows: displayRows,
+            accountingRows: allRows
+        )
     }
 
     public static func ownerSummaries(from findings: [Finding], limit: Int = 18) -> [OwnerStorageSummary] {
@@ -1041,6 +1224,72 @@ public enum FindingAnalytics {
         return historyNeedles.contains { haystack.contains($0) }
     }
 
+    private static func largeOldReviewKind(for row: TopOffenderRow) -> LargeOldReviewKind? {
+        let isLarge = hasLargeOldSignal(row.finding, ruleID: "dynamic.large-item.review")
+        let isOld = hasLargeOldSignal(row.finding, ruleID: "dynamic.old-item.review")
+        switch (isLarge, isOld) {
+        case (true, true): return .largeAndOld
+        case (true, false): return .large
+        case (false, true): return .old
+        case (false, false): return nil
+        }
+    }
+
+    private static func hasLargeOldSignal(_ finding: Finding, ruleID: String? = nil) -> Bool {
+        finding.ruleMatches.contains { match in
+            if let ruleID {
+                return match.ruleID == ruleID
+            }
+            return match.ruleID == "dynamic.large-item.review" || match.ruleID == "dynamic.old-item.review"
+        }
+    }
+
+    private static func largeOldReviewMode(_ mode: LargeOldReviewMode, contains kind: LargeOldReviewKind) -> Bool {
+        switch mode {
+        case .all:
+            return true
+        case .large:
+            return [.large, .largeAndOld].contains(kind)
+        case .old:
+            return [.old, .largeAndOld].contains(kind)
+        }
+    }
+
+    private static func compareLargeOldRows(
+        _ lhs: LargeOldReviewRow,
+        _ rhs: LargeOldReviewRow,
+        sort: TopOffenderSort
+    ) -> Bool {
+        switch sort {
+        case .age:
+            let leftAge = lhs.ageDays ?? -1
+            let rightAge = rhs.ageDays ?? -1
+            if leftAge == rightAge {
+                return compareTopOffenderRows(lhs.row, rhs.row, sort: .allocated)
+            }
+            return leftAge > rightAge
+        case .category:
+            if lhs.category == rhs.category {
+                return compareTopOffenderRows(lhs.row, rhs.row, sort: .allocated)
+            }
+            return lhs.category < rhs.category
+        case .owner:
+            if lhs.ownerName == rhs.ownerName {
+                return compareTopOffenderRows(lhs.row, rhs.row, sort: .allocated)
+            }
+            return lhs.ownerName < rhs.ownerName
+        case .safety:
+            if lhs.safetyClass == rhs.safetyClass {
+                return compareTopOffenderRows(lhs.row, rhs.row, sort: .allocated)
+            }
+            return lhs.safetyClass.riskRank < rhs.safetyClass.riskRank
+        case .logical:
+            return compareTopOffenderRows(lhs.row, rhs.row, sort: .logical)
+        default:
+            return compareTopOffenderRows(lhs.row, rhs.row, sort: .allocated)
+        }
+    }
+
     private static func topOffenderSections(
         from rows: [TopOffenderRow],
         group: TopOffenderGroup
@@ -1190,6 +1439,40 @@ public enum FindingAnalytics {
             selectedPaths.append(path)
         }
         return selected
+    }
+
+    private static func largeOldReviewFindings(_ findings: [Finding]) -> [Finding] {
+        let nonRoot = findings.filter { finding in
+            !finding.evidence.contains { $0.kind == "scope" }
+        }
+        let candidates = (nonRoot.isEmpty ? findings : nonRoot)
+            .filter { hasLargeOldSignal($0) }
+        let ordered = candidates.sorted { lhs, rhs in
+            let lhsDepth = URL(fileURLWithPath: lhs.path).standardizedFileURL.pathComponents.count
+            let rhsDepth = URL(fileURLWithPath: rhs.path).standardizedFileURL.pathComponents.count
+            if lhsDepth == rhsDepth {
+                return lhs.path < rhs.path
+            }
+            return lhsDepth < rhsDepth
+        }
+        var selected: [Finding] = []
+        var selectedPaths: [String] = []
+        for finding in ordered {
+            let path = URL(fileURLWithPath: finding.path).standardizedFileURL.path
+            guard !selectedPaths.contains(where: { isDescendant(path, of: $0) }) else { continue }
+            if finding.isDirectory && hasLargeOldDescendant(of: path, in: candidates) {
+                continue
+            }
+            selected.append(finding)
+            selectedPaths.append(path)
+        }
+        return selected
+    }
+
+    private static func hasLargeOldDescendant(of path: String, in candidates: [Finding]) -> Bool {
+        candidates.contains { candidate in
+            isDescendant(URL(fileURLWithPath: candidate.path).standardizedFileURL.path, of: path)
+        }
     }
 
     private static func ownerAttributionFindings(_ findings: [Finding]) -> [Finding] {

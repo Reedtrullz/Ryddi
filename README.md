@@ -52,7 +52,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - local user protections and exclusions for paths Ryddi should preserve or ignore, with JSON import/export
 - local user rule-pack preview/import/export in CLI and app for custom review, preserve, and never-touch signals
-- large-file and old-file review signals
+- first-class large-file and old-file review mode with category/safety summaries, row actions, and no automatic cleanup
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - app uninstall preview reports for selected apps, with the app bundle separated from review-only related support files
@@ -106,6 +106,7 @@ swift run --scratch-path .build reclaimer overview --scope-set "Weekly General"
 swift run --scratch-path .build reclaimer overview --preset general
 swift run --scratch-path .build reclaimer overview --preset general --sort reclaim --group safety --limit 25
 swift run --scratch-path .build reclaimer queues --preset general --limit 10
+swift run --scratch-path .build reclaimer large --preset general --review all --limit 25
 swift run --scratch-path .build reclaimer scan --preset all --review large
 swift run --scratch-path .build reclaimer rules
 swift run --scratch-path .build reclaimer rules user preview ryddi-user-rules.json
@@ -209,6 +210,17 @@ swift run --scratch-path .build reclaimer queues --preset all --include-open-fil
 ```
 
 The queues are review surfaces, not cleanup permissions. `Safe Maintenance` can feed dry-run planning only through the normal safety gates, `Quit App First` keeps condition-gated or active data separate, `Use Native Tool` points at tool-owned stores, and protected history/assets remain review-first.
+
+## Large & Old Files
+
+Ryddi can turn large and stale file signals into a dedicated review surface:
+
+```bash
+swift run --scratch-path .build reclaimer large --preset general --review all --limit 25
+swift run --scratch-path .build reclaimer large --preset general --review old --sort age --old-days 180
+```
+
+The report prefers concrete large/old child items over broad parent folders when it can do that without obvious double-counting. These rows are not cleanup permission; use Finder, Quick Look, archiving, or explicit Trash decisions after reviewing the path, owner, safety class, and recovery story.
 
 ## Active Handles
 

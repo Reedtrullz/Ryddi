@@ -42,6 +42,8 @@ struct DashboardView: View {
                 RuleCatalogView()
             } else if selectedSection == "Apps" {
                 AppReviewView(model: model)
+            } else if selectedSection == "LargeOld" {
+                LargeOldReviewView(model: model)
             } else if selectedSection == "Duplicates" {
                 DuplicateReviewView(model: model)
             } else if selectedSection == "Containers" {
@@ -176,6 +178,10 @@ struct DashboardView: View {
                 Button("Apps & Leftovers") {
                     selectedFinding = nil
                     selectedSection = "Apps"
+                }
+                Button("Large & Old Files") {
+                    selectedFinding = nil
+                    selectedSection = "LargeOld"
                 }
                 Button("Duplicate Review") {
                     selectedFinding = nil
@@ -2976,6 +2982,119 @@ struct TopOffendersView: View {
     }
 }
 
+struct LargeOldReviewView: View {
+    let model: DashboardModel
+    @State private var mode = LargeOldReviewMode.all
+    @State private var sort = TopOffenderSort.allocated
+
+    private var report: LargeOldReviewReport {
+        model.largeOldReviewReport(mode: mode, sort: sort, limit: 80)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Large & Old Files")
+                    .font(.largeTitle.bold())
+                Spacer()
+                Picker("Mode", selection: $mode) {
+                    ForEach(LargeOldReviewMode.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 280)
+                Picker("Sort", selection: $sort) {
+                    Text("Allocated").tag(TopOffenderSort.allocated)
+                    Text("Logical").tag(TopOffenderSort.logical)
+                    Text("Age").tag(TopOffenderSort.age)
+                    Text("Category").tag(TopOffenderSort.category)
+                    Text("Owner").tag(TopOffenderSort.owner)
+                    Text("Safety").tag(TopOffenderSort.safety)
+                }
+                .pickerStyle(.menu)
+            }
+
+            HStack(spacing: 12) {
+                MetricTile(title: "Items", value: "\(report.totalCount)")
+                MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
+                MetricTile(title: "Large", value: "\(report.largeCount)")
+                MetricTile(title: "Old", value: "\(report.oldCount)")
+                MetricTile(title: "Protected", value: ByteFormat.string(report.protectedBytes))
+            }
+
+            if model.findings.isEmpty {
+                ContentUnavailableView("No scan yet", systemImage: "doc.text.magnifyingglass", description: Text("Run Scan to build a large and old file review."))
+            } else if report.rows.isEmpty {
+                ContentUnavailableView("No large or old review rows", systemImage: "checkmark.circle", description: Text("No current findings matched the selected review mode."))
+            } else {
+                HStack(alignment: .top, spacing: 14) {
+                    ReviewSummaryList(title: "Signals", summaries: report.kindSummaries)
+                    ReviewSummaryList(title: "Categories", summaries: Array(report.categorySummaries.prefix(6)))
+                    ReviewSummaryList(title: "Safety", summaries: report.safetySummaries)
+                }
+
+                SectionBox(title: "Review Rows") {
+                    VStack(spacing: 0) {
+                        TopOffenderHeader()
+                        ForEach(report.rows) { row in
+                            VStack(alignment: .leading, spacing: 4) {
+                                TopOffenderRowView(row: row.row, isSelectedInPlan: false)
+                                Text(row.reviewReason)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.leading, 10)
+                            }
+                        }
+                    }
+                }
+            }
+
+            SectionBox(title: "Non-Claims") {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(report.nonClaims, id: \.self) { note in
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if let error = model.error {
+                Text(error)
+                    .foregroundStyle(.red)
+            }
+
+            Spacer()
+        }
+        .padding(24)
+    }
+}
+
+struct ReviewSummaryList: View {
+    let title: String
+    let summaries: [BucketSummary]
+
+    var body: some View {
+        SectionBox(title: title) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(summaries) { summary in
+                    HStack {
+                        Text(summary.name)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(ByteFormat.string(summary.allocatedSize))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                }
+            }
+            .frame(minWidth: 180)
+        }
+    }
+}
+
 struct TopOffenderHeader: View {
     var body: some View {
         HStack {
@@ -3640,6 +3759,14 @@ final class DashboardModel {
     func findings(in queueID: ReviewQueueID) -> [Finding] {
         FindingAnalytics.reviewQueueRows(findings: findings, queueID: queueID)
             .map(\.finding)
+    }
+
+    func largeOldReviewReport(
+        mode: LargeOldReviewMode = .all,
+        sort: TopOffenderSort = .allocated,
+        limit: Int = 80
+    ) -> LargeOldReviewReport {
+        FindingAnalytics.largeOldReviewReport(findings: findings, mode: mode, sort: sort, limit: limit)
     }
 
     func scan() async {

@@ -358,6 +358,76 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(plan.items.first?.selected ?? true)
     }
 
+    func testLargeOldReviewReportSummarizesConcreteReviewRowsWithoutGrantingCleanup() throws {
+        let downloads = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let oldLarge = downloads.appendingPathComponent("old-large.mov")
+        let largeOnly = downloads.appendingPathComponent("large-only.dmg")
+        let oldOnly = downloads.appendingPathComponent("old-only.txt")
+        let protectedOldLarge = downloads.appendingPathComponent("protected-old-large.zip")
+        let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        try Data(repeating: 1, count: 24_000).write(to: oldLarge)
+        try Data(repeating: 2, count: 28_000).write(to: largeOnly)
+        try Data(repeating: 3, count: 512).write(to: oldOnly)
+        try Data(repeating: 4, count: 32_000).write(to: protectedOldLarge)
+        try Data(repeating: 5, count: 32_000).write(to: cache)
+
+        let oldDate = Date().addingTimeInterval(-90 * 24 * 60 * 60)
+        for url in [oldLarge, oldOnly, protectedOldLarge] {
+            try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: url.path)
+        }
+
+        let policy = UserPathPolicy.empty.adding(
+            path: protectedOldLarge.path,
+            kind: .protect,
+            reason: "Fixture protected archive"
+        )
+        let findings = try FileScanner(openFileChecker: NoOpenFilesChecker()).scan(
+            scopes: [ScanScope(name: "fixture", root: tempRoot)],
+            options: ScanOptions(
+                minimumFindingSize: 1,
+                maximumFindingDepth: 4,
+                measurementDepth: 8,
+                largeFileThreshold: 16_000,
+                oldFileAgeDays: 30,
+                userPathPolicy: policy
+            )
+        )
+
+        let report = FindingAnalytics.largeOldReviewReport(
+            findings: findings,
+            mode: .all,
+            sort: .allocated,
+            limit: 2,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.totalCount, 5)
+        XCTAssertEqual(report.rows.count, 2)
+        XCTAssertEqual(report.largeCount, 4)
+        XCTAssertEqual(report.oldCount, 3)
+        XCTAssertEqual(report.largeAndOldCount, 2)
+        XCTAssertEqual(report.estimatedImmediateReclaim, 0)
+        XCTAssertGreaterThan(report.protectedBytes, 0)
+        XCTAssertTrue(report.kindSummaries.contains { $0.name == LargeOldReviewKind.largeAndOld.label && $0.count == 2 })
+        XCTAssertTrue(report.categorySummaries.contains { $0.name == "Large files" || $0.name == "Old files" })
+        XCTAssertTrue(report.rows.allSatisfy { !$0.path.hasSuffix("/Downloads") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("do not grant cleanup permission") })
+
+        let largeOnlyReport = FindingAnalytics.largeOldReviewReport(findings: findings, mode: .large, limit: 10)
+        XCTAssertEqual(largeOnlyReport.totalCount, 4)
+        let oldOnlyReport = FindingAnalytics.largeOldReviewReport(findings: findings, mode: .old, limit: 10)
+        XCTAssertEqual(oldOnlyReport.totalCount, 3)
+
+        let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(
+            from: report.rows.map(\.row.finding),
+            mode: .autoSafeOnly
+        )
+        XCTAssertTrue(plan.items.allSatisfy { !$0.selected })
+    }
+
     func testScanOverviewReportsScopeCoverageAndBuckets() throws {
         let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
         try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)

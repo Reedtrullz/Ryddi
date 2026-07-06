@@ -78,6 +78,13 @@ mkdir -p \
 printf 'drill cache\n' >"$drill_fixture/Library/Caches/Codex/cache.bin"
 printf 'drill log\n' >"$drill_fixture/Library/Logs/com.openai.codex/old.log"
 printf 'drill download\n' >"$drill_fixture/Downloads/Installers/app.dmg"
+large_fixture="$scratch/large-fixture"
+mkdir -p "$large_fixture/Downloads" "$large_fixture/Library/Caches/Codex"
+dd if=/dev/zero of="$large_fixture/Downloads/old-large.mov" bs=24000 count=1 2>/dev/null
+dd if=/dev/zero of="$large_fixture/Downloads/large-only.dmg" bs=28000 count=1 2>/dev/null
+printf 'old note\n' >"$large_fixture/Downloads/old-only.txt"
+dd if=/dev/zero of="$large_fixture/Library/Caches/Codex/cache.bin" bs=32000 count=1 2>/dev/null
+touch -t 202401010101 "$large_fixture/Downloads/old-large.mov" "$large_fixture/Downloads/old-only.txt"
 app_fixture="$scratch/app-fixture"
 app_root="$app_fixture/Applications"
 app_home="$app_fixture/Home"
@@ -238,6 +245,31 @@ grep -q "Queue non-claims" "$scratch/queues-smoke.txt"
 grep -q '"queues"' "$scratch/queues-smoke.json"
 grep -q '"queueID" : "safeMaintenance"' "$scratch/queues-smoke.json"
 grep -q '"estimatedImmediateReclaim"' "$scratch/queues-smoke.json"
+"$app/Contents/MacOS/reclaimer" large \
+  --path "$large_fixture" \
+  --min-size 1 \
+  --max-depth 4 \
+  --large-threshold 16000 \
+  --old-days 30 \
+  --limit 10 >"$scratch/large-smoke.txt"
+grep -q "Ryddi large & old file review" "$scratch/large-smoke.txt"
+grep -q "Large and old" "$scratch/large-smoke.txt"
+grep -q "Large & old non-claims" "$scratch/large-smoke.txt"
+grep -q "Estimated immediate reclaim" "$scratch/large-smoke.txt"
+"$app/Contents/MacOS/reclaimer" large \
+  --json \
+  --path "$large_fixture" \
+  --min-size 1 \
+  --max-depth 4 \
+  --large-threshold 16000 \
+  --old-days 30 \
+  --review old \
+  --sort age \
+  --limit 10 >"$scratch/large-smoke.json"
+grep -q '"mode" : "old"' "$scratch/large-smoke.json"
+grep -q '"largeAndOldCount"' "$scratch/large-smoke.json"
+grep -q '"reviewReason"' "$scratch/large-smoke.json"
+grep -q "do not grant cleanup permission" "$scratch/large-smoke.json"
 "$app/Contents/MacOS/reclaimer" drilldown --json --path "$drill_fixture" --min-size 1 --max-depth 4 --tree-depth 4 --limit 1 >"$scratch/drilldown-smoke.json"
 grep -q '"rootNodes"' "$scratch/drilldown-smoke.json"
 grep -q '"children"' "$scratch/drilldown-smoke.json"
@@ -386,6 +418,7 @@ Verification performed:
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
 - bundled reclaimer queues --path Tests --limit 5 and queues --json
+- bundled reclaimer large --path disposable fixture with text and JSON review output
 - bundled reclaimer drilldown --json on disposable nested fixture
 - bundled reclaimer apps uninstall-preview on a disposable app fixture, with redacted Markdown and saved JSON audit
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md

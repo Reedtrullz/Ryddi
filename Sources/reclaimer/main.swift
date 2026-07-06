@@ -26,6 +26,8 @@ struct ReclaimerCLI {
             try overview(args: args)
         case "queues":
             try queues(args: args)
+        case "large":
+            try large(args: args)
         case "drilldown":
             try drilldown(args: args)
         case "scopes":
@@ -141,6 +143,24 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printReviewQueueReport(report)
+        }
+    }
+
+    static func large(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let scopes = try options.scopes(includeUnavailable: true)
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
+        let report = FindingAnalytics.largeOldReviewReport(
+            findings: findings,
+            mode: try options.largeOldReviewMode(),
+            sort: try options.topOffenderSort(),
+            limit: options.limit
+        )
+        if options.json {
+            printJSON(report)
+        } else {
+            printLargeOldReviewReport(report)
         }
     }
 
@@ -972,6 +992,10 @@ struct ReclaimerCLI {
               queues [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
                      [--min-size BYTES] [--max-depth N] [--include-open-files] [--limit N]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
+              large [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
+                    [--min-size BYTES] [--max-depth N] [--large-threshold BYTES] [--old-days N]
+                    [--review large|old|all] [--sort size|logical|age|category|owner|safety] [--limit N]
+                    [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               drilldown [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N]
                         [--tree-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               rules [--json] [--include-user-rules]
@@ -1170,6 +1194,14 @@ struct ParsedOptions {
             throw CLIError.message("--group must be one of: \(allowed)")
         }
         return offenderGroup
+    }
+
+    func largeOldReviewMode() throws -> LargeOldReviewMode {
+        guard let mode = LargeOldReviewMode(rawValue: review) else {
+            let allowed = LargeOldReviewMode.allCases.map(\.rawValue).joined(separator: ", ")
+            throw CLIError.message("--review must be one of: \(allowed)")
+        }
+        return mode
     }
 
     func scopePlan(includeUnavailable: Bool = false) throws -> ScanScopePlan {
@@ -1511,6 +1543,52 @@ func printReviewQueueReport(_ report: ReviewQueueReport) {
     }
 
     print("\nQueue non-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printLargeOldReviewReport(_ report: LargeOldReviewReport) {
+    print("Ryddi large & old file review")
+    print("Generated: \(report.generatedAt.formatted())")
+    print("Mode: \(report.mode.label)")
+    print("Findings: \(report.totalCount)")
+    print("Large: \(report.largeCount)")
+    print("Old: \(report.oldCount)")
+    print("Large and old: \(report.largeAndOldCount)")
+    print("Allocated: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Logical: \(ByteFormat.string(report.totalLogicalSize))")
+    print("Review-required bytes: \(ByteFormat.string(report.reviewRequiredBytes))")
+    print("Protected bytes: \(ByteFormat.string(report.protectedBytes))")
+    print("Estimated immediate reclaim: \(ByteFormat.string(report.estimatedImmediateReclaim))")
+
+    if !report.kindSummaries.isEmpty {
+        print("\nBy signal")
+        for summary in report.kindSummaries {
+            print("- \(summary.name): \(summary.count) item(s), \(ByteFormat.string(summary.allocatedSize))")
+        }
+    }
+
+    if !report.categorySummaries.isEmpty {
+        print("\nTop categories")
+        for summary in report.categorySummaries.prefix(8) {
+            print("- \(summary.name): \(summary.count) item(s), \(ByteFormat.string(summary.allocatedSize))")
+        }
+    }
+
+    if !report.safetySummaries.isEmpty {
+        print("\nSafety")
+        for summary in report.safetySummaries {
+            print("- \(summary.name): \(summary.count) item(s), \(ByteFormat.string(summary.allocatedSize))")
+        }
+    }
+
+    if !report.rows.isEmpty {
+        print("\nReview rows")
+        printTopOffenderRows(report.rows.map(\.row))
+    }
+
+    print("\nLarge & old non-claims")
     for note in report.nonClaims {
         print("- \(note)")
     }

@@ -23,7 +23,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Explain decisions | Every finding carries rule matches, evidence, recovery notes, and conditions. | `Finding`, `Evidence`, app detail view, `reclaimer explain` |
 | Honor user path policy | User protections keep paths visible but blocked from cleanup; user exclusions hide noisy paths from scans and parent measurements; JSON import/export lets users carry policy between Macs or attach redacted rule context to reviews. | `UserPathPolicyStore`, `UserPathPolicyDocument`, `reclaimer policy`, app Protections & Exclusions |
 | Review user rule packs | Local user rule packs can be previewed, validated, imported, exported, and included explicitly in scans; imported rules can only add review, preserve, or never-touch signals and cannot grant cleanup actions. | `UserRulePackStore`, `UserRulePackDocument`, `reclaimer rules user`, `--include-user-rules`, app Rule Catalog preview/import/export, app User Rules scan toggle |
-| Review large/old files | Size and age create review-only signals, never automatic cleanup permission. | dynamic scanner review signals |
+| Review large/old files | Size and age create review-only signals, with a dedicated review mode that prefers concrete child files and never grants automatic cleanup permission. | `LargeOldReviewReport`, `FindingAnalytics.largeOldReviewReport`, `reclaimer large`, app Large & Old Files |
 | Review duplicates | Size-bucketed local content hashing groups identical regular files as manual review signals; no delete action or plan item is emitted. | `DuplicateReviewScanner`, `reclaimer duplicates`, app Duplicate Review |
 | Review apps & leftovers | Parse installed `.app` bundles and related Library files, then surface support data and orphan candidates as review-only guidance. | `AppReviewScanner`, `reclaimer apps`, app Apps & Leftovers |
 | Preview app uninstall | Build a selected-app uninstall checklist/report that separates the app bundle Trash preview from review-only related support files. | `AppUninstallPreview`, `reclaimer apps uninstall-preview`, app Uninstall Preview |
@@ -71,13 +71,13 @@ Included:
 - Active-handle review with process summaries for cleanup-relevant candidates.
 - Permission advisor and first-run walkthrough for readable/denied/missing scope coverage, Full Disk Access guidance, degraded-mode labels, rescan commands, and permission non-claims.
 - Browser cache versus browser profile distinction.
-- Large-file and old-file review-only signals.
+- Large-file and old-file review mode with review-only signals, concrete row actions, category/safety summaries, and no automatic cleanup permission.
 - Duplicate-file review for explicit CLI paths and bounded app scans, with preserve-by-default files excluded unless requested.
 - Apps & Leftovers review for installed app support files and heuristic orphan candidates.
 - App uninstall preview/checklist for a selected app bundle, keeping related support files review-only and outside execution.
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, with cache/history/protected-state buckets and no automatic session/config/model cleanup.
 - Stale temp/scratch classification.
-- App overview, sortable top offenders, shared review queues, owner summaries, rule catalog, permission coverage, APFS notes, item detail, feature matrix, dry-run plan, audit history, and settings copy.
+- App overview, sortable top offenders, shared review queues, Large & Old Files, owner summaries, rule catalog, permission coverage, APFS notes, item detail, feature matrix, dry-run plan, audit history, and settings copy.
 
 Deferred:
 
@@ -104,6 +104,7 @@ Deferred:
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview --sort reclaim --group safety` reports grouped top offenders with confidence, conservative immediate-reclaim estimates, permission coverage, category summaries, owner summaries, and APFS notes.
 - `reclaimer queues --path FIXTURE --limit 5 --json` reports all review queues with counts, allocated bytes, conservative reclaim estimates, sample rows, and non-claims without creating a cleanup plan.
+- `reclaimer large --path FIXTURE --min-size 1 --large-threshold 16000 --old-days 30 --json` reports large/old review rows, signal/category/safety summaries, concrete child rows where available, and non-claims without selecting cleanup.
 - `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` reports hierarchical scan nodes, omitted-child summaries, and non-claims without creating plan items.
 - `reclaimer rules --json` reports the bundled rule version, safety/action/category summaries, rule sections, match hints, conditions, recovery notes, and non-claims without scanning or executing cleanup.
 - `reclaimer scopes saved add/list/show/export/import` stores reusable scan roots locally, supports merge/replace import, and keeps non-claims that scope sets do not change cleanup safety.
@@ -135,7 +136,7 @@ Deferred:
 - `reclaimer policy protect/exclude/list/remove/export/import` writes local-only path policy, protects configured paths from cleanup selection, excludes configured paths from scan output, exports a versioned JSON document, imports by merge by default, and supports explicit `--replace`.
 - Visual map accounting does not double-count nested directory findings.
 - Owner summaries do not double-count nested directory findings and prefer explicit owner hints over category fallback.
-- Large/old file signals remain review-only and are not selected by an auto-safe plan.
+- Large/old file review rows remain review-only and are not selected by an auto-safe plan.
 - Duplicate review findings remain outside `PlanBuilder` and `ReclaimerExecutor`.
 - Apps & Leftovers findings remain outside `PlanBuilder` and `ReclaimerExecutor`.
 - App uninstall previews do not execute cleanup and related support files remain outside `PlanBuilder` and `ReclaimerExecutor`.
