@@ -32,6 +32,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 ## What It Handles
 
 - sortable top-offender overview with category, owner/app/tool, safety, age, logical size, allocated size, confidence, and conservative reclaim estimate
+- shared review queues for Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, and Unknown findings
 - scan presets for Developer, General Mac, and All roots, plus scope preview before scanning
 - saved custom scope sets for repeatable general cleanup, project review, or developer maintenance scans
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
@@ -104,6 +105,7 @@ swift run --scratch-path .build reclaimer scopes --scope-set "Weekly General"
 swift run --scratch-path .build reclaimer overview --scope-set "Weekly General"
 swift run --scratch-path .build reclaimer overview --preset general
 swift run --scratch-path .build reclaimer overview --preset general --sort reclaim --group safety --limit 25
+swift run --scratch-path .build reclaimer queues --preset general --limit 10
 swift run --scratch-path .build reclaimer scan --preset all --review large
 swift run --scratch-path .build reclaimer rules
 swift run --scratch-path .build reclaimer rules user preview ryddi-user-rules.json
@@ -196,6 +198,17 @@ swift run --scratch-path .build reclaimer overview --preset all --sort owner --g
 ```
 
 Rows include allocated size, logical size, owner/category, safety class, action, cleanup confidence, and estimated immediate reclaim. The reclaim estimate is intentionally conservative: it only counts auto-safe trash/cache-style actions before final open-file, permission, Trash, APFS, and snapshot behavior.
+
+## Review Queues
+
+Ryddi can group scanned findings by the kind of decision they need:
+
+```bash
+swift run --scratch-path .build reclaimer queues --preset general --limit 10
+swift run --scratch-path .build reclaimer queues --preset all --include-open-files --limit 10
+```
+
+The queues are review surfaces, not cleanup permissions. `Safe Maintenance` can feed dry-run planning only through the normal safety gates, `Quit App First` keeps condition-gated or active data separate, `Use Native Tool` points at tool-owned stores, and protected history/assets remain review-first.
 
 ## Active Handles
 

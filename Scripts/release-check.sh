@@ -230,6 +230,14 @@ grep -q '"ownerSummaries"' "$scratch/overview-smoke.json"
 grep -q '"topOffenderTable"' "$scratch/overview-smoke.json"
 grep -q '"estimatedImmediateReclaim"' "$scratch/overview-smoke.json"
 grep -q '"group" : "safety"' "$scratch/overview-smoke.json"
+"$app/Contents/MacOS/reclaimer" queues --path "$root/Tests" --limit 5 >"$scratch/queues-smoke.txt"
+grep -q "Ryddi review queues" "$scratch/queues-smoke.txt"
+grep -q "Personal/App Assets" "$scratch/queues-smoke.txt"
+grep -q "Queue non-claims" "$scratch/queues-smoke.txt"
+"$app/Contents/MacOS/reclaimer" queues --json --path "$root/Tests" --limit 5 >"$scratch/queues-smoke.json"
+grep -q '"queues"' "$scratch/queues-smoke.json"
+grep -q '"queueID" : "safeMaintenance"' "$scratch/queues-smoke.json"
+grep -q '"estimatedImmediateReclaim"' "$scratch/queues-smoke.json"
 "$app/Contents/MacOS/reclaimer" drilldown --json --path "$drill_fixture" --min-size 1 --max-depth 4 --tree-depth 4 --limit 1 >"$scratch/drilldown-smoke.json"
 grep -q '"rootNodes"' "$scratch/drilldown-smoke.json"
 grep -q '"children"' "$scratch/drilldown-smoke.json"
@@ -377,6 +385,7 @@ Verification performed:
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
+- bundled reclaimer queues --path Tests --limit 5 and queues --json
 - bundled reclaimer drilldown --json on disposable nested fixture
 - bundled reclaimer apps uninstall-preview on a disposable app fixture, with redacted Markdown and saved JSON audit
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md

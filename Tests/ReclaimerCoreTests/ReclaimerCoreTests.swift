@@ -443,6 +443,81 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(table.nonClaims.contains { $0.contains("auto-safe trash/cache actions") })
     }
 
+    func testReviewQueuesClassifyUserIntentBucketsWithoutGrantingCleanup() throws {
+        let safeCache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 100,
+            isDirectory: true,
+            category: "Codex Cache"
+        )
+        let openCache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Browser/open-cache").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: true,
+            allocatedSize: 200,
+            isDirectory: true,
+            category: "Browser Cache"
+        )
+        let nativeTool = finding(
+            path: tempRoot.appendingPathComponent(".colima/default/disk.img").path,
+            safety: .safeAfterCondition,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 300,
+            category: "Container VM"
+        )
+        let history = finding(
+            path: tempRoot.appendingPathComponent(".codex/sessions/2026/session.jsonl").path,
+            safety: .preserveByDefault,
+            action: .compress,
+            open: false,
+            allocatedSize: 400,
+            category: "Codex History",
+            ownerHint: "Codex"
+        )
+        let asset = finding(
+            path: tempRoot.appendingPathComponent("Pictures/Photo Library.photoslibrary").path,
+            safety: .preserveByDefault,
+            action: .reportOnly,
+            open: false,
+            allocatedSize: 500,
+            isDirectory: true,
+            category: "Personal data"
+        )
+        let unknown = finding(
+            path: tempRoot.appendingPathComponent("Downloads/old-installer.dmg").path,
+            safety: .reviewRequired,
+            action: .openGuidance,
+            open: false,
+            allocatedSize: 600,
+            category: "Downloads"
+        )
+
+        let report = FindingAnalytics.reviewQueueReport(
+            findings: [safeCache, openCache, nativeTool, history, asset, unknown],
+            limitPerQueue: 2,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.totalCount, 6)
+        XCTAssertEqual(report.estimatedImmediateReclaim, 100)
+        XCTAssertEqual(report.queues.first { $0.queueID == .safeMaintenance }?.count, 1)
+        XCTAssertEqual(report.queues.first { $0.queueID == .safeMaintenance }?.estimatedImmediateReclaim, 100)
+        XCTAssertEqual(report.queues.first { $0.queueID == .quitAppFirst }?.rows.first?.path, openCache.path)
+        XCTAssertEqual(report.queues.first { $0.queueID == .useNativeTool }?.rows.first?.path, nativeTool.path)
+        XCTAssertEqual(report.queues.first { $0.queueID == .valuableHistory }?.rows.first?.path, history.path)
+        XCTAssertEqual(report.queues.first { $0.queueID == .personalAppAssets }?.rows.first?.path, asset.path)
+        XCTAssertEqual(report.queues.first { $0.queueID == .unknown }?.rows.first?.path, unknown.path)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("do not grant cleanup permission") })
+
+        let safeRows = FindingAnalytics.reviewQueueRows(findings: [safeCache, openCache], queueID: .safeMaintenance)
+        XCTAssertEqual(safeRows.map(\.path), [safeCache.path])
+    }
+
     func testDiskDrillDownBuildsHierarchyAndOmittedChildSummary() throws {
         let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
         let logs = tempRoot.appendingPathComponent("Library/Logs/com.openai.codex/old.log")

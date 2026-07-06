@@ -9,6 +9,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Choose scan scope | Named presets for Developer, General Mac, and All roots, explicit custom `--path` support, saved scope sets, and scope preview. | `ScanScopePreset`, `ScanScopePlan`, `SavedScopeSetStore`, `DefaultScopes`, `reclaimer scopes`, app Scan Scope, app Scope Sets |
 | Find large offenders | Bounded filesystem scanner over preset or custom roots, with permission evidence. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
 | Show top offenders | Shared overview analytics with sortable/groupable rows by category, owner/app/tool, safety, scope, age, action, logical size, allocated size, confidence, and conservative reclaim estimate. | `TopOffenderTable`, `FindingAnalytics`, `reclaimer overview --sort --group`, app Top Offenders |
+| Organize review queues | Shared user-intent queues separate safe maintenance, quit-first data, native-tool stores, valuable history, protected personal/app assets, and unknown review items. | `ReviewQueueReport`, `FindingAnalytics.reviewQueueReport`, `reclaimer queues`, app Review Queues |
 | Visualize space | Proportional category map plus bounded hierarchical drill-down from scan findings; informational only, not a cleanup selector. | `DiskMapNode`, `DiskDrillDownReport`, `reclaimer drilldown`, app Visual Map and Disk Drilldown |
 | Explain ownership | Group non-overlapping findings by scanner owner hints or category fallback so users can see which app/tool appears responsible for storage. | `OwnerStorageSummary`, `ScanOverview.ownerSummaries`, `reclaimer overview`, app Top Owners, evidence reports |
 | Track growth | Local scan snapshots compare category/scope/safety growth between scans and export local before/after Markdown reports. | `ScanHistoryStore`, `GrowthReportBuilder`, `reclaimer history`, `reclaimer history report`, app Growth History |
@@ -48,6 +49,7 @@ Included:
 
 - General Mac scan preset for Downloads, Desktop, personal folder review, user caches/logs, app support, attachments, device backups, and Trash review.
 - Sortable/groupable top-offender table for general cleanup and developer cleanup scans, including confidence and estimated immediate reclaim.
+- Shared review queues for Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, and Unknown findings.
 - Saved custom scope sets for repeatable general cleanup, project-specific review, and developer maintenance scans, with local JSON import/export.
 - Codex storage policy: caches/temp/logs versus sessions/state/credentials.
 - Docker/Colima reporting and native cleanup guidance.
@@ -75,7 +77,7 @@ Included:
 - App uninstall preview/checklist for a selected app bundle, keeping related support files review-only and outside execution.
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, with cache/history/protected-state buckets and no automatic session/config/model cleanup.
 - Stale temp/scratch classification.
-- App overview, sortable top offenders, owner summaries, rule catalog, permission coverage, APFS notes, review queues, item detail, feature matrix, dry-run plan, audit history, and settings copy.
+- App overview, sortable top offenders, shared review queues, owner summaries, rule catalog, permission coverage, APFS notes, item detail, feature matrix, dry-run plan, audit history, and settings copy.
 
 Deferred:
 
@@ -101,6 +103,7 @@ Deferred:
 - `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records signing state, and creates a zip/checksum/manifest.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview --sort reclaim --group safety` reports grouped top offenders with confidence, conservative immediate-reclaim estimates, permission coverage, category summaries, owner summaries, and APFS notes.
+- `reclaimer queues --path FIXTURE --limit 5 --json` reports all review queues with counts, allocated bytes, conservative reclaim estimates, sample rows, and non-claims without creating a cleanup plan.
 - `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` reports hierarchical scan nodes, omitted-child summaries, and non-claims without creating plan items.
 - `reclaimer rules --json` reports the bundled rule version, safety/action/category summaries, rule sections, match hints, conditions, recovery notes, and non-claims without scanning or executing cleanup.
 - `reclaimer scopes saved add/list/show/export/import` stores reusable scan roots locally, supports merge/replace import, and keeps non-claims that scope sets do not change cleanup safety.

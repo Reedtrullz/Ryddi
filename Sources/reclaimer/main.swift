@@ -24,6 +24,8 @@ struct ReclaimerCLI {
             try status(args: args)
         case "overview":
             try overview(args: args)
+        case "queues":
+            try queues(args: args)
         case "drilldown":
             try drilldown(args: args)
         case "scopes":
@@ -123,6 +125,22 @@ struct ReclaimerCLI {
             printJSON(overview)
         } else {
             printOverview(overview)
+        }
+    }
+
+    static func queues(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let scopes = try options.scopes(includeUnavailable: true)
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
+        let report = FindingAnalytics.reviewQueueReport(
+            findings: findings,
+            limitPerQueue: options.limit
+        )
+        if options.json {
+            printJSON(report)
+        } else {
+            printReviewQueueReport(report)
         }
     }
 
@@ -951,6 +969,9 @@ struct ReclaimerCLI {
                        [--sort size|logical|reclaim|age|risk|category|safety|scope|owner|action]
                        [--group none|category|safety|owner|scope|action]
                        [--save-history] [--ignore-user-policy] [--include-user-rules]
+              queues [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
+                     [--min-size BYTES] [--max-depth N] [--include-open-files] [--limit N]
+                     [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               drilldown [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N]
                         [--tree-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               rules [--json] [--include-user-rules]
@@ -1465,6 +1486,33 @@ func printTopOffenderRows(_ rows: [TopOffenderRow]) {
         print(
             "\(pad(ByteFormat.string(row.estimatedImmediateReclaim), 11)) \(pad(ByteFormat.string(row.allocatedSize), 11)) \(pad(age, 6)) \(pad(row.confidence.label, 12)) \(pad(row.safetyClass.label, 22)) \(pad(row.category, 18)) \(pad(row.ownerName, 16)) \(pad(row.actionKind.label, 16)) \(row.path)"
         )
+    }
+}
+
+func printReviewQueueReport(_ report: ReviewQueueReport) {
+    print("Ryddi review queues")
+    print("Generated: \(report.generatedAt.formatted())")
+    print("Findings queued: \(report.totalCount)")
+    print("Allocated queued: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Estimated immediate reclaim: \(ByteFormat.string(report.estimatedImmediateReclaim))")
+
+    print("\nQueues")
+    print("\(pad("Queue", 22)) \(pad("Items", 7)) \(pad("Allocated", 11)) \(pad("Reclaim", 11)) \(pad("Risk", 22)) \(pad("Dominant", 18)) Action")
+    for queue in report.queues {
+        let risk = queue.highestRiskClass?.label ?? "-"
+        let action = queue.dominantAction?.label ?? "-"
+        print("\(pad(queue.title, 22)) \(pad("\(queue.count)", 7)) \(pad(ByteFormat.string(queue.allocatedSize), 11)) \(pad(ByteFormat.string(queue.estimatedImmediateReclaim), 11)) \(pad(risk, 22)) \(pad(queue.dominantCategory, 18)) \(action)")
+        print("  \(queue.guidance)")
+    }
+
+    for queue in report.queues where !queue.rows.isEmpty {
+        print("\n\(queue.title) examples")
+        printTopOffenderRows(queue.rows)
+    }
+
+    print("\nQueue non-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
     }
 }
 

@@ -224,11 +224,11 @@ struct DashboardView: View {
             }
             Section("Review Queues") {
                 ForEach(model.queueSummaries) { queue in
-                    DisclosureGroup("\(queue.title) (\(queue.count), \(ByteFormat.string(queue.bytes)))") {
+                    DisclosureGroup("\(queue.title) (\(queue.count), \(ByteFormat.string(queue.allocatedSize)))") {
                         Text(queue.guidance)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        ForEach(model.findings(in: queue.title)) { finding in
+                        ForEach(model.findings(in: queue.queueID)) { finding in
                             FindingRow(finding: finding)
                                 .tag(finding.id)
                                 .onTapGesture {
@@ -3495,14 +3495,6 @@ final class StatusMenuModel {
     }
 }
 
-struct QueueSummary: Identifiable {
-    var id: String { title }
-    let title: String
-    let count: Int
-    let bytes: Int64
-    let guidance: String
-}
-
 @MainActor
 @Observable
 final class DashboardModel {
@@ -3559,15 +3551,12 @@ final class DashboardModel {
         return savedScopeSets.first { $0.id == selectedSavedScopeSetID }
     }
 
-    var queueSummaries: [QueueSummary] {
-        [
-            queue("Safe Maintenance", guidance: "Auto-safe cache/temp candidates selected only after open-file checks."),
-            queue("Quit App First", guidance: "Likely rebuildable, but owner apps should be quit before cleanup."),
-            queue("Use Native Tool", guidance: "Container/package-manager state should be handled by native cleanup commands."),
-            queue("Valuable History", guidance: "Transcripts and assistant history may contain useful provenance."),
-            queue("Personal/App Assets", guidance: "Creative, media, profile, and app-managed assets stay preserve-by-default."),
-            queue("Unknown", guidance: "Anything unmatched or ambiguous remains report-only.")
-        ]
+    var reviewQueueReport: ReviewQueueReport {
+        FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: 12)
+    }
+
+    var queueSummaries: [ReviewQueueSummary] {
+        reviewQueueReport.queues
     }
 
     var totalReviewBytes: Int64 {
@@ -3648,17 +3637,9 @@ final class DashboardModel {
         findings.filter { $0.safetyClass == safetyClass }.reduce(0) { $0 + $1.allocatedSize }
     }
 
-    func findings(in queue: String) -> [Finding] {
-        findings.filter { finding in
-            switch queue {
-            case "Safe Maintenance": finding.safetyClass == .autoSafe
-            case "Quit App First": finding.safetyClass == .safeAfterCondition && finding.actionKind != .nativeToolCommand
-            case "Use Native Tool": finding.actionKind == .nativeToolCommand
-            case "Valuable History": finding.safetyClass == .preserveByDefault && finding.ownerHint == "Codex"
-            case "Personal/App Assets": finding.safetyClass == .preserveByDefault && finding.ownerHint != "Codex"
-            default: finding.safetyClass == .reviewRequired || finding.ruleMatches.isEmpty
-            }
-        }
+    func findings(in queueID: ReviewQueueID) -> [Finding] {
+        FindingAnalytics.reviewQueueRows(findings: findings, queueID: queueID)
+            .map(\.finding)
     }
 
     func scan() async {
@@ -4285,15 +4266,5 @@ final class DashboardModel {
 
     func refreshAutomation() {
         launchAgentInstalled = FileManager.default.fileExists(atPath: LaunchAgentManager().installedPath().path)
-    }
-
-    private func queue(_ title: String, guidance: String) -> QueueSummary {
-        let queueFindings = findings(in: title)
-        return QueueSummary(
-            title: title,
-            count: queueFindings.count,
-            bytes: queueFindings.reduce(0) { $0 + $1.allocatedSize },
-            guidance: guidance
-        )
     }
 }

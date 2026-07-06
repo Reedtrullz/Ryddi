@@ -29,6 +29,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer overview --path Tests --limit 5 --sort reclaim --group safety` prints a bounded overview with grouped top-offender rows and conservative reclaim estimates.
 - [ ] `reclaimer overview --path Tests --limit 5 --sort reclaim --group safety` includes owner/app/tool summaries.
 - [ ] `reclaimer overview --json --path Tests --limit 5 --sort reclaim --group safety` includes bounded `mapNodes`, `ownerSummaries`, and `topOffenderTable`.
+- [ ] `reclaimer queues --path Tests --limit 5 --json` reports all shared review queues, conservative reclaim estimates, sample rows, and queue non-claims without creating a cleanup plan.
 - [ ] `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` emits hierarchical `rootNodes`, bounded child rows, omitted-child summaries, and non-claims without creating a cleanup plan.
 - [ ] `reclaimer report --path Tests --limit 5 --output REPORT.md` writes a local Markdown report with scan coverage, top findings, user policy, accounting notes, and non-claims without executing cleanup.
 - [ ] `reclaimer report --path Tests --path-style redacted --redact-user-text --output REPORT.md` writes a local Markdown report without full local paths or user-entered policy reasons.

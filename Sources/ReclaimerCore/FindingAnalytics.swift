@@ -394,6 +394,154 @@ public struct TopOffenderTable: Codable, Hashable, Sendable {
     }
 }
 
+public enum ReviewQueueID: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case safeMaintenance
+    case quitAppFirst
+    case useNativeTool
+    case valuableHistory
+    case personalAppAssets
+    case unknown
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .safeMaintenance: "Safe Maintenance"
+        case .quitAppFirst: "Quit App First"
+        case .useNativeTool: "Use Native Tool"
+        case .valuableHistory: "Valuable History"
+        case .personalAppAssets: "Personal/App Assets"
+        case .unknown: "Unknown"
+        }
+    }
+
+    public var guidance: String {
+        switch self {
+        case .safeMaintenance:
+            "Auto-safe cache/temp candidates that can enter a dry-run plan after open-file and permission checks."
+        case .quitAppFirst:
+            "Likely rebuildable data that is active, condition-gated, or needs an owner app to quit before cleanup."
+        case .useNativeTool:
+            "Container, VM, package-manager, or tool-owned state that should be handled by native cleanup commands."
+        case .valuableHistory:
+            "Sessions, transcripts, archives, and provenance that may be worth compressing or preserving."
+        case .personalAppAssets:
+            "Creative, media, browser profile, app state, credential, config, and other protected user/app assets."
+        case .unknown:
+            "Unmatched, ambiguous, large, old, or review-only findings that need manual inspection."
+        }
+    }
+
+    public static func parse(_ rawValue: String) -> ReviewQueueID? {
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+            .replacingOccurrences(of: " ", with: "-")
+        switch normalized {
+        case "safe", "safe-maintenance", "maintenance", "auto-safe":
+            return .safeMaintenance
+        case "quit", "quit-app", "quit-app-first", "app-first":
+            return .quitAppFirst
+        case "native", "native-tool", "use-native-tool":
+            return .useNativeTool
+        case "history", "valuable-history":
+            return .valuableHistory
+        case "assets", "personal-assets", "app-assets", "personal-app-assets":
+            return .personalAppAssets
+        case "unknown", "review", "manual":
+            return .unknown
+        default:
+            return ReviewQueueID(rawValue: rawValue)
+        }
+    }
+}
+
+public struct ReviewQueueSummary: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { queueID.rawValue }
+    public let queueID: ReviewQueueID
+    public let title: String
+    public let guidance: String
+    public let count: Int
+    public let logicalSize: Int64
+    public let allocatedSize: Int64
+    public let estimatedImmediateReclaim: Int64
+    public let highestRiskClass: SafetyClass?
+    public let dominantCategory: String
+    public let dominantAction: ActionKind?
+    public let rows: [TopOffenderRow]
+
+    public init(queueID: ReviewQueueID, rows: [TopOffenderRow], accountingRows: [TopOffenderRow]? = nil) {
+        let accountingRows = accountingRows ?? rows
+        self.queueID = queueID
+        title = queueID.title
+        guidance = queueID.guidance
+        count = accountingRows.count
+        logicalSize = accountingRows.reduce(0) { $0 + $1.logicalSize }
+        allocatedSize = accountingRows.reduce(0) { $0 + $1.allocatedSize }
+        estimatedImmediateReclaim = accountingRows.reduce(0) { $0 + $1.estimatedImmediateReclaim }
+        highestRiskClass = accountingRows.map(\.safetyClass).max { $0.riskRank < $1.riskRank }
+        dominantCategory = ReviewQueueSummary.dominantCategory(in: accountingRows)
+        dominantAction = accountingRows.map(\.actionKind)
+            .reduce(into: [:]) { counts, action in counts[action, default: 0] += 1 }
+            .sorted {
+                if $0.value == $1.value {
+                    return $0.key.label < $1.key.label
+                }
+                return $0.value > $1.value
+            }
+            .first?.key
+        self.rows = rows
+    }
+
+    private static func dominantCategory(in rows: [TopOffenderRow]) -> String {
+        let counts = rows.reduce(into: [String: (count: Int, allocatedSize: Int64)]()) { partial, row in
+            let current = partial[row.category] ?? (0, 0)
+            partial[row.category] = (current.count + 1, current.allocatedSize + row.allocatedSize)
+        }
+        return counts.sorted {
+            if $0.value.allocatedSize == $1.value.allocatedSize {
+                if $0.value.count == $1.value.count {
+                    return $0.key < $1.key
+                }
+                return $0.value.count > $1.value.count
+            }
+            return $0.value.allocatedSize > $1.value.allocatedSize
+        }
+        .first?.key ?? "None"
+    }
+}
+
+public struct ReviewQueueReport: Codable, Hashable, Sendable {
+    public let generatedAt: Date
+    public let totalCount: Int
+    public let totalLogicalSize: Int64
+    public let totalAllocatedSize: Int64
+    public let estimatedImmediateReclaim: Int64
+    public let queues: [ReviewQueueSummary]
+    public let nonClaims: [String]
+
+    public init(
+        generatedAt: Date,
+        queues: [ReviewQueueSummary],
+        nonClaims: [String] = ReviewQueueReport.defaultNonClaims
+    ) {
+        self.generatedAt = generatedAt
+        self.queues = queues
+        totalCount = queues.reduce(0) { $0 + $1.count }
+        totalLogicalSize = queues.reduce(0) { $0 + $1.logicalSize }
+        totalAllocatedSize = queues.reduce(0) { $0 + $1.allocatedSize }
+        estimatedImmediateReclaim = queues.reduce(0) { $0 + $1.estimatedImmediateReclaim }
+        self.nonClaims = nonClaims
+    }
+
+    public static let defaultNonClaims = [
+        "Review queues organize existing findings by user intent; they do not grant cleanup permission or bypass safety classes.",
+        "Queue reclaim estimates only count auto-safe trash/cache actions and remain subject to dry-run, open-file, permission, Trash, APFS, and snapshot behavior.",
+        "Native-tool, valuable-history, personal/app-asset, unknown, and protected findings remain review-first unless a separate explicit plan says otherwise."
+    ]
+}
+
 public struct ScanOverview: Codable, Hashable, Sendable {
     public let generatedAt: Date
     public let findingCount: Int
@@ -606,6 +754,42 @@ public enum FindingAnalytics {
         )
     }
 
+    public static func reviewQueueReport(
+        findings: [Finding],
+        limitPerQueue: Int = 10,
+        now: Date = Date()
+    ) -> ReviewQueueReport {
+        let rows = nonOverlappingFindings(findings).map { TopOffenderRow(finding: $0, referenceDate: now) }
+        let grouped = Dictionary(grouping: rows) { row in
+            reviewQueueID(for: row)
+        }
+        let summaries = ReviewQueueID.allCases.map { queueID in
+            let allRows = (grouped[queueID] ?? [])
+                .sorted { lhs, rhs in
+                    compareTopOffenderRows(lhs, rhs, sort: .allocated)
+                }
+            let displayRows = allRows.prefix(max(0, limitPerQueue)).map { $0 }
+            return ReviewQueueSummary(queueID: queueID, rows: displayRows, accountingRows: allRows)
+        }
+        return ReviewQueueReport(generatedAt: now, queues: summaries)
+    }
+
+    public static func reviewQueueRows(
+        findings: [Finding],
+        queueID: ReviewQueueID,
+        limit: Int = Int.max,
+        now: Date = Date()
+    ) -> [TopOffenderRow] {
+        nonOverlappingFindings(findings)
+            .map { TopOffenderRow(finding: $0, referenceDate: now) }
+            .filter { reviewQueueID(for: $0) == queueID }
+            .sorted { lhs, rhs in
+                compareTopOffenderRows(lhs, rhs, sort: .allocated)
+            }
+            .prefix(max(0, limit))
+            .map { $0 }
+    }
+
     public static func ownerSummaries(from findings: [Finding], limit: Int = 18) -> [OwnerStorageSummary] {
         let grouped = Dictionary(grouping: findings) { finding in
             ownerName(for: finding)
@@ -807,6 +991,54 @@ public enum FindingAnalytics {
     private static func dominantCategory(in findings: [Finding]) -> String {
         let categories = bucket(findings, by: { $0.primaryCategory })
         return categories.first?.name ?? "Unknown"
+    }
+
+    private static func reviewQueueID(for row: TopOffenderRow) -> ReviewQueueID {
+        if row.actionKind == .nativeToolCommand {
+            return .useNativeTool
+        }
+        if row.finding.openFileStatus?.isOpen == true || row.finding.openFileStatus?.checkFailed != nil {
+            if [.autoSafe, .safeAfterCondition].contains(row.safetyClass) {
+                return .quitAppFirst
+            }
+        }
+        if row.safetyClass == .autoSafe {
+            return .safeMaintenance
+        }
+        if row.safetyClass == .safeAfterCondition {
+            return .quitAppFirst
+        }
+        if row.safetyClass == .preserveByDefault, isValuableHistory(row) {
+            return .valuableHistory
+        }
+        if [.preserveByDefault, .neverTouch].contains(row.safetyClass) {
+            return .personalAppAssets
+        }
+        return .unknown
+    }
+
+    private static func isValuableHistory(_ row: TopOffenderRow) -> Bool {
+        let haystack = [
+            row.category,
+            row.ownerName,
+            row.displayName,
+            row.path,
+            row.evidenceSummary
+        ]
+        .joined(separator: " ")
+        .lowercased()
+        let historyNeedles = [
+            "history",
+            "session",
+            "sessions",
+            "transcript",
+            "archive",
+            "archives",
+            "conversation",
+            "provenance",
+            "rollout"
+        ]
+        return historyNeedles.contains { haystack.contains($0) }
     }
 
     private static func topOffenderSections(
