@@ -32,11 +32,14 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer native --path FIXTURE --json --save-audit` emits preview-only native-tool receipts and saves a local audit record without executing native cleanup commands.
 - [ ] `reclaimer execute --dry-run --path FIXTURE --save-audit` followed by `reclaimer receipts export --output RECEIPT.md` writes a local Markdown receipt report without rerunning cleanup.
 - [ ] `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
+- [ ] `reclaimer recovery --json` reports app-held, dry-run, skipped, Trash, native-tool, and direct-delete recovery states without mutating files.
+- [ ] `reclaimer recovery restore HOLDING_ID --to DESTINATION` restores a disposable app-held fixture and refuses overwrite conflicts.
 - [ ] `reclaimer containers --json --timeout 2 --save-audit` emits a read-only Docker/Colima inventory, saves a local audit record, and does not execute prune/delete/stop/reset commands.
 - [ ] `reclaimer policy protect/exclude/list/remove/export/import` works with temporary `RYDDI_CONFIG_ROOT` values; protected paths are not selected for cleanup, excluded paths are absent from scan output, export writes a versioned JSON document, import merges by default, and `--replace` drops local-only rules.
 - [ ] App Visual Map and Growth History render without changing reclaim gates.
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App Apps & Leftovers review scans bounded app roots and does not enable Reclaim or modify the dry-run plan.
+- [ ] App Recovery Center shows app-held restore rows separately from receipt-only guidance.
 - [ ] App menu bar status item shows disk pressure and report-only scan controls without enabling cleanup actions.
 - [ ] Manual GitHub Actions workflow `Release Preview Artifact` uploads the unsigned preview zip, checksum, and manifest when run.
 - [ ] README states that the build is unsigned if `CODESIGN_IDENTITY` is unset.
@@ -69,5 +72,6 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say growth reports compare saved local scan snapshots, can include paths, and do not prove exact current disk state or execute cleanup.
 - [ ] Release notes say plan reports summarize proposed cleanup locally and do not execute cleanup or replace dry-run receipts.
 - [ ] Release notes say receipt reports summarize saved receipts locally and do not rerun cleanup.
+- [ ] Release notes say Recovery Center can restore only app-held items; Trash, native-tool, direct-delete, dry-run, skipped, and failed receipt rows are guidance, not guaranteed undo.
 - [ ] Release notes say report redaction affects exports only; saved local audit JSON, plans, and receipts can still contain original local paths.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

@@ -109,7 +109,8 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Exportable reports | Expected in trust-sensitive admin tools, useful for before/after review | Exists/partial | Markdown evidence reports, growth reports, reclaim plan reports, and receipt reports now capture scan coverage, saved-snapshot deltas, proposed actions, blocked/review items, policy, accounting notes, action counts, skipped/errors, before/after free-space fields, path privacy controls, and non-claims. Future work should add richer trend charts and visual comparisons. |
 | Active-file guard | Strong safety differentiator | Exists/partial | Active-handle review now surfaces open/process summaries and failed checks for cleanup candidates. Future work should add richer app-name mapping and notification flows. |
 | Trash-first cleanup | Expected safety behavior | Exists/partial | Use Trash for uncertain/user-visible data. Direct delete only for allowlisted caches. |
-| App-managed holding area | Strong differentiator | Exists/partial | Make restore and expiry visible in UI. Show "held until" and original path. |
+| App-managed holding area | Strong differentiator | Exists/partial | Holding metadata, CLI restore/expire, app Holding Area, and Recovery Center restore controls exist. Future work should add expiration reminders and richer restore conflict handling. |
+| Recovery and undo guidance | Expected when cleaners offer destructive actions; often vague in broad suites | Exists/partial | `RecoveryCenter`, `reclaimer recovery`, and app Recovery Center distinguish app-held restores from Finder Trash review, dry-run/skipped no-ops, native-tool guidance, and non-recoverable direct deletes. Future work should add richer Trash integration where macOS allows it. |
 | User exclusions/protections | Expected from Hazel-like automation and serious cleanup tools | Exists/partial | Local path policy now supports scan exclusions, cleanup protections, versioned JSON export, merge import, and explicit replace import. Future work should add richer rule conditions and shared rule-pack review UX. |
 | Full Disk Access onboarding | Expected for any serious disk scanner | Exists/partial | Permission advisor and walkthrough now report coverage level, denied/missing scopes, Full Disk Access actions, rescan/report-only commands, affected scopes, exportable guidance, and non-claims; screenshots/GIFs remain future release polish. |
 | APFS physical accounting | Expected by expert users; DaisyDisk/Spacie benchmark this | Exists/partial | Logical/allocated notes and non-overlap accounting exist; clone/hardlink/purgeable/snapshot depth remains future work. |
@@ -150,7 +151,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 1. Permission advisor and first-run walkthrough now cover readable/denied/missing scopes, Full Disk Access guidance, rescan/report-only commands, affected scopes, exportable guidance, and non-claims. Add screenshots/GIFs for release polish.
 2. Add APFS size model: logical, allocated, clone/hardlink caveat, purgeable/snapshot explanation.
 3. Add final re-stat and reclassification immediately before action.
-4. Add restore UX for Trash and holding-area moves where possible.
+4. Recovery Center now covers app-held restores and receipt-based guidance for Trash, dry-run, skipped, native-tool, and direct-delete actions. Add richer Trash integration where macOS allows it.
 5. Evidence, growth, plan, and receipt report export exist for scan, saved-snapshot comparison, proposed cleanup, and execution review, including path privacy controls. Add richer trend charts and visual comparisons.
 
 ### Developer/AI Niche
@@ -188,6 +189,7 @@ The first public release should have:
 - SwiftUI app with overview, queues, details, plan builder, and audit history.
 - Rules for Codex, Docker/Colima, Xcode, package caches, browser caches, temp dirs, and large-file review.
 - Dry-run receipts and local audit history.
+- Recovery Center for app-held restores and receipt-based guidance.
 - Trash/holding-area cleanup for safe selections.
 - Active-file checks before action.
 - Full Disk Access guidance and degraded-mode labels.

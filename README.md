@@ -42,6 +42,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
 - exportable local Markdown reclaim plan reports with selected actions, blocked items, safety buckets, and non-claims
 - exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
+- Recovery Center for app-held restores plus honest Trash, dry-run, skipped, native-tool, and non-recoverable receipt guidance
 - report privacy controls for full, home-relative, or redacted paths plus user-entered reason redaction
 - transparent bundled rule catalog showing safety classes, actions, categories, match hints, conditions, recovery notes, and non-claims
 - active-handle review for cleanup candidates, with process summaries and failed-check visibility
@@ -124,6 +125,8 @@ swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Cac
 swift run --scratch-path .build reclaimer receipts list
 swift run --scratch-path .build reclaimer receipts export --output ryddi-receipt-report.md
 swift run --scratch-path .build reclaimer receipts export --path-style redacted --output ryddi-receipt-report-redacted.md
+swift run --scratch-path .build reclaimer recovery list
+swift run --scratch-path .build reclaimer recovery restore HOLDING_ID --to ~/Restored-Ryddi-Item
 swift run --scratch-path .build reclaimer holding list
 ```
 
@@ -212,6 +215,16 @@ swift run --scratch-path .build reclaimer receipts export --output ryddi-receipt
 
 Receipt reports summarize saved dry-run or execution receipts. They include action status counts, before/after free-space fields when available, skipped/error actions, and non-claims. Exporting a receipt report does not rerun cleanup.
 
+The Recovery Center combines app-held items and saved receipts:
+
+```bash
+swift run --scratch-path .build reclaimer recovery list
+swift run --scratch-path .build reclaimer recovery --json
+swift run --scratch-path .build reclaimer recovery restore HOLDING_ID
+```
+
+Ryddi can restore only items currently in its app-managed holding area. Trash actions require Finder Trash review, dry-run/skipped/error actions should not need recovery, and direct deletes or native-tool cleanup may require rebuilding caches, using the owning tool, or restoring from backup.
+
 Holding-area expiry is also dry-run unless confirmed:
 
 ```bash
@@ -280,7 +293,7 @@ This records Docker storage buckets, images, containers, volumes, contexts, Coli
 ## Repository Layout
 
 ```text
-Sources/ReclaimerCore/       Shared scanner, rules, planner, executor, audit, holding, scheduler
+Sources/ReclaimerCore/       Shared scanner, rules, planner, executor, audit, recovery, holding, scheduler
 Sources/reclaimer/           CLI
 Sources/MacDiskReclaimerApp/ SwiftUI app target
 Sources/ReclaimerAgent/      Scheduled report runner
@@ -310,7 +323,7 @@ Scripts/                     Packaging and notarization helpers
 Short description:
 
 ```text
-Local-first macOS disk reclaim assistant with developer-first cleanup rules.
+Local-first macOS disk reclaim assistant for general cleanup with developer-first rules.
 ```
 
 Topics:

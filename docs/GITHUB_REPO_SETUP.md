@@ -11,7 +11,7 @@ ryddi
 ## Short Description
 
 ```text
-Local-first macOS disk reclaim assistant with developer-first cleanup rules.
+Local-first macOS disk reclaim assistant for general cleanup with developer-first rules.
 ```
 
 ## Website
@@ -66,14 +66,15 @@ Review first. Reclaim safely.
 Initial MVP:
 
 - Swift core scanner and rule engine
-- CLI for scan scope presets, scan, overview, bundled rule catalog, status, permissions, active-handle review, report, history/growth reports, plan/plans, receipts, explain, execute, schedule, and holding-area operations
-- SwiftUI app overview, rule catalog, review queues, detail view, dry run, confirmed reclaim, audit history, automation, and holding area
+- CLI for scan scope presets, scan, overview, bundled rule catalog, status, permissions, active-handle review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
+- SwiftUI app overview, rule catalog, review queues, detail view, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - Open-file guard and active-handle review with `lsof` process summaries
 - Dry-run receipts and local audit store
 - Markdown evidence, growth, plan, and receipt report exports with path privacy controls
 - Local path protections/exclusions with versioned JSON export, merge import, and explicit replace import
 - App-managed holding area with restore/expire workflow
+- Recovery Center for app-held restores and receipt-based guidance
 - Permission advisor and first-run walkthrough for readable/denied/missing scan coverage and Full Disk Access guidance
 - Release-check workflow for unsigned developer preview artifacts
 

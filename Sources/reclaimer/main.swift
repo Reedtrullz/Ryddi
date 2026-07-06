@@ -58,6 +58,8 @@ struct ReclaimerCLI {
             try execute(args: args)
         case "receipts":
             try receipts(args: args)
+        case "recovery":
+            try recovery(args: args)
         case "archive":
             try archive(args: args)
         case "schedule":
@@ -608,6 +610,32 @@ struct ReclaimerCLI {
         }
     }
 
+    static func recovery(args: [String]) throws {
+        let subcommand = (args.first?.hasPrefix("-") ?? true) ? "list" : (args.first ?? "list")
+        let options = ParsedOptions(subcommand == "list" && !(args.first?.hasPrefix("-") ?? false) ? Array(args.dropFirst()) : args)
+        switch subcommand {
+        case "list":
+            let report = RecoveryCenter.build(limit: options.limit)
+            if options.json {
+                printJSON(report)
+            } else {
+                printRecoveryCenter(report)
+            }
+        case "restore":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("recovery restore requires a holding item id")
+            }
+            let rawID = args[1].hasPrefix("holding:")
+                ? String(args[1].dropFirst("holding:".count))
+                : args[1]
+            let destination = options.value(after: "--to").map { URL(fileURLWithPath: $0).standardizedFileURL }
+            let restored = try HoldingStore().restore(id: rawID, to: destination)
+            print("restored: \(restored.path)")
+        default:
+            throw CLIError.message("Unknown recovery subcommand: \(subcommand)")
+        }
+    }
+
     static func archive(args: [String]) throws {
         var archiveArgs = args
         if !archiveArgs.contains("--review-all") {
@@ -735,6 +763,8 @@ struct ReclaimerCLI {
               receipts list [--json] [--limit N]
               receipts export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                               [--path-style full|home-relative|redacted] [--redact-user-text]
+              recovery [list] [--json] [--limit N]
+              recovery restore HOLDING_ID [--to PATH]
               archive [--json] [--preset developer|general|all] [--path PATH ...]   # review/compression-oriented plan only
               schedule install [--hour H] [--minute M] [--load]
               schedule uninstall [--unload]
@@ -1579,6 +1609,43 @@ func printReceipts(_ receipts: [ExecutionReceipt]) {
         print(
             "\(pad(receipt.createdAt.formatted(date: .numeric, time: .shortened), 22)) \(pad(receipt.mode, 8)) \(pad("\(receipt.actions.count)", 8)) \(pad("\(dryRun)", 8)) \(pad("\(done)", 6)) \(pad("\(skipped)", 8)) \(pad("\(errors)", 7)) \(receipt.id)"
         )
+    }
+}
+
+func printRecoveryCenter(_ report: RecoveryCenterReport) {
+    print("Ryddi recovery center")
+    print("Generated: \(report.generatedAt.formatted())")
+    print("Items: \(report.itemCount)")
+    print("Restorable with Ryddi: \(report.restorableCount) item(s), \(ByteFormat.string(report.restorableBytes))")
+
+    if !report.stateSummaries.isEmpty {
+        print("\nBy recovery state")
+        for summary in report.stateSummaries {
+            print("- \(pad(summary.state.label, 26)) \(pad(ByteFormat.string(summary.bytes), 10)) \(summary.count) item(s)")
+        }
+    }
+
+    if report.items.isEmpty {
+        print("\nNo holding items or saved receipt actions were found.")
+    } else {
+        print("\nItems")
+        print("\(pad("State", 26)) \(pad("Bytes", 11)) \(pad("Action", 16)) Path")
+        for item in report.items {
+            let action = item.actionKind?.label ?? "-"
+            let path = item.originalPath ?? item.currentPath ?? "-"
+            print("\(pad(item.state.label, 26)) \(pad(ByteFormat.string(item.bytes), 11)) \(pad(action, 16)) \(path)")
+            if let holdingID = item.holdingID {
+                print("  Restore: reclaimer recovery restore \(holdingID)")
+            }
+            for guidance in item.guidance.prefix(2) {
+                print("  - \(guidance)")
+            }
+        }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
     }
 }
 

@@ -53,6 +53,8 @@ struct DashboardView: View {
                 UserPathPolicyView(model: model)
             } else if selectedSection == "Audit" {
                 AuditHistoryView(model: model)
+            } else if selectedSection == "Recovery" {
+                RecoveryCenterView(model: model)
             } else if selectedSection == "Holding" {
                 HoldingView(model: model)
             } else if selectedSection == "Automation" {
@@ -123,6 +125,7 @@ struct DashboardView: View {
             }
             model.loadAudit()
             model.loadHolding()
+            model.loadRecovery()
             model.loadHistory()
             model.loadUserPolicy()
             model.refreshAutomation()
@@ -172,6 +175,10 @@ struct DashboardView: View {
                 Button("Audit History") {
                     selectedFinding = nil
                     selectedSection = "Audit"
+                }
+                Button("Recovery Center") {
+                    selectedFinding = nil
+                    selectedSection = "Recovery"
                 }
                 Button("Holding Area") {
                     selectedFinding = nil
@@ -613,6 +620,158 @@ struct AuditHistoryView: View {
             }
             .padding(24)
         }
+    }
+}
+
+struct RecoveryCenterView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Recovery Center")
+                            .font(.largeTitle.bold())
+                        Text("Review what Ryddi can restore directly, what needs Finder Trash review, and what requires native tools or backups.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        model.loadAudit()
+                        model.loadHolding()
+                        model.loadRecovery()
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                }
+
+                HStack(spacing: 16) {
+                    MetricTile(title: "Recovery items", value: "\(model.recoveryReport.itemCount)")
+                    MetricTile(title: "Restorable", value: "\(model.recoveryReport.restorableCount)")
+                    MetricTile(title: "Held bytes", value: ByteFormat.string(model.recoveryReport.restorableBytes))
+                }
+
+                SectionBox(title: "By State") {
+                    if model.recoveryReport.stateSummaries.isEmpty {
+                        Text("No recovery evidence yet.")
+                    } else {
+                        ForEach(model.recoveryReport.stateSummaries) { summary in
+                            HStack {
+                                Text(summary.state.label)
+                                Spacer()
+                                Text(ByteFormat.string(summary.bytes))
+                                    .foregroundStyle(.secondary)
+                                Text("\(summary.count)")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                SectionBox(title: "Restorable With Ryddi") {
+                    let restorable = model.recoveryReport.items.filter(\.canRestoreWithRyddi)
+                    if restorable.isEmpty {
+                        Text("No app-held items are currently restorable by Ryddi.")
+                    } else {
+                        ForEach(restorable) { item in
+                            RecoveryItemRow(item: item) {
+                                model.restoreRecoveryItem(item)
+                            }
+                            Divider()
+                        }
+                    }
+                }
+
+                SectionBox(title: "Receipt Guidance") {
+                    let guidanceItems = model.recoveryReport.items.filter { !$0.canRestoreWithRyddi }
+                    if guidanceItems.isEmpty {
+                        Text("No saved receipt actions need recovery guidance.")
+                    } else {
+                        ForEach(guidanceItems.prefix(30)) { item in
+                            RecoveryItemRow(item: item, onRestore: nil)
+                            Divider()
+                        }
+                    }
+                }
+
+                SectionBox(title: "Non-claims") {
+                    ForEach(model.recoveryReport.nonClaims, id: \.self) { note in
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct RecoveryItemRow: View {
+    let item: RecoveryCenterItem
+    let onRestore: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(item.state.label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(ByteFormat.string(item.bytes))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let onRestore {
+                    Button {
+                        onRestore()
+                    } label: {
+                        Label("Restore", systemImage: "arrow.uturn.backward")
+                    }
+                }
+            }
+            if let originalPath = item.originalPath {
+                Text("Original: \(originalPath)")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+            if let currentPath = item.currentPath {
+                Text("Current: \(currentPath)")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+            if let receiptID = item.receiptID {
+                Text("Receipt: \(receiptID)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            Text(item.message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(item.guidance.prefix(2), id: \.self) { guidance in
+                Text(guidance)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -2440,6 +2599,7 @@ final class DashboardModel {
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
     var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
     var heldItems: [HeldItem] = []
+    var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
     var duplicateReview: DuplicateReview?
     var appReview: AppReviewReport?
     var containerInventory: ContainerInventoryReport?
@@ -2606,6 +2766,7 @@ final class DashboardModel {
             _ = try AuditStore().save(plan: plan)
             _ = try AuditStore().save(receipt: receipt)
             loadAudit()
+            loadRecovery()
         } catch {
             self.error = error.localizedDescription
         }
@@ -2638,6 +2799,7 @@ final class DashboardModel {
             _ = try AuditStore().save(receipt: receipt)
             loadAudit()
             loadHolding()
+            loadRecovery()
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
             let preset = scanPreset
             let refreshed = try await Task.detached {
@@ -2816,10 +2978,16 @@ final class DashboardModel {
         recentNativeToolReports = store.recentNativeToolReports()
         recentContainerInventoryReports = store.recentContainerInventoryReports()
         recentActiveFileReviewReports = store.recentActiveFileReviewReports()
+        loadRecovery()
     }
 
     func loadHolding() {
         heldItems = HoldingStore().list()
+        loadRecovery()
+    }
+
+    func loadRecovery() {
+        recoveryReport = RecoveryCenter.build(heldItems: heldItems, receipts: recentReceipts)
     }
 
     func loadHistory() {
@@ -2937,6 +3105,20 @@ final class DashboardModel {
     func restoreHeldItem(_ item: HeldItem) {
         do {
             _ = try HoldingStore().restore(id: item.id)
+            loadHolding()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func restoreRecoveryItem(_ item: RecoveryCenterItem) {
+        guard let holdingID = item.holdingID else {
+            error = "Only app-held recovery items can be restored by Ryddi."
+            return
+        }
+        do {
+            _ = try HoldingStore().restore(id: holdingID)
             loadHolding()
             error = nil
         } catch {

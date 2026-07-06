@@ -10,12 +10,19 @@ public struct ExecutorConfiguration: Sendable {
     public let userPathPolicy: UserPathPolicy
 
     public init(
-        holdingRoot: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Ryddi/Holding"),
+        holdingRoot: URL = ExecutorConfiguration.defaultHoldingRoot(),
         userPathPolicy: UserPathPolicy = .empty
     ) {
         self.holdingRoot = holdingRoot
         self.userPathPolicy = userPathPolicy
+    }
+
+    public static func defaultHoldingRoot() -> URL {
+        if let override = ProcessInfo.processInfo.environment["RYDDI_HOLDING_ROOT"], !override.isEmpty {
+            return URL(fileURLWithPath: override).standardizedFileURL
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Ryddi/Holding")
     }
 }
 

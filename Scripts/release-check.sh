@@ -115,6 +115,24 @@ RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" receipts expor
 grep -q "# Ryddi Receipt Report" "$scratch/receipt-report.md"
 grep -q "does not execute cleanup" "$scratch/receipt-report.md"
 grep -q "<path redacted>" "$scratch/receipt-report.md"
+holding_fixture="$scratch/holding/2026-01-01T00-00-00Z"
+mkdir -p "$holding_fixture"
+printf 'held cache\n' >"$holding_fixture/cache.bin"
+cat >"$holding_fixture/.reclaimer-hold.json" <<JSON
+{
+  "allocatedSize" : 11,
+  "heldAt" : "2026-01-01T00:00:00Z",
+  "isDirectory" : false,
+  "originalPath" : "$scratch/original-cache.bin"
+}
+JSON
+RYDDI_AUDIT_ROOT="$scratch/audit" RYDDI_HOLDING_ROOT="$scratch/holding" "$app/Contents/MacOS/reclaimer" recovery --json --limit 20 >"$scratch/recovery-smoke.json"
+grep -q '"restorableCount" : 1' "$scratch/recovery-smoke.json"
+grep -q '"state" : "restorableFromHolding"' "$scratch/recovery-smoke.json"
+grep -q '"state" : "dryRunOnly"' "$scratch/recovery-smoke.json"
+RYDDI_HOLDING_ROOT="$scratch/holding" "$app/Contents/MacOS/reclaimer" recovery restore "2026-01-01T00-00-00Z/cache.bin" --to "$scratch/restored-cache.bin" >"$scratch/recovery-restore-smoke.txt"
+grep -q "restored:" "$scratch/recovery-restore-smoke.txt"
+test -f "$scratch/restored-cache.bin"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" containers --json --timeout 2 --save-audit >"$scratch/containers-smoke.json"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy protect "$root/Tests" --reason "release smoke" >"$scratch/policy-protect-smoke.txt"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy list --json >"$scratch/policy-list-smoke.json"
@@ -191,6 +209,7 @@ Verification performed:
 - bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy
 - bundled reclaimer plan --save-audit on disposable fixture plus redacted plans export --output saved-plan-report.md
 - bundled reclaimer execute --dry-run --save-audit on disposable fixture plus redacted receipts export --output receipt-report.md
+- bundled reclaimer recovery --json and recovery restore with disposable audit and holding roots
 - bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
 - bundled reclaimer policy protect/list/export/import/replace with temporary config roots
 - codesign verification when CODESIGN_IDENTITY is set

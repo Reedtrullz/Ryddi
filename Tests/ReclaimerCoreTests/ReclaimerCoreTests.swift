@@ -1633,6 +1633,84 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: heldDirectory.path))
     }
 
+    func testRecoveryCenterSeparatesRestorableItemsFromReceiptGuidance() throws {
+        let heldRoot = tempRoot.appendingPathComponent("Holding", isDirectory: true)
+        let source = tempRoot.appendingPathComponent("Library/Caches/Ryddi/held-cache.bin")
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 128).write(to: source)
+        let heldDirectory = heldRoot.appendingPathComponent("2026-07-06T12-00-00Z", isDirectory: true)
+        let heldFile = heldDirectory.appendingPathComponent("held-cache.bin")
+        try FileManager.default.createDirectory(at: heldDirectory, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: source, to: heldFile)
+
+        let store = HoldingStore(root: heldRoot)
+        try store.recordHold(
+            source: source,
+            target: heldFile,
+            finding: finding(path: source.path, safety: .safeAfterCondition, action: .quarantineHold, open: false)
+        )
+        let heldItems = store.list()
+        let heldID = try XCTUnwrap(heldItems.first?.id)
+        let receipt = ExecutionReceipt(
+            id: "performed-fixture",
+            createdAt: Date(timeIntervalSince1970: 10),
+            ruleVersion: "test",
+            mode: ExecutionMode.perform.rawValue,
+            beforeFreeBytes: nil,
+            afterFreeBytes: nil,
+            actions: [
+                ExecutionActionReceipt(path: "/tmp/trashed-cache", action: .trash, status: "done", message: "Moved to Trash.", reclaimedBytes: 20),
+                ExecutionActionReceipt(path: "/tmp/deleted-cache", action: .deleteCache, status: "done", message: "Deleted cache.", reclaimedBytes: 30),
+                ExecutionActionReceipt(path: "/tmp/native-cache", action: .nativeToolCommand, status: "done", message: "Use native cleanup.", reclaimedBytes: 40),
+                ExecutionActionReceipt(path: "/tmp/skipped-cache", action: .deleteCache, status: "skipped", message: "Open file.", reclaimedBytes: 0)
+            ],
+            userConfirmed: true
+        )
+        let dryRunReceipt = ExecutionReceipt(
+            id: "dry-run-fixture",
+            createdAt: Date(timeIntervalSince1970: 20),
+            ruleVersion: "test",
+            mode: ExecutionMode.dryRun.rawValue,
+            beforeFreeBytes: nil,
+            afterFreeBytes: nil,
+            actions: [
+                ExecutionActionReceipt(path: "/tmp/planned-cache", action: .deleteCache, status: "dry-run", message: "Would delete.", reclaimedBytes: 50)
+            ],
+            userConfirmed: false
+        )
+
+        let report = RecoveryCenter.build(
+            heldItems: heldItems,
+            receipts: [dryRunReceipt, receipt],
+            limit: 20,
+            generatedAt: Date(timeIntervalSince1970: 30)
+        )
+
+        XCTAssertEqual(report.restorableCount, 1)
+        XCTAssertEqual(report.restorableBytes, 128)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("Ryddi can restore only items currently held") })
+        XCTAssertEqual(report.items.first?.state, .restorableFromHolding)
+        XCTAssertEqual(report.items.first?.holdingID, heldID)
+        XCTAssertEqual(Set(report.items.map(\.state)), [
+            .restorableFromHolding,
+            .trashReview,
+            .notRecoverableByRyddi,
+            .guidanceOnly,
+            .skippedNoChange,
+            .dryRunOnly
+        ])
+        XCTAssertTrue(report.items.contains { $0.state == .trashReview && $0.guidance.contains { $0.contains("Finder Trash") } })
+        XCTAssertTrue(report.items.contains { $0.state == .notRecoverableByRyddi && $0.guidance.contains { $0.contains("rebuild the cache") } })
+
+        let restored = try store.restore(id: heldID)
+        XCTAssertEqual(restored.path, source.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+
+        let refreshed = RecoveryCenter.build(heldItems: store.list(), receipts: [], limit: 20)
+        XCTAssertEqual(refreshed.restorableCount, 0)
+        XCTAssertTrue(refreshed.items.isEmpty)
+    }
+
     func testLaunchAgentPlistContainsReportOnlyScan() {
         let plist = LaunchAgentManager().plist(cliPath: "/tmp/reclaimer", logPath: "/tmp/reclaimer.log")
         XCTAssertTrue(plist.contains("<string>plan</string>"))
