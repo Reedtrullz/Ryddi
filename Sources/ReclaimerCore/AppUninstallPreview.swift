@@ -136,6 +136,27 @@ public enum AppUninstallPreviewError: LocalizedError {
     }
 }
 
+public enum AppUninstallProtection {
+    public static func reason(for app: InstalledApp) -> String? {
+        let lowerPath = app.path.lowercased()
+        let lowerName = app.displayName.lowercased()
+        let lowerBundle = app.bundleIdentifier?.lowercased() ?? ""
+        if lowerPath.hasPrefix("/system/applications/") || lowerPath.hasPrefix("/system/library/") {
+            return "System application bundle is outside Ryddi's uninstall scope."
+        }
+        if lowerBundle.hasPrefix("com.apple.") {
+            return "Apple app bundle is protected by default."
+        }
+        if lowerName.contains("garageband") || lowerName.contains("logic") {
+            return "GarageBand and Logic apps/assets are protected by default."
+        }
+        if lowerName == "photos" || lowerName == "music" || lowerName.contains("keychain") {
+            return "Personal media, music, photo, and credential apps are protected by default."
+        }
+        return nil
+    }
+}
+
 public enum AppUninstallPreviewBuilder {
     public static func build(
         report: AppReviewReport,
@@ -211,7 +232,7 @@ public enum AppUninstallPreviewBuilder {
     private static func bundleCandidate(for app: InstalledApp) -> AppUninstallCandidate {
         let url = URL(fileURLWithPath: app.path).standardizedFileURL
         let measurement = measure(url: url)
-        let protection = protectionReason(for: app)
+        let protection = AppUninstallProtection.reason(for: app)
         if let protection {
             return AppUninstallCandidate(
                 path: app.path,
@@ -250,25 +271,6 @@ public enum AppUninstallPreviewBuilder {
                 "Keep related support files until you confirm whether preferences, licenses, projects, or user data should be preserved."
             ]
         )
-    }
-
-    private static func protectionReason(for app: InstalledApp) -> String? {
-        let lowerPath = app.path.lowercased()
-        let lowerName = app.displayName.lowercased()
-        let lowerBundle = app.bundleIdentifier?.lowercased() ?? ""
-        if lowerPath.hasPrefix("/system/applications/") || lowerPath.hasPrefix("/system/library/") {
-            return "System application bundle is outside Ryddi's uninstall scope."
-        }
-        if lowerBundle.hasPrefix("com.apple.") {
-            return "Apple app bundle is protected by default."
-        }
-        if lowerName.contains("garageband") || lowerName.contains("logic") {
-            return "GarageBand and Logic apps/assets are protected by default."
-        }
-        if lowerName == "photos" || lowerName == "music" || lowerName.contains("keychain") {
-            return "Personal media, music, photo, and credential apps are protected by default."
-        }
-        return nil
     }
 
     private struct Measurement {
@@ -318,6 +320,232 @@ public enum AppUninstallPreviewBuilder {
             allocated += Int64(childValues.totalFileAllocatedSize ?? childValues.fileAllocatedSize ?? childValues.fileSize ?? 0)
         }
         return Measurement(logicalSize: logical, allocatedSize: allocated, isDirectory: true)
+    }
+}
+
+public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let createdAt: Date
+    public let previewID: String
+    public let mode: String
+    public let appDisplayName: String
+    public let bundleIdentifier: String?
+    public let bundlePath: String
+    public let actionKind: ActionKind
+    public let disposition: AppUninstallDisposition
+    public let selectedBundleBytes: Int64
+    public let relatedReviewBytes: Int64
+    public let userConfirmed: Bool
+    public let status: String
+    public let message: String
+    public let resultingTrashPath: String?
+    public let errors: [String]
+    public let nonClaims: [String]
+
+    public init(
+        id: String = UUID().uuidString,
+        createdAt: Date = Date(),
+        previewID: String,
+        mode: String,
+        appDisplayName: String,
+        bundleIdentifier: String?,
+        bundlePath: String,
+        actionKind: ActionKind,
+        disposition: AppUninstallDisposition,
+        selectedBundleBytes: Int64,
+        relatedReviewBytes: Int64,
+        userConfirmed: Bool,
+        status: String,
+        message: String,
+        resultingTrashPath: String? = nil,
+        errors: [String] = [],
+        nonClaims: [String]
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.previewID = previewID
+        self.mode = mode
+        self.appDisplayName = appDisplayName
+        self.bundleIdentifier = bundleIdentifier
+        self.bundlePath = bundlePath
+        self.actionKind = actionKind
+        self.disposition = disposition
+        self.selectedBundleBytes = selectedBundleBytes
+        self.relatedReviewBytes = relatedReviewBytes
+        self.userConfirmed = userConfirmed
+        self.status = status
+        self.message = message
+        self.resultingTrashPath = resultingTrashPath
+        self.errors = errors
+        self.nonClaims = nonClaims
+    }
+}
+
+public struct AppUninstallExecutorConfiguration: Sendable {
+    public let userPathPolicy: UserPathPolicy
+
+    public init(userPathPolicy: UserPathPolicy = .empty) {
+        self.userPathPolicy = userPathPolicy
+    }
+}
+
+public final class AppUninstallExecutor: @unchecked Sendable {
+    private let fileManager: FileManager
+    private let openFileChecker: OpenFileChecking
+    private let configuration: AppUninstallExecutorConfiguration
+
+    public init(
+        fileManager: FileManager = .default,
+        openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
+        configuration: AppUninstallExecutorConfiguration = AppUninstallExecutorConfiguration()
+    ) {
+        self.fileManager = fileManager
+        self.openFileChecker = openFileChecker
+        self.configuration = configuration
+    }
+
+    public func execute(
+        preview: AppUninstallPreview,
+        mode: ExecutionMode,
+        userConfirmed: Bool
+    ) -> AppUninstallExecutionReceipt {
+        let candidate = preview.bundleCandidate
+        let url = URL(fileURLWithPath: candidate.path).standardizedFileURL
+
+        if candidate.disposition != .trashPreview || candidate.actionKind != .trash {
+            return receipt(
+                preview: preview,
+                mode: mode,
+                userConfirmed: userConfirmed,
+                status: "skipped",
+                message: "Selected app bundle is protected or review-only; no Trash action is available."
+            )
+        }
+        if let rule = configuration.userPathPolicy.matchingRule(for: candidate.path, kind: .exclude) {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Blocked by user exclusion rule at \(rule.path).")
+        }
+        if let rule = configuration.userPathPolicy.matchingRule(for: candidate.path, kind: .protect) {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Blocked by user protection rule at \(rule.path).")
+        }
+        guard url.pathExtension.lowercased() == "app" else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Only .app bundles can use app uninstall Trash execution.")
+        }
+        guard fileManager.fileExists(atPath: url.path) else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle no longer exists.")
+        }
+        guard let current = currentInstalledApp(at: url) else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Could not re-read app bundle metadata before action.")
+        }
+        if let protection = AppUninstallProtection.reason(for: current) {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: protection)
+        }
+        guard !isSymbolicLink(url) else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle path changed into a symbolic link.")
+        }
+        let openStatus = openFileChecker.status(for: url)
+        if openStatus.isOpen {
+            let processes = openStatus.processSummary.joined(separator: ", ")
+            let suffix = processes.isEmpty ? "" : " Open process(es): \(processes)."
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Open-file check blocked app uninstall.\(suffix)")
+        }
+        if let checkFailed = openStatus.checkFailed {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Open-file check failed: \(checkFailed)")
+        }
+        guard mode == .perform else {
+            return receipt(
+                preview: preview,
+                mode: mode,
+                userConfirmed: userConfirmed,
+                status: "dry-run",
+                message: "Would move selected app bundle to Trash. Related support files would remain untouched."
+            )
+        }
+        guard userConfirmed else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Moving an app bundle to Trash requires explicit --yes/user confirmation.")
+        }
+
+        do {
+            var trashedURL: NSURL?
+            try fileManager.trashItem(at: url, resultingItemURL: &trashedURL)
+            return receipt(
+                preview: preview,
+                mode: mode,
+                userConfirmed: userConfirmed,
+                status: "done",
+                message: "Moved selected app bundle to Trash. Related support files were not touched.",
+                resultingTrashPath: trashedURL?.path
+            )
+        } catch {
+            return receipt(
+                preview: preview,
+                mode: mode,
+                userConfirmed: userConfirmed,
+                status: "error",
+                message: error.localizedDescription,
+                errors: [error.localizedDescription]
+            )
+        }
+    }
+
+    private func receipt(
+        preview: AppUninstallPreview,
+        mode: ExecutionMode,
+        userConfirmed: Bool,
+        status: String,
+        message: String,
+        resultingTrashPath: String? = nil,
+        errors: [String] = []
+    ) -> AppUninstallExecutionReceipt {
+        AppUninstallExecutionReceipt(
+            previewID: preview.id,
+            mode: mode.rawValue,
+            appDisplayName: preview.selectedApp.displayName,
+            bundleIdentifier: preview.selectedApp.bundleIdentifier,
+            bundlePath: preview.bundleCandidate.path,
+            actionKind: preview.bundleCandidate.actionKind,
+            disposition: preview.bundleCandidate.disposition,
+            selectedBundleBytes: preview.bundleCandidate.allocatedSize,
+            relatedReviewBytes: preview.relatedReviewBytes,
+            userConfirmed: userConfirmed,
+            status: status,
+            message: message,
+            resultingTrashPath: resultingTrashPath,
+            errors: errors,
+            nonClaims: [
+                "Only the selected app bundle is in scope for this receipt; related support files were not moved or deleted.",
+                "Trash does not guarantee immediate free-space recovery until the user empties Trash and APFS accounting settles.",
+                "Ryddi did not quit the app, unload helpers, remove launch agents, revoke login items, or run vendor uninstallers.",
+                "Preferences, licenses, app support data, containers, saved state, user documents, and creative assets remain review-only/manual."
+            ]
+        )
+    }
+
+    private func currentInstalledApp(at url: URL) -> InstalledApp? {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        let infoURL = url.appendingPathComponent("Contents/Info.plist")
+        let info = (try? Data(contentsOf: infoURL))
+            .flatMap { try? PropertyListSerialization.propertyList(from: $0, options: [], format: nil) as? [String: Any] }
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+        let displayName = (info?["CFBundleDisplayName"] as? String)
+            ?? (info?["CFBundleName"] as? String)
+            ?? url.deletingPathExtension().lastPathComponent
+        let bundleIdentifier = info?["CFBundleIdentifier"] as? String
+        return InstalledApp(
+            id: bundleIdentifier ?? url.path,
+            displayName: displayName,
+            bundleIdentifier: bundleIdentifier,
+            version: info?["CFBundleShortVersionString"] as? String,
+            executableName: info?["CFBundleExecutable"] as? String,
+            path: url.path,
+            modificationDate: values?.contentModificationDate
+        )
+    }
+
+    private func isSymbolicLink(_ url: URL) -> Bool {
+        (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
     }
 }
 

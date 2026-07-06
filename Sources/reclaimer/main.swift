@@ -597,6 +597,10 @@ struct ReclaimerCLI {
             try appUninstallPreview(args: Array(args.dropFirst()))
             return
         }
+        if args.first == "uninstall" {
+            try appUninstall(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
         let report = try AppReviewScanner().scan(options: options.appReviewOptions)
         if options.json {
@@ -631,6 +635,35 @@ struct ReclaimerCLI {
             printJSON(preview)
         } else if options.outputPath == nil {
             printAppUninstallPreview(preview, options: options)
+        }
+    }
+
+    static func appUninstall(args: [String]) throws {
+        let options = ParsedOptions(args)
+        if options.yes && options.noLsof && !options.dryRun {
+            throw CLIError.message("--no-lsof is only allowed for app uninstall dry runs; apps uninstall --yes requires open-file checks.")
+        }
+        let report = try AppReviewScanner().scan(options: options.appReviewOptions)
+        let preview = try AppUninstallPreviewBuilder.build(report: report, selector: options.appUninstallSelector)
+        let receipt = AppUninstallExecutor(
+            openFileChecker: options.noLsof && options.dryRun ? NoOpenFilesChecker() : LsofOpenFileChecker(),
+            configuration: AppUninstallExecutorConfiguration(userPathPolicy: options.userPathPolicy)
+        )
+            .execute(
+                preview: preview,
+                mode: options.dryRun ? .dryRun : .perform,
+                userConfirmed: options.yes
+            )
+        if options.saveAudit {
+            let previewURL = try AuditStore().save(appUninstallPreview: preview)
+            let receiptURL = try AuditStore().save(appUninstallReceipt: receipt)
+            FileHandle.standardError.write(Data("saved app uninstall preview: \(previewURL.path)\n".utf8))
+            FileHandle.standardError.write(Data("saved app uninstall receipt: \(receiptURL.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(receipt)
+        } else {
+            printAppUninstallReceipt(receipt)
         }
     }
 
@@ -1129,6 +1162,8 @@ struct ReclaimerCLI {
               apps uninstall-preview [--json] (--app PATH | --bundle-id ID | --name NAME)
                    [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N] [--output PATH]
                    [--save-audit] [--path-style full|home-relative|redacted] [--redact-user-text]
+              apps uninstall [--dry-run|--yes] [--json] (--app PATH | --bundle-id ID | --name NAME)
+                   [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--save-audit] [--ignore-user-policy]
               agents [--json] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               native [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
@@ -2320,6 +2355,35 @@ func printAppUninstallPreview(_ preview: AppUninstallPreview, options: ParsedOpt
 
     print("\nNon-claims")
     for note in preview.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printAppUninstallReceipt(_ receipt: AppUninstallExecutionReceipt) {
+    print("Ryddi app uninstall receipt \(receipt.id)")
+    print("Generated: \(receipt.createdAt.formatted())")
+    print("Mode: \(receipt.mode)")
+    print("Status: \(receipt.status)")
+    print("App: \(receipt.appDisplayName)")
+    if let bundleIdentifier = receipt.bundleIdentifier {
+        print("Bundle id: \(bundleIdentifier)")
+    }
+    print("Bundle path: \(receipt.bundlePath)")
+    print("Action: \(receipt.actionKind.label) / \(receipt.disposition.label)")
+    print("Selected bundle bytes: \(ByteFormat.string(receipt.selectedBundleBytes))")
+    print("Related review bytes untouched: \(ByteFormat.string(receipt.relatedReviewBytes))")
+    print("Message: \(receipt.message)")
+    if let resultingTrashPath = receipt.resultingTrashPath {
+        print("Trash path: \(resultingTrashPath)")
+    }
+    if !receipt.errors.isEmpty {
+        print("\nErrors")
+        for error in receipt.errors {
+            print("- \(error)")
+        }
+    }
+    print("\nNon-claims")
+    for note in receipt.nonClaims {
         print("- \(note)")
     }
 }

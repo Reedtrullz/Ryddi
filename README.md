@@ -56,7 +56,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - archive-candidate review checklist for large/old personal files, with keep/archive/Trash-review/cleanup-plan/blocked recommendations
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
-- app uninstall preview reports for selected apps, with the app bundle separated from review-only related support files
+- app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, separating reclaimable cache from valuable history and protected state
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
@@ -272,9 +272,11 @@ Ryddi can build a manual uninstall preview for a selected installed app:
 swift run --scratch-path .build reclaimer apps --min-size 10000000
 swift run --scratch-path .build reclaimer apps uninstall-preview --app /Applications/Example.app --output ryddi-app-uninstall-preview.md
 swift run --scratch-path .build reclaimer apps uninstall-preview --bundle-id com.example.App --json --save-audit
+swift run --scratch-path .build reclaimer apps uninstall --dry-run --app /Applications/Example.app --json --save-audit
+swift run --scratch-path .build reclaimer apps uninstall --yes --app /Applications/Example.app --json --save-audit
 ```
 
-The preview separates the app bundle from related support files. The app bundle can be shown as an explicit Trash candidate after review, but related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. The command does not quit apps, unload helpers, run vendor uninstallers, remove files, or clean leftovers automatically.
+The preview separates the app bundle from related support files. `apps uninstall --dry-run` writes a receipt for moving only the selected app bundle to Trash. `apps uninstall --yes` performs that app-bundle Trash move after open-file, user-policy, and final bundle protection checks. Related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. Ryddi does not quit apps, unload helpers, run vendor uninstallers, or clean leftovers automatically.
 
 ## Protections And Exclusions
 
@@ -475,7 +477,7 @@ Scripts/                     Packaging and notarization helpers
 ## Non-Goals For v1
 
 - automatic duplicate cleanup, smart duplicate selection, or Photos/Music duplicate management
-- app uninstall execution, automatic app-support cleanup, or smart leftover deletion
+- automatic app-support cleanup, bulk app uninstall, vendor uninstaller execution, or smart leftover deletion
 - malware scanning
 - RAM cleaning or "optimizer" features
 - root helper/system-wide cleanup

@@ -398,6 +398,18 @@ RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" apps uninstall
 grep -q '"disposition" : "trashPreview"' "$scratch/app-uninstall-preview.json"
 grep -q '"relatedItems"' "$scratch/app-uninstall-preview.json"
 find "$scratch/audit" -name 'app-uninstall-preview-*.json' -print -quit | grep -q .
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" apps uninstall \
+  --json \
+  --dry-run \
+  --no-lsof \
+  --app "$app_bundle" \
+  --path "$app_root" \
+  --home "$app_home" \
+  --min-size 1 \
+  --save-audit >"$scratch/app-uninstall-dry-run.json"
+grep -q '"status" : "dry-run"' "$scratch/app-uninstall-dry-run.json"
+grep -q "Related support files would remain untouched" "$scratch/app-uninstall-dry-run.json"
+find "$scratch/audit" -name 'app-uninstall-receipt-*.json' -print -quit | grep -q .
 history_fixture="$scratch/history-fixture"
 history_cache="$history_fixture/Library/Caches/Codex"
 mkdir -p "$history_cache"
@@ -525,7 +537,7 @@ Verification performed:
 - bundled reclaimer large --path disposable fixture with text and JSON review output
 - bundled reclaimer archive --path disposable fixture with text, JSON, and redacted Markdown review output
 - bundled reclaimer drilldown --json on disposable nested fixture
-- bundled reclaimer apps uninstall-preview on a disposable app fixture, with redacted Markdown and saved JSON audit
+- bundled reclaimer apps uninstall-preview and apps uninstall --dry-run on a disposable app fixture, with redacted Markdown and saved JSON audit
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md
 - bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
 - bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy

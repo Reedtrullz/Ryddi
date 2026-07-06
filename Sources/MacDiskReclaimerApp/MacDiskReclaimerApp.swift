@@ -1149,6 +1149,16 @@ struct AuditHistoryView: View {
                         }
                     }
                 }
+
+                SectionBox(title: "App Uninstall Receipts") {
+                    if model.recentAppUninstallReceipts.isEmpty {
+                        Text("No app-uninstall receipts yet.")
+                    } else {
+                        ForEach(model.recentAppUninstallReceipts) { receipt in
+                            Text("\(receipt.createdAt.formatted()) - \(receipt.mode) - \(receipt.status) - \(receipt.appDisplayName)")
+                        }
+                    }
+                }
             }
             .padding(24)
         }
@@ -2042,7 +2052,7 @@ struct AppReviewView: View {
                     }
 
                     if let preview = model.appUninstallPreview {
-                        AppUninstallPreviewView(preview: preview)
+                        AppUninstallPreviewView(preview: preview, model: model)
                     }
 
                     SectionBox(title: "Installed Apps With Related Files") {
@@ -2174,6 +2184,8 @@ struct AppReviewGroupView: View {
 
 struct AppUninstallPreviewView: View {
     let preview: AppUninstallPreview
+    let model: DashboardModel
+    @State private var confirmTrash = false
 
     var body: some View {
         SectionBox(title: "Uninstall Preview") {
@@ -2209,6 +2221,38 @@ struct AppUninstallPreviewView: View {
                         .monospacedDigit()
                     SafetyBadge(safetyClass: preview.bundleCandidate.safetyClass)
                     AppUninstallCandidateActionButtons(candidate: preview.bundleCandidate)
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await model.dryRunAppUninstall() }
+                    } label: {
+                        Label("Dry Run Trash", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .disabled(model.isWorking || preview.bundleCandidate.disposition != .trashPreview)
+                    .help("Create an app-uninstall receipt without moving the app bundle.")
+
+                    Button(role: .destructive) {
+                        confirmTrash = true
+                    } label: {
+                        Label("Move App To Trash", systemImage: "trash")
+                    }
+                    .disabled(model.isWorking || !model.canTrashPreviewedApp)
+                    .help("Move only the selected app bundle to Trash after a clean dry run.")
+                }
+
+                if let receipt = model.currentAppUninstallReceipt {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Latest uninstall receipt")
+                            .font(.headline)
+                        Text("\(receipt.createdAt.formatted()) - \(receipt.mode) - \(receipt.status)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                        Text(receipt.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 ForEach(preview.bundleCandidate.guidance.prefix(2), id: \.self) { guidance in
@@ -2255,6 +2299,14 @@ struct AppUninstallPreviewView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+        .confirmationDialog("Move app bundle to Trash?", isPresented: $confirmTrash) {
+            Button("Move App To Trash", role: .destructive) {
+                Task { await model.trashPreviewedApp() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Only \(preview.selectedApp.displayName).app is moved. Related support files stay review-only.")
         }
     }
 }
@@ -4070,11 +4122,14 @@ final class DashboardModel {
     var recentNativeToolReports: [NativeToolReport] = []
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
     var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
+    var recentAppUninstallReceipts: [AppUninstallExecutionReceipt] = []
     var heldItems: [HeldItem] = []
     var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
     var duplicateReview: DuplicateReview?
     var appReview: AppReviewReport?
     var appUninstallPreview: AppUninstallPreview?
+    var lastAppUninstallDryRunReceipt: AppUninstallExecutionReceipt?
+    var lastAppUninstallReceipt: AppUninstallExecutionReceipt?
     var agentStorageReview: AgentStorageReview?
     var containerInventory: ContainerInventoryReport?
     var activeFileReview: ActiveFileReviewReport?
@@ -4103,6 +4158,21 @@ final class DashboardModel {
             return selectedScopeTemplate.plan
         }
         return DefaultScopes.plan(for: scanPreset, includeUnavailable: true)
+    }
+
+    var currentAppUninstallReceipt: AppUninstallExecutionReceipt? {
+        lastAppUninstallReceipt ?? lastAppUninstallDryRunReceipt
+    }
+
+    var canTrashPreviewedApp: Bool {
+        guard let preview = appUninstallPreview,
+              let receipt = lastAppUninstallDryRunReceipt,
+              receipt.previewID == preview.id else {
+            return false
+        }
+        return receipt.status == "dry-run"
+            && receipt.errors.isEmpty
+            && preview.bundleCandidate.disposition == .trashPreview
     }
 
     var scopeTemplates: [ScopeTemplate] {
@@ -4678,6 +4748,7 @@ final class DashboardModel {
         recentNativeToolReports = store.recentNativeToolReports()
         recentContainerInventoryReports = store.recentContainerInventoryReports()
         recentActiveFileReviewReports = store.recentActiveFileReviewReports()
+        recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
     }
 
@@ -4804,8 +4875,61 @@ final class DashboardModel {
                 try AppUninstallPreviewBuilder.build(report: report, selector: selector)
             }.value
             appUninstallPreview = preview
+            lastAppUninstallDryRunReceipt = nil
+            lastAppUninstallReceipt = nil
             _ = try AuditStore().save(appUninstallPreview: preview)
             error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func dryRunAppUninstall() async {
+        guard let preview = appUninstallPreview else {
+            error = "Build an uninstall preview before running an app uninstall dry run."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let receipt = await Task.detached {
+                let policy = UserPathPolicyStore().load()
+                return AppUninstallExecutor(
+                    openFileChecker: LsofOpenFileChecker(),
+                    configuration: AppUninstallExecutorConfiguration(userPathPolicy: policy)
+                )
+                    .execute(preview: preview, mode: .dryRun, userConfirmed: false)
+            }.value
+            lastAppUninstallDryRunReceipt = receipt
+            lastAppUninstallReceipt = nil
+            _ = try AuditStore().save(appUninstallReceipt: receipt)
+            loadAudit()
+            error = receipt.status == "dry-run" ? nil : receipt.message
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func trashPreviewedApp() async {
+        guard canTrashPreviewedApp, let preview = appUninstallPreview else {
+            error = "Run a clean app uninstall dry run before moving the app bundle to Trash."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let receipt = await Task.detached {
+                let policy = UserPathPolicyStore().load()
+                return AppUninstallExecutor(
+                    openFileChecker: LsofOpenFileChecker(),
+                    configuration: AppUninstallExecutorConfiguration(userPathPolicy: policy)
+                )
+                    .execute(preview: preview, mode: .perform, userConfirmed: true)
+            }.value
+            lastAppUninstallReceipt = receipt
+            _ = try AuditStore().save(appUninstallReceipt: receipt)
+            loadAudit()
+            error = receipt.status == "done" ? nil : receipt.message
         } catch {
             self.error = error.localizedDescription
         }

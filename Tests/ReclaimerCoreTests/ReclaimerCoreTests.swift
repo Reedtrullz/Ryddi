@@ -1744,6 +1744,110 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(preview.bundleCandidate.evidence.contains { $0.message.contains("Apple app bundle") || $0.message.contains("GarageBand and Logic") })
     }
 
+    func testAppUninstallDryRunReceiptKeepsBundleAndRelatedFilesInPlace() throws {
+        let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
+        let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
+        let app = appRoot.appendingPathComponent("Fixture.app", isDirectory: true)
+        try createAppBundle(
+            at: app,
+            bundleIdentifier: "com.example.fixture",
+            displayName: "Fixture"
+        )
+        let executable = app.appendingPathComponent("Contents/MacOS/Fixture")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 4, count: 512).write(to: executable)
+        let cache = home.appendingPathComponent("Library/Caches/com.example.fixture/cache.bin")
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 512).write(to: cache)
+
+        let appReview = try AppReviewScanner().scan(
+            options: AppReviewOptions(
+                appRoots: [appRoot],
+                home: home,
+                minimumRelatedSize: 1,
+                measurementDepth: 2
+            )
+        )
+        let preview = try AppUninstallPreviewBuilder.build(
+            report: appReview,
+            selector: AppUninstallSelector(appPath: app.path),
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+        let receipt = AppUninstallExecutor(openFileChecker: NoOpenFilesChecker())
+            .execute(preview: preview, mode: .dryRun, userConfirmed: false)
+
+        XCTAssertEqual(receipt.status, "dry-run")
+        XCTAssertEqual(receipt.mode, "dryRun")
+        XCTAssertEqual(receipt.actionKind, .trash)
+        XCTAssertNil(receipt.resultingTrashPath)
+        XCTAssertTrue(receipt.message.contains("Would move selected app bundle to Trash"))
+        XCTAssertTrue(receipt.nonClaims.contains { $0.contains("related support files were not moved or deleted") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
+    }
+
+    func testAppUninstallExecutionBlocksProtectedPreview() throws {
+        let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
+        let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
+        let app = appRoot.appendingPathComponent("GarageBand.app", isDirectory: true)
+        try createAppBundle(
+            at: app,
+            bundleIdentifier: "com.example.garageband-like",
+            displayName: "GarageBand"
+        )
+
+        let appReview = try AppReviewScanner().scan(
+            options: AppReviewOptions(
+                appRoots: [appRoot],
+                home: home,
+                minimumRelatedSize: 1,
+                measurementDepth: 2
+            )
+        )
+        let preview = try AppUninstallPreviewBuilder.build(
+            report: appReview,
+            selector: AppUninstallSelector(appPath: app.path),
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+        let receipt = AppUninstallExecutor(openFileChecker: NoOpenFilesChecker())
+            .execute(preview: preview, mode: .perform, userConfirmed: true)
+
+        XCTAssertEqual(preview.bundleCandidate.disposition, .protectedAppBlocked)
+        XCTAssertEqual(receipt.status, "skipped")
+        XCTAssertTrue(receipt.message.contains("protected") || receipt.message.contains("review-only"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
+    }
+
+    func testAppUninstallExecutionBlocksOpenBundle() throws {
+        let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
+        let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
+        let app = appRoot.appendingPathComponent("Fixture.app", isDirectory: true)
+        try createAppBundle(
+            at: app,
+            bundleIdentifier: "com.example.fixture",
+            displayName: "Fixture"
+        )
+        let appReview = try AppReviewScanner().scan(
+            options: AppReviewOptions(
+                appRoots: [appRoot],
+                home: home,
+                minimumRelatedSize: 1,
+                measurementDepth: 2
+            )
+        )
+        let preview = try AppUninstallPreviewBuilder.build(
+            report: appReview,
+            selector: AppUninstallSelector(appPath: app.path),
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+        let receipt = AppUninstallExecutor(openFileChecker: StaticOpenFileChecker(openPaths: [app.path]))
+            .execute(preview: preview, mode: .perform, userConfirmed: true)
+
+        XCTAssertEqual(receipt.status, "skipped")
+        XCTAssertTrue(receipt.message.contains("Open-file check blocked"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
+    }
+
     func testAppReviewSurfacesOrphanCandidatesAsReviewOnly() throws {
         let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
         let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
