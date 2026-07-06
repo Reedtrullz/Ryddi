@@ -796,10 +796,11 @@ struct ReclaimerCLI {
         guard let finding = findings.first else {
             throw CLIError.message("No finding produced for \(path)")
         }
+        let report = FindingExplanationBuilder.build(for: finding)
         if options.json {
-            printJSON(finding)
+            printJSON(report)
         } else {
-            printFindingDetail(finding)
+            printFindingExplanationReport(report)
         }
     }
 
@@ -2148,25 +2149,62 @@ func printPlans(_ plans: [ReclaimPlan]) {
     }
 }
 
-func printFindingDetail(_ finding: Finding) {
-    print("\(finding.displayName)")
+func printFindingExplanationReport(_ report: FindingExplanationReport) {
+    let finding = report.finding
+    print("Ryddi finding explanation")
+    print("Generated: \(report.generatedAt.formatted())")
     print("Path: \(finding.path)")
-    print("Size: \(ByteFormat.string(finding.allocatedSize)) allocated, \(ByteFormat.string(finding.logicalSize)) logical")
+    print("Summary: \(report.summary)")
     print("Safety: \(finding.safetyClass.label)")
     print("Action: \(finding.actionKind.label)")
-    if let open = finding.openFileStatus {
-        print("Open handles: \(open.isOpen ? open.processSummary.joined(separator: ", ") : "none")")
+    print("Cleanup permission: \(report.cleanupPermission)")
+
+    print("\nWhat this is")
+    for line in report.whatThisIs {
+        print("- \(line)")
     }
-    print("Evidence:")
-    for evidence in finding.evidence {
-        print("- \(evidence.message)")
+
+    print("\nWhy matched")
+    for line in report.whyMatched {
+        print("- \(line)")
     }
-    let guidance = CleanupGuidance.commands(for: finding)
-    if !guidance.isEmpty {
-        print("Native guidance:")
-        for line in guidance {
+
+    print("\nRisk and exact action")
+    print("- Risk: \(report.riskSummary)")
+    print("- Exact action: \(report.exactAction)")
+    print("- Removal effect: \(report.removalEffect)")
+
+    print("\nRecovery")
+    for line in report.recovery {
+        print("- \(line)")
+    }
+
+    print("\nConditions")
+    for line in report.conditions {
+        print("- \(line)")
+    }
+
+    if let nativeReceipt = report.nativeToolReceipt {
+        print("\nNative tool receipt preview")
+        print("- \(nativeReceipt.message)")
+        for command in nativeReceipt.commands {
+            print("- \(command.command) [\(command.risk.label)] \(command.purpose)")
+        }
+    } else if !report.guidanceCommands.isEmpty {
+        print("\nGuidance commands")
+        for line in report.guidanceCommands {
             print("- \(line)")
         }
+    }
+
+    print("\nNext steps")
+    for line in report.nextSteps {
+        print("- \(line)")
+    }
+
+    print("\nExplanation non-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
     }
 }
 

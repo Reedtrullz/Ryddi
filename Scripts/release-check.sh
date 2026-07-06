@@ -237,6 +237,17 @@ grep -q '"ownerSummaries"' "$scratch/overview-smoke.json"
 grep -q '"topOffenderTable"' "$scratch/overview-smoke.json"
 grep -q '"estimatedImmediateReclaim"' "$scratch/overview-smoke.json"
 grep -q '"group" : "safety"' "$scratch/overview-smoke.json"
+"$app/Contents/MacOS/reclaimer" explain "$receipt_fixture" --min-size 1 --max-depth 2 --no-lsof >"$scratch/explain-smoke.txt"
+grep -q "Ryddi finding explanation" "$scratch/explain-smoke.txt"
+grep -q "What this is" "$scratch/explain-smoke.txt"
+grep -q "Why matched" "$scratch/explain-smoke.txt"
+grep -q "Risk and exact action" "$scratch/explain-smoke.txt"
+grep -q "Explanation non-claims" "$scratch/explain-smoke.txt"
+"$app/Contents/MacOS/reclaimer" explain "$receipt_fixture" --json --min-size 1 --max-depth 2 --no-lsof >"$scratch/explain-smoke.json"
+grep -q '"cleanupPermission"' "$scratch/explain-smoke.json"
+grep -q '"exactAction"' "$scratch/explain-smoke.json"
+grep -q '"whatThisIs"' "$scratch/explain-smoke.json"
+grep -q '"whyMatched"' "$scratch/explain-smoke.json"
 "$app/Contents/MacOS/reclaimer" queues --path "$root/Tests" --limit 5 >"$scratch/queues-smoke.txt"
 grep -q "Ryddi review queues" "$scratch/queues-smoke.txt"
 grep -q "Personal/App Assets" "$scratch/queues-smoke.txt"
@@ -425,6 +436,7 @@ Verification performed:
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
+- bundled reclaimer explain on disposable Codex cache fixture with text and JSON explanation output
 - bundled reclaimer queues --path Tests --limit 5, queues --json, and queues --queue unknown
 - bundled reclaimer large --path disposable fixture with text and JSON review output
 - bundled reclaimer drilldown --json on disposable nested fixture

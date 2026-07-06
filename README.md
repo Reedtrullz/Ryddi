@@ -295,6 +295,17 @@ Rule packs can contain private path fragments, app names, or notes. Review befor
 
 In the app, use Rule Catalog -> Local User Rules to preview a JSON pack, inspect validation issues, import the previewed pack, export installed rules, or reveal the local `user-rules.json`. The toolbar `User Rules` toggle is off by default; turning it on opts the next scan into local user rules and clears stale scan/plan state.
 
+## Finding Explanations
+
+Ryddi can explain a single finding as a structured review packet:
+
+```bash
+swift run --scratch-path .build reclaimer explain ~/Library/Caches/Codex
+swift run --scratch-path .build reclaimer explain ~/Library/Caches/Codex --json
+```
+
+The explanation answers what the path appears to be, why it matched, risk, cleanup permission, exact action semantics, removal effect, recovery path, conditions, next steps, and explicit non-claims. It does not execute cleanup or prove that cleanup would succeed.
+
 ## Evidence Reports
 
 Ryddi can export a local Markdown report for review, sharing, or before/after notes:

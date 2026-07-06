@@ -2268,6 +2268,10 @@ struct FindingDetailView: View {
     let finding: Finding
     let planItem: ReclaimPlanItem?
 
+    private var explanation: FindingExplanationReport {
+        FindingExplanationBuilder.build(for: finding)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -2284,22 +2288,18 @@ struct FindingDetailView: View {
                     Text(ByteFormat.string(finding.allocatedSize))
                 }
 
-                SectionBox(title: "What this is") {
-                    Text("Scope: \(finding.scopeName)")
-                    Text(finding.ownerHint ?? "Unknown owner")
-                    Text("Logical: \(ByteFormat.string(finding.logicalSize)); allocated: \(ByteFormat.string(finding.allocatedSize))")
-                    Text(finding.storageAccountingNote)
+                SectionBox(title: "Summary") {
+                    Text(explanation.summary)
+                    Text(explanation.cleanupPermission)
                         .foregroundStyle(.secondary)
-                    if let date = finding.modificationDate {
-                        Text("Modified: \(date.formatted())")
-                    }
-                    if let open = finding.openFileStatus {
-                        Text(open.isOpen ? "Open by: \(open.processSummary.joined(separator: ", "))" : "Open handles: none")
-                    } else {
-                        Text("Open handles: not checked yet")
-                    }
-                    ForEach(finding.ruleMatches, id: \.ruleID) { match in
-                        Text("\(match.category): \(match.title) (\(match.ruleID))")
+                    Text(explanation.removalEffect)
+                        .foregroundStyle(.secondary)
+                }
+
+                SectionBox(title: "What this is") {
+                    ForEach(explanation.whatThisIs, id: \.self) { line in
+                        Text(line)
+                            .foregroundStyle(line.hasPrefix("Accounting") ? Color.secondary : Color.primary)
                     }
                 }
 
@@ -2308,31 +2308,32 @@ struct FindingDetailView: View {
                 }
 
                 SectionBox(title: "Why this classification") {
-                    ForEach(finding.evidence, id: \.self) { evidence in
-                        Text("• \(evidence.message)")
+                    ForEach(explanation.whyMatched, id: \.self) { line in
+                        Text("- \(line)")
                     }
+                }
+
+                SectionBox(title: "Risk and exact action") {
+                    Text(explanation.riskSummary)
+                    Text(explanation.exactAction)
+                    Text(explanation.cleanupPermission)
+                        .foregroundStyle(.secondary)
                 }
 
                 SectionBox(title: "Recovery and conditions") {
-                    if let planItem {
-                        ForEach(planItem.conditions, id: \.message) { condition in
-                            Text("\(condition.isSatisfied ? "OK" : "Blocked"): \(condition.message)")
-                        }
-                    } else if finding.ruleMatches.isEmpty {
-                        Text("No recovery guidance available; review manually.")
-                    } else {
-                        ForEach(finding.ruleMatches, id: \.ruleID) { match in
-                            if let recovery = match.recovery {
-                                Text(recovery)
-                            }
-                            ForEach(match.conditions, id: \.self) { condition in
-                                Text("• \(condition)")
-                            }
-                        }
+                    ForEach(explanation.recovery, id: \.self) { line in
+                        Text(line)
+                    }
+                    if !explanation.conditions.isEmpty {
+                        Divider()
+                    }
+                    ForEach(explanation.conditions, id: \.self) { line in
+                        Text("- \(line)")
+                            .foregroundStyle(.secondary)
                     }
                 }
 
-                if let nativeReceipt = NativeToolGuidance.receipt(for: finding) {
+                if let nativeReceipt = explanation.nativeToolReceipt {
                     SectionBox(title: "Native tool receipt preview") {
                         Text(nativeReceipt.message)
                             .foregroundStyle(.secondary)
@@ -2352,10 +2353,9 @@ struct FindingDetailView: View {
                         }
                     }
                 } else {
-                    let guidance = CleanupGuidance.commands(for: finding)
-                    if !guidance.isEmpty {
+                    if !explanation.guidanceCommands.isEmpty {
                         SectionBox(title: "Guidance") {
-                            ForEach(guidance, id: \.self) { line in
+                            ForEach(explanation.guidanceCommands, id: \.self) { line in
                                 Text(line)
                                     .font(.system(.body, design: .monospaced))
                                     .textSelection(.enabled)
@@ -2364,10 +2364,26 @@ struct FindingDetailView: View {
                     }
                 }
 
+                SectionBox(title: "Next steps") {
+                    ForEach(explanation.nextSteps, id: \.self) { line in
+                        Text(line)
+                    }
+                    Divider()
+                    ForEach(explanation.nonClaims, id: \.self) { note in
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 if let planItem {
                     SectionBox(title: "Plan status") {
                         Text(planItem.selected ? "Selected for dry-run/action." : "Not selected automatically.")
                         Text("Estimated immediate reclaim: \(ByteFormat.string(planItem.estimatedImmediateReclaim))")
+                        ForEach(planItem.conditions, id: \.message) { condition in
+                            Text("\(condition.isSatisfied ? "OK" : "Blocked"): \(condition.message)")
+                                .foregroundStyle(condition.isSatisfied ? Color.secondary : Color.orange)
+                        }
                     }
                 }
             }

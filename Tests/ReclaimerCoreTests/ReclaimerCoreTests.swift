@@ -611,6 +611,60 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(detail.nonClaims.contains { $0.contains("do not grant cleanup permission") })
     }
 
+    func testFindingExplanationReportAnswersEvidenceRiskRecoveryAndAction() throws {
+        let cache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex/cache").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            conditions: ["Skip active processes."],
+            allocatedSize: 256,
+            isDirectory: true,
+            category: "Codex Cache",
+            ownerHint: "Codex"
+        )
+
+        let report = FindingExplanationBuilder.build(for: cache, generatedAt: Date(timeIntervalSince1970: 0))
+
+        XCTAssertTrue(report.summary.contains("Auto-safe"))
+        XCTAssertTrue(report.whatThisIs.contains { $0.contains("Owner hint: Codex") })
+        XCTAssertTrue(report.whyMatched.contains { $0.contains("Fixture evidence") })
+        XCTAssertTrue(report.riskSummary.contains("Low-risk"))
+        XCTAssertTrue(report.cleanupPermission.contains("Eligible for dry-run planning"))
+        XCTAssertTrue(report.exactAction.contains("Delete cache"))
+        XCTAssertTrue(report.removalEffect.contains("owning app/tool may recreate"))
+        XCTAssertTrue(report.recovery.contains { $0.contains("Rebuild or re-download cache") })
+        XCTAssertTrue(report.conditions.contains { $0.contains("Skip active processes") })
+        XCTAssertTrue(report.conditions.contains { $0.contains("No active open file handle") })
+        XCTAssertTrue(report.nextSteps.contains { $0.contains("dry-run plan") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("does not execute cleanup") })
+
+        let native = finding(
+            path: tempRoot.appendingPathComponent(".colima/default/disk.img").path,
+            safety: .safeAfterCondition,
+            action: .nativeToolCommand,
+            open: false,
+            allocatedSize: 512,
+            category: "Container VM"
+        )
+        let nativeReport = FindingExplanationBuilder.build(for: native)
+        XCTAssertNotNil(nativeReport.nativeToolReceipt)
+        XCTAssertTrue(nativeReport.cleanupPermission.contains("Not executed by Ryddi"))
+        XCTAssertTrue(nativeReport.nextSteps.contains { $0.contains("colima list") })
+
+        let protected = finding(
+            path: tempRoot.appendingPathComponent("Documents/Important.db").path,
+            safety: .neverTouch,
+            action: .reportOnly,
+            open: false,
+            allocatedSize: 1024,
+            category: "Credentials"
+        )
+        let protectedReport = FindingExplanationBuilder.build(for: protected)
+        XCTAssertTrue(protectedReport.cleanupPermission.contains("Report-only") || protectedReport.cleanupPermission.contains("Never-touch"))
+        XCTAssertTrue(protectedReport.riskSummary.contains("Blocked by policy"))
+    }
+
     func testDiskDrillDownBuildsHierarchyAndOmittedChildSummary() throws {
         let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
         let logs = tempRoot.appendingPathComponent("Library/Logs/com.openai.codex/old.log")
