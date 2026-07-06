@@ -97,6 +97,33 @@ printf 'npm package cache\n' >"$package_npm/content-v2/sha512/aa/cache.bin"
 printf 'gradle artifact\n' >"$package_gradle/modules-2/files-2.1/example/artifact.jar"
 printf '//registry.npmjs.org/:_authToken=fixture\n' >"$package_fixture/.npmrc"
 printf '<settings>fixture</settings>\n' >"$package_fixture/.m2/settings.xml"
+device_fixture="$scratch/device-fixture"
+device_backup_root="$device_fixture/Library/Application Support/MobileSync/Backup"
+device_backup_a="$device_backup_root/1111222233334444555566667777888899990000"
+device_backup_b="$device_backup_root/aaaabbbbccccdddd"
+mkdir -p "$device_backup_a/00" "$device_backup_b/01"
+printf 'ios backup data\n' >"$device_backup_a/00/backup-data.bin"
+printf 'metadata missing backup data\n' >"$device_backup_b/01/backup-data.bin"
+cat >"$device_backup_a/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Display Name</key>
+  <string>Release Smoke iPhone</string>
+  <key>Device Name</key>
+  <string>Release Smoke Device</string>
+  <key>Product Name</key>
+  <string>iPhone</string>
+  <key>Product Type</key>
+  <string>iPhone16,1</string>
+  <key>Last Backup Date</key>
+  <date>2024-01-01T01:01:01Z</date>
+  <key>Is Encrypted</key>
+  <true/>
+</dict>
+</plist>
+PLIST
 agent_fixture="$scratch/agent-fixture"
 mkdir -p \
   "$agent_fixture/.codex/cache" \
@@ -178,6 +205,7 @@ grep -q '"preset" : "all"' "$scratch/scopes-all-smoke.json"
 grep -q "Ryddi scope templates" "$scratch/scope-templates-list.txt"
 grep -q "Weekly General Review" "$scratch/scope-templates-list.txt"
 grep -q "Package Manager Caches" "$scratch/scope-templates-list.txt"
+grep -q "Device Backups Review" "$scratch/scope-templates-list.txt"
 "$app/Contents/MacOS/reclaimer" scopes templates show weekly-general --json >"$scratch/scope-template-show.json"
 grep -q '"id" : "weekly-general"' "$scratch/scope-template-show.json"
 grep -q '"recommendedUse"' "$scratch/scope-template-show.json"
@@ -421,6 +449,22 @@ test -f "$package_npm/content-v2/sha512/aa/cache.bin"
 test -f "$package_gradle/modules-2/files-2.1/example/artifact.jar"
 test -f "$package_fixture/.npmrc"
 test -f "$package_fixture/.m2/settings.xml"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" device-backups --json \
+  --home "$device_fixture" \
+  --limit 20 \
+  --old-days 30 \
+  --max-depth 8 \
+  --save-audit >"$scratch/device-backups-smoke.json"
+grep -q '"permissionState" : "readable"' "$scratch/device-backups-smoke.json"
+grep -q '"displayName" : "Release Smoke iPhone"' "$scratch/device-backups-smoke.json"
+grep -q '"encryptionState" : "encrypted"' "$scratch/device-backups-smoke.json"
+grep -q '"metadataState" : "missing"' "$scratch/device-backups-smoke.json"
+grep -q "Device Backups Review is report-only" "$scratch/device-backups-smoke.json"
+grep -q "Apple MobileSync" "$scratch/device-backups-smoke.json"
+find "$scratch/audit" -name 'device-backup-review-*.json' -print -quit | grep -q 'device-backup-review-'
+test -f "$device_backup_a/00/backup-data.bin"
+test -f "$device_backup_a/Info.plist"
+test -f "$device_backup_b/01/backup-data.bin"
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
@@ -686,6 +730,7 @@ Verification performed:
 - bundled reclaimer downloads --json on disposable Downloads fixture, with audit save and no file moves/deletes
 - bundled reclaimer browsers --json on disposable browser cache/profile fixture, with audit save and no profile/cache mutation
 - bundled reclaimer packages --json on disposable package cache/config fixture, with audit save and no cache/config mutation
+- bundled reclaimer device-backups --json on disposable MobileSync backup fixture, with audit save and no backup mutation
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root

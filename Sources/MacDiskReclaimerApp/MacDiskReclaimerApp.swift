@@ -57,6 +57,8 @@ struct DashboardView: View {
                 BrowserCacheReviewView(model: model)
             } else if selectedSection == "Packages" {
                 PackageCacheReviewView(model: model)
+            } else if selectedSection == "DeviceBackups" {
+                DeviceBackupReviewView(model: model)
             } else if selectedSection == "Trash" {
                 TrashReviewView(model: model)
             } else if selectedSection == "Containers" {
@@ -227,6 +229,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Packages"
                 }
+                Button("Device Backups") {
+                    selectedFinding = nil
+                    selectedSection = "DeviceBackups"
+                }
                 Button("Trash Review") {
                     selectedFinding = nil
                     selectedSection = "Trash"
@@ -347,6 +353,7 @@ struct OverviewView: View {
                 MetricTile(title: "Downloads", value: model.downloadsReview.map { ByteFormat.string($0.reviewCandidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Browser caches", value: model.browserCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Package caches", value: model.packageCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
+                MetricTile(title: "Device backups", value: model.deviceBackupReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
                 MetricTile(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
                 MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
                 MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
@@ -706,6 +713,7 @@ struct CapabilityMatrixView: View {
         ("Classify safety", "Versioned JSON rules produce Auto-safe, Safe after condition, Review required, Preserve by default, and Never touch."),
         ("Inspect rules", "Bundled rules can be reviewed by safety class, action, category, match hints, conditions, recovery, and non-claims."),
         ("Explain every item", "Finding detail shows owner hints, rule matches, evidence, recovery, and conditions."),
+        ("Review everyday storage", "Downloads, browser caches, package caches, device backups, and Trash have report-only lanes with local audit records."),
         ("Review duplicates", "Local content hashes group identical regular files as manual review signals, never cleanup actions."),
         ("Review apps & leftovers", "Installed app support files and orphan candidates are surfaced as guidance, not uninstall actions."),
         ("Inventory containers", "Read-only Docker and Colima inspection records images, volumes, build cache estimates, profiles, and command outcomes."),
@@ -1235,6 +1243,16 @@ struct AuditHistoryView: View {
                     } else {
                         ForEach(model.recentPackageCacheReviewReports) { report in
                             Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.candidateBytes)) candidates")
+                        }
+                    }
+                }
+
+                SectionBox(title: "Device Backup Review Reports") {
+                    if model.recentDeviceBackupReviewReports.isEmpty {
+                        Text("No device backup review reports yet.")
+                    } else {
+                        ForEach(model.recentDeviceBackupReviewReports) { report in
+                            Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.backupCount) backup(s) - \(ByteFormat.string(report.totalAllocatedSize))")
                         }
                     }
                 }
@@ -2441,6 +2459,192 @@ struct PackageCacheReviewView: View {
                     }
                 } else {
                     ContentUnavailableView("No package cache review yet", systemImage: "shippingbox", description: Text("Run Package Cache Review to inspect package-manager cache roots without measuring or modifying protected config/auth state."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct DeviceBackupReviewView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Device Backups Review")
+                            .font(.largeTitle.bold())
+                        Text("Review local iPhone and iPad MobileSync backups as valuable restore points, with size, age, encryption, and metadata evidence.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.reviewDeviceBackups() }
+                    } label: {
+                        Label("Review Device Backups", systemImage: "iphone")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                if let report = model.deviceBackupReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Backups", value: "\(report.backupCount)")
+                        MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
+                        MetricTile(title: "Old review", value: ByteFormat.string(report.staleBackupBytes))
+                        MetricTile(title: "Encrypted", value: ByteFormat.string(report.encryptedBackupBytes))
+                        MetricTile(title: "Metadata gaps", value: "\(report.missingMetadataCount)")
+                    }
+
+                    SectionBox(title: "Backup Root") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(report.permissionState.rawValue)
+                                    .font(.caption.weight(.semibold))
+                                Spacer()
+                                Text(ByteFormat.string(report.totalAllocatedSize))
+                                    .font(.caption.monospacedDigit())
+                            }
+                            Text(report.rootPath)
+                                .font(.system(.caption2, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                            ForEach(report.notes, id: \.self) { note in
+                                Text(note)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+
+                    HStack(alignment: .top, spacing: 16) {
+                        SectionBox(title: "By Encryption") {
+                            if report.encryptionSummaries.isEmpty {
+                                Text("No backup encryption evidence yet.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.encryptionSummaries) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.backupCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+
+                        SectionBox(title: "By Metadata") {
+                            if report.metadataSummaries.isEmpty {
+                                Text("No backup metadata evidence yet.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.metadataSummaries) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.backupCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Largest Device Backups") {
+                        if report.largestBackups.isEmpty {
+                            Text("No device backups found at the configured root.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 0) {
+                                HStack {
+                                    Text("Allocated").frame(width: 92, alignment: .leading)
+                                    Text("Encryption").frame(width: 96, alignment: .leading)
+                                    Text("Metadata").frame(width: 86, alignment: .leading)
+                                    Text("Age").frame(width: 70, alignment: .leading)
+                                    Text("Backup")
+                                    Spacer()
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                ForEach(report.largestBackups.prefix(40)) { backup in
+                                    Divider()
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(ByteFormat.string(backup.allocatedSize))
+                                                .frame(width: 92, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text(backup.encryptionState.label)
+                                                .frame(width: 96, alignment: .leading)
+                                            Text(backup.metadataState.label)
+                                                .frame(width: 86, alignment: .leading)
+                                            Text(backup.ageDays.map { "\($0)d" } ?? "unknown")
+                                                .frame(width: 70, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text(backup.displayName)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                            Spacer()
+                                        }
+                                        .font(.caption)
+                                        Text(backup.path)
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .textSelection(.enabled)
+                                        Text(backup.recommendation)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(.vertical, 6)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Guidance") {
+                        ForEach(report.guidance, id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    SectionBox(title: "Non-Claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No device backup review yet", systemImage: "iphone", description: Text("Run Device Backups Review to inspect MobileSync backup size, age, encryption, and metadata without modifying backups."))
                 }
 
                 if let error = model.error {
@@ -5011,6 +5215,7 @@ final class DashboardModel {
     var recentDownloadsReviewReports: [DownloadsReviewReport] = []
     var recentBrowserCacheReviewReports: [BrowserCacheReviewReport] = []
     var recentPackageCacheReviewReports: [PackageCacheReviewReport] = []
+    var recentDeviceBackupReviewReports: [DeviceBackupReviewReport] = []
     var recentAppUninstallReceipts: [AppUninstallExecutionReceipt] = []
     var heldItems: [HeldItem] = []
     var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
@@ -5027,6 +5232,7 @@ final class DashboardModel {
     var downloadsReview: DownloadsReviewReport?
     var browserCacheReview: BrowserCacheReviewReport?
     var packageCacheReview: PackageCacheReviewReport?
+    var deviceBackupReview: DeviceBackupReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
     var lastPlanReportExportURL: URL?
@@ -5647,6 +5853,7 @@ final class DashboardModel {
         recentDownloadsReviewReports = store.recentDownloadsReviewReports()
         recentBrowserCacheReviewReports = store.recentBrowserCacheReviewReports()
         recentPackageCacheReviewReports = store.recentPackageCacheReviewReports()
+        recentDeviceBackupReviewReports = store.recentDeviceBackupReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
     }
@@ -5801,6 +6008,24 @@ final class DashboardModel {
             }.value
             packageCacheReview = report
             _ = try AuditStore().save(packageCacheReviewReport: report)
+            loadAudit()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reviewDeviceBackups() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = await Task.detached {
+                DeviceBackupReviewScanner().review(
+                    options: DeviceBackupReviewOptions(limit: 80, oldDays: 180, measurementDepth: 12)
+                )
+            }.value
+            deviceBackupReview = report
+            _ = try AuditStore().save(deviceBackupReviewReport: report)
             loadAudit()
             error = nil
         } catch {

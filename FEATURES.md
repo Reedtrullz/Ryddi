@@ -29,6 +29,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review Downloads | Report old downloads, installers, archives, app bundles, kind summaries, largest items, Finder guidance, and local audit history without moving or deleting files. | `DownloadsReviewScanner`, `DownloadsReviewReport`, `reclaimer downloads`, app Downloads Review |
 | Review browser caches | Report browser cache roots, browser/cache-kind summaries, largest cache items, protected profile roots, and quit-first guidance without modifying cache or profile state. | `BrowserCacheReviewScanner`, `BrowserCacheReviewReport`, `reclaimer browsers`, app Browser Cache Review |
 | Review package caches | Report Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, package-manager/cache-kind summaries, largest cache items, protected config/auth paths, and native cleanup guidance without modifying package-manager state. | `PackageCacheReviewScanner`, `PackageCacheReviewReport`, `reclaimer packages`, app Package Cache Review |
+| Review device backups | Report local iPhone/iPad MobileSync backup roots, size, age, encryption state, parsed metadata, missing metadata, Apple/Finder guidance, and local audit history without modifying backups. | `DeviceBackupReviewScanner`, `DeviceBackupReviewReport`, `reclaimer device-backups`, app Device Backups Review |
 | Review Trash | Report the configured user Trash root, permission state, total size, largest immediate Trash items, Finder guidance, and local audit history without emptying or restoring anything. | `TrashReviewScanner`, `TrashReviewReport`, `reclaimer trash`, app Trash Review |
 | Review apps & leftovers | Parse installed `.app` bundles and related Library files, then surface support data and orphan candidates as review-only guidance. | `AppReviewScanner`, `reclaimer apps`, app Apps & Leftovers |
 | Preview and confirm app uninstall | Build a selected-app uninstall checklist/report, then optionally move only the selected app bundle to Trash after a clean dry run and explicit confirmation. Related support files remain review-only. | `AppUninstallPreview`, `AppUninstallExecutor`, `reclaimer apps uninstall-preview`, `reclaimer apps uninstall`, app Uninstall Preview |
@@ -54,7 +55,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 Included:
 
 - General Mac scan preset for Downloads, Desktop, personal folder review, user caches/logs, app support, attachments, device backups, and Trash review.
-- Built-in scope templates for weekly general review, personal large-file review, app leftovers, browser caches, package caches, AI-agent storage, and developer maintenance.
+- Built-in scope templates for weekly general review, personal large-file review, app leftovers, browser caches, package caches, device backups, AI-agent storage, and developer maintenance.
 - Sortable/groupable top-offender table for general cleanup and developer cleanup scans, including confidence and estimated immediate reclaim.
 - Shared review queues for Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, and Unknown findings, including single-queue CLI reports and app row-to-detail navigation.
 - Saved custom scope sets for repeatable general cleanup, project-specific review, and developer maintenance scans, with local JSON import/export.
@@ -85,6 +86,7 @@ Included:
 - Downloads Review for old downloads, installers, archives, app bundles, permission state, Finder guidance, audit saving, and no move/delete execution.
 - Browser Cache Review for cache roots, browser/cache-kind summaries, protected profile roots, quit-first guidance, audit saving, and no browser/profile mutation.
 - Package Cache Review for package-manager cache roots, package-manager/cache-kind summaries, protected config/auth paths, native cleanup guidance, audit saving, and no package-manager mutation.
+- Device Backups Review for local MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, audit saving, and no backup mutation.
 - Apps & Leftovers review for installed app support files and heuristic orphan candidates.
 - App uninstall preview/checklist plus explicit app-bundle Trash execution after dry run and confirmation, keeping related support files review-only and outside execution.
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, with cache/history/protected-state buckets and no automatic session/config/model cleanup.
@@ -153,6 +155,7 @@ Deferred:
 - `reclaimer history report --output GROWTH.md` writes a local Markdown before/after report for saved scan snapshots, with category/scope/safety grouping, path privacy controls, and non-claims.
 - `reclaimer duplicates --path FIXTURE --min-size 1` groups same-content regular files, skips protected paths, and emits review-only `openGuidance` candidates.
 - `reclaimer trash --path FIXTURE/.Trash --json --save-audit` reports Trash size/largest items, saves a local audit record, and does not empty, restore, move, or delete files.
+- `reclaimer device-backups --home FIXTURE --json --save-audit` reports local MobileSync backup size, age, encryption, parsed/missing metadata, saves a local audit record, and does not mutate backups.
 - `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1` reports installed app support files and orphan candidates without creating plan items.
 - `reclaimer apps uninstall-preview --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --output PREVIEW.md` writes an uninstall preview where the app bundle is separated from review-only related files and no deletion occurs.
 - `reclaimer apps uninstall --dry-run --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` writes an app-uninstall receipt showing that only the selected app bundle would move to Trash.
@@ -170,3 +173,4 @@ Deferred:
 - Duplicate review findings remain outside `PlanBuilder` and `ReclaimerExecutor`.
 - Apps & Leftovers findings remain outside `PlanBuilder` and `ReclaimerExecutor`.
 - App uninstall receipts can move only the selected app bundle to Trash; related support files remain outside `PlanBuilder`, `ReclaimerExecutor`, and app-uninstall execution.
+- Device Backups Review remains report-only and never emits cleanup-plan selections or backup deletion actions.

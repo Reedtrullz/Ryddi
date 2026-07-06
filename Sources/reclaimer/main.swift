@@ -50,6 +50,8 @@ struct ReclaimerCLI {
             try browsers(args: args)
         case "packages":
             try packages(args: args)
+        case "device-backups":
+            try deviceBackups(args: args)
         case "trash":
             try trash(args: args)
         case "apps":
@@ -677,6 +679,34 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printPackageCacheReview(report, options: options)
+        }
+    }
+
+    static func deviceBackups(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let home = options.value(after: "--home")
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let root = options.value(after: "--path")
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let measurementDepth = max(0, Int(options.value(after: "--max-depth") ?? "") ?? 12)
+        let report = DeviceBackupReviewScanner().review(
+            options: DeviceBackupReviewOptions(
+                home: home,
+                root: root,
+                limit: options.limit,
+                oldDays: options.oldDays,
+                measurementDepth: measurementDepth
+            )
+        )
+        if options.saveAudit {
+            let url = try AuditStore().save(deviceBackupReviewReport: report)
+            FileHandle.standardError.write(Data("saved device backup review report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printDeviceBackupReview(report, options: options)
         }
     }
 
@@ -1335,6 +1365,7 @@ struct ReclaimerCLI {
               downloads [--json] [--path DOWNLOADS_ROOT] [--limit N] [--old-days N] [--max-depth N] [--include-hidden] [--save-audit]
               browsers [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               packages [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
+              device-backups [--json] [--path BACKUP_ROOT] [--home HOME] [--limit N] [--old-days N] [--max-depth N] [--save-audit]
               trash [--json] [--path TRASH_ROOT] [--limit N] [--max-depth N] [--save-audit]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
@@ -2835,6 +2866,68 @@ func printPackageCacheReview(_ report: PackageCacheReviewReport, options: Parsed
     for protectedRoot in report.protectedConfigRoots {
         print("- \(protectedRoot.manager.label): \(protectedRoot.permissionState.rawValue) - \(protectedRoot.path)")
         print("  \(protectedRoot.note)")
+    }
+
+    print("\nGuidance")
+    for line in report.guidance {
+        print("- \(line)")
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printDeviceBackupReview(_ report: DeviceBackupReviewReport, options: ParsedOptions) {
+    print("Ryddi Device Backups review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Root: \(report.rootPath)")
+    print("Permission: \(report.permissionState.rawValue)")
+    print("Backups measured: \(report.backupCount)")
+    print("Items measured: \(report.itemCount)")
+    print("Allocated in device backups: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Logical in device backups: \(ByteFormat.string(report.totalLogicalSize))")
+    print("Old-backup review bytes: \(ByteFormat.string(report.staleBackupBytes))")
+    print("Encrypted backup bytes: \(ByteFormat.string(report.encryptedBackupBytes))")
+    print("Backups missing parsed metadata: \(report.missingMetadataCount)")
+
+    if !report.notes.isEmpty {
+        print("\nNotes")
+        for note in report.notes {
+            print("- \(note)")
+        }
+    }
+
+    if !report.encryptionSummaries.isEmpty {
+        print("\nBy encryption state")
+        for summary in report.encryptionSummaries {
+            print("- \(pad(summary.name, 15)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.backupCount) backup(s)")
+        }
+    }
+
+    if !report.metadataSummaries.isEmpty {
+        print("\nBy metadata state")
+        for summary in report.metadataSummaries {
+            print("- \(pad(summary.name, 12)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.backupCount) backup(s)")
+        }
+    }
+
+    if report.largestBackups.isEmpty {
+        print("\nNo device backups found at the configured root.")
+    } else {
+        print("\nLargest device backups")
+        print("\(pad("Allocated", 11)) \(pad("Encryption", 15)) \(pad("Metadata", 12)) \(pad("Age", 8)) \(pad("Last backup", 12)) Name")
+        for backup in report.largestBackups.prefix(options.limit) {
+            let lastBackup = backup.lastBackupDate?.formatted(date: .numeric, time: .omitted) ?? "unknown"
+            let age = backup.ageDays.map { "\($0)d" } ?? "unknown"
+            print("\(pad(ByteFormat.string(backup.allocatedSize), 11)) \(pad(backup.encryptionState.label, 15)) \(pad(backup.metadataState.label, 12)) \(pad(age, 8)) \(pad(lastBackup, 12)) \(backup.displayName)")
+            print("  path: \(backup.path)")
+            print("  - \(backup.recommendation)")
+            if let guidance = backup.guidance.first {
+                print("  next: \(guidance)")
+            }
+        }
     }
 
     print("\nGuidance")

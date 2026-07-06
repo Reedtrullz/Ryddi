@@ -58,6 +58,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - report-only Downloads review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
 - report-only Browser Cache review for cache roots, protected profile roots, quit-first guidance, and local audit history
 - report-only Package Cache review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native-tool guidance, and local audit history
+- report-only Device Backups review for local iPhone/iPad MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, and local audit history
 - report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
@@ -325,6 +326,17 @@ swift run --scratch-path .build reclaimer packages --path ~/Library/Caches/Homeb
 
 Package Cache Review reports readable/missing cache roots, package-manager and cache-kind summaries, largest cache items, protected config/auth paths, and native cleanup guidance. It is report-only: Ryddi does not delete, move, Trash, prune, purge, or modify package-manager files, and it does not treat tokens, credentials, registries, mirrors, settings, or project behavior as cache.
 
+## Device Backups Review
+
+Ryddi can review local iPhone and iPad MobileSync backups without modifying them:
+
+```bash
+swift run --scratch-path .build reclaimer device-backups --json --save-audit
+swift run --scratch-path .build reclaimer device-backups --home ~ --old-days 180 --limit 40
+```
+
+Device Backups Review reports the configured backup root, permission state, total logical/allocated size, largest backup folders, parsed `Info.plist` device metadata when available, encryption state, old-backup review bytes, and Apple/Finder guidance. It is report-only: Ryddi does not delete, move, Trash, prune, purge, or modify device backups, and it cannot prove whether iCloud Backup or another restorable backup exists.
+
 ## Trash Review
 
 Ryddi can review the current user Trash without emptying it:
@@ -498,7 +510,7 @@ It does not run destructive cleanup unattended, does not call `execute --yes`, a
 
 ## Native Tool Reports And Receipts
 
-Ryddi treats container runtimes and package-manager stores as tool-owned state. Use Package Cache Review to inventory package cache roots first. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use native-tool reports when you want command-level guidance:
+Ryddi treats container runtimes and package-manager stores as tool-owned state. Use Package Cache Review to inventory package cache roots first, and Device Backups Review to inspect local MobileSync backups before using Apple/Finder-managed backup deletion. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use native-tool reports when you want command-level guidance:
 
 ```bash
 swift run --scratch-path .build reclaimer native --json --path ~/.colima

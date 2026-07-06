@@ -91,6 +91,13 @@ public final class AuditStore: @unchecked Sendable {
         return url
     }
 
+    public func save(deviceBackupReviewReport: DeviceBackupReviewReport) throws -> URL {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("device-backup-review-\(deviceBackupReviewReport.id).json")
+        try encoder.encode(deviceBackupReviewReport).write(to: url, options: .atomic)
+        return url
+    }
+
     public func save(appUninstallPreview: AppUninstallPreview) throws -> URL {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent("app-uninstall-preview-\(appUninstallPreview.id).json")
@@ -267,6 +274,21 @@ public final class AuditStore: @unchecked Sendable {
             }
             .prefix(limit)
             .compactMap { try? decoder.decode(PackageCacheReviewReport.self, from: Data(contentsOf: $0)) }
+    }
+
+    public func recentDeviceBackupReviewReports(limit: Int = 20) -> [DeviceBackupReviewReport] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
+            return []
+        }
+        return files
+            .filter { $0.lastPathComponent.hasPrefix("device-backup-review-") }
+            .sorted { lhs, rhs in
+                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return left > right
+            }
+            .prefix(limit)
+            .compactMap { try? decoder.decode(DeviceBackupReviewReport.self, from: Data(contentsOf: $0)) }
     }
 
     public func recentAppUninstallReceipts(limit: Int = 20) -> [AppUninstallExecutionReceipt] {

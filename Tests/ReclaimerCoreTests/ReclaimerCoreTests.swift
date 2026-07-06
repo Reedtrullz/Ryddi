@@ -1892,6 +1892,63 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("config/auth") })
     }
 
+    func testDeviceBackupReviewParsesMetadataAndDoesNotMutateBackups() throws {
+        let backupRoot = tempRoot.appendingPathComponent("Library/Application Support/MobileSync/Backup", isDirectory: true)
+        let oldEncrypted = backupRoot.appendingPathComponent("1111222233334444555566667777888899990000", isDirectory: true)
+        let missingMetadata = backupRoot.appendingPathComponent("aaaabbbbccccdddd", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldEncrypted.appendingPathComponent("00"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: missingMetadata.appendingPathComponent("01"), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 4096).write(to: oldEncrypted.appendingPathComponent("00/backup-data.bin"))
+        try Data(repeating: 2, count: 2048).write(to: missingMetadata.appendingPathComponent("01/backup-data.bin"))
+
+        let lastBackup = Date(timeIntervalSince1970: 1_700_000_000)
+        let info: [String: Any] = [
+            "Display Name": "Reidar's iPhone",
+            "Device Name": "Reidar iPhone",
+            "Product Name": "iPhone 15 Pro",
+            "Product Type": "iPhone16,1",
+            "Last Backup Date": lastBackup,
+            "Is Encrypted": true
+        ]
+        let plist = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+        try plist.write(to: oldEncrypted.appendingPathComponent("Info.plist"))
+
+        let report = DeviceBackupReviewScanner().review(
+            options: DeviceBackupReviewOptions(root: backupRoot, limit: 10, oldDays: 30, measurementDepth: 8),
+            createdAt: Date(timeIntervalSince1970: 1_730_000_000)
+        )
+
+        XCTAssertEqual(report.permissionState, .readable)
+        XCTAssertEqual(report.backupCount, 2)
+        XCTAssertGreaterThanOrEqual(report.totalAllocatedSize, 6_144)
+        XCTAssertGreaterThan(report.staleBackupBytes, 0)
+        XCTAssertGreaterThan(report.encryptedBackupBytes, 0)
+        XCTAssertEqual(report.missingMetadataCount, 1)
+        XCTAssertTrue(report.encryptionSummaries.contains { $0.name == DeviceBackupEncryptionState.encrypted.label })
+        XCTAssertTrue(report.metadataSummaries.contains { $0.name == DeviceBackupMetadataState.parsed.label })
+        XCTAssertTrue(report.metadataSummaries.contains { $0.name == DeviceBackupMetadataState.missing.label })
+        XCTAssertTrue(report.largestBackups.contains { $0.displayName == "Reidar's iPhone" && $0.encryptionState == .encrypted && $0.metadataState == .parsed })
+        XCTAssertTrue(report.largestBackups.contains { $0.backupIdentifier == "aaaabbbbccccdddd" && $0.metadataState == .missing })
+        XCTAssertTrue(report.largestBackups.contains { $0.signals.contains("old-backup") })
+        XCTAssertTrue(report.guidance.contains { $0.contains("Apple MobileSync") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oldEncrypted.appendingPathComponent("00/backup-data.bin").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: missingMetadata.appendingPathComponent("01/backup-data.bin").path))
+    }
+
+    func testDeviceBackupReviewReportsMissingRootAsCoverageEvidence() throws {
+        let missing = tempRoot.appendingPathComponent("Library/Application Support/MobileSync/Backup", isDirectory: true)
+        let report = DeviceBackupReviewScanner().review(
+            options: DeviceBackupReviewOptions(root: missing, limit: 10, oldDays: 180, measurementDepth: 4),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.permissionState, .missing)
+        XCTAssertEqual(report.totalAllocatedSize, 0)
+        XCTAssertTrue(report.notes.contains { $0.contains("does not exist") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
+    }
+
     func testDuplicateReviewExcludesPreserveByDefaultUnlessRequested() throws {
         let documents = tempRoot.appendingPathComponent("Documents", isDirectory: true)
         try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
@@ -3135,6 +3192,14 @@ final class ReclaimerCoreTests: XCTestCase {
             ),
             createdAt: Date(timeIntervalSince1970: 0)
         )
+        let deviceBackupReport = DeviceBackupReviewScanner().review(
+            options: DeviceBackupReviewOptions(
+                root: tempRoot.appendingPathComponent("Library/Application Support/MobileSync/Backup"),
+                limit: 10,
+                measurementDepth: 4
+            ),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
 
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
@@ -3146,6 +3211,7 @@ final class ReclaimerCoreTests: XCTestCase {
         _ = try store.save(downloadsReviewReport: downloadsReport)
         _ = try store.save(browserCacheReviewReport: browserReport)
         _ = try store.save(packageCacheReviewReport: packageReport)
+        _ = try store.save(deviceBackupReviewReport: deviceBackupReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.plan(id: String(plan.id.prefix(8)))?.id, plan.id)
@@ -3159,6 +3225,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.recentDownloadsReviewReports().first?.id, downloadsReport.id)
         XCTAssertEqual(store.recentBrowserCacheReviewReports().first?.id, browserReport.id)
         XCTAssertEqual(store.recentPackageCacheReviewReports().first?.id, packageReport.id)
+        XCTAssertEqual(store.recentDeviceBackupReviewReports().first?.id, deviceBackupReport.id)
     }
 
     private final class FakeToolRunner: ToolCommandRunning, @unchecked Sendable {

@@ -28,6 +28,8 @@ Apps & Leftovers review reads installed app bundle metadata from local `Info.pli
 
 App uninstall previews reuse the same local app inventory and related-file evidence to create a local checklist for one selected app. The preview can identify the selected app bundle as a manual Trash candidate, but related support files remain review-only/manual. Creating a preview does not quit apps, unload helpers, call vendor uninstallers, delete files, clean leftovers, or upload app inventory.
 
+Device Backups Review reads local filesystem metadata from the configured MobileSync backup root and, when present, each backup folder's local `Info.plist`. Reports can include local backup paths, device names, product names/types, last-backup dates, encryption state, metadata state, size, age, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, or modify device backups.
+
 AI-agent storage review reads local filesystem metadata from common Codex, Claude, Cursor, Windsurf, and Ollama roots, or from explicit paths you provide. Results can include local paths, owner hints, rule IDs, bucket names, and evidence strings. Ryddi does not upload this report, inspect prompt contents for remote analysis, or automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
 
 Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Ryddi does not upload these reports and does not execute the native commands automatically.
@@ -68,6 +70,7 @@ Ryddi can write:
 - saved native-tool preview reports;
 - saved container inventory reports;
 - saved active-file review reports;
+- saved report-only review reports for Downloads, browser caches, package caches, device backups, and Trash;
 - saved user path policy for protections and exclusions;
 - saved user rule packs for custom review/protection signals;
 - saved scope sets for repeatable scan roots;

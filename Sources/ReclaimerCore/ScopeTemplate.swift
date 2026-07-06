@@ -65,6 +65,7 @@ public enum ScopeTemplateCatalog {
             appLeftovers(home: home, includeUnavailable: includeUnavailable),
             browserCaches(home: home, includeUnavailable: includeUnavailable),
             packageCaches(home: home, includeUnavailable: includeUnavailable),
+            deviceBackups(home: home, includeUnavailable: includeUnavailable),
             aiAgentStorage(home: home, includeUnavailable: includeUnavailable),
             developerMaintenance(home: home, includeUnavailable: includeUnavailable)
         ]
@@ -201,6 +202,22 @@ public enum ScopeTemplateCatalog {
                     ("Maven cache", home.appendingPathComponent(".m2/repository")),
                     ("CocoaPods cache", home.appendingPathComponent("Library/Caches/CocoaPods")),
                     ("SwiftPM cache", home.appendingPathComponent("Library/Caches/org.swift.swiftpm"))
+                ],
+                includeUnavailable: includeUnavailable
+            )
+        )
+    }
+
+    private static func deviceBackups(home: URL, includeUnavailable: Bool) -> ScopeTemplate {
+        ScopeTemplate(
+            id: "device-backups",
+            name: "Device Backups Review",
+            group: "General Mac",
+            summary: "Local iPhone and iPad MobileSync backups, reviewed as valuable restore points rather than ordinary cache.",
+            recommendedUse: "Monthly or whenever System Data shows large local device backups.",
+            scopes: scopes(
+                [
+                    ("Device backups review", home.appendingPathComponent("Library/Application Support/MobileSync/Backup"))
                 ],
                 includeUnavailable: includeUnavailable
             )
