@@ -33,6 +33,8 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer queues --path Tests --queue unknown --limit 5 --json` reports one queue with full queue accounting, bounded rows, guidance, and non-claims without creating a cleanup plan.
 - [ ] `reclaimer explain FIXTURE --json --min-size 1` reports what/why/risk/action/recovery/condition/next-step sections and non-claims without executing cleanup.
 - [ ] `reclaimer large --path FIXTURE --min-size 1 --large-threshold 16000 --old-days 30 --json` reports large/old review rows, signal/category/safety summaries, and non-claims without selecting cleanup.
+- [ ] `reclaimer archive --path FIXTURE --min-size 1 --large-threshold 16000 --old-days 30 --json` reports archive-review recommendations and non-claims without compressing, moving, Trashing, deleting, or selecting cleanup.
+- [ ] `reclaimer archive --path FIXTURE --path-style redacted --output ARCHIVE.md` writes a local Markdown archive checklist without full local paths and without executing cleanup.
 - [ ] `reclaimer drilldown --path FIXTURE --min-size 1 --max-depth 4 --tree-depth 4 --json` emits hierarchical `rootNodes`, bounded child rows, omitted-child summaries, and non-claims without creating a cleanup plan.
 - [ ] `reclaimer report --path Tests --limit 5 --output REPORT.md` writes a local Markdown report with scan coverage, top findings, user policy, accounting notes, and non-claims without executing cleanup.
 - [ ] `reclaimer report --path Tests --path-style redacted --redact-user-text --output REPORT.md` writes a local Markdown report without full local paths or user-entered policy reasons.
@@ -90,6 +92,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say active-handle reports can include process summaries and do not quit processes or execute cleanup.
 - [ ] Release notes say evidence reports are local Markdown files that can include paths and do not execute cleanup.
 - [ ] Release notes say disk drill-down is local scan metadata navigation, parent/child rows are not additive reclaim totals, and drill-down does not select cleanup.
+- [ ] Release notes say archive reviews are checklists only and do not compress, move, Trash, delete, or select files for cleanup.
 - [ ] Release notes say growth reports compare saved local scan snapshots, can include paths, and do not prove exact current disk state or execute cleanup.
 - [ ] Release notes say plan reports summarize proposed cleanup locally and do not execute cleanup or replace dry-run receipts.
 - [ ] Release notes say receipt reports summarize saved receipts locally and do not rerun cleanup.

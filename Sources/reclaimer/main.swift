@@ -905,11 +905,33 @@ struct ReclaimerCLI {
     }
 
     static func archive(args: [String]) throws {
-        var archiveArgs = args
-        if !archiveArgs.contains("--review-all") {
-            archiveArgs.append("--review-all")
+        let options = ParsedOptions(args)
+        let scopes = try options.scopes(includeUnavailable: options.includeMissingScopes)
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
+        let report = ArchiveReviewBuilder.build(
+            title: options.archiveReviewTitle,
+            findings: options.prepare(findings),
+            mode: try options.largeOldReviewMode(),
+            sort: try options.topOffenderSort(),
+            limit: options.limit,
+            privacy: options.reportPrivacy
+        )
+        if let output = options.outputPath {
+            let url = URL(fileURLWithPath: output).standardizedFileURL
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+            FileHandle.standardError.write(Data("wrote archive review: \(url.path)\n".utf8))
         }
-        try plan(args: archiveArgs)
+        if options.saveReport {
+            let url = try ReportStore().save(archiveReviewReport: report)
+            FileHandle.standardError.write(Data("saved archive review: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else if options.outputPath == nil {
+            printArchiveReviewReport(report)
+        }
     }
 
     static func schedule(args: [String]) throws {
@@ -1061,7 +1083,12 @@ struct ReclaimerCLI {
                               [--path-style full|home-relative|redacted] [--redact-user-text]
               recovery [list] [--json] [--limit N]
               recovery restore HOLDING_ID [--to PATH]
-              archive [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]   # review/compression-oriented plan only
+              archive [--json] [--preset developer|general|all] [--path PATH ...] [--scope-set NAME_OR_ID]
+                      [--min-size BYTES] [--max-depth N] [--large-threshold BYTES] [--old-days N]
+                      [--review large|old|all] [--sort size|logical|age|category|owner|safety] [--limit N]
+                      [--output PATH] [--save-report] [--title TEXT]
+                      [--path-style full|home-relative|redacted] [--redact-user-text]
+                      [--include-missing-scopes] [--include-open-files] [--ignore-user-policy] [--include-user-rules]
               schedule install [--hour H] [--minute M] [--load]
               schedule uninstall [--unload]
               schedule status
@@ -1124,6 +1151,7 @@ struct ParsedOptions {
     var receiptReportTitle: String { value(after: "--title") ?? "Ryddi Receipt Report" }
     var growthReportTitle: String { value(after: "--title") ?? "Ryddi Growth Report" }
     var appUninstallPreviewTitle: String { value(after: "--title") ?? "Ryddi App Uninstall Preview" }
+    var archiveReviewTitle: String { value(after: "--title") ?? "Ryddi Archive Candidate Review" }
     var planID: String? { value(after: "--id") }
     var receiptID: String? { value(after: "--id") }
     var currentSnapshotID: String? { value(after: "--current-id") }
@@ -1642,6 +1670,50 @@ func printLargeOldReviewReport(_ report: LargeOldReviewReport) {
     }
 
     print("\nLarge & old non-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printArchiveReviewReport(_ report: ArchiveReviewReport) {
+    print("Ryddi archive candidate review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Mode: \(report.mode.label)")
+    print("Candidates: \(report.candidateCount)")
+    print("Rows shown: \(report.rowCount)/\(report.limit)")
+    print("Allocated under review: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Archive candidate bytes: \(ByteFormat.string(report.archiveCandidateBytes))")
+    print("Trash-review bytes: \(ByteFormat.string(report.trashReviewBytes))")
+    print("Cleanup-plan bytes: \(ByteFormat.string(report.cleanupPlanBytes))")
+    print("Keep/manual bytes: \(ByteFormat.string(report.keepBytes))")
+    print("Blocked bytes: \(ByteFormat.string(report.blockedBytes))")
+
+    if !report.recommendationSummaries.isEmpty {
+        print("\nRecommendations")
+        for summary in report.recommendationSummaries {
+            print("- \(summary.name): \(summary.count) item(s), \(ByteFormat.string(summary.allocatedSize))")
+        }
+    }
+
+    if !report.categorySummaries.isEmpty {
+        print("\nTop categories")
+        for summary in report.categorySummaries.prefix(8) {
+            print("- \(summary.name): \(summary.count) item(s), \(ByteFormat.string(summary.allocatedSize))")
+        }
+    }
+
+    if !report.rows.isEmpty {
+        print("\nCandidate checklist")
+        print("\(pad("Recommendation", 17)) \(pad("Size", 11)) \(pad("Age", 6)) \(pad("Safety", 22)) Path")
+        for row in report.rows {
+            let age = row.ageDays.map { "\($0)d" } ?? "-"
+            print("\(pad(row.recommendation.label, 17)) \(pad(ByteFormat.string(row.allocatedSize), 11)) \(pad(age, 6)) \(pad(row.safetyClass.label, 22)) \(row.path)")
+            print("  \(row.rationale)")
+            print("  \(row.suggestedAction)")
+        }
+    }
+
+    print("\nArchive review non-claims")
     for note in report.nonClaims {
         print("- \(note)")
     }

@@ -428,6 +428,120 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(plan.items.allSatisfy { !$0.selected })
     }
 
+    func testArchiveReviewReportBuildsReviewOnlyCandidateChecklist() throws {
+        let oldInstaller = finding(
+            path: tempRoot.appendingPathComponent("Downloads/old-installer.dmg").path,
+            safety: .reviewRequired,
+            action: .openGuidance,
+            open: false,
+            conditions: ["Manual review only."],
+            allocatedSize: 28_000,
+            category: "Large files"
+        )
+        let oldMovie = finding(
+            path: tempRoot.appendingPathComponent("Movies/project-export.mov").path,
+            safety: .reviewRequired,
+            action: .openGuidance,
+            open: false,
+            conditions: ["Manual review only."],
+            allocatedSize: 24_000,
+            category: "Large files"
+        )
+        let protectedArchive = finding(
+            path: tempRoot.appendingPathComponent("Documents/important.zip").path,
+            safety: .preserveByDefault,
+            action: .reportOnly,
+            open: false,
+            allocatedSize: 18_000,
+            category: "Personal data"
+        )
+        let cache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 32_000,
+            category: "Codex"
+        )
+        let openFile = finding(
+            path: tempRoot.appendingPathComponent("Downloads/open-large.iso").path,
+            safety: .reviewRequired,
+            action: .openGuidance,
+            open: true,
+            allocatedSize: 20_000,
+            category: "Large files"
+        )
+        let largeSignal = RuleMatch(
+            ruleID: "dynamic.large-item.review",
+            title: "Large item review",
+            category: "Large files",
+            safetyClass: .reviewRequired,
+            actionKind: .openGuidance,
+            evidence: ["Large fixture signal."]
+        )
+        let oldSignal = RuleMatch(
+            ruleID: "dynamic.old-item.review",
+            title: "Old item review",
+            category: "Old files",
+            safetyClass: .reviewRequired,
+            actionKind: .openGuidance,
+            evidence: ["Old fixture signal."]
+        )
+        let findings = [oldInstaller, oldMovie, protectedArchive, cache, openFile].map { base in
+            Finding(
+                id: base.id,
+                scopeName: base.scopeName,
+                path: base.path,
+                displayName: base.displayName,
+                logicalSize: base.logicalSize,
+                allocatedSize: base.allocatedSize,
+                isDirectory: base.isDirectory,
+                isSymbolicLink: base.isSymbolicLink,
+                modificationDate: Date(timeIntervalSince1970: 0),
+                ownerHint: base.ownerHint,
+                safetyClass: base.safetyClass,
+                actionKind: base.actionKind,
+                ruleMatches: base.ruleMatches + [largeSignal, oldSignal],
+                evidence: base.evidence,
+                openFileStatus: base.openFileStatus
+            )
+        }
+
+        let report = ArchiveReviewBuilder.build(
+            findings: findings,
+            mode: .all,
+            sort: .allocated,
+            limit: 10,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted),
+            now: Date(timeIntervalSince1970: 90 * 24 * 60 * 60)
+        )
+
+        XCTAssertEqual(report.candidateCount, 5)
+        XCTAssertEqual(report.rows.first { $0.path == oldInstaller.path }?.recommendation, .trashReview)
+        XCTAssertEqual(report.rows.first { $0.path == oldMovie.path }?.recommendation, .archive)
+        XCTAssertEqual(report.rows.first { $0.path == protectedArchive.path }?.recommendation, .keep)
+        XCTAssertEqual(report.rows.first { $0.path == cache.path }?.recommendation, .useCleanupPlan)
+        XCTAssertEqual(report.rows.first { $0.path == openFile.path }?.recommendation, .blocked)
+        XCTAssertGreaterThan(report.archiveCandidateBytes, 0)
+        XCTAssertGreaterThan(report.trashReviewBytes, 0)
+        XCTAssertGreaterThan(report.cleanupPlanBytes, 0)
+        XCTAssertGreaterThan(report.keepBytes, 0)
+        XCTAssertGreaterThan(report.blockedBytes, 0)
+        XCTAssertTrue(report.recommendationSummaries.contains { $0.name == ArchiveReviewRecommendation.trashReview.label && $0.count == 1 })
+        XCTAssertTrue(report.markdown.contains("# Ryddi Archive Candidate Review"))
+        XCTAssertTrue(report.markdown.contains("Candidate Checklist"))
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertFalse(report.markdown.contains(tempRoot.path))
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("does not compress, move, Trash, or delete files") })
+
+        let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(
+            from: report.rows.map(\.finding),
+            mode: .autoSafeOnly
+        )
+        XCTAssertFalse(plan.items.contains { $0.finding.path == oldInstaller.path && $0.selected })
+        XCTAssertFalse(plan.items.contains { $0.finding.path == oldMovie.path && $0.selected })
+    }
+
     func testScanOverviewReportsScopeCoverageAndBuckets() throws {
         let cache = tempRoot.appendingPathComponent("Library/Caches/Codex/cache.bin")
         try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)

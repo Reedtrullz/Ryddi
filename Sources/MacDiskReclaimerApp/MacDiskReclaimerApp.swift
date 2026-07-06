@@ -288,6 +288,12 @@ struct OverviewView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
+            if let url = model.lastArchiveReviewExportURL {
+                Text("Latest archive review: \(url.path)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
 
             HStack(spacing: 16) {
                 MetricTile(title: "Findings", value: "\(model.findings.count)")
@@ -3195,6 +3201,10 @@ struct LargeOldReviewView: View {
         model.largeOldReviewReport(mode: mode, sort: sort, limit: 80)
     }
 
+    private var archiveReport: ArchiveReviewReport {
+        model.archiveReviewReport(mode: mode, sort: sort, limit: 40)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
@@ -3238,6 +3248,19 @@ struct LargeOldReviewView: View {
                     ReviewSummaryList(title: "Safety", summaries: report.safetySummaries)
                 }
 
+                ArchiveCandidatePanel(
+                    report: archiveReport,
+                    onExport: { Task { await model.exportArchiveReview(mode: mode, sort: sort) } },
+                    onExportRedacted: { Task { await model.exportArchiveReview(mode: mode, sort: sort, pathStyle: .redacted) } }
+                )
+
+                if let url = model.lastArchiveReviewExportURL {
+                    Text("Latest archive review: \(url.path)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
                 SectionBox(title: "Review Rows") {
                     VStack(spacing: 0) {
                         TopOffenderHeader()
@@ -3272,6 +3295,99 @@ struct LargeOldReviewView: View {
             Spacer()
         }
         .padding(24)
+    }
+}
+
+struct ArchiveCandidatePanel: View {
+    let report: ArchiveReviewReport
+    let onExport: () -> Void
+    let onExportRedacted: () -> Void
+
+    var body: some View {
+        SectionBox(title: "Archive Candidates") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    MetricTile(title: "Candidates", value: "\(report.candidateCount)")
+                    MetricTile(title: "Archive", value: ByteFormat.string(report.archiveCandidateBytes))
+                    MetricTile(title: "Trash Review", value: ByteFormat.string(report.trashReviewBytes))
+                    MetricTile(title: "Cleanup Plan", value: ByteFormat.string(report.cleanupPlanBytes))
+                    MetricTile(title: "Blocked", value: ByteFormat.string(report.blockedBytes))
+                }
+
+                HStack {
+                    ForEach(report.recommendationSummaries.prefix(6)) { summary in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(summary.name)
+                                .font(.caption.weight(.semibold))
+                            Text("\(summary.count) item(s), \(ByteFormat.string(summary.allocatedSize))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(minWidth: 110, alignment: .leading)
+                    }
+                    Spacer()
+                    Button {
+                        onExport()
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                    }
+                    Button {
+                        onExportRedacted()
+                    } label: {
+                        Label("Redacted", systemImage: "eye.slash")
+                    }
+                }
+
+                if report.rows.isEmpty {
+                    Text("No archive candidates matched the selected large/old review mode.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(spacing: 0) {
+                        HStack {
+                            Text("Recommendation").frame(width: 120, alignment: .leading)
+                            Text("Size").frame(width: 86, alignment: .leading)
+                            Text("Age").frame(width: 48, alignment: .leading)
+                            Text("Safety").frame(width: 150, alignment: .leading)
+                            Text("Path")
+                            Spacer()
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        ForEach(report.rows.prefix(8)) { row in
+                            Divider()
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(row.recommendation.label)
+                                        .frame(width: 120, alignment: .leading)
+                                    Text(ByteFormat.string(row.allocatedSize))
+                                        .frame(width: 86, alignment: .leading)
+                                    Text(row.ageDays.map { "\($0)d" } ?? "-")
+                                        .frame(width: 48, alignment: .leading)
+                                        .foregroundStyle(.secondary)
+                                    SafetyBadge(safetyClass: row.safetyClass)
+                                        .frame(width: 150, alignment: .leading)
+                                    Text(row.path)
+                                        .font(.caption.monospaced())
+                                        .lineLimit(1)
+                                    Spacer()
+                                }
+                                Text(row.rationale)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
+                }
+
+                ForEach(report.nonClaims.prefix(2), id: \.self) { note in
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 }
 
@@ -3875,6 +3991,7 @@ final class DashboardModel {
     var lastPlanReportExportURL: URL?
     var lastReceiptReportExportURL: URL?
     var lastGrowthReportExportURL: URL?
+    var lastArchiveReviewExportURL: URL?
     var lastPolicyExportURL: URL?
     var lastScopeSetExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
@@ -3995,6 +4112,21 @@ final class DashboardModel {
         limit: Int = 80
     ) -> LargeOldReviewReport {
         FindingAnalytics.largeOldReviewReport(findings: findings, mode: mode, sort: sort, limit: limit)
+    }
+
+    func archiveReviewReport(
+        mode: LargeOldReviewMode = .all,
+        sort: TopOffenderSort = .allocated,
+        limit: Int = 40,
+        pathStyle: ReportPathStyle = .full
+    ) -> ArchiveReviewReport {
+        ArchiveReviewBuilder.build(
+            findings: findings,
+            mode: mode,
+            sort: sort,
+            limit: limit,
+            privacy: ReportPrivacyOptions(pathStyle: pathStyle)
+        )
     }
 
     func scan() async {
@@ -4235,6 +4367,33 @@ final class DashboardModel {
                 return try ReportStore().save(growthReport: report)
             }.value
             lastGrowthReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportArchiveReview(mode: LargeOldReviewMode = .all, sort: TopOffenderSort = .allocated, pathStyle: ReportPathStyle = .full) async {
+        guard !findings.isEmpty else {
+            error = "Run a scan before exporting an archive review."
+            return
+        }
+
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let currentFindings = findings
+            let url = try await Task.detached {
+                let report = ArchiveReviewBuilder.build(
+                    findings: currentFindings,
+                    mode: mode,
+                    sort: sort,
+                    limit: 80,
+                    privacy: ReportPrivacyOptions(pathStyle: pathStyle)
+                )
+                return try ReportStore().save(archiveReviewReport: report)
+            }.value
+            lastArchiveReviewExportURL = url
             error = nil
         } catch {
             self.error = error.localizedDescription

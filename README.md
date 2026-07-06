@@ -53,6 +53,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - local user protections and exclusions for paths Ryddi should preserve or ignore, with JSON import/export
 - local user rule-pack preview/import/export in CLI and app for custom review, preserve, and never-touch signals
 - first-class large-file and old-file review mode with category/safety summaries, row actions, and no automatic cleanup
+- archive-candidate review checklist for large/old personal files, with keep/archive/Trash-review/cleanup-plan/blocked recommendations
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - app uninstall preview reports for selected apps, with the app bundle separated from review-only related support files
@@ -107,6 +108,8 @@ swift run --scratch-path .build reclaimer overview --preset general
 swift run --scratch-path .build reclaimer overview --preset general --sort reclaim --group safety --limit 25
 swift run --scratch-path .build reclaimer queues --preset general --limit 10
 swift run --scratch-path .build reclaimer large --preset general --review all --limit 25
+swift run --scratch-path .build reclaimer archive --preset general --review all --output ryddi-archive-review.md
+swift run --scratch-path .build reclaimer archive --preset general --path-style redacted --output ryddi-archive-review-redacted.md
 swift run --scratch-path .build reclaimer scan --preset all --review large
 swift run --scratch-path .build reclaimer rules
 swift run --scratch-path .build reclaimer rules user preview ryddi-user-rules.json
@@ -219,9 +222,13 @@ Ryddi can turn large and stale file signals into a dedicated review surface:
 ```bash
 swift run --scratch-path .build reclaimer large --preset general --review all --limit 25
 swift run --scratch-path .build reclaimer large --preset general --review old --sort age --old-days 180
+swift run --scratch-path .build reclaimer archive --preset general --review all --limit 25
+swift run --scratch-path .build reclaimer archive --preset general --path-style redacted --output ryddi-archive-review.md
 ```
 
-The report prefers concrete large/old child items over broad parent folders when it can do that without obvious double-counting. These rows are not cleanup permission; use Finder, Quick Look, archiving, or explicit Trash decisions after reviewing the path, owner, safety class, and recovery story.
+The large/old report prefers concrete child items over broad parent folders when it can do that without obvious double-counting. The archive review turns those rows into a checklist with recommendations such as `Archive`, `Review for Trash`, `Use Cleanup Plan`, `Keep`, `Manual Review`, and `Blocked`.
+
+These rows are not cleanup permission. Archive reviews do not compress, move, Trash, or delete files; use Finder, Quick Look, backups, and the normal dry-run plan before taking action.
 
 ## Active Handles
 

@@ -336,6 +336,14 @@ public final class ReportStore: @unchecked Sendable {
     }
 
     @discardableResult
+    public func save(archiveReviewReport report: ArchiveReviewReport) throws -> URL {
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("archive-review-\(report.id).md")
+        try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    @discardableResult
     public func save(userPathPolicyDocument document: UserPathPolicyDocument) throws -> URL {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent("user-path-policy-\(document.id).json")

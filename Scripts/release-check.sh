@@ -289,6 +289,41 @@ grep -q '"mode" : "old"' "$scratch/large-smoke.json"
 grep -q '"largeAndOldCount"' "$scratch/large-smoke.json"
 grep -q '"reviewReason"' "$scratch/large-smoke.json"
 grep -q "do not grant cleanup permission" "$scratch/large-smoke.json"
+"$app/Contents/MacOS/reclaimer" archive \
+  --path "$large_fixture" \
+  --min-size 1 \
+  --max-depth 4 \
+  --large-threshold 16000 \
+  --old-days 30 \
+  --limit 10 >"$scratch/archive-smoke.txt"
+grep -q "Ryddi archive candidate review" "$scratch/archive-smoke.txt"
+grep -q "Recommendations" "$scratch/archive-smoke.txt"
+grep -q "Review for Trash" "$scratch/archive-smoke.txt"
+grep -q "Archive review non-claims" "$scratch/archive-smoke.txt"
+"$app/Contents/MacOS/reclaimer" archive \
+  --json \
+  --path "$large_fixture" \
+  --min-size 1 \
+  --max-depth 4 \
+  --large-threshold 16000 \
+  --old-days 30 \
+  --limit 10 >"$scratch/archive-smoke.json"
+grep -q '"recommendation" : "trashReview"' "$scratch/archive-smoke.json"
+grep -q '"recommendationSummaries"' "$scratch/archive-smoke.json"
+grep -q '"archiveCandidateBytes"' "$scratch/archive-smoke.json"
+grep -q "does not compress, move, Trash, or delete files" "$scratch/archive-smoke.json"
+"$app/Contents/MacOS/reclaimer" archive \
+  --path "$large_fixture" \
+  --min-size 1 \
+  --max-depth 4 \
+  --large-threshold 16000 \
+  --old-days 30 \
+  --output "$scratch/archive-review.md" \
+  --path-style redacted
+grep -q "# Ryddi Archive Candidate Review" "$scratch/archive-review.md"
+grep -q "Candidate Checklist" "$scratch/archive-review.md"
+grep -q "<path redacted>" "$scratch/archive-review.md"
+grep -q "This report does not compress, move, Trash, or delete files" "$scratch/archive-review.md"
 "$app/Contents/MacOS/reclaimer" drilldown --json --path "$drill_fixture" --min-size 1 --max-depth 4 --tree-depth 4 --limit 1 >"$scratch/drilldown-smoke.json"
 grep -q '"rootNodes"' "$scratch/drilldown-smoke.json"
 grep -q '"children"' "$scratch/drilldown-smoke.json"
@@ -439,6 +474,7 @@ Verification performed:
 - bundled reclaimer explain on disposable Codex cache fixture with text and JSON explanation output
 - bundled reclaimer queues --path Tests --limit 5, queues --json, and queues --queue unknown
 - bundled reclaimer large --path disposable fixture with text and JSON review output
+- bundled reclaimer archive --path disposable fixture with text, JSON, and redacted Markdown review output
 - bundled reclaimer drilldown --json on disposable nested fixture
 - bundled reclaimer apps uninstall-preview on a disposable app fixture, with redacted Markdown and saved JSON audit
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md
