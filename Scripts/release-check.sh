@@ -71,6 +71,18 @@ printf 'package installer\n' >"$downloads_fixture/FixturePackage.pkg"
 printf 'download archive\n' >"$downloads_fixture/FixtureArchive.zip"
 printf 'old loose note\n' >"$downloads_fixture/old-note.txt"
 touch -t 202401010101 "$downloads_fixture/FixtureInstaller.dmg" "$downloads_fixture/old-note.txt"
+browser_fixture="$scratch/browser-fixture"
+browser_cache="$browser_fixture/Library/Caches/Google/Chrome/Default"
+browser_profile="$browser_fixture/Library/Application Support/Google/Chrome/Default"
+mkdir -p \
+  "$browser_cache/Cache/Cache_Data" \
+  "$browser_cache/Code Cache/js" \
+  "$browser_cache/GPUCache" \
+  "$browser_profile"
+printf 'browser disk cache\n' >"$browser_cache/Cache/Cache_Data/data_0"
+printf 'browser code cache\n' >"$browser_cache/Code Cache/js/script.bin"
+printf 'browser gpu cache\n' >"$browser_cache/GPUCache/gpu.bin"
+printf 'profile should remain protected\n' >"$browser_profile/Login Data"
 agent_fixture="$scratch/agent-fixture"
 mkdir -p \
   "$agent_fixture/.codex/cache" \
@@ -359,6 +371,23 @@ test -f "$downloads_fixture/FixtureInstaller.dmg"
 test -f "$downloads_fixture/FixturePackage.pkg"
 test -f "$downloads_fixture/FixtureArchive.zip"
 test -f "$downloads_fixture/old-note.txt"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" browsers --json \
+  --home "$browser_fixture" \
+  --path "$browser_cache" \
+  --limit 20 \
+  --max-depth 5 \
+  --save-audit >"$scratch/browsers-smoke.json"
+grep -q '"browser" : "chrome"' "$scratch/browsers-smoke.json"
+grep -q '"kind" : "diskCache"' "$scratch/browsers-smoke.json"
+grep -q '"kind" : "codeCache"' "$scratch/browsers-smoke.json"
+grep -q '"kind" : "gpuCache"' "$scratch/browsers-smoke.json"
+grep -q "Browser Cache Review is report-only" "$scratch/browsers-smoke.json"
+grep -q "bookmarks, cookies" "$scratch/browsers-smoke.json"
+find "$scratch/audit" -name 'browser-cache-review-*.json' -print -quit | grep -q 'browser-cache-review-'
+test -f "$browser_cache/Cache/Cache_Data/data_0"
+test -f "$browser_cache/Code Cache/js/script.bin"
+test -f "$browser_cache/GPUCache/gpu.bin"
+test -f "$browser_profile/Login Data"
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
@@ -622,6 +651,7 @@ Verification performed:
 - bundled reclaimer native --json and native run --dry-run --json on disposable Homebrew fixture
 - bundled reclaimer trash --json on disposable Trash fixture, with audit save and no emptying
 - bundled reclaimer downloads --json on disposable Downloads fixture, with audit save and no file moves/deletes
+- bundled reclaimer browsers --json on disposable browser cache/profile fixture, with audit save and no profile/cache mutation
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root

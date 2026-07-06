@@ -46,6 +46,8 @@ struct ReclaimerCLI {
             try duplicates(args: args)
         case "downloads":
             try downloads(args: args)
+        case "browsers":
+            try browsers(args: args)
         case "trash":
             try trash(args: args)
         case "apps":
@@ -619,6 +621,33 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printDownloadsReview(report, options: options)
+        }
+    }
+
+    static func browsers(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let home = options.value(after: "--home")
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let roots = options.values(after: "--path").map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let measurementDepth = max(0, Int(options.value(after: "--max-depth") ?? "") ?? 7)
+        let report = BrowserCacheReviewScanner().review(
+            options: BrowserCacheReviewOptions(
+                home: home,
+                roots: roots.isEmpty ? nil : roots,
+                limit: options.limit,
+                measurementDepth: measurementDepth,
+                includeMissingRoots: options.includeMissingScopes
+            )
+        )
+        if options.saveAudit {
+            let url = try AuditStore().save(browserCacheReviewReport: report)
+            FileHandle.standardError.write(Data("saved browser cache review report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printBrowserCacheReview(report, options: options)
         }
     }
 
@@ -1275,6 +1304,7 @@ struct ReclaimerCLI {
               duplicates [--json] --path PATH ... [--min-size BYTES] [--max-depth N] [--limit N]
                          [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
               downloads [--json] [--path DOWNLOADS_ROOT] [--limit N] [--old-days N] [--max-depth N] [--include-hidden] [--save-audit]
+              browsers [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               trash [--json] [--path TRASH_ROOT] [--limit N] [--max-depth N] [--save-audit]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
@@ -2648,6 +2678,69 @@ func printDownloadsReview(_ report: DownloadsReviewReport, options: ParsedOption
                 print("  next: \(guidance)")
             }
         }
+    }
+
+    print("\nGuidance")
+    for line in report.guidance {
+        print("- \(line)")
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printBrowserCacheReview(_ report: BrowserCacheReviewReport, options: ParsedOptions) {
+    print("Ryddi Browser Cache review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Cache roots: \(report.rootSummaries.count)")
+    print("Items measured: \(report.itemCount)")
+    print("Candidate cache bytes: \(ByteFormat.string(report.candidateBytes))")
+    print("Allocated cache bytes: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Logical cache bytes: \(ByteFormat.string(report.totalLogicalSize))")
+
+    if !report.browserSummaries.isEmpty {
+        print("\nBy browser")
+        for summary in report.browserSummaries {
+            print("- \(pad(summary.name, 14)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
+    if !report.kindSummaries.isEmpty {
+        print("\nBy cache kind")
+        for summary in report.kindSummaries {
+            print("- \(pad(summary.name, 22)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
+    print("\nCache roots")
+    if report.rootSummaries.isEmpty {
+        print("No browser cache roots were inspected.")
+    } else {
+        for root in report.rootSummaries {
+            print("- \(root.browser.label): \(root.permissionState.rawValue), \(ByteFormat.string(root.allocatedSize)), \(root.itemCount) item(s)")
+            print("  \(root.rootPath)")
+            print("  \(root.note)")
+        }
+    }
+
+    if report.largestItems.isEmpty {
+        print("\nNo browser cache items found in readable cache roots.")
+    } else {
+        print("\nLargest browser cache items")
+        print("\(pad("Allocated", 11)) \(pad("Browser", 12)) \(pad("Kind", 20)) \(pad("Modified", 12)) Path")
+        for item in report.largestItems.prefix(options.limit) {
+            let modified = item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "unknown"
+            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.browser.label, 12)) \(pad(item.kind.label, 20)) \(pad(modified, 12)) \(item.path)")
+            print("  - \(item.recommendation)")
+        }
+    }
+
+    print("\nProtected profile roots")
+    for profile in report.protectedProfileRoots {
+        print("- \(profile.browser.label): \(profile.permissionState.rawValue) - \(profile.path)")
+        print("  \(profile.note)")
     }
 
     print("\nGuidance")

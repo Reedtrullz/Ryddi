@@ -53,6 +53,8 @@ struct DashboardView: View {
                 DuplicateReviewView(model: model)
             } else if selectedSection == "Downloads" {
                 DownloadsReviewView(model: model)
+            } else if selectedSection == "Browsers" {
+                BrowserCacheReviewView(model: model)
             } else if selectedSection == "Trash" {
                 TrashReviewView(model: model)
             } else if selectedSection == "Containers" {
@@ -215,6 +217,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Downloads"
                 }
+                Button("Browser Caches") {
+                    selectedFinding = nil
+                    selectedSection = "Browsers"
+                }
                 Button("Trash Review") {
                     selectedFinding = nil
                     selectedSection = "Trash"
@@ -333,6 +339,7 @@ struct OverviewView: View {
                 MetricTile(title: "Snapshots", value: "\(model.scanSnapshots.count)")
                 MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
                 MetricTile(title: "Downloads", value: model.downloadsReview.map { ByteFormat.string($0.reviewCandidateBytes) } ?? "Not reviewed")
+                MetricTile(title: "Browser caches", value: model.browserCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
                 MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
                 MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
@@ -1205,6 +1212,16 @@ struct AuditHistoryView: View {
                     }
                 }
 
+                SectionBox(title: "Browser Cache Review Reports") {
+                    if model.recentBrowserCacheReviewReports.isEmpty {
+                        Text("No browser cache review reports yet.")
+                    } else {
+                        ForEach(model.recentBrowserCacheReviewReports) { report in
+                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.candidateBytes)) candidates")
+                        }
+                    }
+                }
+
                 SectionBox(title: "App Uninstall Receipts") {
                     if model.recentAppUninstallReceipts.isEmpty {
                         Text("No app-uninstall receipts yet.")
@@ -2038,6 +2055,189 @@ struct DownloadsReviewView: View {
                     }
                 } else {
                     ContentUnavailableView("No Downloads review yet", systemImage: "tray.and.arrow.down", description: Text("Run Downloads Review to inspect installers, archives, old downloads, and other space candidates without moving anything."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct BrowserCacheReviewView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Browser Cache Review")
+                            .font(.largeTitle.bold())
+                        Text("Review browser cache roots separately from browser profiles, cookies, bookmarks, history, passwords, extensions, and sync state.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.reviewBrowserCaches() }
+                    } label: {
+                        Label("Review Browser Caches", systemImage: "globe")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                if let report = model.browserCacheReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Candidates", value: ByteFormat.string(report.candidateBytes))
+                        MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
+                        MetricTile(title: "Measured items", value: "\(report.itemCount)")
+                        MetricTile(title: "Cache roots", value: "\(report.rootSummaries.count)")
+                        MetricTile(title: "Protected profiles", value: "\(report.protectedProfileRoots.count)")
+                    }
+
+                    SectionBox(title: "By Browser") {
+                        if report.browserSummaries.isEmpty {
+                            Text("No browser cache items found in readable cache roots.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 6) {
+                                ForEach(report.browserSummaries) { summary in
+                                    HStack {
+                                        Text(summary.name)
+                                        Spacer()
+                                        Text("\(summary.itemCount)")
+                                            .monospacedDigit()
+                                            .foregroundStyle(.secondary)
+                                        Text(ByteFormat.string(summary.allocatedSize))
+                                            .frame(width: 90, alignment: .trailing)
+                                            .monospacedDigit()
+                                    }
+                                    .font(.caption)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Cache Roots") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(report.rootSummaries) { root in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(root.browser.label)
+                                            .font(.caption.weight(.semibold))
+                                        Text(root.permissionState.rawValue)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(ByteFormat.string(root.allocatedSize))
+                                            .font(.caption.monospacedDigit())
+                                    }
+                                    Text(root.rootPath)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                    Text(root.note)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Largest Cache Items") {
+                        if report.largestItems.isEmpty {
+                            Text("No browser cache items found in readable cache roots.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 0) {
+                                HStack {
+                                    Text("Allocated").frame(width: 92, alignment: .leading)
+                                    Text("Browser").frame(width: 82, alignment: .leading)
+                                    Text("Kind").frame(width: 122, alignment: .leading)
+                                    Text("Path")
+                                    Spacer()
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                ForEach(report.largestItems.prefix(40)) { item in
+                                    Divider()
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(ByteFormat.string(item.allocatedSize))
+                                                .frame(width: 92, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text(item.browser.label)
+                                                .frame(width: 82, alignment: .leading)
+                                            Text(item.kind.label)
+                                                .frame(width: 122, alignment: .leading)
+                                            Text(item.path)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                                .textSelection(.enabled)
+                                            Spacer()
+                                        }
+                                        .font(.caption)
+                                        Text(item.recommendation)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(.vertical, 6)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Protected Profile Roots") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(report.protectedProfileRoots) { profile in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(profile.browser.label)
+                                            .font(.caption.weight(.semibold))
+                                        Text(profile.permissionState.rawValue)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text(profile.path)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                    Text(profile.note)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Guidance") {
+                        ForEach(report.guidance, id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    SectionBox(title: "Non-Claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No browser cache review yet", systemImage: "globe", description: Text("Run Browser Cache Review to inspect browser cache roots without measuring or modifying protected profile state."))
                 }
 
                 if let error = model.error {
@@ -4606,6 +4806,7 @@ final class DashboardModel {
     var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
     var recentTrashReviewReports: [TrashReviewReport] = []
     var recentDownloadsReviewReports: [DownloadsReviewReport] = []
+    var recentBrowserCacheReviewReports: [BrowserCacheReviewReport] = []
     var recentAppUninstallReceipts: [AppUninstallExecutionReceipt] = []
     var heldItems: [HeldItem] = []
     var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
@@ -4620,6 +4821,7 @@ final class DashboardModel {
     var activeFileReview: ActiveFileReviewReport?
     var trashReview: TrashReviewReport?
     var downloadsReview: DownloadsReviewReport?
+    var browserCacheReview: BrowserCacheReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
     var lastPlanReportExportURL: URL?
@@ -5238,6 +5440,7 @@ final class DashboardModel {
         recentActiveFileReviewReports = store.recentActiveFileReviewReports()
         recentTrashReviewReports = store.recentTrashReviewReports()
         recentDownloadsReviewReports = store.recentDownloadsReviewReports()
+        recentBrowserCacheReviewReports = store.recentBrowserCacheReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
     }
@@ -5356,6 +5559,24 @@ final class DashboardModel {
             }.value
             downloadsReview = report
             _ = try AuditStore().save(downloadsReviewReport: report)
+            loadAudit()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reviewBrowserCaches() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = await Task.detached {
+                BrowserCacheReviewScanner().review(
+                    options: BrowserCacheReviewOptions(limit: 80, measurementDepth: 7, includeMissingRoots: true)
+                )
+            }.value
+            browserCacheReview = report
+            _ = try AuditStore().save(browserCacheReviewReport: report)
             loadAudit()
             error = nil
         } catch {

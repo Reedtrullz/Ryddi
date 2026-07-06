@@ -56,6 +56,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - archive-candidate review checklist for large/old personal files, with keep/archive/Trash-review/cleanup-plan/blocked recommendations
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - report-only Downloads review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
+- report-only Browser Cache review for cache roots, protected profile roots, quit-first guidance, and local audit history
 - report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
@@ -70,7 +71,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - Browser cache versus browser profile separation
 - Stale temp/scratch review
 - App-managed holding area for reversible quarantine moves
-- Local audit history for plans, execution receipts, native reports, container reports, and active-file reports
+- Local audit history for plans, execution receipts, native reports, container reports, active-file reports, and review reports
 
 ## Safety Model
 
@@ -299,6 +300,17 @@ swift run --scratch-path .build reclaimer downloads --path ~/Downloads --old-day
 ```
 
 Downloads Review reports the configured Downloads root, permission state, total size, installer/archive/old-download candidate bytes, kind summaries, largest items, and Finder guidance. It is report-only: Ryddi does not delete, move, archive, compress, or Trash Downloads entries.
+
+## Browser Cache Review
+
+Ryddi can review common browser cache roots while keeping browser profiles out of the cache report:
+
+```bash
+swift run --scratch-path .build reclaimer browsers --json --save-audit
+swift run --scratch-path .build reclaimer browsers --path ~/Library/Caches/Google/Chrome --home ~ --limit 40
+```
+
+Browser Cache Review reports readable/missing cache roots, browser and cache-kind summaries, largest cache items, protected profile roots, and quit-first guidance. It is report-only: Ryddi does not delete, move, Trash, reset, or modify browser files, and it does not treat bookmarks, cookies, history, passwords, extensions, sessions, or sync state as cache.
 
 ## Trash Review
 

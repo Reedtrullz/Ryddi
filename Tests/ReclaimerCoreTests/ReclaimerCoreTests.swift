@@ -1781,6 +1781,58 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
     }
 
+    func testBrowserCacheReviewSeparatesCachesFromProtectedProfiles() throws {
+        let chromeCache = tempRoot.appendingPathComponent("Library/Caches/Google/Chrome/Default", isDirectory: true)
+        let diskCache = chromeCache.appendingPathComponent("Cache/Cache_Data", isDirectory: true)
+        let codeCache = chromeCache.appendingPathComponent("Code Cache/js", isDirectory: true)
+        let gpuCache = chromeCache.appendingPathComponent("GPUCache", isDirectory: true)
+        let profileRoot = tempRoot.appendingPathComponent("Library/Application Support/Google/Chrome", isDirectory: true)
+        try FileManager.default.createDirectory(at: diskCache, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codeCache, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: gpuCache, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: profileRoot.appendingPathComponent("Default"), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 4096).write(to: diskCache.appendingPathComponent("data_0"))
+        try Data(repeating: 2, count: 2048).write(to: codeCache.appendingPathComponent("script.bin"))
+        try Data(repeating: 3, count: 1024).write(to: gpuCache.appendingPathComponent("gpu.bin"))
+        try Data("profile password db fixture".utf8).write(to: profileRoot.appendingPathComponent("Default/Login Data"))
+
+        let report = BrowserCacheReviewScanner().review(
+            options: BrowserCacheReviewOptions(
+                roots: [chromeCache],
+                profileRoots: [profileRoot],
+                limit: 10,
+                measurementDepth: 5
+            ),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.rootSummaries.first?.permissionState, .readable)
+        XCTAssertEqual(report.rootSummaries.first?.browser, .chrome)
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .diskCache })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .codeCache })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .gpuCache })
+        XCTAssertGreaterThanOrEqual(report.candidateBytes, 7_168)
+        XCTAssertEqual(report.protectedProfileRoots.first?.permissionState, .readable)
+        XCTAssertTrue(report.protectedProfileRoots.first?.note.contains("bookmarks") == true)
+        XCTAssertFalse(report.largestItems.contains { $0.path.contains("Login Data") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: profileRoot.appendingPathComponent("Default/Login Data").path))
+        XCTAssertTrue(report.guidance.contains { $0.contains("Quit browsers") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
+    }
+
+    func testBrowserCacheReviewReportsMissingRootAsCoverageEvidence() throws {
+        let missing = tempRoot.appendingPathComponent("Library/Caches/Google/Chrome", isDirectory: true)
+        let report = BrowserCacheReviewScanner().review(
+            options: BrowserCacheReviewOptions(roots: [missing], profileRoots: [], limit: 10, measurementDepth: 4),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.rootSummaries.first?.permissionState, .missing)
+        XCTAssertEqual(report.candidateBytes, 0)
+        XCTAssertTrue(report.rootSummaries.first?.note.contains("does not exist") == true)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("profile roots") })
+    }
+
     func testDuplicateReviewExcludesPreserveByDefaultUnlessRequested() throws {
         let documents = tempRoot.appendingPathComponent("Documents", isDirectory: true)
         try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
@@ -3006,6 +3058,15 @@ final class ReclaimerCoreTests: XCTestCase {
             options: DownloadsReviewOptions(root: tempRoot.appendingPathComponent("Downloads"), limit: 10, oldDays: 90, measurementDepth: 4),
             createdAt: Date(timeIntervalSince1970: 0)
         )
+        let browserReport = BrowserCacheReviewScanner().review(
+            options: BrowserCacheReviewOptions(
+                roots: [tempRoot.appendingPathComponent("Library/Caches/Google/Chrome")],
+                profileRoots: [tempRoot.appendingPathComponent("Library/Application Support/Google/Chrome")],
+                limit: 10,
+                measurementDepth: 4
+            ),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
 
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
@@ -3015,6 +3076,7 @@ final class ReclaimerCoreTests: XCTestCase {
         _ = try store.save(activeFileReviewReport: activeReport)
         _ = try store.save(trashReviewReport: trashReport)
         _ = try store.save(downloadsReviewReport: downloadsReport)
+        _ = try store.save(browserCacheReviewReport: browserReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.plan(id: String(plan.id.prefix(8)))?.id, plan.id)
@@ -3026,6 +3088,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.recentActiveFileReviewReports().first?.id, activeReport.id)
         XCTAssertEqual(store.recentTrashReviewReports().first?.id, trashReport.id)
         XCTAssertEqual(store.recentDownloadsReviewReports().first?.id, downloadsReport.id)
+        XCTAssertEqual(store.recentBrowserCacheReviewReports().first?.id, browserReport.id)
     }
 
     private final class FakeToolRunner: ToolCommandRunning, @unchecked Sendable {
