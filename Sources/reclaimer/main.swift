@@ -44,6 +44,8 @@ struct ReclaimerCLI {
             try history(args: args)
         case "duplicates":
             try duplicates(args: args)
+        case "trash":
+            try trash(args: args)
         case "apps":
             try apps(args: args)
         case "agents":
@@ -589,6 +591,30 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printDuplicateReview(report, options: options)
+        }
+    }
+
+    static func trash(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let root = options.value(after: "--path")
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
+        let measurementDepth = max(0, Int(options.value(after: "--max-depth") ?? "") ?? 8)
+        let report = TrashReviewScanner().review(
+            options: TrashReviewOptions(
+                root: root,
+                limit: options.limit,
+                measurementDepth: measurementDepth
+            )
+        )
+        if options.saveAudit {
+            let url = try AuditStore().save(trashReviewReport: report)
+            FileHandle.standardError.write(Data("saved trash review report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printTrashReview(report, options: options)
         }
     }
 
@@ -1220,6 +1246,7 @@ struct ReclaimerCLI {
                              [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
               duplicates [--json] --path PATH ... [--min-size BYTES] [--max-depth N] [--limit N]
                          [--max-files N] [--include-preserve] [--skip-hidden] [--show-excluded]
+              trash [--json] [--path TRASH_ROOT] [--limit N] [--max-depth N] [--save-audit]
               apps [--json] [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N]
                    [--include-system-apps] [--no-orphans] [--show-excluded]
               apps uninstall-preview [--json] (--app PATH | --bundle-id ID | --name NAME)
@@ -2544,6 +2571,47 @@ func printAgentRetentionReport(_ report: AgentRetentionReport, options: ParsedOp
                 print("  next: \(firstStep)")
             }
         }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printTrashReview(_ report: TrashReviewReport, options: ParsedOptions) {
+    print("Ryddi Trash review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Root: \(report.rootPath)")
+    print("Permission: \(report.permissionState.rawValue)")
+    print("Items measured: \(report.itemCount)")
+    print("Allocated in Trash: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Logical in Trash: \(ByteFormat.string(report.totalLogicalSize))")
+
+    if !report.notes.isEmpty {
+        print("\nNotes")
+        for note in report.notes {
+            print("- \(note)")
+        }
+    }
+
+    if report.largestItems.isEmpty {
+        print("\nNo Trash items found at the configured root.")
+    } else {
+        print("\nLargest Trash items")
+        print("\(pad("Allocated", 11)) \(pad("Logical", 11)) \(pad("Items", 8)) \(pad("Modified", 12)) Path")
+        for item in report.largestItems.prefix(options.limit) {
+            let modified = item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "unknown"
+            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(ByteFormat.string(item.logicalSize), 11)) \(pad("\(item.itemCount)", 8)) \(pad(modified, 12)) \(item.path)")
+            if let guidance = item.guidance.first {
+                print("  - \(guidance)")
+            }
+        }
+    }
+
+    print("\nGuidance")
+    for line in report.guidance {
+        print("- \(line)")
     }
 
     print("\nNon-claims")

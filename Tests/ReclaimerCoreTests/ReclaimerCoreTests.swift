@@ -1684,6 +1684,48 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(report.groups.flatMap(\.files).contains { $0.path.hasSuffix("target-link.bin") })
     }
 
+    func testTrashReviewReportsLargestItemsWithoutEmptyingTrash() throws {
+        let trash = tempRoot.appendingPathComponent(".Trash", isDirectory: true)
+        let small = trash.appendingPathComponent("small.txt")
+        let large = trash.appendingPathComponent("large.dmg")
+        let hidden = trash.appendingPathComponent(".hidden-cache")
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 128).write(to: small)
+        try Data(repeating: 2, count: 4096).write(to: large)
+        try Data(repeating: 3, count: 256).write(to: hidden)
+
+        let report = TrashReviewScanner().review(
+            options: TrashReviewOptions(root: trash, limit: 2, measurementDepth: 4),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.permissionState, .readable)
+        XCTAssertEqual(report.rootPath, trash.path)
+        XCTAssertGreaterThanOrEqual(report.itemCount, 3)
+        XCTAssertEqual(report.largestItems.count, 2)
+        XCTAssertTrue(report.largestItems.contains { $0.displayName == "large.dmg" })
+        XCTAssertTrue(report.largestItems.contains { $0.displayName == ".hidden-cache" })
+        XCTAssertTrue(report.totalAllocatedSize >= 4_096)
+        XCTAssertTrue(report.guidance.contains { $0.contains("Finder Trash") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("does not empty Trash") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: small.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: large.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: hidden.path))
+    }
+
+    func testTrashReviewReportsMissingRootAsCoverageEvidence() throws {
+        let missing = tempRoot.appendingPathComponent("missing-trash", isDirectory: true)
+        let report = TrashReviewScanner().review(
+            options: TrashReviewOptions(root: missing, limit: 10, measurementDepth: 4),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.permissionState, .missing)
+        XCTAssertEqual(report.totalAllocatedSize, 0)
+        XCTAssertTrue(report.notes.contains { $0.contains("does not exist") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
+    }
+
     func testDuplicateReviewExcludesPreserveByDefaultUnlessRequested() throws {
         let documents = tempRoot.appendingPathComponent("Documents", isDirectory: true)
         try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
@@ -2901,6 +2943,10 @@ final class ReclaimerCoreTests: XCTestCase {
         let activeReport = ActiveFileReviewScanner(
             openFileChecker: StaticOpenFileChecker(openPaths: [candidate.path])
         ).review(findings: [candidate], options: ActiveFileReviewOptions(limit: 10))
+        let trashReport = TrashReviewScanner().review(
+            options: TrashReviewOptions(root: tempRoot.appendingPathComponent(".Trash"), limit: 10, measurementDepth: 4),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
 
         _ = try store.save(plan: plan)
         _ = try store.save(receipt: receipt)
@@ -2908,6 +2954,7 @@ final class ReclaimerCoreTests: XCTestCase {
         _ = try store.save(nativeToolExecutionReceipt: nativeExecutionReceipt)
         _ = try store.save(containerInventoryReport: containerReport)
         _ = try store.save(activeFileReviewReport: activeReport)
+        _ = try store.save(trashReviewReport: trashReport)
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.plan(id: String(plan.id.prefix(8)))?.id, plan.id)
@@ -2917,6 +2964,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.recentNativeToolExecutionReceipts().first?.id, nativeExecutionReceipt.id)
         XCTAssertEqual(store.recentContainerInventoryReports().first?.id, containerReport.id)
         XCTAssertEqual(store.recentActiveFileReviewReports().first?.id, activeReport.id)
+        XCTAssertEqual(store.recentTrashReviewReports().first?.id, trashReport.id)
     }
 
     private final class FakeToolRunner: ToolCommandRunning, @unchecked Sendable {

@@ -51,6 +51,8 @@ struct DashboardView: View {
                 LargeOldReviewView(model: model)
             } else if selectedSection == "Duplicates" {
                 DuplicateReviewView(model: model)
+            } else if selectedSection == "Trash" {
+                TrashReviewView(model: model)
             } else if selectedSection == "Containers" {
                 ContainerInventoryView(model: model)
             } else if selectedSection == "Agents" {
@@ -207,6 +209,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Duplicates"
                 }
+                Button("Trash Review") {
+                    selectedFinding = nil
+                    selectedSection = "Trash"
+                }
                 Button("Container Inventory") {
                     selectedFinding = nil
                     selectedSection = "Containers"
@@ -320,6 +326,7 @@ struct OverviewView: View {
                 MetricTile(title: "Audit receipts", value: "\(model.recentReceipts.count)")
                 MetricTile(title: "Snapshots", value: "\(model.scanSnapshots.count)")
                 MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
+                MetricTile(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
                 MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
                 MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
                 MetricTile(title: "Active handles", value: "\(model.activeFileReview?.openCount ?? 0)")
@@ -1171,6 +1178,16 @@ struct AuditHistoryView: View {
                     }
                 }
 
+                SectionBox(title: "Trash Review Reports") {
+                    if model.recentTrashReviewReports.isEmpty {
+                        Text("No Trash review reports yet.")
+                    } else {
+                        ForEach(model.recentTrashReviewReports) { report in
+                            Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.itemCount) item(s) - \(ByteFormat.string(report.totalAllocatedSize))")
+                        }
+                    }
+                }
+
                 SectionBox(title: "App Uninstall Receipts") {
                     if model.recentAppUninstallReceipts.isEmpty {
                         Text("No app-uninstall receipts yet.")
@@ -1852,6 +1869,135 @@ struct DuplicateReviewView: View {
                     }
                 } else {
                     ContentUnavailableView("No duplicate review yet", systemImage: "rectangle.on.rectangle", description: Text("Run a duplicate scan to build a review-only list of identical regular files."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct TrashReviewView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Trash Review")
+                            .font(.largeTitle.bold())
+                        Text("Review what is currently sitting in the user Trash. Ryddi reports size and guidance; Finder remains the place to restore or empty items.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.reviewTrash() }
+                    } label: {
+                        Label("Review Trash", systemImage: "trash")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                if let report = model.trashReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
+                        MetricTile(title: "Logical", value: ByteFormat.string(report.totalLogicalSize))
+                        MetricTile(title: "Measured items", value: "\(report.itemCount)")
+                        MetricTile(title: "Permission", value: report.permissionState.rawValue)
+                    }
+
+                    SectionBox(title: "Trash Root") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(report.rootPath)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                            HStack {
+                                Button {
+#if os(macOS)
+                                    NSWorkspace.shared.open(URL(fileURLWithPath: report.rootPath))
+#endif
+                                } label: {
+                                    Label("Open In Finder", systemImage: "folder")
+                                }
+                                Spacer()
+                            }
+                            ForEach(report.notes, id: \.self) { note in
+                                Text(note)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Largest Trash Items") {
+                        if report.largestItems.isEmpty {
+                            Text("No Trash items found at the configured root.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 0) {
+                                HStack {
+                                    Text("Allocated").frame(width: 92, alignment: .leading)
+                                    Text("Items").frame(width: 56, alignment: .leading)
+                                    Text("Modified").frame(width: 92, alignment: .leading)
+                                    Text("Path")
+                                    Spacer()
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                ForEach(report.largestItems.prefix(30)) { item in
+                                    Divider()
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(ByteFormat.string(item.allocatedSize))
+                                                .frame(width: 92, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text("\(item.itemCount)")
+                                                .frame(width: 56, alignment: .leading)
+                                            Text(item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "unknown")
+                                                .frame(width: 92, alignment: .leading)
+                                            Text(item.path)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                                .textSelection(.enabled)
+                                            Spacer()
+                                        }
+                                        .font(.caption)
+                                        if let firstGuidance = item.guidance.first {
+                                            Text(firstGuidance)
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .padding(.vertical, 6)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Guidance") {
+                        ForEach(report.guidance, id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    SectionBox(title: "Non-Claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No Trash review yet", systemImage: "trash", description: Text("Run Trash Review to inspect the current user Trash without emptying it."))
                 }
 
                 if let error = model.error {
@@ -4289,6 +4435,7 @@ final class DashboardModel {
     var recentNativeToolExecutionReceipts: [NativeToolExecutionReceipt] = []
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
     var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
+    var recentTrashReviewReports: [TrashReviewReport] = []
     var recentAppUninstallReceipts: [AppUninstallExecutionReceipt] = []
     var heldItems: [HeldItem] = []
     var recoveryReport: RecoveryCenterReport = RecoveryCenter.build(heldItems: [], receipts: [])
@@ -4301,6 +4448,7 @@ final class DashboardModel {
     var agentRetentionReport: AgentRetentionReport?
     var containerInventory: ContainerInventoryReport?
     var activeFileReview: ActiveFileReviewReport?
+    var trashReview: TrashReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
     var lastPlanReportExportURL: URL?
@@ -4917,6 +5065,7 @@ final class DashboardModel {
         recentNativeToolExecutionReceipts = store.recentNativeToolExecutionReceipts()
         recentContainerInventoryReports = store.recentContainerInventoryReports()
         recentActiveFileReviewReports = store.recentActiveFileReviewReports()
+        recentTrashReviewReports = store.recentTrashReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
     }
@@ -5000,6 +5149,24 @@ final class DashboardModel {
                     )
                 )
             }.value
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reviewTrash() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = await Task.detached {
+                TrashReviewScanner().review(
+                    options: TrashReviewOptions(limit: 50, measurementDepth: 8)
+                )
+            }.value
+            trashReview = report
+            _ = try AuditStore().save(trashReviewReport: report)
+            loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription

@@ -55,6 +55,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - first-class large-file and old-file review mode with category/safety summaries, row actions, and no automatic cleanup
 - archive-candidate review checklist for large/old personal files, with keep/archive/Trash-review/cleanup-plan/blocked recommendations
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
+- report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
 - app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, separating reclaimable cache from valuable history and protected state
@@ -132,6 +133,7 @@ swift run --scratch-path .build reclaimer scan
 swift run --scratch-path .build reclaimer scan --sort category --group category --limit 40
 swift run --scratch-path .build reclaimer scan --review large --large-threshold 1000000000
 swift run --scratch-path .build reclaimer duplicates --path ~/Downloads --min-size 10000000
+swift run --scratch-path .build reclaimer trash --save-audit
 swift run --scratch-path .build reclaimer apps --min-size 10000000
 swift run --scratch-path .build reclaimer apps uninstall-preview --app /Applications/Example.app --output ryddi-app-uninstall-preview.md
 swift run --scratch-path .build reclaimer agents
@@ -285,6 +287,17 @@ swift run --scratch-path .build reclaimer apps uninstall --yes --app /Applicatio
 ```
 
 The preview separates the app bundle from related support files. `apps uninstall --dry-run` writes a receipt for moving only the selected app bundle to Trash. `apps uninstall --yes` performs that app-bundle Trash move after open-file, user-policy, and final bundle protection checks. Related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. Ryddi does not quit apps, unload helpers, run vendor uninstallers, or clean leftovers automatically.
+
+## Trash Review
+
+Ryddi can review the current user Trash without emptying it:
+
+```bash
+swift run --scratch-path .build reclaimer trash --json --save-audit
+swift run --scratch-path .build reclaimer trash --path ~/.Trash --limit 40
+```
+
+Trash Review reports the configured Trash root, permission state, total logical/allocated size, largest immediate Trash items, and Finder guidance. It is report-only: Ryddi does not empty Trash, restore items, move files, or promise immediate free-space recovery.
 
 ## Protections And Exclusions
 

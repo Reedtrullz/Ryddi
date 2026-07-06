@@ -60,6 +60,10 @@ printf 'fixture cache\n' >"$receipt_fixture/cache.bin"
 native_fixture="$scratch/native-fixture/Library/Caches/Homebrew/downloads"
 mkdir -p "$native_fixture"
 printf 'homebrew cache\n' >"$native_fixture/bottle.tar.gz"
+trash_fixture="$scratch/trash-fixture/.Trash"
+mkdir -p "$trash_fixture"
+printf 'old download\n' >"$trash_fixture/old-download.dmg"
+printf 'hidden trash\n' >"$trash_fixture/.hidden-trash"
 agent_fixture="$scratch/agent-fixture"
 mkdir -p \
   "$agent_fixture/.codex/cache" \
@@ -317,6 +321,18 @@ grep -q '"command" : "brew cleanup -n"' "$scratch/native-run-dry-run.json"
 grep -q "Dry run only" "$scratch/native-run-dry-run.json"
 grep -q "only one explicitly selected native-tool command" "$scratch/native-run-dry-run.json"
 find "$scratch/audit" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" trash --json \
+  --path "$trash_fixture" \
+  --limit 20 \
+  --max-depth 4 \
+  --save-audit >"$scratch/trash-smoke.json"
+grep -q '"permissionState" : "readable"' "$scratch/trash-smoke.json"
+grep -q '"displayName" : "old-download.dmg"' "$scratch/trash-smoke.json"
+grep -q '"displayName" : ".hidden-trash"' "$scratch/trash-smoke.json"
+grep -q "Trash Review is report-only" "$scratch/trash-smoke.json"
+find "$scratch/audit" -name 'trash-review-*.json' -print -quit | grep -q 'trash-review-'
+test -f "$trash_fixture/old-download.dmg"
+test -f "$trash_fixture/.hidden-trash"
 "$app/Contents/MacOS/reclaimer" permissions --json --path "$root/Tests" >"$scratch/permissions-smoke.json"
 grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$scratch/permissions-guide.md"
@@ -578,6 +594,7 @@ Verification performed:
 - bundled reclaimer agents --json on disposable Codex/Claude/Cursor/Ollama fixture
 - bundled reclaimer agents retention --json on disposable Codex/Claude/Cursor/Ollama fixture
 - bundled reclaimer native --json and native run --dry-run --json on disposable Homebrew fixture
+- bundled reclaimer trash --json on disposable Trash fixture, with audit save and no emptying
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root

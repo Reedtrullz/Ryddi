@@ -46,6 +46,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer history list --limit 5` and `reclaimer history diff --group category --limit 5` read local-only snapshots.
 - [ ] `reclaimer history report --output GROWTH.md` writes a local Markdown saved-snapshot comparison report with deltas, scan coverage, path privacy controls, and non-claims.
 - [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
+- [ ] `reclaimer trash --path FIXTURE/.Trash --json --save-audit` reports Trash size/largest items, saves a local audit record, and does not empty, restore, move, or delete files.
 - [ ] `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` reports installed app support files and orphan candidates without emitting a cleanup plan.
 - [ ] `reclaimer apps uninstall-preview --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --output PREVIEW.md` writes a selected-app uninstall checklist where related files remain review-only and no deletion occurs.
 - [ ] `reclaimer apps uninstall --dry-run --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` writes an app-uninstall receipt where only the selected app bundle would move to Trash and related files remain untouched.
@@ -102,5 +103,6 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say plan reports summarize proposed cleanup locally and do not execute cleanup or replace dry-run receipts.
 - [ ] Release notes say receipt reports summarize saved receipts locally and do not rerun cleanup.
 - [ ] Release notes say Recovery Center can restore only app-held items; Trash, native-tool, direct-delete, dry-run, skipped, and failed receipt rows are guidance, not guaranteed undo.
+- [ ] Release notes say Trash Review is report-only and does not empty Trash, restore items, move files, or guarantee immediate free-space recovery.
 - [ ] Release notes say report redaction affects exports only; saved local audit JSON, plans, and receipts can still contain original local paths.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.
