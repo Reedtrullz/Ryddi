@@ -64,6 +64,13 @@ public final class AuditStore: @unchecked Sendable {
             .compactMap { try? decoder.decode(ExecutionReceipt.self, from: Data(contentsOf: $0)) }
     }
 
+    public func receipt(id: String) -> ExecutionReceipt? {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return recentReceipts(limit: 500)
+            .first { $0.id == trimmed || $0.id.hasPrefix(trimmed) }
+    }
+
     public func recentPlans(limit: Int = 20) -> [ReclaimPlan] {
         guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
             return []

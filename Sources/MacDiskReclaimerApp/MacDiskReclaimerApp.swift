@@ -276,6 +276,7 @@ struct CapabilityMatrixView: View {
         ("Export reports", "Local Markdown evidence reports capture scan coverage, top findings, user policy, accounting notes, and non-claims."),
         ("Protect active files", "Plan/executor run open-file checks and skip active paths."),
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
+        ("Export receipts", "Saved dry-run and execution receipts can be exported as local Markdown reports with action counts and non-claims."),
         ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
         ("Schedule maintenance", "Per-user LaunchAgent writes saved report plans, no root helper."),
         ("Keep audit trail", "Plans and receipts are stored locally under Application Support."),
@@ -326,8 +327,20 @@ struct AuditHistoryView: View {
                     if model.recentReceipts.isEmpty {
                         Text("No receipts yet.")
                     } else {
+                        if let url = model.lastReceiptReportExportURL {
+                            Text("Latest receipt report: \(url.path)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                         ForEach(model.recentReceipts) { receipt in
-                            Text("\(receipt.createdAt.formatted()) - \(receipt.mode) - \(receipt.actions.count) actions")
+                            HStack {
+                                Text("\(receipt.createdAt.formatted()) - \(receipt.mode) - \(receipt.actions.count) actions")
+                                Spacer()
+                                Button("Export") {
+                                    Task { await model.exportReceiptReport(receipt) }
+                                }
+                            }
                         }
                     }
                 }
@@ -1890,6 +1903,7 @@ final class DashboardModel {
     var containerInventory: ContainerInventoryReport?
     var userPathPolicy: UserPathPolicy = .empty
     var lastReportExportURL: URL?
+    var lastReceiptReportExportURL: URL?
     var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.developerAgentBloat(includeUnavailable: true))
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
@@ -2104,6 +2118,21 @@ final class DashboardModel {
                 return try ReportStore().save(report: report)
             }.value
             lastReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportReceiptReport(_ receipt: ExecutionReceipt) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let url = try await Task.detached {
+                let report = ExecutionReceiptReportBuilder.build(receipt: receipt)
+                return try ReportStore().save(executionReceiptReport: report)
+            }.value
+            lastReceiptReportExportURL = url
             error = nil
         } catch {
             self.error = error.localizedDescription

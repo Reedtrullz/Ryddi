@@ -24,6 +24,7 @@ Ryddi is intentionally not a generic "clean my Mac" button. It is an evidence-fi
 | Protect valuable data | Default preserve/never-touch for user documents, creative assets, credentials, browser profiles, VM/container state, and Codex history. | rule pack and executor protected-class checks |
 | Handle active files | Check open handles before planning/execution and skip active paths. | `LsofOpenFileChecker`, `PlanBuilder`, `ReclaimerExecutor` |
 | Avoid blind deletes | Build a dry-run plan first; UI exposes dry-run receipts and enables reclaim only after a clean dry run. | `ReclaimPlan`, `ExecutionReceipt`, app Dry Run/Reclaim |
+| Export receipts | Convert saved dry-run/execution receipts into local Markdown with action counts, before/after free-space fields, skipped/errors, and non-claims. | `ExecutionReceiptReportBuilder`, `reclaimer receipts export`, app Audit History export |
 | Reclaim safely | Use Trash for uncertain/user-visible data, direct delete only for allowlisted caches, compression only for cold files, holding area for reversible moves, with app confirmation before execution. | `ReclaimerExecutor`, app Reclaim confirmation |
 | Restore held items | Store holding metadata so held items can be listed, restored, or expired after review. | `HoldingStore`, `reclaimer holding`, app Holding Area |
 | Prefer native cleanup | Report Docker/Colima/package-manager cleanup as preview-only native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims rather than deleting stores directly. | `NativeToolGuidance`, `reclaimer native`, app native receipt preview |
@@ -48,6 +49,7 @@ Included:
 - Local scan history and growth deltas.
 - Menu bar disk-pressure status with report-only scan shortcut.
 - Exportable local Markdown evidence reports.
+- Exportable local Markdown execution receipt reports.
 - Permission advisor for readable/denied/missing scope coverage and Full Disk Access guidance.
 - Browser cache versus browser profile distinction.
 - Large-file and old-file review-only signals.
@@ -82,6 +84,7 @@ Deferred:
 - `reclaimer overview` reports top offenders, permission coverage, category summaries, and APFS notes.
 - `reclaimer permissions --json --path FIXTURE` reports coverage level, readable/denied/missing counts, recommended actions, and non-claims.
 - `reclaimer report --path FIXTURE --limit 5 --output REPORT.md` writes a local Markdown report with top findings, policy, accounting notes, and non-claims without executing cleanup.
+- `reclaimer receipts export --output RECEIPT.md` writes a local Markdown report for a saved receipt without rerunning cleanup.
 - `reclaimer status --json` reports disk pressure and free-space notes without scanning content.
 - `reclaimer history record/list/diff` stores local scan snapshots and reports category/scope/safety deltas.
 - `reclaimer duplicates --path FIXTURE --min-size 1` groups same-content regular files, skips protected paths, and emits review-only `openGuidance` candidates.

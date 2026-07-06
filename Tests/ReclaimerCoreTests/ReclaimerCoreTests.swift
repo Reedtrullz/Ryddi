@@ -200,6 +200,66 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url), report.markdown)
     }
 
+    func testExecutionReceiptReportIncludesCountsDeltasAndNonClaims() {
+        let receipt = ExecutionReceipt(
+            id: "receipt-fixture",
+            createdAt: Date(timeIntervalSince1970: 0),
+            ruleVersion: "test-rules",
+            mode: ExecutionMode.dryRun.rawValue,
+            beforeFreeBytes: 1_000,
+            afterFreeBytes: 1_200,
+            actions: [
+                ExecutionActionReceipt(path: "/tmp/cache", action: .deleteCache, status: "dry-run", message: "Would delete.", reclaimedBytes: 200),
+                ExecutionActionReceipt(path: "/tmp/open", action: .deleteCache, status: "skipped", message: "Open-file check blocked action."),
+                ExecutionActionReceipt(path: "/tmp/error", action: .trash, status: "error", message: "Fixture error.")
+            ],
+            userConfirmed: false,
+            errors: ["fixture top-level error"]
+        )
+
+        let report = ExecutionReceiptReportBuilder.build(
+            receipt: receipt,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.receiptID, "receipt-fixture")
+        XCTAssertEqual(report.actionCount, 3)
+        XCTAssertEqual(report.dryRunCount, 1)
+        XCTAssertEqual(report.skippedCount, 1)
+        XCTAssertEqual(report.errorCount, 2)
+        XCTAssertEqual(report.totalReclaimedBytes, 200)
+        XCTAssertEqual(report.freeSpaceDeltaBytes, 200)
+        XCTAssertTrue(report.markdown.contains("# Ryddi Receipt Report"))
+        XCTAssertTrue(report.markdown.contains("receipt-fixture"))
+        XCTAssertTrue(report.markdown.contains("Open-file check blocked action."))
+        XCTAssertTrue(report.markdown.contains("fixture top-level error"))
+        XCTAssertTrue(report.markdown.contains("This report summarizes a saved receipt; it does not execute cleanup."))
+    }
+
+    func testReportStoreSavesExecutionReceiptReport() throws {
+        let receiptReport = ExecutionReceiptReport(
+            id: "report-fixture",
+            createdAt: Date(timeIntervalSince1970: 0),
+            title: "Receipt Report",
+            markdown: "# Receipt Report\n",
+            receiptID: "receipt-fixture",
+            actionCount: 0,
+            dryRunCount: 0,
+            doneCount: 0,
+            skippedCount: 0,
+            errorCount: 0,
+            totalReclaimedBytes: 0,
+            freeSpaceDeltaBytes: nil,
+            nonClaims: []
+        )
+        let store = ReportStore(root: tempRoot.appendingPathComponent("Reports", isDirectory: true))
+
+        let url = try store.save(executionReceiptReport: receiptReport)
+
+        XCTAssertEqual(url.lastPathComponent, "receipt-report-receipt-fixture-report-fixture.md")
+        XCTAssertEqual(try String(contentsOf: url), receiptReport.markdown)
+    }
+
     func testVisualMapUsesNonOverlappingAllocatedSizes() throws {
         let root = Finding(
             scopeName: "fixture",
@@ -1129,6 +1189,7 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertEqual(store.recentPlans().first?.id, plan.id)
         XCTAssertEqual(store.recentReceipts().first?.id, receipt.id)
+        XCTAssertEqual(store.receipt(id: String(receipt.id.prefix(8)))?.id, receipt.id)
         XCTAssertEqual(store.recentNativeToolReports().first?.id, nativeReport.id)
         XCTAssertEqual(store.recentContainerInventoryReports().first?.id, containerReport.id)
     }

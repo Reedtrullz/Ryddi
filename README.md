@@ -37,6 +37,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - menu bar disk-pressure status with report-only scan shortcut
 - permission/degraded-scan coverage, Full Disk Access guidance, and APFS accounting notes
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
+- exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - local user protections and exclusions for paths Ryddi should preserve or ignore
 - large-file and old-file review signals
@@ -101,6 +102,8 @@ swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratc
 swift run --scratch-path .build reclaimer plan --json
 swift run --scratch-path .build reclaimer explain ~/.codex
 swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Caches/Codex
+swift run --scratch-path .build reclaimer receipts list
+swift run --scratch-path .build reclaimer receipts export --output ryddi-receipt-report.md
 swift run --scratch-path .build reclaimer holding list
 ```
 
@@ -140,6 +143,15 @@ swift run --scratch-path .build reclaimer report --save-report
 ```
 
 Reports include scan coverage, safety buckets, top categories, top findings, local protections/exclusions, APFS/accounting notes, disk-pressure notes, and explicit non-claims. They do not execute cleanup and may include local paths.
+
+Saved execution receipts can also be exported:
+
+```bash
+swift run --scratch-path .build reclaimer execute --dry-run --path ~/Library/Caches/Codex --save-audit
+swift run --scratch-path .build reclaimer receipts export --output ryddi-receipt-report.md
+```
+
+Receipt reports summarize saved dry-run or execution receipts. They include action status counts, before/after free-space fields when available, skipped/error actions, and non-claims. Exporting a receipt report does not rerun cleanup.
 
 Holding-area expiry is also dry-run unless confirmed:
 

@@ -48,6 +48,8 @@ struct ReclaimerCLI {
             try explain(args: args)
         case "execute":
             try execute(args: args)
+        case "receipts":
+            try receipts(args: args)
         case "archive":
             try archive(args: args)
         case "schedule":
@@ -356,6 +358,48 @@ struct ReclaimerCLI {
         }
     }
 
+    static func receipts(args: [String]) throws {
+        let subcommand = args.first ?? "list"
+        let options = ParsedOptions(Array(args.dropFirst()))
+        let store = AuditStore()
+        switch subcommand {
+        case "list":
+            let receipts = store.recentReceipts(limit: options.limit)
+            if options.json {
+                printJSON(receipts)
+            } else {
+                printReceipts(receipts)
+            }
+        case "export":
+            let receipt = options.receiptID.flatMap { store.receipt(id: $0) }
+                ?? store.recentReceipts(limit: 1).first
+            guard let receipt else {
+                throw CLIError.message("No saved receipt found. Run execute --dry-run --save-audit first, or pass --id for an existing receipt.")
+            }
+            let report = ExecutionReceiptReportBuilder.build(
+                title: options.receiptReportTitle,
+                receipt: receipt
+            )
+            if let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                FileHandle.standardError.write(Data("wrote receipt report: \(url.path)\n".utf8))
+            }
+            if options.saveReport {
+                let url = try ReportStore().save(executionReceiptReport: report)
+                FileHandle.standardError.write(Data("saved receipt report: \(url.path)\n".utf8))
+            }
+            if options.json {
+                printJSON(report)
+            } else if options.outputPath == nil {
+                print(report.markdown)
+            }
+        default:
+            throw CLIError.message("Unknown receipts subcommand: \(subcommand)")
+        }
+    }
+
     static func archive(args: [String]) throws {
         var archiveArgs = args
         if !archiveArgs.contains("--review-all") {
@@ -465,6 +509,8 @@ struct ReclaimerCLI {
               explain PATH [--json]
               execute --dry-run [--json] [--path PATH ...] [--save-audit] [--ignore-user-policy]
               execute --yes [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
+              receipts list [--json] [--limit N]
+              receipts export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
               archive [--json] [--path PATH ...]   # review/compression-oriented plan only
               schedule install [--hour H] [--minute M] [--load]
               schedule uninstall [--unload]
@@ -515,6 +561,8 @@ struct ParsedOptions {
     var reason: String? { value(after: "--reason") }
     var outputPath: String? { value(after: "--output") }
     var reportTitle: String { value(after: "--title") ?? "Ryddi Evidence Report" }
+    var receiptReportTitle: String { value(after: "--title") ?? "Ryddi Receipt Report" }
+    var receiptID: String? { value(after: "--id") }
     var policyKind: UserPathPolicyKind? {
         switch value(after: "--kind") {
         case "protect": .protect
@@ -1107,6 +1155,23 @@ func printReceipt(_ receipt: ExecutionReceipt) {
     print("Receipt \(receipt.id)")
     for action in receipt.actions {
         print("[\(action.status)] \(action.action.label): \(action.path) - \(action.message)")
+    }
+}
+
+func printReceipts(_ receipts: [ExecutionReceipt]) {
+    if receipts.isEmpty {
+        print("No saved receipts.")
+        return
+    }
+    print("\(pad("Created", 22)) \(pad("Mode", 8)) \(pad("Actions", 8)) \(pad("Dry-run", 8)) \(pad("Done", 6)) \(pad("Skipped", 8)) \(pad("Errors", 7)) Receipt")
+    for receipt in receipts {
+        let dryRun = receipt.actions.filter { $0.status == "dry-run" }.count
+        let done = receipt.actions.filter { $0.status == "done" }.count
+        let skipped = receipt.actions.filter { $0.status == "skipped" }.count
+        let errors = receipt.actions.filter { $0.status == "error" }.count + receipt.errors.count
+        print(
+            "\(pad(receipt.createdAt.formatted(date: .numeric, time: .shortened), 22)) \(pad(receipt.mode, 8)) \(pad("\(receipt.actions.count)", 8)) \(pad("\(dryRun)", 8)) \(pad("\(done)", 6)) \(pad("\(skipped)", 8)) \(pad("\(errors)", 7)) \(receipt.id)"
+        )
     }
 }
 

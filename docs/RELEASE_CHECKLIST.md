@@ -21,6 +21,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer duplicates --path FIXTURE --min-size 1 --json` groups same-content regular files, skips protected paths, and emits no cleanup plan.
 - [ ] `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` reports installed app support files and orphan candidates without emitting a cleanup plan.
 - [ ] `reclaimer native --path FIXTURE --json --save-audit` emits preview-only native-tool receipts and saves a local audit record without executing native cleanup commands.
+- [ ] `reclaimer execute --dry-run --path FIXTURE --save-audit` followed by `reclaimer receipts export --output RECEIPT.md` writes a local Markdown receipt report without rerunning cleanup.
 - [ ] `reclaimer containers --json --timeout 2 --save-audit` emits a read-only Docker/Colima inventory, saves a local audit record, and does not execute prune/delete/stop/reset commands.
 - [ ] `reclaimer policy protect/exclude/list/remove` works with a temporary `RYDDI_CONFIG_ROOT`; protected paths are not selected for cleanup and excluded paths are absent from scan output.
 - [ ] App Visual Map and Growth History render without changing reclaim gates.
@@ -54,4 +55,5 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say user protections/exclusions are local path policy and are not uploaded.
 - [ ] Release notes say permission coverage is local path readability evidence and does not grant or prove global Full Disk Access.
 - [ ] Release notes say evidence reports are local Markdown files that can include paths and do not execute cleanup.
+- [ ] Release notes say receipt reports summarize saved receipts locally and do not rerun cleanup.
 - [ ] Release notes say VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, and Codex sessions are not deleted automatically.

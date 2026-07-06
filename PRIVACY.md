@@ -28,6 +28,8 @@ User path policy stores local exclusions and protections you create. These entri
 
 Evidence report export reads scan findings, disk status, scan coverage, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them.
 
+Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Ryddi does not upload receipt reports or rerun cleanup while creating them.
+
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
 ## What Ryddi Writes
@@ -36,6 +38,7 @@ Ryddi can write:
 
 - saved dry-run plans and receipts;
 - saved Markdown evidence reports;
+- saved Markdown receipt reports;
 - saved native-tool preview reports;
 - saved container inventory reports;
 - saved user path policy for protections and exclusions;
