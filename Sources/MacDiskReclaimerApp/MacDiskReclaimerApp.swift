@@ -430,10 +430,18 @@ struct CapabilityMatrixView: View {
 
 struct RuleCatalogView: View {
     private let catalogResult: Result<RuleCatalogReport, Error>
+    private let userRuleDocumentResult: Result<UserRulePackDocument, Error>
+    private let userRuleCatalogResult: Result<RuleCatalogReport, Error>
 
     init() {
         catalogResult = Result {
             try RuleEngine.bundled().catalog()
+        }
+        userRuleDocumentResult = Result {
+            try UserRulePackStore().loadDocument()
+        }
+        userRuleCatalogResult = Result {
+            try RuleEngine.bundled(includingUserRules: true).catalog()
         }
     }
 
@@ -447,8 +455,45 @@ struct RuleCatalogView: View {
                     HStack(spacing: 16) {
                         MetricTile(title: "Version", value: catalog.ruleVersion)
                         MetricTile(title: "Rules", value: "\(catalog.ruleCount)")
+                        MetricTile(title: "User rules", value: "\(userRuleCount)")
                         MetricTile(title: "Safety buckets", value: "\(catalog.safetySummaries.count)")
                         MetricTile(title: "Categories", value: "\(catalog.categorySummaries.count)")
+                    }
+
+                    SectionBox(title: "Local User Rules") {
+                        switch userRuleDocumentResult {
+                        case .success(let document):
+                            HStack {
+                                Text("Installed")
+                                Spacer()
+                                Text("\(document.rules.count)")
+                                    .monospacedDigit()
+                            }
+                            .font(.caption)
+                            switch userRuleCatalogResult {
+                            case .success(let combinedCatalog):
+                                HStack {
+                                    Text("Combined catalog")
+                                    Spacer()
+                                    Text("\(combinedCatalog.ruleCount) rules")
+                                        .monospacedDigit()
+                                }
+                                .font(.caption)
+                            case .failure(let error):
+                                Text(error.localizedDescription)
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            }
+                            ForEach(document.nonClaims, id: \.self) { note in
+                                Text(note)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        case .failure(let error):
+                            Text(error.localizedDescription)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
                     }
 
                     SectionBox(title: "Safety Summary") {
@@ -532,6 +577,13 @@ struct RuleCatalogView: View {
                 ContentUnavailableView("Rule catalog unavailable", systemImage: "exclamationmark.triangle", description: Text(error.localizedDescription))
                     .padding(24)
             }
+        }
+    }
+
+    private var userRuleCount: Int {
+        switch userRuleDocumentResult {
+        case .success(let document): document.rules.count
+        case .failure: 0
         }
     }
 }

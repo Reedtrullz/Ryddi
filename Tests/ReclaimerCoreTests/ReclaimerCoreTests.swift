@@ -95,6 +95,7 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertEqual(catalog.ruleVersion, "2026.07.05-mvp1")
         XCTAssertGreaterThan(catalog.ruleCount, 10)
+        XCTAssertEqual(catalog.userRuleCount, 0)
         XCTAssertTrue(catalog.safetySummaries.contains { $0.name == SafetyClass.neverTouch.label && $0.count > 0 })
         XCTAssertTrue(catalog.actionSummaries.contains { $0.name == ActionKind.deleteCache.label && $0.count > 0 })
         XCTAssertTrue(catalog.categorySummaries.contains { $0.name == "Codex" && $0.count > 0 })
@@ -106,6 +107,119 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(credentials.matchHints.isEmpty)
         XCTAssertFalse(credentials.evidence.isEmpty)
         XCTAssertFalse(catalog.nonClaims.isEmpty)
+    }
+
+    func testUserRulePackRejectsCleanupPermissions() throws {
+        let store = UserRulePackStore(root: tempRoot.appendingPathComponent("config", isDirectory: true))
+        let destructiveRule = ReclaimerRule(
+            id: "user.bad.cache-cleanup",
+            title: "Unsafe custom cleanup",
+            category: "User",
+            priority: 5000,
+            safetyClass: .autoSafe,
+            actionKind: .deleteCache,
+            match: RuleMatchSpec(containsAny: ["/Library/Caches/UnsafeCustomThing/"]),
+            evidence: ["This rule tries to grant itself cleanup permission."]
+        )
+        let document = UserRulePackDocument(rules: [destructiveRule])
+
+        let issues = store.validate(document)
+        XCTAssertTrue(issues.contains { $0.severity == .error && $0.ruleID == destructiveRule.id && $0.message.contains("cannot use") })
+        XCTAssertTrue(issues.contains { $0.severity == .error && $0.ruleID == destructiveRule.id && $0.message.contains("cannot request") })
+        XCTAssertThrowsError(try store.save(document)) { error in
+            guard case UserRulePackError.validationFailed = error else {
+                return XCTFail("Expected validation failure, got \(error)")
+            }
+        }
+    }
+
+    func testUserRulePackImportIsExplicitAndCannotDowngradeNeverTouch() throws {
+        let configRoot = tempRoot.appendingPathComponent("config", isDirectory: true)
+        let store = UserRulePackStore(root: configRoot)
+        let reviewRule = ReclaimerRule(
+            id: "user.review.vacuum-app-cache",
+            title: "Vacuum app cache review",
+            category: "General App Review",
+            priority: 5000,
+            safetyClass: .preserveByDefault,
+            actionKind: .reportOnly,
+            match: RuleMatchSpec(containsAny: ["/VacuumApp/"]),
+            evidence: ["Local rule pack marks this app family for manual review."],
+            conditions: ["Review in Ryddi before cleanup."]
+        )
+        let downgradeAttempt = ReclaimerRule(
+            id: "user.review.codex-auth",
+            title: "Codex auth review only",
+            category: "User",
+            priority: 6000,
+            safetyClass: .reviewRequired,
+            actionKind: .openGuidance,
+            match: RuleMatchSpec(containsAny: ["/.codex/auth.json"]),
+            evidence: ["This should not reduce the bundled credential guard."]
+        )
+        let source = tempRoot.appendingPathComponent("user-rules.json")
+        let document = UserRulePackDocument(rules: [reviewRule, downgradeAttempt])
+        try store.writeExport(document, to: source)
+
+        let preview = try store.preview(from: source)
+        XCTAssertTrue(preview.isImportable)
+        XCTAssertEqual(preview.acceptedRuleCount, 2)
+        let result = try store.importDocument(from: source)
+        XCTAssertEqual(result.importedRuleCount, 2)
+        XCTAssertFalse(result.includedByDefault)
+
+        let bundled = try RuleEngine.bundled()
+        let customPath = tempRoot.appendingPathComponent("VacuumApp/blob.cache").path
+        XCTAssertFalse(bundled.classify(path: customPath, isDirectory: false, isSymbolicLink: false).matches.contains { $0.ruleID == reviewRule.id })
+
+        let withUserRules = try RuleEngine.bundled(includingUserRules: true, userRuleStore: store)
+        let customClassification = withUserRules.classify(path: customPath, isDirectory: false, isSymbolicLink: false)
+        XCTAssertTrue(customClassification.matches.contains { $0.ruleID == reviewRule.id })
+        XCTAssertEqual(customClassification.safetyClass, .preserveByDefault)
+
+        let credentialClassification = withUserRules.classify(
+            path: "/Users/test/.codex/auth.json",
+            isDirectory: false,
+            isSymbolicLink: false
+        )
+        XCTAssertTrue(credentialClassification.matches.contains { $0.ruleID == downgradeAttempt.id })
+        XCTAssertEqual(credentialClassification.safetyClass, .neverTouch)
+        XCTAssertEqual(credentialClassification.actionKind, .reportOnly)
+    }
+
+    func testUserRulePackMergeAndReplace() throws {
+        let store = UserRulePackStore(root: tempRoot.appendingPathComponent("config", isDirectory: true))
+        let first = ReclaimerRule(
+            id: "user.review.first",
+            title: "First review rule",
+            category: "User",
+            priority: 5000,
+            safetyClass: .reviewRequired,
+            actionKind: .openGuidance,
+            match: RuleMatchSpec(containsAny: ["/FirstReviewTarget/"]),
+            evidence: ["First rule."]
+        )
+        let second = ReclaimerRule(
+            id: "user.review.second",
+            title: "Second review rule",
+            category: "User",
+            priority: 5000,
+            safetyClass: .reviewRequired,
+            actionKind: .openGuidance,
+            match: RuleMatchSpec(containsAny: ["/SecondReviewTarget/"]),
+            evidence: ["Second rule."]
+        )
+        let firstSource = tempRoot.appendingPathComponent("first-user-rules.json")
+        let secondSource = tempRoot.appendingPathComponent("second-user-rules.json")
+        try store.writeExport(UserRulePackDocument(rules: [first]), to: firstSource)
+        try store.writeExport(UserRulePackDocument(rules: [second]), to: secondSource)
+
+        _ = try store.importDocument(from: firstSource, merge: true)
+        XCTAssertEqual(try store.loadDocument().rules.map(\.id), [first.id])
+        _ = try store.importDocument(from: secondSource, merge: true)
+        XCTAssertEqual(Set(try store.loadDocument().rules.map(\.id)), Set([first.id, second.id]))
+        _ = try store.importDocument(from: secondSource, merge: false)
+        XCTAssertEqual(try store.loadDocument().rules.map(\.id), [second.id])
     }
 
     func testDefaultScopePresetsSeparateGeneralAndDeveloperRoots() throws {

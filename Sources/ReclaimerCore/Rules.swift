@@ -71,9 +71,11 @@ public struct Classification: Hashable, Sendable {
 public final class RuleEngine: @unchecked Sendable {
     public let version: String
     public let rules: [ReclaimerRule]
+    public let userRuleIDs: Set<String>
 
-    public init(version: String, rules: [ReclaimerRule]) {
+    public init(version: String, rules: [ReclaimerRule], userRuleIDs: Set<String> = []) {
         self.version = version
+        self.userRuleIDs = userRuleIDs
         self.rules = rules.sorted { lhs, rhs in
             if lhs.priority == rhs.priority {
                 return lhs.id < rhs.id
@@ -90,6 +92,27 @@ public final class RuleEngine: @unchecked Sendable {
         let data = try Data(contentsOf: url)
         let file = try JSONDecoder().decode(ReclaimerRuleFile.self, from: data)
         return RuleEngine(version: file.version, rules: file.rules)
+    }
+
+    public static func bundled(includingUserRules: Bool, userRuleStore: UserRulePackStore = UserRulePackStore()) throws -> RuleEngine {
+        let engine = try bundled()
+        guard includingUserRules else {
+            return engine
+        }
+        return try engine.includingUserRules(from: userRuleStore)
+    }
+
+    public func includingUserRules(from store: UserRulePackStore = UserRulePackStore()) throws -> RuleEngine {
+        try includingUserRules(store.loadValidatedRules())
+    }
+
+    public func includingUserRules(_ userRules: [ReclaimerRule]) -> RuleEngine {
+        let userIDs = Set(userRules.map(\.id))
+        return RuleEngine(
+            version: userRules.isEmpty ? version : "\(version)+user-rules",
+            rules: rules + userRules,
+            userRuleIDs: userRuleIDs.union(userIDs)
+        )
     }
 
     public func classify(path: String, isDirectory: Bool, isSymbolicLink: Bool) -> Classification {
@@ -132,16 +155,43 @@ public final class RuleEngine: @unchecked Sendable {
                 evidence: [Evidence(kind: "unmatched", message: "No cleanup rule matched this path; review required.")]
             )
         }
+        let effectivePrimary = conservativePrimary(from: matches, initialPrimary: primary)
 
         let evidence = matches.flatMap { match in
             match.evidence.map { Evidence(kind: match.ruleID, message: $0) }
         }
         return Classification(
-            safetyClass: primary.safetyClass,
-            actionKind: primary.actionKind,
+            safetyClass: effectivePrimary.safetyClass,
+            actionKind: effectivePrimary.actionKind,
             matches: matches,
             evidence: evidence
         )
+    }
+
+    private func conservativePrimary(from matches: [RuleMatch], initialPrimary: RuleMatch) -> RuleMatch {
+        guard !userRuleIDs.isEmpty else {
+            return initialPrimary
+        }
+
+        let primaryIsUserRule = userRuleIDs.contains(initialPrimary.ruleID)
+        if primaryIsUserRule {
+            return matches
+                .filter { !userRuleIDs.contains($0.ruleID) && $0.safetyClass.riskRank > initialPrimary.safetyClass.riskRank }
+                .sorted(by: conservativeSort)
+                .first ?? initialPrimary
+        }
+
+        return matches
+            .filter { userRuleIDs.contains($0.ruleID) && $0.safetyClass.riskRank > initialPrimary.safetyClass.riskRank }
+            .sorted(by: conservativeSort)
+            .first ?? initialPrimary
+    }
+
+    private func conservativeSort(_ lhs: RuleMatch, _ rhs: RuleMatch) -> Bool {
+        if lhs.safetyClass.riskRank == rhs.safetyClass.riskRank {
+            return lhs.ruleID < rhs.ruleID
+        }
+        return lhs.safetyClass.riskRank > rhs.safetyClass.riskRank
     }
 }
 

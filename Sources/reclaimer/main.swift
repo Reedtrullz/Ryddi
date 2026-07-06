@@ -79,7 +79,7 @@ struct ReclaimerCLI {
 
     static func scan(args: [String]) throws {
         let options = ParsedOptions(args)
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(
             scopes: try options.scopes(includeUnavailable: options.includeMissingScopes),
             options: options.scanOptions(includeOpenFiles: options.includeOpenFiles)
@@ -106,7 +106,7 @@ struct ReclaimerCLI {
     static func overview(args: [String]) throws {
         let options = ParsedOptions(args)
         let scopes = try options.scopes(includeUnavailable: true)
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
         let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
         if options.saveHistory {
@@ -123,7 +123,7 @@ struct ReclaimerCLI {
     static func drilldown(args: [String]) throws {
         let options = ParsedOptions(args)
         let scopes = try options.scopes(includeUnavailable: options.includeMissingScopes)
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
         let report = DiskDrillDownBuilder.build(
             findings: options.prepare(findings),
@@ -149,8 +149,12 @@ struct ReclaimerCLI {
     }
 
     static func rules(args: [String]) throws {
+        if args.first == "user" {
+            try rulesUser(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
-        let catalog = try RuleEngine.bundled().catalog()
+        let catalog = try options.ruleEngine().catalog()
         if options.json {
             printJSON(catalog)
         } else {
@@ -158,11 +162,64 @@ struct ReclaimerCLI {
         }
     }
 
+    static func rulesUser(args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.message("rules user requires list, preview, import, or export")
+        }
+        let options = ParsedOptions(Array(args.dropFirst()))
+        let store = UserRulePackStore()
+        switch subcommand {
+        case "list":
+            let document = try store.loadDocument()
+            if options.json {
+                printJSON(document)
+            } else {
+                printUserRulePackDocument(document, path: store.rulePackURL.path)
+            }
+        case "preview":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("rules user preview requires a rule pack JSON path")
+            }
+            let sourceURL = URL(fileURLWithPath: args[1]).standardizedFileURL
+            let preview = try store.preview(from: sourceURL)
+            if options.json {
+                printJSON(preview)
+            } else {
+                printUserRulePackPreview(preview)
+            }
+        case "import":
+            guard args.indices.contains(1), !args[1].hasPrefix("-") else {
+                throw CLIError.message("rules user import requires a rule pack JSON path")
+            }
+            let sourceURL = URL(fileURLWithPath: args[1]).standardizedFileURL
+            let result = try store.importDocument(from: sourceURL, merge: !options.replacePolicy)
+            if options.json {
+                printJSON(result)
+            } else {
+                printUserRulePackImportResult(result)
+            }
+        case "export":
+            let document = try store.exportDocument()
+            if let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                _ = try store.writeExport(document, to: url)
+                FileHandle.standardError.write(Data("wrote user rule pack export: \(url.path)\n".utf8))
+            }
+            if options.json || options.outputPath == nil {
+                printJSON(document)
+            } else {
+                printUserRulePackDocument(document, path: store.rulePackURL.path)
+            }
+        default:
+            throw CLIError.message("Unknown rules user subcommand: \(subcommand)")
+        }
+    }
+
     static func report(args: [String]) throws {
         let options = ParsedOptions(args)
         try options.validateReportPrivacyOptions()
         let scopes = try options.scopes(includeUnavailable: true)
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
         let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
         let report = EvidenceReportBuilder.build(
@@ -227,7 +284,7 @@ struct ReclaimerCLI {
     static func active(args: [String]) throws {
         let options = ParsedOptions(args)
         let scopes = try options.scopes(includeUnavailable: true)
-        let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: NoOpenFilesChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
         let report = ActiveFileReviewScanner(openFileChecker: LsofOpenFileChecker()).review(
             findings: options.prepare(findings),
@@ -254,7 +311,7 @@ struct ReclaimerCLI {
         switch subcommand {
         case "record":
             let scopes = try options.scopes(includeUnavailable: true)
-            let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+            let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
             let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
             let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
             let snapshot = FindingAnalytics.snapshot(from: overview)
@@ -403,7 +460,7 @@ struct ReclaimerCLI {
         } else {
             scopes = DefaultScopes.aiAgentStorage(includeUnavailable: options.includeMissingScopes)
         }
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
         let report = AgentStorageReviewBuilder.build(
             findings: options.prepare(findings),
@@ -419,9 +476,9 @@ struct ReclaimerCLI {
 
     static func native(args: [String]) throws {
         let options = ParsedOptions(args)
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
-        let report = NativeToolGuidance.report(for: findings, ruleVersion: try RuleEngine.bundled().version)
+        let report = NativeToolGuidance.report(for: findings, ruleVersion: try options.ruleEngine().version)
         if options.saveAudit {
             let url = try AuditStore().save(nativeToolReport: report)
             FileHandle.standardError.write(Data("saved native-tool report: \(url.path)\n".utf8))
@@ -516,7 +573,7 @@ struct ReclaimerCLI {
     static func plan(args: [String]) throws {
         let options = ParsedOptions(args)
         try options.validateReportPrivacyOptions()
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
         let builder = PlanBuilder(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let plan = builder.buildPlan(from: findings, mode: options.reviewAll ? .reviewAll : .autoSafeOnly)
@@ -599,7 +656,7 @@ struct ReclaimerCLI {
             throw CLIError.message("explain requires a path")
         }
         let options = ParsedOptions(args)
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let scope = ScanScope(name: "Explain", root: URL(fileURLWithPath: path).standardizedFileURL)
         let findings = scanner.scan(scopes: [scope], options: options.scanOptions(includeOpenFiles: true))
         guard let finding = findings.first else {
@@ -617,7 +674,7 @@ struct ReclaimerCLI {
         if options.yes && options.noLsof && !options.dryRun {
             throw CLIError.message("--no-lsof is only allowed for dry-run planning; execute --yes requires open-file checks.")
         }
-        let scanner = try FileScanner(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
         let builder = PlanBuilder(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let plan = builder.buildPlan(from: findings, mode: options.reviewAll ? .reviewAll : .autoSafeOnly)
@@ -628,7 +685,7 @@ struct ReclaimerCLI {
             .execute(
                 plan: plan,
                 mode: options.dryRun ? .dryRun : .perform,
-                ruleVersion: try RuleEngine.bundled().version,
+                ruleVersion: try options.ruleEngine().version,
                 userConfirmed: options.yes
             )
         if options.saveAudit {
@@ -800,17 +857,21 @@ struct ReclaimerCLI {
               scopes [--json] [--preset developer|general|all] [--path PATH ...]
               scan [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
-                   [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy]
-              overview [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy]
+                   [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
+              overview [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-history] [--ignore-user-policy] [--include-user-rules]
               drilldown [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N]
-                        [--tree-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy]
-              rules [--json]
+                        [--tree-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
+              rules [--json] [--include-user-rules]
+              rules user list [--json]
+              rules user preview PATH [--json]
+              rules user import PATH [--json] [--replace]
+              rules user export [--json] [--output PATH]
               report [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--output PATH] [--save-report]
                      [--title TEXT] [--path-style full|home-relative|redacted] [--redact-user-text]
-                     [--include-missing-scopes] [--ignore-user-policy]
+                     [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               permissions [--json] [--preset developer|general|all] [--path PATH ...] [--include-missing-scopes]
               permissions guide [--json] [--preset developer|general|all] [--path PATH ...] [--output PATH] [--include-missing-scopes]
-              active [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit]
+              active [--json] [--preset developer|general|all] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit] [--include-user-rules]
               history record [--json] [--preset developer|general|all] [--path PATH ...] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
@@ -825,8 +886,8 @@ struct ReclaimerCLI {
                    [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N] [--output PATH]
                    [--save-audit] [--path-style full|home-relative|redacted] [--redact-user-text]
               agents [--json] [--path PATH ...] [--min-size BYTES] [--max-depth N] [--limit N]
-                     [--include-missing-scopes] [--ignore-user-policy]
-              native [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-audit]
+                     [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
+              native [--json] [--preset developer|general|all] [--path PATH ...] [--limit N] [--save-audit] [--include-user-rules]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
               policy list [--json]
               policy protect PATH [--reason TEXT]
@@ -834,15 +895,15 @@ struct ReclaimerCLI {
               policy remove PATH [--kind protect|exclude]
               policy export [--json] [--output PATH]
               policy import PATH [--json] [--replace]
-              plan [--json] [--preset developer|general|all] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
+              plan [--json] [--preset developer|general|all] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
                    [--output PATH] [--save-report] [--title TEXT]
                    [--path-style full|home-relative|redacted] [--redact-user-text]
               plans list [--json] [--limit N]
               plans export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                            [--path-style full|home-relative|redacted] [--redact-user-text]
-              explain PATH [--json]
-              execute --dry-run [--json] [--preset developer|general|all] [--path PATH ...] [--save-audit] [--ignore-user-policy]
-              execute --yes [--preset developer|general|all] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy]
+              explain PATH [--json] [--include-user-rules]
+              execute --dry-run [--json] [--preset developer|general|all] [--path PATH ...] [--save-audit] [--ignore-user-policy] [--include-user-rules]
+              execute --yes [--preset developer|general|all] [--path PATH ...] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
               receipts list [--json] [--limit N]
               receipts export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                               [--path-style full|home-relative|redacted] [--redact-user-text]
@@ -857,7 +918,8 @@ struct ReclaimerCLI {
               holding expire [--older-than-days N] [--yes]
 
             Defaults use --preset developer. Use --preset general for ordinary Mac cleanup review roots
-            or --preset all for general plus developer/agent storage. Execution is dry-run unless --yes is supplied.
+            or --preset all for general plus developer/agent storage. User rule packs are local and opt-in
+            per scan with --include-user-rules. Execution is dry-run unless --yes is supplied.
             """
         )
     }
@@ -886,6 +948,7 @@ struct ParsedOptions {
     var includeSystemApps: Bool { args.contains("--include-system-apps") }
     var includeOrphans: Bool { !args.contains("--no-orphans") }
     var ignoreUserPolicy: Bool { args.contains("--ignore-user-policy") }
+    var includeUserRules: Bool { args.contains("--include-user-rules") }
     var replacePolicy: Bool { args.contains("--replace") }
     var hour: Int { Int(value(after: "--hour") ?? "") ?? 9 }
     var minute: Int { Int(value(after: "--minute") ?? "") ?? 30 }
@@ -1003,6 +1066,10 @@ struct ParsedOptions {
             oldFileAgeDays: oldDays,
             userPathPolicy: userPathPolicy
         )
+    }
+
+    func ruleEngine() throws -> RuleEngine {
+        try RuleEngine.bundled(includingUserRules: includeUserRules)
     }
 
     var userPathPolicy: UserPathPolicy {
@@ -1241,6 +1308,7 @@ func printRuleCatalog(_ catalog: RuleCatalogReport) {
     print("Generated: \(catalog.generatedAt.formatted())")
     print("Rule version: \(catalog.ruleVersion)")
     print("Rules: \(catalog.ruleCount)")
+    print("User rules: \(catalog.userRuleCount)")
 
     print("\nBy safety")
     for summary in catalog.safetySummaries {
@@ -1258,6 +1326,7 @@ func printRuleCatalog(_ catalog: RuleCatalogReport) {
         for rule in section.rules {
             print("- \(rule.id): \(rule.title)")
             print("  Category: \(rule.category)")
+            print("  Source: \(rule.source)")
             print("  Action: \(rule.actionKind.label)")
             if !rule.matchHints.isEmpty {
                 print("  Match: \(rule.matchHints.joined(separator: ", "))")
@@ -1274,6 +1343,79 @@ func printRuleCatalog(_ catalog: RuleCatalogReport) {
     print("\nNon-claims")
     for note in catalog.nonClaims {
         print("- \(note)")
+    }
+}
+
+func printUserRulePackDocument(_ document: UserRulePackDocument, path: String) {
+    print("Ryddi user rule pack")
+    print("Path: \(path)")
+    print("Schema: \(document.schemaVersion)")
+    print("Rules: \(document.rules.count)")
+    if document.rules.isEmpty {
+        print("No local user rules are installed.")
+    } else {
+        for rule in document.rules {
+            print("- \(rule.id): \(rule.title)")
+            print("  Category: \(rule.category)")
+            print("  Safety: \(rule.safetyClass.label)")
+            print("  Action: \(rule.actionKind.label)")
+            print("  Match: \(rule.match.catalogSummary)")
+        }
+    }
+    print("\nNon-claims")
+    for note in document.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printUserRulePackPreview(_ preview: UserRulePackPreview) {
+    print("Ryddi user rule pack preview")
+    print("Source: \(preview.sourcePath)")
+    print("Destination: \(preview.rulePackPath)")
+    print("Importable: \(preview.isImportable ? "yes" : "no")")
+    print("Rules: \(preview.ruleCount), accepted: \(preview.acceptedRuleCount), rejected: \(preview.rejectedRuleCount)")
+    printUserRulePackIssues(preview.issues)
+    print("\nNon-claims")
+    for note in preview.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printUserRulePackImportResult(_ result: UserRulePackImportResult) {
+    print("Ryddi user rule pack import")
+    print("Source: \(result.sourcePath)")
+    print("Stored: \(result.rulePackPath)")
+    print("Mode: \(result.mode)")
+    print("Imported rules: \(result.importedRuleCount)")
+    print("Final rules: \(result.finalRuleCount)")
+    print("Included by default: \(result.includedByDefault ? "yes" : "no")")
+    printUserRulePackIssues(result.issues)
+    print("\nNon-claims")
+    for note in result.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printUserRulePackIssues(_ issues: [UserRulePackValidationIssue]) {
+    if issues.isEmpty {
+        print("Validation: no issues")
+        return
+    }
+    print("\nValidation")
+    for issue in issues {
+        let scope = issue.ruleID.map { " \($0)" } ?? ""
+        print("- \(issue.severity.rawValue)\(scope): \(issue.message)")
+    }
+}
+
+private extension RuleMatchSpec {
+    var catalogSummary: String {
+        var hints: [String] = []
+        hints += containsAny.map { "contains: \($0)" }
+        hints += suffixAny.map { "suffix: \($0)" }
+        hints += basenameAny.map { "basename: \($0)" }
+        hints += pathExtensionAny.map { "extension: \($0)" }
+        return hints.isEmpty ? "none" : hints.sorted().joined(separator: ", ")
     }
 }
 

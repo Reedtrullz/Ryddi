@@ -121,6 +121,55 @@ grep -q "Never Touch" "$scratch/rules-smoke.txt"
 "$app/Contents/MacOS/reclaimer" rules --json >"$scratch/rules-smoke.json"
 grep -q '"ruleVersion"' "$scratch/rules-smoke.json"
 grep -q '"codex.credentials.never"' "$scratch/rules-smoke.json"
+user_rule_fixture="$scratch/user-rule-fixture/UserReviewTarget"
+mkdir -p "$user_rule_fixture"
+printf 'custom review data\n' >"$user_rule_fixture/blob.bin"
+cat >"$scratch/user-rules.json" <<JSON
+{
+  "schemaVersion" : 1,
+  "id" : "release-smoke-user-rules",
+  "exportedAt" : "2026-01-01T00:00:00Z",
+  "rules" : [
+    {
+      "id" : "user.release-smoke.review-target",
+      "title" : "Release smoke review target",
+      "category" : "Release Smoke",
+      "priority" : 5000,
+      "safetyClass" : "preserveByDefault",
+      "actionKind" : "reportOnly",
+      "match" : {
+        "containsAny" : ["/UserReviewTarget/"],
+        "suffixAny" : [],
+        "basenameAny" : [],
+        "pathExtensionAny" : []
+      },
+      "evidence" : ["Custom release-smoke rule marks this fixture for manual review."],
+      "conditions" : ["Review before cleanup."],
+      "recovery" : "Remove or replace the local user rule pack to stop this custom classification."
+    }
+  ],
+  "nonClaims" : [
+    "Release smoke rule pack is local review data only."
+  ]
+}
+JSON
+RYDDI_CONFIG_ROOT="$scratch/user-rule-config" "$app/Contents/MacOS/reclaimer" rules user preview "$scratch/user-rules.json" --json >"$scratch/user-rules-preview.json"
+grep -q '"isImportable" : true' "$scratch/user-rules-preview.json"
+grep -q '"acceptedRuleCount" : 1' "$scratch/user-rules-preview.json"
+RYDDI_CONFIG_ROOT="$scratch/user-rule-config" "$app/Contents/MacOS/reclaimer" rules user import "$scratch/user-rules.json" --json >"$scratch/user-rules-import.json"
+grep -q '"includedByDefault" : false' "$scratch/user-rules-import.json"
+grep -q '"finalRuleCount" : 1' "$scratch/user-rules-import.json"
+RYDDI_CONFIG_ROOT="$scratch/user-rule-config" "$app/Contents/MacOS/reclaimer" rules --include-user-rules --json >"$scratch/rules-with-user-smoke.json"
+grep -q '"userRuleCount" : 1' "$scratch/rules-with-user-smoke.json"
+grep -q '"source" : "User"' "$scratch/rules-with-user-smoke.json"
+RYDDI_CONFIG_ROOT="$scratch/user-rule-config" "$app/Contents/MacOS/reclaimer" scan --json --path "$user_rule_fixture" --min-size 1 --max-depth 1 >"$scratch/scan-without-user-rules.json"
+if grep -q '"user.release-smoke.review-target"' "$scratch/scan-without-user-rules.json"; then
+  echo "user rule applied without --include-user-rules" >&2
+  exit 1
+fi
+RYDDI_CONFIG_ROOT="$scratch/user-rule-config" "$app/Contents/MacOS/reclaimer" scan --json --path "$user_rule_fixture" --min-size 1 --max-depth 1 --include-user-rules >"$scratch/scan-with-user-rules.json"
+grep -q '"user.release-smoke.review-target"' "$scratch/scan-with-user-rules.json"
+grep -q '"safetyClass" : "preserveByDefault"' "$scratch/scan-with-user-rules.json"
 "$app/Contents/MacOS/reclaimer" agents --json \
   --path "$agent_fixture/.codex" \
   --path "$agent_fixture/.claude" \

@@ -16,6 +16,7 @@ public struct RuleCatalogEntry: Codable, Hashable, Identifiable, Sendable {
     public let title: String
     public let category: String
     public let priority: Int
+    public let source: String
     public let safetyClass: SafetyClass
     public let actionKind: ActionKind
     public let matchHints: [String]
@@ -28,6 +29,7 @@ public struct RuleCatalogEntry: Codable, Hashable, Identifiable, Sendable {
         title: String,
         category: String,
         priority: Int,
+        source: String = "Bundled",
         safetyClass: SafetyClass,
         actionKind: ActionKind,
         matchHints: [String],
@@ -39,6 +41,7 @@ public struct RuleCatalogEntry: Codable, Hashable, Identifiable, Sendable {
         self.title = title
         self.category = category
         self.priority = priority
+        self.source = source
         self.safetyClass = safetyClass
         self.actionKind = actionKind
         self.matchHints = matchHints
@@ -74,6 +77,7 @@ public struct RuleCatalogReport: Codable, Hashable, Sendable {
     public let generatedAt: Date
     public let ruleVersion: String
     public let ruleCount: Int
+    public let userRuleCount: Int
     public let safetySummaries: [RuleCatalogBucket]
     public let actionSummaries: [RuleCatalogBucket]
     public let categorySummaries: [RuleCatalogBucket]
@@ -84,6 +88,7 @@ public struct RuleCatalogReport: Codable, Hashable, Sendable {
         generatedAt: Date,
         ruleVersion: String,
         ruleCount: Int,
+        userRuleCount: Int = 0,
         safetySummaries: [RuleCatalogBucket],
         actionSummaries: [RuleCatalogBucket],
         categorySummaries: [RuleCatalogBucket],
@@ -93,6 +98,7 @@ public struct RuleCatalogReport: Codable, Hashable, Sendable {
         self.generatedAt = generatedAt
         self.ruleVersion = ruleVersion
         self.ruleCount = ruleCount
+        self.userRuleCount = userRuleCount
         self.safetySummaries = safetySummaries
         self.actionSummaries = actionSummaries
         self.categorySummaries = categorySummaries
@@ -103,11 +109,12 @@ public struct RuleCatalogReport: Codable, Hashable, Sendable {
 
 public extension RuleEngine {
     func catalog(generatedAt: Date = Date()) -> RuleCatalogReport {
-        let entries = rules.map(RuleCatalogEntry.init(rule:))
+        let entries = rules.map { RuleCatalogEntry(rule: $0, source: userRuleIDs.contains($0.id) ? "User" : "Bundled") }
         return RuleCatalogReport(
             generatedAt: generatedAt,
             ruleVersion: version,
             ruleCount: entries.count,
+            userRuleCount: userRuleIDs.count,
             safetySummaries: buckets(entries, by: { $0.safetyClass.label }),
             actionSummaries: buckets(entries, by: { $0.actionKind.label }),
             categorySummaries: buckets(entries, by: { $0.category }),
@@ -121,7 +128,8 @@ public extension RuleEngine {
                 )
             },
             nonClaims: [
-                "The rule catalog explains bundled classification rules; it does not scan files or execute cleanup.",
+                "The rule catalog explains classification rules; it does not scan files or execute cleanup.",
+                "User rules are local review data and are included only when a scan explicitly asks for them.",
                 "A matching rule is not cleanup permission. Plans, conditions, open-file checks, user policy, and confirmation still apply.",
                 "Never-touch and preserve-by-default rules are guardrails; removing matching data manually can still break apps or lose history."
             ]
@@ -163,12 +171,13 @@ public extension RuleEngine {
 }
 
 private extension RuleCatalogEntry {
-    init(rule: ReclaimerRule) {
+    init(rule: ReclaimerRule, source: String) {
         self.init(
             id: rule.id,
             title: rule.title,
             category: rule.category,
             priority: rule.priority,
+            source: source,
             safetyClass: rule.safetyClass,
             actionKind: rule.actionKind,
             matchHints: rule.match.catalogHints,

@@ -45,10 +45,11 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
 - Recovery Center for app-held restores plus honest Trash, dry-run, skipped, native-tool, and non-recoverable receipt guidance
 - report privacy controls for full, home-relative, or redacted paths plus user-entered reason redaction
-- transparent bundled rule catalog showing safety classes, actions, categories, match hints, conditions, recovery notes, and non-claims
+- transparent rule catalog showing bundled and opt-in local user rules, safety classes, actions, categories, match hints, conditions, recovery notes, and non-claims
 - active-handle review for cleanup candidates, with process summaries and failed-check visibility
 - Finder, Quick Look, Terminal, and copy-path actions in the app
 - local user protections and exclusions for paths Ryddi should preserve or ignore, with JSON import/export
+- local user rule-pack preview/import/export for custom review, preserve, and never-touch signals
 - large-file and old-file review signals
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
@@ -100,6 +101,9 @@ swift run --scratch-path .build reclaimer scopes --preset general
 swift run --scratch-path .build reclaimer overview --preset general
 swift run --scratch-path .build reclaimer scan --preset all --review large
 swift run --scratch-path .build reclaimer rules
+swift run --scratch-path .build reclaimer rules user preview ryddi-user-rules.json
+swift run --scratch-path .build reclaimer rules user import ryddi-user-rules.json
+swift run --scratch-path .build reclaimer scan --preset general --include-user-rules
 swift run --scratch-path .build reclaimer status
 swift run --scratch-path .build reclaimer permissions
 swift run --scratch-path .build reclaimer permissions guide --output ryddi-permissions-guide.md
@@ -214,6 +218,23 @@ swift run --scratch-path .build reclaimer policy import ryddi-user-path-policy.j
 Protected paths stay visible but are forced to preserve-by-default/report-only and cannot be selected by cleanup plans. Excluded paths are skipped during scans and excluded from parent directory measurement. Use `--ignore-user-policy` only for debugging or fixture verification.
 
 Policy import merges by default: matching `kind + path` rules from the import update existing local entries, while unrelated local rules remain. Use `--replace` only when you want the imported file to become the whole policy. Policy exports can contain private local paths and user-entered reasons; importing a policy changes only Ryddi's local protection/exclusion rules and does not delete files, grant macOS permissions, or prove that imported paths still exist.
+
+## User Rule Packs
+
+Ryddi can also import local user rule packs for custom review signals:
+
+```bash
+swift run --scratch-path .build reclaimer rules user list
+swift run --scratch-path .build reclaimer rules user preview ryddi-user-rules.json
+swift run --scratch-path .build reclaimer rules user import ryddi-user-rules.json
+swift run --scratch-path .build reclaimer rules user export --output ryddi-user-rules-export.json
+swift run --scratch-path .build reclaimer scan --preset general --include-user-rules
+swift run --scratch-path .build reclaimer rules --include-user-rules
+```
+
+User rules are local, disabled by default for scans, and cannot grant cleanup actions. Imports are limited to `reviewRequired`, `preserveByDefault`, or `neverTouch` signals with report/guidance-style actions. A user rule can make Ryddi more cautious about a path, but it cannot downgrade bundled `neverTouch` rules or turn custom matches into unattended cleanup candidates.
+
+Rule packs can contain private path fragments, app names, or notes. Review before sharing.
 
 ## Evidence Reports
 

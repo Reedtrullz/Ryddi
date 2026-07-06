@@ -14,6 +14,10 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer status --json` reports disk pressure/free-space metadata without scanning content.
 - [ ] `reclaimer rules` prints the bundled rule catalog with safety sections and non-claims.
 - [ ] `reclaimer rules --json` includes `ruleVersion`, `sections`, and known never-touch rules such as `codex.credentials.never`.
+- [ ] `reclaimer rules user preview RULES.json --json` validates local custom rules, rejects cleanup-granting rules, and does not mutate config.
+- [ ] `reclaimer rules user import RULES.json --json` stores local user rules under a temporary `RYDDI_CONFIG_ROOT` without enabling them by default.
+- [ ] `reclaimer rules --include-user-rules --json` shows user rule source/counts after import.
+- [ ] `reclaimer scan --include-user-rules --path FIXTURE --min-size 1 --json` applies accepted user rules while keeping bundled never-touch protections effective.
 - [ ] `reclaimer permissions --json --path Tests` reports a permission coverage level, scope counts, recommended actions, and non-claims.
 - [ ] `reclaimer permissions guide --path Tests --output permissions-guide.md` writes a first-run walkthrough with Full Disk Access steps, rescan/report-only commands, affected scopes, and non-claims.
 - [ ] `reclaimer active --path Tests --json --save-audit` reports cleanup-relevant active-handle candidates, saves a local audit record, and does not quit processes or execute cleanup.
@@ -71,6 +75,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] Release notes say native-tool reports are preview-only and do not run Docker/Colima/Homebrew/package-manager cleanup commands automatically.
 - [ ] Release notes say container inventory runs read-only inspection commands only.
 - [ ] Release notes say user protections/exclusions are local path policy, exports can contain private paths/reasons, imports do not delete files or grant permissions, and policy data is not uploaded.
+- [ ] Release notes say user rule packs are local, can contain private path fragments/app names/evidence text, are disabled by default unless explicitly included in scans, cannot grant cleanup actions, and cannot downgrade bundled never-touch protections.
 - [ ] Release notes say permission coverage and walkthroughs are local path readability guidance and do not grant or prove global Full Disk Access.
 - [ ] Release notes say active-handle reports can include process summaries and do not quit processes or execute cleanup.
 - [ ] Release notes say evidence reports are local Markdown files that can include paths and do not execute cleanup.
