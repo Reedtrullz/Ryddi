@@ -377,6 +377,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(Set(templates.map(\.id)).count, templates.count)
         XCTAssertTrue(templates.contains { $0.id == "weekly-general" })
         XCTAssertTrue(templates.contains { $0.id == "xcode-review" })
+        XCTAssertTrue(templates.contains { $0.id == "project-dependencies" })
         XCTAssertTrue(templates.contains { $0.id == "ai-agent-storage" })
 
         let plan = try ScopeTemplateCatalog.plan(reference: "weekly-general", home: home, includeUnavailable: false)
@@ -391,6 +392,12 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(xcode.scopes.contains { $0.name == "Xcode DerivedData" })
         XCTAssertTrue(xcode.scopes.contains { $0.name == "CoreSimulator devices" })
         XCTAssertTrue(xcode.nonClaims.contains { $0.contains("does not delete DerivedData") })
+
+        let projectDependencies = try ScopeTemplateCatalog.find("project-dependencies", home: home, includeUnavailable: true)
+        XCTAssertEqual(projectDependencies.name, "Project Dependencies")
+        XCTAssertTrue(projectDependencies.scopes.contains { $0.name == "Projects" })
+        XCTAssertTrue(projectDependencies.scopes.contains { $0.name == "GitHub projects" })
+        XCTAssertTrue(projectDependencies.nonClaims.contains { $0.contains("does not delete node_modules") })
     }
 
     func testScopeTemplateCanBeMaterializedAsSavedScopeSet() throws {
@@ -1899,6 +1906,103 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("config/auth") })
     }
 
+    func testProjectDependencyReviewFindsProjectLocalDependenciesWithoutMutatingSource() throws {
+        let projects = tempRoot.appendingPathComponent("Projects", isDirectory: true)
+        let webApp = projects.appendingPathComponent("WebApp", isDirectory: true)
+        let pythonApp = projects.appendingPathComponent("PyApp", isDirectory: true)
+        let swiftApp = projects.appendingPathComponent("SwiftApp", isDirectory: true)
+        let rustApp = projects.appendingPathComponent("RustApp", isDirectory: true)
+        let iosApp = projects.appendingPathComponent("iOSApp", isDirectory: true)
+        let flutterApp = projects.appendingPathComponent("FlutterApp", isDirectory: true)
+        let gradleApp = projects.appendingPathComponent("GradleApp", isDirectory: true)
+        let androidApp = projects.appendingPathComponent("AndroidApp", isDirectory: true)
+
+        let fixtureFiles: [URL] = [
+            webApp.appendingPathComponent("package.json"),
+            webApp.appendingPathComponent("package-lock.json"),
+            webApp.appendingPathComponent("src/index.ts"),
+            webApp.appendingPathComponent(".env"),
+            webApp.appendingPathComponent("node_modules/react/index.js"),
+            webApp.appendingPathComponent(".next/cache/chunk.bin"),
+            webApp.appendingPathComponent("dist/app.js"),
+            pythonApp.appendingPathComponent("pyproject.toml"),
+            pythonApp.appendingPathComponent(".venv/pyvenv.cfg"),
+            pythonApp.appendingPathComponent(".venv/lib/python/site-packages/pkg.py"),
+            swiftApp.appendingPathComponent("Package.swift"),
+            swiftApp.appendingPathComponent(".build/debug/App.o"),
+            rustApp.appendingPathComponent("Cargo.toml"),
+            rustApp.appendingPathComponent("target/debug/app"),
+            iosApp.appendingPathComponent("Podfile"),
+            iosApp.appendingPathComponent("Pods/Alamofire/file.swift"),
+            flutterApp.appendingPathComponent("pubspec.yaml"),
+            flutterApp.appendingPathComponent(".dart_tool/package_config.json"),
+            flutterApp.appendingPathComponent("build/app.dill"),
+            gradleApp.appendingPathComponent("settings.gradle"),
+            gradleApp.appendingPathComponent(".gradle/caches/modules.bin"),
+            androidApp.appendingPathComponent("settings.gradle"),
+            androidApp.appendingPathComponent("app/build.gradle"),
+            androidApp.appendingPathComponent("app/src/main/AndroidManifest.xml"),
+            androidApp.appendingPathComponent("app/build/intermediates/classes.bin")
+        ]
+        for (index, url) in fixtureFiles.enumerated() {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(repeating: UInt8(index + 1), count: 512 + index).write(to: url)
+        }
+
+        let report = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                roots: [projects],
+                limit: 50,
+                oldDays: 30,
+                maximumSearchDepth: 6,
+                measurementDepth: 8
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        XCTAssertEqual(report.rootSummaries.first?.permissionState, .readable)
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .nodeModules && $0.ecosystem == .javascript })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .webFrameworkCache && $0.path.contains(".next") })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .webBuildOutput && $0.path.contains("/dist") })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .pythonVirtualEnvironment && $0.ecosystem == .python })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .swiftBuild && $0.ecosystem == .swift })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .rustTarget && $0.ecosystem == .rust })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .cocoaPodsPods && $0.ecosystem == .cocoaPods })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .dartTool && $0.ecosystem == .dartFlutter })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .androidBuild && $0.ecosystem == .dartFlutter })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .gradleProjectCache && $0.ecosystem == .javaGradle })
+        XCTAssertTrue(report.largestItems.contains { $0.kind == .androidBuild && $0.ecosystem == .android })
+        XCTAssertGreaterThan(report.candidateBytes, 0)
+        XCTAssertGreaterThan(report.rebuildableBytes, 0)
+        XCTAssertGreaterThan(report.protectedProjectRoots.count, 3)
+        XCTAssertTrue(report.protectedProjectRoots.contains { $0.projectName == "WebApp" && $0.manifestHints.contains("package.json") })
+        XCTAssertFalse(report.largestItems.contains { $0.path.contains("/src/") || $0.path.hasSuffix("/.env") || $0.path.hasSuffix("/package.json") })
+        XCTAssertTrue(report.guidance.contains { $0.contains("Review project status") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: webApp.appendingPathComponent("src/index.ts").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: webApp.appendingPathComponent(".env").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: webApp.appendingPathComponent("node_modules/react/index.js").path))
+    }
+
+    func testProjectDependencyReviewReportsMissingRootAsCoverageEvidence() throws {
+        let missing = tempRoot.appendingPathComponent("Projects", isDirectory: true)
+        let report = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                roots: [missing],
+                limit: 10,
+                maximumSearchDepth: 4,
+                measurementDepth: 4,
+                includeMissingRoots: true
+            ),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.rootSummaries.first?.permissionState, .missing)
+        XCTAssertEqual(report.candidateBytes, 0)
+        XCTAssertTrue(report.rootSummaries.first?.note.contains("does not exist") == true)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("Project Dependency Review is report-only") })
+    }
+
     func testDeviceBackupReviewParsesMetadataAndDoesNotMutateBackups() throws {
         let backupRoot = tempRoot.appendingPathComponent("Library/Application Support/MobileSync/Backup", isDirectory: true)
         let oldEncrypted = backupRoot.appendingPathComponent("1111222233334444555566667777888899990000", isDirectory: true)
@@ -3304,6 +3408,15 @@ final class ReclaimerCoreTests: XCTestCase {
             ),
             createdAt: Date(timeIntervalSince1970: 0)
         )
+        let projectDependencyReport = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                roots: [tempRoot.appendingPathComponent("Projects")],
+                limit: 10,
+                maximumSearchDepth: 4,
+                measurementDepth: 4
+            ),
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
         let deviceBackupReport = DeviceBackupReviewScanner().review(
             options: DeviceBackupReviewOptions(
                 root: tempRoot.appendingPathComponent("Library/Application Support/MobileSync/Backup"),
@@ -3332,6 +3445,7 @@ final class ReclaimerCoreTests: XCTestCase {
         _ = try store.save(downloadsReviewReport: downloadsReport)
         _ = try store.save(browserCacheReviewReport: browserReport)
         _ = try store.save(packageCacheReviewReport: packageReport)
+        _ = try store.save(projectDependencyReviewReport: projectDependencyReport)
         _ = try store.save(deviceBackupReviewReport: deviceBackupReport)
         _ = try store.save(xcodeReviewReport: xcodeReport)
 
@@ -3347,6 +3461,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.recentDownloadsReviewReports().first?.id, downloadsReport.id)
         XCTAssertEqual(store.recentBrowserCacheReviewReports().first?.id, browserReport.id)
         XCTAssertEqual(store.recentPackageCacheReviewReports().first?.id, packageReport.id)
+        XCTAssertEqual(store.recentProjectDependencyReviewReports().first?.id, projectDependencyReport.id)
         XCTAssertEqual(store.recentDeviceBackupReviewReports().first?.id, deviceBackupReport.id)
         XCTAssertEqual(store.recentXcodeReviewReports().first?.id, xcodeReport.id)
     }

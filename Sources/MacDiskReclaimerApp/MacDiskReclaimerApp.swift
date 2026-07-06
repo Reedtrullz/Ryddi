@@ -57,6 +57,8 @@ struct DashboardView: View {
                 BrowserCacheReviewView(model: model)
             } else if selectedSection == "Packages" {
                 PackageCacheReviewView(model: model)
+            } else if selectedSection == "Projects" {
+                ProjectDependencyReviewView(model: model)
             } else if selectedSection == "DeviceBackups" {
                 DeviceBackupReviewView(model: model)
             } else if selectedSection == "Xcode" {
@@ -231,6 +233,10 @@ struct DashboardView: View {
                     selectedFinding = nil
                     selectedSection = "Packages"
                 }
+                Button("Project Dependencies") {
+                    selectedFinding = nil
+                    selectedSection = "Projects"
+                }
                 Button("Device Backups") {
                     selectedFinding = nil
                     selectedSection = "DeviceBackups"
@@ -359,6 +365,7 @@ struct OverviewView: View {
                 MetricTile(title: "Downloads", value: model.downloadsReview.map { ByteFormat.string($0.reviewCandidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Browser caches", value: model.browserCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Package caches", value: model.packageCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
+                MetricTile(title: "Project deps", value: model.projectDependencyReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
                 MetricTile(title: "Device backups", value: model.deviceBackupReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
                 MetricTile(title: "Xcode cache", value: model.xcodeReview.map { ByteFormat.string($0.rebuildableCacheBytes) } ?? "Not reviewed")
                 MetricTile(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
@@ -1250,6 +1257,16 @@ struct AuditHistoryView: View {
                     } else {
                         ForEach(model.recentPackageCacheReviewReports) { report in
                             Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.candidateBytes)) candidates")
+                        }
+                    }
+                }
+
+                SectionBox(title: "Project Dependency Review Reports") {
+                    if model.recentProjectDependencyReviewReports.isEmpty {
+                        Text("No project dependency review reports yet.")
+                    } else {
+                        ForEach(model.recentProjectDependencyReviewReports) { report in
+                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(report.displayedItemCount) shown - \(ByteFormat.string(report.candidateBytes)) candidates")
                         }
                     }
                 }
@@ -2476,6 +2493,227 @@ struct PackageCacheReviewView: View {
                     }
                 } else {
                     ContentUnavailableView("No package cache review yet", systemImage: "shippingbox", description: Text("Run Package Cache Review to inspect package-manager cache roots without measuring or modifying protected config/auth state."))
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct ProjectDependencyReviewView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Project Dependencies")
+                            .font(.largeTitle.bold())
+                        Text("Review project-local dependencies and build artifacts such as node_modules, .venv, .build, target, Pods, .dart_tool, framework caches, and mobile build output.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await model.reviewProjectDependencies() }
+                    } label: {
+                        Label("Review Projects", systemImage: "folder")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                if let report = model.projectDependencyReview {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Candidates", value: ByteFormat.string(report.candidateBytes))
+                        MetricTile(title: "Rebuildable", value: ByteFormat.string(report.rebuildableBytes))
+                        MetricTile(title: "Needs review", value: ByteFormat.string(report.reviewRequiredBytes))
+                        MetricTile(title: "Measured items", value: "\(report.itemCount)")
+                        MetricTile(title: "Project roots", value: "\(report.rootSummaries.count)")
+                    }
+
+                    HStack(alignment: .top, spacing: 16) {
+                        SectionBox(title: "By Ecosystem") {
+                            if report.ecosystemSummaries.isEmpty {
+                                Text("No project dependency candidates found in readable roots.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.ecosystemSummaries) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.itemCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+
+                        SectionBox(title: "By Kind") {
+                            if report.kindSummaries.isEmpty {
+                                Text("No project dependency kinds found.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.kindSummaries) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.itemCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Project Roots") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(report.rootSummaries) { root in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(root.permissionState.rawValue)
+                                            .font(.caption.weight(.semibold))
+                                        Text("\(root.candidateCount) candidate(s)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(ByteFormat.string(root.allocatedSize))
+                                            .font(.caption.monospacedDigit())
+                                    }
+                                    Text(root.rootPath)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                    Text(root.note)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Largest Project Dependency Items") {
+                        if report.largestItems.isEmpty {
+                            Text("No project dependency candidates found in readable roots.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 0) {
+                                HStack {
+                                    Text("Allocated").frame(width: 92, alignment: .leading)
+                                    Text("Ecosystem").frame(width: 92, alignment: .leading)
+                                    Text("Kind").frame(width: 142, alignment: .leading)
+                                    Text("Age").frame(width: 70, alignment: .leading)
+                                    Text("Path")
+                                    Spacer()
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                ForEach(report.largestItems.prefix(40)) { item in
+                                    Divider()
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(ByteFormat.string(item.allocatedSize))
+                                                .frame(width: 92, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text(item.ecosystem.label)
+                                                .frame(width: 92, alignment: .leading)
+                                            Text(item.kind.label)
+                                                .frame(width: 142, alignment: .leading)
+                                            Text(item.ageDays.map { "\($0)d" } ?? "unknown")
+                                                .frame(width: 70, alignment: .leading)
+                                                .monospacedDigit()
+                                            Text(item.path)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                                .textSelection(.enabled)
+                                            Spacer()
+                                        }
+                                        .font(.caption)
+                                        Text(item.projectName)
+                                            .font(.caption2.weight(.semibold))
+                                        Text(item.recommendation)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(.vertical, 6)
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Protected Project Roots") {
+                        if report.protectedProjectRoots.isEmpty {
+                            Text("No protected project roots were inferred from candidates.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(report.protectedProjectRoots) { protectedRoot in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(protectedRoot.projectName)
+                                            .font(.caption.weight(.semibold))
+                                        Text(protectedRoot.projectRootPath)
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .textSelection(.enabled)
+                                        if !protectedRoot.manifestHints.isEmpty {
+                                            Text(protectedRoot.manifestHints.joined(separator: ", "))
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Text(protectedRoot.note)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Divider()
+                                }
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Guidance") {
+                        ForEach(report.guidance, id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    SectionBox(title: "Non-Claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No project dependency review yet", systemImage: "folder", description: Text("Run Project Dependencies to inspect project-local dependency and build folders without modifying project files."))
                 }
 
                 if let error = model.error {
@@ -5417,6 +5655,7 @@ final class DashboardModel {
     var recentDownloadsReviewReports: [DownloadsReviewReport] = []
     var recentBrowserCacheReviewReports: [BrowserCacheReviewReport] = []
     var recentPackageCacheReviewReports: [PackageCacheReviewReport] = []
+    var recentProjectDependencyReviewReports: [ProjectDependencyReviewReport] = []
     var recentDeviceBackupReviewReports: [DeviceBackupReviewReport] = []
     var recentXcodeReviewReports: [XcodeReviewReport] = []
     var recentAppUninstallReceipts: [AppUninstallExecutionReceipt] = []
@@ -5435,6 +5674,7 @@ final class DashboardModel {
     var downloadsReview: DownloadsReviewReport?
     var browserCacheReview: BrowserCacheReviewReport?
     var packageCacheReview: PackageCacheReviewReport?
+    var projectDependencyReview: ProjectDependencyReviewReport?
     var deviceBackupReview: DeviceBackupReviewReport?
     var xcodeReview: XcodeReviewReport?
     var userPathPolicy: UserPathPolicy = .empty
@@ -6057,6 +6297,7 @@ final class DashboardModel {
         recentDownloadsReviewReports = store.recentDownloadsReviewReports()
         recentBrowserCacheReviewReports = store.recentBrowserCacheReviewReports()
         recentPackageCacheReviewReports = store.recentPackageCacheReviewReports()
+        recentProjectDependencyReviewReports = store.recentProjectDependencyReviewReports()
         recentDeviceBackupReviewReports = store.recentDeviceBackupReviewReports()
         recentXcodeReviewReports = store.recentXcodeReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
@@ -6213,6 +6454,24 @@ final class DashboardModel {
             }.value
             packageCacheReview = report
             _ = try AuditStore().save(packageCacheReviewReport: report)
+            loadAudit()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reviewProjectDependencies() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = await Task.detached {
+                ProjectDependencyReviewScanner().review(
+                    options: ProjectDependencyReviewOptions(limit: 80, oldDays: 90, maximumSearchDepth: 6, measurementDepth: 8, includeMissingRoots: true)
+                )
+            }.value
+            projectDependencyReview = report
+            _ = try AuditStore().save(projectDependencyReviewReport: report)
             loadAudit()
             error = nil
         } catch {

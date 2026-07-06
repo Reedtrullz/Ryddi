@@ -58,6 +58,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - report-only Downloads review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
 - report-only Browser Cache review for cache roots, protected profile roots, quit-first guidance, and local audit history
 - report-only Package Cache review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native-tool guidance, and local audit history
+- report-only Project Dependencies review for project-local node_modules, virtual environments, build folders, Pods, framework caches, Flutter/Android outputs, protected project files, native rebuild guidance, and local audit history
 - report-only Device Backups review for local iPhone/iPad MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, and local audit history
 - report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
 - report-only Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulators, protected Xcode UserData, and local audit history
@@ -145,6 +146,7 @@ swift run --scratch-path .build reclaimer agents
 swift run --scratch-path .build reclaimer agents --json --limit 40
 swift run --scratch-path .build reclaimer agents retention --profile balanced
 swift run --scratch-path .build reclaimer packages --json --save-audit
+swift run --scratch-path .build reclaimer projects --json --path ~/Projects --save-audit
 swift run --scratch-path .build reclaimer xcode --json --save-audit
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
@@ -171,11 +173,12 @@ Execution is dry-run unless `--yes` is supplied. Even with `--yes`, the executor
 
 ## Scope Templates And Saved Scope Sets
 
-Ryddi's presets cover broad modes. Built-in templates cover common review jobs such as weekly general cleanup, personal large-file review, app leftovers, browser caches, package caches, Xcode review, AI-agent storage, and developer maintenance:
+Ryddi's presets cover broad modes. Built-in templates cover common review jobs such as weekly general cleanup, personal large-file review, app leftovers, browser caches, package caches, project dependencies, Xcode review, AI-agent storage, and developer maintenance:
 
 ```bash
 swift run --scratch-path .build reclaimer scopes templates list
 swift run --scratch-path .build reclaimer scopes templates show weekly-general
+swift run --scratch-path .build reclaimer scopes templates show project-dependencies
 swift run --scratch-path .build reclaimer scopes templates show xcode-review
 swift run --scratch-path .build reclaimer scan --template weekly-general
 swift run --scratch-path .build reclaimer scopes templates save weekly-general --name "Weekly General"
@@ -328,6 +331,18 @@ swift run --scratch-path .build reclaimer packages --path ~/Library/Caches/Homeb
 ```
 
 Package Cache Review reports readable/missing cache roots, package-manager and cache-kind summaries, largest cache items, protected config/auth paths, and native cleanup guidance. It is report-only: Ryddi does not delete, move, Trash, prune, purge, or modify package-manager files, and it does not treat tokens, credentials, registries, mirrors, settings, or project behavior as cache.
+
+## Project Dependencies Review
+
+Ryddi can review project-local dependencies and build artifacts without touching source or manifests:
+
+```bash
+swift run --scratch-path .build reclaimer projects --json --save-audit
+swift run --scratch-path .build reclaimer projects --path ~/Projects --search-depth 6 --max-depth 8 --limit 40
+swift run --scratch-path .build reclaimer scopes --template project-dependencies
+```
+
+Project Dependencies Review reports readable/missing project roots, ecosystem and artifact-kind summaries, largest `node_modules`, `.venv`, `.build`, `target`, `Pods`, `.dart_tool`, framework cache, web build, Gradle, Flutter, and Android build directories, plus protected project roots and native rebuild guidance. It is report-only: Ryddi does not delete, move, Trash, prune, purge, clean, or modify project files, and it does not treat source, manifests, lockfiles, env files, credentials, IDE settings, generated code, local editable installs, or unknown project state as automatically safe.
 
 ## Xcode Review
 
@@ -525,7 +540,7 @@ It does not run destructive cleanup unattended, does not call `execute --yes`, a
 
 ## Native Tool Reports And Receipts
 
-Ryddi treats container runtimes and package-manager stores as tool-owned state. Use Package Cache Review to inventory package cache roots first, and Device Backups Review to inspect local MobileSync backups before using Apple/Finder-managed backup deletion. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use native-tool reports when you want command-level guidance:
+Ryddi treats container runtimes, package-manager stores, and project-local dependency folders as tool-owned state. Use Package Cache Review to inventory global package cache roots, Project Dependencies Review to inspect project-local dependency/build folders, and Device Backups Review to inspect local MobileSync backups before using Apple/Finder-managed backup deletion. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use native-tool reports when you want command-level guidance:
 
 ```bash
 swift run --scratch-path .build reclaimer native --json --path ~/.colima

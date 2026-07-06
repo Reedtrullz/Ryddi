@@ -65,6 +65,7 @@ public enum ScopeTemplateCatalog {
             appLeftovers(home: home, includeUnavailable: includeUnavailable),
             browserCaches(home: home, includeUnavailable: includeUnavailable),
             packageCaches(home: home, includeUnavailable: includeUnavailable),
+            projectDependencyReview(home: home, includeUnavailable: includeUnavailable),
             xcodeMaintenance(home: home, includeUnavailable: includeUnavailable),
             deviceBackups(home: home, includeUnavailable: includeUnavailable),
             aiAgentStorage(home: home, includeUnavailable: includeUnavailable),
@@ -206,6 +207,32 @@ public enum ScopeTemplateCatalog {
                 ],
                 includeUnavailable: includeUnavailable
             )
+        )
+    }
+
+    private static func projectDependencyReview(home: URL, includeUnavailable: Bool) -> ScopeTemplate {
+        ScopeTemplate(
+            id: "project-dependencies",
+            name: "Project Dependencies",
+            group: "Developer",
+            summary: "Project-local dependency and build artifact roots such as node_modules, .venv, .build, target, Pods, .dart_tool, framework caches, and mobile build output.",
+            recommendedUse: "Review before cleaning old project folders or after large build/test sessions.",
+            scopes: scopes(
+                [
+                    ("Projects", home.appendingPathComponent("Projects")),
+                    ("Projectos", home.appendingPathComponent("Projectos")),
+                    ("Developer projects", home.appendingPathComponent("Developer")),
+                    ("Code projects", home.appendingPathComponent("Code")),
+                    ("GitHub projects", home.appendingPathComponent("Documents/GitHub")),
+                    ("Document projects", home.appendingPathComponent("Documents/Projects")),
+                    ("Work projects", home.appendingPathComponent("Work"))
+                ],
+                includeUnavailable: includeUnavailable
+            ),
+            nonClaims: defaultNonClaims + [
+                "The Project Dependencies template is a scan-root shortcut; it does not delete node_modules, virtual environments, build folders, Pods, generated outputs, or project files.",
+                "Project source, manifests, lockfiles, env files, credentials, IDE settings, and unknown project state remain protected by review rules."
+            ]
         )
     }
 

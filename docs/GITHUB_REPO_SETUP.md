@@ -66,14 +66,15 @@ Review first. Reclaim safely.
 Initial MVP:
 
 - Swift core scanner and rule engine
-- CLI for scan scope presets, built-in scope templates, saved scope sets, scan, overview, review queues, large/old review, disk drill-down, bundled rule catalog, status, permissions, active-handle review, Downloads Review, Browser Cache Review, Package Cache Review, Xcode Review, Device Backups Review, apps-and-leftovers review, app uninstall preview/execution receipts, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
-- SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, Large & Old Files, detail view, Downloads Review, Browser Cache Review, Package Cache Review, Xcode Review, Device Backups Review, Apps & Leftovers, app uninstall preview/execution receipts, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
+- CLI for scan scope presets, built-in scope templates, saved scope sets, scan, overview, review queues, large/old review, disk drill-down, bundled rule catalog, status, permissions, active-handle review, Downloads Review, Browser Cache Review, Package Cache Review, Project Dependencies Review, Xcode Review, Device Backups Review, apps-and-leftovers review, app uninstall preview/execution receipts, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
+- SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, Large & Old Files, detail view, Downloads Review, Browser Cache Review, Package Cache Review, Project Dependencies Review, Xcode Review, Device Backups Review, Apps & Leftovers, app uninstall preview/execution receipts, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - AI-agent storage buckets and retention profiles that separate reclaimable cache, old-history compression review, protected state, quit-first data, and manual review
 - Native-tool command preview and execution receipts for selected non-destructive/non-placeholder cleanup commands, with Docker/Colima destructive commands kept guidance-only
 - Report-only Downloads Review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
 - Report-only Browser Cache Review for cache roots, protected profile roots, quit-first guidance, and local audit history
 - Report-only Package Cache Review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native cleanup guidance, and local audit history
+- Report-only Project Dependencies Review for project-local dependency/build artifact folders, protected project roots, native rebuild guidance, and local audit history
 - Report-only Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulator data, protected developer-state roots, Xcode/simctl guidance, and local audit history
 - Report-only Device Backups Review for local iPhone/iPad MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, and local audit history
 - Report-only Trash Review for current user Trash size, largest items, Finder guidance, and local audit history
@@ -95,5 +96,6 @@ Known limits:
 - no screenshots/GIFs for the first-run permission walkthrough yet
 - no root helper or system-wide cleanup
 - app uninstall execution can move only the selected app bundle to Trash after dry run and confirmation; related app support files stay review-only
+- Project Dependencies Review does not delete, move, Trash, prune, purge, clean, or modify project files, source, manifests, lockfiles, env files, dependencies, build outputs, credentials, IDE settings, generated code, local editable installs, or unknown project state
 - Xcode Review does not delete, move, Trash, prune, purge, reset simulators, or modify Xcode files
 ```

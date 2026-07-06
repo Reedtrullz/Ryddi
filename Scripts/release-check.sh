@@ -97,6 +97,51 @@ printf 'npm package cache\n' >"$package_npm/content-v2/sha512/aa/cache.bin"
 printf 'gradle artifact\n' >"$package_gradle/modules-2/files-2.1/example/artifact.jar"
 printf '//registry.npmjs.org/:_authToken=fixture\n' >"$package_fixture/.npmrc"
 printf '<settings>fixture</settings>\n' >"$package_fixture/.m2/settings.xml"
+project_fixture="$scratch/project-fixture"
+project_root="$project_fixture/Projects"
+project_web="$project_root/WebApp"
+project_python="$project_root/PyApp"
+project_swift="$project_root/SwiftApp"
+project_rust="$project_root/RustApp"
+project_ios="$project_root/iOSApp"
+project_flutter="$project_root/FlutterApp"
+project_android="$project_root/AndroidApp"
+mkdir -p \
+  "$project_web/src" \
+  "$project_web/node_modules/react" \
+  "$project_web/.next/cache" \
+  "$project_web/dist" \
+  "$project_python/.venv/lib/python/site-packages" \
+  "$project_swift/.build/debug" \
+  "$project_rust/target/debug" \
+  "$project_ios/Pods/Alamofire" \
+  "$project_flutter/.dart_tool" \
+  "$project_flutter/build" \
+  "$project_android/app/src/main" \
+  "$project_android/app/build/intermediates"
+printf '{"scripts":{"build":"vite build"}}\n' >"$project_web/package.json"
+printf '{"lockfileVersion":3}\n' >"$project_web/package-lock.json"
+printf 'source should remain protected\n' >"$project_web/src/index.ts"
+printf 'SECRET=fixture\n' >"$project_web/.env"
+printf 'react package\n' >"$project_web/node_modules/react/index.js"
+printf 'next cache\n' >"$project_web/.next/cache/chunk.bin"
+printf 'web build\n' >"$project_web/dist/app.js"
+printf '[project]\nname = "fixture"\n' >"$project_python/pyproject.toml"
+printf 'home = /usr/bin\n' >"$project_python/.venv/pyvenv.cfg"
+printf 'python package\n' >"$project_python/.venv/lib/python/site-packages/pkg.py"
+printf 'let package = Package(name: "Fixture")\n' >"$project_swift/Package.swift"
+printf 'swift object\n' >"$project_swift/.build/debug/App.o"
+printf '[package]\nname = "fixture"\n' >"$project_rust/Cargo.toml"
+printf 'rust binary\n' >"$project_rust/target/debug/app"
+printf "platform :ios, '17.0'\n" >"$project_ios/Podfile"
+printf 'pod source\n' >"$project_ios/Pods/Alamofire/file.swift"
+printf 'name: fixture\n' >"$project_flutter/pubspec.yaml"
+printf '{"configVersion":2}\n' >"$project_flutter/.dart_tool/package_config.json"
+printf 'flutter build\n' >"$project_flutter/build/app.dill"
+printf 'pluginManagement {}\n' >"$project_android/settings.gradle"
+printf 'plugins { id "com.android.application" }\n' >"$project_android/app/build.gradle"
+printf '<manifest />\n' >"$project_android/app/src/main/AndroidManifest.xml"
+printf 'android classes\n' >"$project_android/app/build/intermediates/classes.bin"
 device_fixture="$scratch/device-fixture"
 device_backup_root="$device_fixture/Library/Application Support/MobileSync/Backup"
 device_backup_a="$device_backup_root/1111222233334444555566667777888899990000"
@@ -260,6 +305,7 @@ grep -q '"preset" : "all"' "$scratch/scopes-all-smoke.json"
 grep -q "Ryddi scope templates" "$scratch/scope-templates-list.txt"
 grep -q "Weekly General Review" "$scratch/scope-templates-list.txt"
 grep -q "Package Manager Caches" "$scratch/scope-templates-list.txt"
+grep -q "Project Dependencies" "$scratch/scope-templates-list.txt"
 grep -q "Xcode Review" "$scratch/scope-templates-list.txt"
 grep -q "Device Backups Review" "$scratch/scope-templates-list.txt"
 "$app/Contents/MacOS/reclaimer" scopes templates show weekly-general --json >"$scratch/scope-template-show.json"
@@ -505,6 +551,39 @@ test -f "$package_npm/content-v2/sha512/aa/cache.bin"
 test -f "$package_gradle/modules-2/files-2.1/example/artifact.jar"
 test -f "$package_fixture/.npmrc"
 test -f "$package_fixture/.m2/settings.xml"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" projects --json \
+  --path "$project_root" \
+  --limit 40 \
+  --old-days 30 \
+  --search-depth 6 \
+  --max-depth 8 \
+  --save-audit >"$scratch/projects-smoke.json"
+grep -q '"ecosystem" : "javascript"' "$scratch/projects-smoke.json"
+grep -q '"ecosystem" : "python"' "$scratch/projects-smoke.json"
+grep -q '"ecosystem" : "swift"' "$scratch/projects-smoke.json"
+grep -q '"ecosystem" : "rust"' "$scratch/projects-smoke.json"
+grep -q '"ecosystem" : "cocoaPods"' "$scratch/projects-smoke.json"
+grep -q '"ecosystem" : "dartFlutter"' "$scratch/projects-smoke.json"
+grep -q '"ecosystem" : "android"' "$scratch/projects-smoke.json"
+grep -q '"kind" : "nodeModules"' "$scratch/projects-smoke.json"
+grep -q '"kind" : "pythonVirtualEnvironment"' "$scratch/projects-smoke.json"
+grep -q '"kind" : "swiftBuild"' "$scratch/projects-smoke.json"
+grep -q '"kind" : "rustTarget"' "$scratch/projects-smoke.json"
+grep -q '"kind" : "cocoaPodsPods"' "$scratch/projects-smoke.json"
+grep -q '"kind" : "dartTool"' "$scratch/projects-smoke.json"
+grep -q '"kind" : "androidBuild"' "$scratch/projects-smoke.json"
+grep -q "Project Dependency Review is report-only" "$scratch/projects-smoke.json"
+grep -q "Protected project files" "$scratch/projects-smoke.json"
+find "$scratch/audit" -name 'project-dependency-review-*.json' -print -quit | grep -q 'project-dependency-review-'
+test -f "$project_web/src/index.ts"
+test -f "$project_web/.env"
+test -f "$project_web/node_modules/react/index.js"
+test -f "$project_python/.venv/pyvenv.cfg"
+test -f "$project_swift/.build/debug/App.o"
+test -f "$project_rust/target/debug/app"
+test -f "$project_ios/Pods/Alamofire/file.swift"
+test -f "$project_flutter/.dart_tool/package_config.json"
+test -f "$project_android/app/build/intermediates/classes.bin"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" device-backups --json \
   --home "$device_fixture" \
   --limit 20 \
@@ -813,6 +892,7 @@ Verification performed:
 - bundled reclaimer downloads --json on disposable Downloads fixture, with audit save and no file moves/deletes
 - bundled reclaimer browsers --json on disposable browser cache/profile fixture, with audit save and no profile/cache mutation
 - bundled reclaimer packages --json on disposable package cache/config fixture, with audit save and no cache/config mutation
+- bundled reclaimer projects --json on disposable project dependency/build fixture, with audit save and no source/dependency mutation
 - bundled reclaimer device-backups --json on disposable MobileSync backup fixture, with audit save and no backup mutation
 - bundled reclaimer xcode --json on disposable Xcode developer fixture, with audit save and no Xcode state mutation
 - bundled reclaimer permissions --json --path Tests

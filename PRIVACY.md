@@ -32,6 +32,8 @@ Device Backups Review reads local filesystem metadata from the configured Mobile
 
 Xcode Review reads local filesystem metadata from configured Xcode and CoreSimulator roots and, when present, local archive `Info.plist` files and simulator `device.plist` files. Reports can include local paths, app/archive names, simulator names, runtime names, DeviceSupport versions, protected Xcode developer-state paths, sizes, ages, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, reset simulators, modify Xcode files, or treat Xcode UserData, signing profiles, accounts, templates, preferences, snippets, archives, DeviceSupport, simulator state, or runtimes as automatically safe.
 
+Project Dependencies Review reads local filesystem metadata from configured project roots and recognizes common project-local dependency/build directories such as `node_modules`, `.venv`, `.build`, `target`, `Pods`, `.dart_tool`, framework caches, Gradle caches, Flutter build output, and Android build output. Reports can include local project paths, project names, manifest hints, ecosystem labels, artifact kinds, sizes, ages, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, clean, or modify project files, dependencies, build outputs, source, manifests, lockfiles, env files, credentials, IDE settings, generated code, local editable installs, or unknown project state.
+
 AI-agent storage review reads local filesystem metadata from common Codex, Claude, Cursor, Windsurf, and Ollama roots, or from explicit paths you provide. Results can include local paths, owner hints, rule IDs, bucket names, and evidence strings. Ryddi does not upload this report, inspect prompt contents for remote analysis, or automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
 
 Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Ryddi does not upload these reports and does not execute the native commands automatically.
@@ -72,7 +74,7 @@ Ryddi can write:
 - saved native-tool preview reports;
 - saved container inventory reports;
 - saved active-file review reports;
-- saved report-only review reports for Downloads, browser caches, package caches, Xcode storage, device backups, and Trash;
+- saved report-only review reports for Downloads, browser caches, package caches, project dependencies, Xcode storage, device backups, and Trash;
 - saved user path policy for protections and exclusions;
 - saved user rule packs for custom review/protection signals;
 - saved scope sets for repeatable scan roots;

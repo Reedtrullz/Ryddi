@@ -50,6 +50,8 @@ struct ReclaimerCLI {
             try browsers(args: args)
         case "packages":
             try packages(args: args)
+        case "projects":
+            try projects(args: args)
         case "device-backups":
             try deviceBackups(args: args)
         case "xcode":
@@ -681,6 +683,36 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printPackageCacheReview(report, options: options)
+        }
+    }
+
+    static func projects(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let home = options.value(after: "--home")
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let roots = options.values(after: "--path").map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let measurementDepth = max(0, Int(options.value(after: "--max-depth") ?? "") ?? 8)
+        let searchDepth = max(0, Int(options.value(after: "--search-depth") ?? "") ?? 6)
+        let report = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                home: home,
+                roots: roots.isEmpty ? nil : roots,
+                limit: options.limit,
+                oldDays: options.oldDays,
+                maximumSearchDepth: searchDepth,
+                measurementDepth: measurementDepth,
+                includeMissingRoots: options.includeMissingScopes
+            )
+        )
+        if options.saveAudit {
+            let url = try AuditStore().save(projectDependencyReviewReport: report)
+            FileHandle.standardError.write(Data("saved project dependency review report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printProjectDependencyReview(report, options: options)
         }
     }
 
@@ -1395,6 +1427,7 @@ struct ReclaimerCLI {
               downloads [--json] [--path DOWNLOADS_ROOT] [--limit N] [--old-days N] [--max-depth N] [--include-hidden] [--save-audit]
               browsers [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               packages [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
+              projects [--json] [--path PROJECT_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--search-depth N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               device-backups [--json] [--path BACKUP_ROOT] [--home HOME] [--limit N] [--old-days N] [--max-depth N] [--save-audit]
               xcode [--json] [--path XCODE_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               trash [--json] [--path TRASH_ROOT] [--limit N] [--max-depth N] [--save-audit]
@@ -2897,6 +2930,82 @@ func printPackageCacheReview(_ report: PackageCacheReviewReport, options: Parsed
     for protectedRoot in report.protectedConfigRoots {
         print("- \(protectedRoot.manager.label): \(protectedRoot.permissionState.rawValue) - \(protectedRoot.path)")
         print("  \(protectedRoot.note)")
+    }
+
+    print("\nGuidance")
+    for line in report.guidance {
+        print("- \(line)")
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, options: ParsedOptions) {
+    print("Ryddi Project Dependencies review")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Project roots: \(report.rootSummaries.count)")
+    print("Candidates found: \(report.largestItems.count)")
+    print("Items measured: \(report.itemCount)")
+    print("Candidate bytes: \(ByteFormat.string(report.candidateBytes))")
+    print("Rebuildable-after-review bytes: \(ByteFormat.string(report.rebuildableBytes))")
+    print("Review-required bytes: \(ByteFormat.string(report.reviewRequiredBytes))")
+    print("Allocated project dependency bytes: \(ByteFormat.string(report.totalAllocatedSize))")
+    print("Logical project dependency bytes: \(ByteFormat.string(report.totalLogicalSize))")
+
+    if !report.ecosystemSummaries.isEmpty {
+        print("\nBy ecosystem")
+        for summary in report.ecosystemSummaries {
+            print("- \(pad(summary.name, 16)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
+    if !report.kindSummaries.isEmpty {
+        print("\nBy dependency kind")
+        for summary in report.kindSummaries {
+            print("- \(pad(summary.name, 24)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
+    print("\nProject roots")
+    if report.rootSummaries.isEmpty {
+        print("No project roots were inspected.")
+    } else {
+        for root in report.rootSummaries {
+            print("- \(root.permissionState.rawValue), \(ByteFormat.string(root.allocatedSize)), \(root.candidateCount) candidate(s), \(root.itemCount) measured item(s)")
+            print("  \(root.rootPath)")
+            print("  \(root.note)")
+        }
+    }
+
+    if report.largestItems.isEmpty {
+        print("\nNo project dependency candidates found in readable roots.")
+    } else {
+        print("\nLargest project dependency items")
+        print("\(pad("Allocated", 11)) \(pad("Ecosystem", 14)) \(pad("Kind", 22)) \(pad("Age", 8)) Path")
+        for item in report.largestItems.prefix(options.limit) {
+            let age = item.ageDays.map { "\($0)d" } ?? "unknown"
+            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.ecosystem.label, 14)) \(pad(item.kind.label, 22)) \(pad(age, 8)) \(item.path)")
+            print("  project: \(item.projectName)")
+            print("  - \(item.recommendation)")
+            if let guidance = item.guidance.first {
+                print("  next: \(guidance)")
+            }
+        }
+    }
+
+    print("\nProtected project files")
+    if report.protectedProjectRoots.isEmpty {
+        print("No protected project roots were inferred from candidates.")
+    } else {
+        for protectedRoot in report.protectedProjectRoots {
+            let manifests = protectedRoot.manifestHints.isEmpty ? "no standard manifest" : protectedRoot.manifestHints.joined(separator: ", ")
+            print("- \(protectedRoot.projectName): \(manifests)")
+            print("  \(protectedRoot.projectRootPath)")
+            print("  \(protectedRoot.note)")
+        }
     }
 
     print("\nGuidance")
