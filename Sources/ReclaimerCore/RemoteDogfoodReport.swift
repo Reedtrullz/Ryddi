@@ -121,13 +121,16 @@ public enum RemoteDogfoodReportBuilder {
         growth: RemoteGrowthReport?,
         privacy: ReportPrivacyOptions
     ) -> String {
+        let targetLabel = privacy.pathStyle == .redacted ? "<target redacted>" : (report.target.alias ?? report.target.input)
+        let hostLabel = privacy.pathStyle == .redacted ? "<host redacted>" : (report.target.resolvedHost ?? "unknown")
+
         var lines: [String] = []
         lines.append("# Ryddi Remote Dogfood Report")
         lines.append("")
         lines.append("- Report id: `\(report.id)`")
         lines.append("- Generated: \(isoString(report.createdAt))")
-        lines.append("- Target: \(report.target.alias ?? report.target.input)")
-        lines.append("- Host: \(report.target.resolvedHost ?? "unknown")")
+        lines.append("- Target: \(targetLabel)")
+        lines.append("- Host: \(hostLabel)")
         lines.append("- Probe: \(report.probeID ?? "none")")
         lines.append("- Scan: \(report.scanID)")
         lines.append("- Growth report: \(report.growthReportID ?? "none")")

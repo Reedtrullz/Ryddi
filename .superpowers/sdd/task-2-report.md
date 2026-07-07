@@ -66,3 +66,26 @@ Result: focused dogfood test passed.
 
 - No live remote target was exercised; verification was limited to the focused unit test.
 - Review queue counts are derived from `recommendedNextAction` groupings, which matches the current report shape but was not separately validated outside the test fixture.
+
+## Review Fix
+
+Patched `RemoteDogfoodReportBuilder` so redacted markdown no longer prints the target alias/input or resolved host. Redacted exports now show shareable placeholders instead of `prod-vps` or `203.0.113.10`.
+
+Added regression assertions in `Tests/ReclaimerCoreTests/ReclaimerCoreTests.swift` to verify the redacted markdown contains `<target redacted>` and `<host redacted>` and does not leak the private target metadata.
+
+### Verification
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter RemoteDogfood
+```
+
+Output:
+
+- Build complete
+- `testRemoteDogfoodReportComposesScanGrowthAndRedactsPaths` passed
+- Executed 1 test, 0 failures
+
+## Files Changed For Fix
+
+- `Sources/ReclaimerCore/RemoteDogfoodReport.swift`
+- `Tests/ReclaimerCoreTests/ReclaimerCoreTests.swift`
