@@ -298,6 +298,131 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(try store.loadDocument().rules.map(\.id), [second.id])
     }
 
+    func testRemoteTargetResolverListsNonWildcardAliasesAndResolvesSSHConfig() throws {
+        let sshRoot = tempRoot.appendingPathComponent("ssh", isDirectory: true)
+        let includeRoot = sshRoot.appendingPathComponent("conf.d", isDirectory: true)
+        try FileManager.default.createDirectory(at: includeRoot, withIntermediateDirectories: true)
+        let configURL = sshRoot.appendingPathComponent("config")
+        let includeURL = includeRoot.appendingPathComponent("extra.conf")
+        try """
+        Include \(includeURL.path)
+
+        Host prod-vps
+          HostName 203.0.113.10
+          User deploy
+          Port 2222
+
+        Host *.example.com
+          User ignored
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        Host staging-vps
+          HostName staging.example.invalid
+          User ubuntu
+        """.write(to: includeURL, atomically: true, encoding: .utf8)
+        let knownHostsURL = sshRoot.appendingPathComponent("known_hosts")
+        try "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKey\n".write(
+            to: knownHostsURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let output = fakeOutput(
+            "/usr/bin/ssh",
+            ["-G", "prod-vps"],
+            stdout: """
+            user deploy
+            hostname 203.0.113.10
+            port 2222
+            identityfile ~/.ssh/id_ed25519
+            """
+        )
+        let runner = FakeToolRunner(outputs: [output])
+        let resolver = RemoteTargetResolver(configURL: configURL, knownHostsURL: knownHostsURL, runner: runner)
+
+        let targets = resolver.targets()
+        XCTAssertEqual(targets.map(\.input), ["prod-vps", "staging-vps"])
+        XCTAssertFalse(targets.contains { $0.input.contains("*") })
+
+        let resolved = try resolver.resolve("prod-vps")
+        XCTAssertEqual(resolved.alias, "prod-vps")
+        XCTAssertEqual(resolved.resolvedUser, "deploy")
+        XCTAssertEqual(resolved.resolvedHost, "203.0.113.10")
+        XCTAssertEqual(resolved.resolvedPort, 2222)
+        XCTAssertEqual(resolved.knownHostsState, "known")
+        XCTAssertNotNil(resolved.fingerprint)
+        XCTAssertEqual(runner.commands, ["/usr/bin/ssh -G prod-vps"])
+    }
+
+    func testAuditStoreRoundTripsRemoteProbeAndScanReports() throws {
+        let store = AuditStore(root: tempRoot.appendingPathComponent("audit", isDirectory: true))
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 2222,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let command = RemoteCommandResult(
+            commandID: "probe.uname",
+            displayCommand: "uname -srm",
+            exitCode: 0,
+            timedOut: false,
+            stdoutPreview: ["Linux 6.8 x86_64"],
+            stderrPreview: [],
+            redactionApplied: false
+        )
+        let probe = RemoteProbeReport(
+            target: target,
+            osSummary: "Ubuntu 24.04 LTS",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: ["docker", "journalctl"],
+            commands: [command],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [
+                RemoteFilesystemSummary(mount: "/", filesystem: "/dev/vda1", usedBytes: 4_096, availableBytes: 8_192, capacityPercent: 34)
+            ],
+            inodeFilesystems: [],
+            findings: [
+                RemoteStorageFinding(
+                    remotePath: "/var/lib/docker/volumes",
+                    displayPath: "/var/lib/docker/volumes",
+                    bucket: "Docker volumes",
+                    allocatedBytes: 42_000,
+                    safetyClass: .preserveByDefault,
+                    actionKind: .nativeToolCommand,
+                    evidence: [Evidence(kind: "remote.docker", message: "Docker volumes can contain databases or app state.")],
+                    recommendedNextAction: .protectByDefault
+                )
+            ],
+            nativeGuidance: [
+                RemoteNativeGuidance(
+                    id: "docker.review",
+                    title: "Review Docker storage",
+                    command: "docker system df -v",
+                    risk: "review",
+                    summary: "Inspect Docker storage before any prune command."
+                )
+            ],
+            commands: [command],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+
+        XCTAssertEqual(store.recentRemoteProbeReports().first?.id, probe.id)
+        XCTAssertEqual(store.recentRemoteScanReports().first?.id, scan.id)
+        XCTAssertEqual(store.recentRemoteScanReports().first?.findings.first?.safetyClass, .preserveByDefault)
+        XCTAssertTrue(store.recentRemoteScanReports().first?.nonClaims.contains { $0.contains("No cleanup was executed") } ?? false)
+    }
+
     func testDefaultScopePresetsSeparateGeneralAndDeveloperRoots() throws {
         let general = DefaultScopes.plan(for: .general, home: tempRoot, includeUnavailable: true)
         let developer = DefaultScopes.plan(for: .developer, home: tempRoot, includeUnavailable: true)
