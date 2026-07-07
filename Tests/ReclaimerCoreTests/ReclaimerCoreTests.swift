@@ -568,6 +568,90 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.latestRemoteScanReport(matching: queryTarget)?.id, scan.id)
     }
 
+    func testAuditStoreMatchesRemoteTargetsByIdInputAndAliasAndPrefersLatestScan() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let firstTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "alias-prod-vps",
+            resolvedUser: nil,
+            resolvedHost: nil,
+            resolvedPort: nil,
+            knownHostsState: "unknown",
+            fingerprint: nil
+        )
+        let secondTarget = RemoteTargetReference(
+            id: "target-002",
+            input: "prod-vps-2",
+            alias: "alias-prod-vps",
+            resolvedUser: nil,
+            resolvedHost: nil,
+            resolvedPort: nil,
+            knownHostsState: "unknown",
+            fingerprint: nil
+        )
+
+        let firstProbe = RemoteProbeReport(
+            id: "probe-001",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: firstTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let secondProbe = RemoteProbeReport(
+            id: "probe-002",
+            createdAt: Date(timeIntervalSince1970: 20),
+            target: secondTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let firstScan = RemoteScanReport(
+            id: "scan-001",
+            createdAt: Date(timeIntervalSince1970: 30),
+            preset: .vpsGeneral,
+            target: firstTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+        let secondScan = RemoteScanReport(
+            id: "scan-002",
+            createdAt: Date(timeIntervalSince1970: 40),
+            preset: .vpsGeneral,
+            target: secondTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: firstProbe)
+        _ = try store.save(remoteScanReport: firstScan)
+        _ = try store.save(remoteProbeReport: secondProbe)
+        _ = try store.save(remoteScanReport: secondScan)
+
+        let aliasQuery = RemoteTargetReference(input: "alias-prod-vps")
+        let idQuery = RemoteTargetReference(input: "target-001")
+
+        XCTAssertEqual(store.latestRemoteScanReport(matching: aliasQuery)?.id, secondScan.id)
+        XCTAssertEqual(store.latestRemoteProbeReport(matching: aliasQuery)?.id, secondProbe.id)
+        XCTAssertEqual(store.latestRemoteScanReport(matching: idQuery)?.id, firstScan.id)
+    }
+
     func testRemoteGrowthReportComparesSavedScansAndRedactsPaths() throws {
         let target = RemoteTargetReference(
             input: "prod-vps",

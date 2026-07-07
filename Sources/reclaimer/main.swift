@@ -1156,7 +1156,7 @@ struct ReclaimerCLI {
 
     static func remote(args: [String]) throws {
         guard let subcommand = args.first else {
-            throw CLIError.message("remote requires targets, probe, scan, native, or plan")
+            throw CLIError.message("remote requires targets, probe, scan, dogfood, native, plan, or history")
         }
         let rest = Array(args.dropFirst())
         switch subcommand {
@@ -1258,12 +1258,12 @@ struct ReclaimerCLI {
         let scan: RemoteScanReport
 
         if fromAudit {
-            let queryTarget = RemoteTargetReference(input: targetInput, alias: targetInput)
+            let queryTarget = RemoteTargetReference(input: targetInput)
             guard let latestScan = store.latestRemoteScanReport(matching: queryTarget) else {
                 throw CLIError.message("remote dogfood --from-audit found no saved remote scan for \(targetInput)")
             }
             scan = latestScan
-            probe = store.latestRemoteProbeReport(matching: queryTarget)
+            probe = store.latestRemoteProbeReport(matching: scan.target)
         } else {
             let target = try RemoteTargetResolver().resolve(targetInput)
             let liveProbe = RemoteProbeBuilder(target: target, timeout: options.timeoutSeconds).probe()

@@ -282,11 +282,11 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func latestRemoteScanReport(matching target: RemoteTargetReference) -> RemoteScanReport? {
-        recentRemoteScanReports(limit: Int.max).first { remoteTargetsMatch($0.target, target) }
+        recentRemoteScanReports(limit: Int.max).first { localTargetMatches($0.target, target) }
     }
 
     public func latestRemoteProbeReport(matching target: RemoteTargetReference) -> RemoteProbeReport? {
-        recentRemoteProbeReports(limit: Int.max).first { remoteTargetsMatch($0.target, target) }
+        recentRemoteProbeReports(limit: Int.max).first { localTargetMatches($0.target, target) }
     }
 
     public func remoteScanReport(id: String) -> RemoteScanReport? {
@@ -428,19 +428,16 @@ public final class AuditStore: @unchecked Sendable {
             .compactMap { try? decoder.decode(AppUninstallExecutionReceipt.self, from: Data(contentsOf: $0)) }
     }
 
-    private func remoteTargetsMatch(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
-        if lhs.id == rhs.id {
-            return true
-        }
-        guard hasResolvedIdentity(lhs), hasResolvedIdentity(rhs) else {
-            return false
-        }
-        return lhs.resolvedHost == rhs.resolvedHost &&
-            lhs.resolvedUser == rhs.resolvedUser &&
-            lhs.resolvedPort == rhs.resolvedPort
+    private func localTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
+        !localTargetIdentifiers(lhs).isDisjoint(with: localTargetIdentifiers(rhs))
     }
 
-    private func hasResolvedIdentity(_ target: RemoteTargetReference) -> Bool {
-        target.resolvedHost != nil || target.resolvedUser != nil || target.resolvedPort != nil
+    private func localTargetIdentifiers(_ target: RemoteTargetReference) -> Set<String> {
+        Set([target.id, target.input, target.alias].compactMap(normalizedIdentity))
+    }
+
+    private func normalizedIdentity(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
