@@ -3186,6 +3186,12 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             if !item.commandHints.isEmpty {
                 for command in item.commandHints.prefix(3) {
                     print("  command hint: \(command.command) - \(command.purpose)")
+                    if let workingDirectory = command.workingDirectory {
+                        print("    cwd: \(workingDirectory)")
+                    }
+                    if let context = command.context {
+                        print("    context: \(context)")
+                    }
                 }
             }
             if let guidance = item.guidance.first {
@@ -3523,6 +3529,12 @@ func printNativeToolReport(_ report: NativeToolReport, options: ParsedOptions) {
             print("- [\(command.risk.label), \(review)] \(command.command)")
             print("  \(command.purpose)")
             print("  Expected effect: \(command.expectedEffect)")
+            if let workingDirectory = command.workingDirectory {
+                print("  Working directory: \(workingDirectory)")
+            }
+            if let context = command.context {
+                print("  Context: \(context)")
+            }
         }
     }
     if report.receipts.count > options.limit {

@@ -402,6 +402,8 @@ public struct NativeToolCommand: Codable, Hashable, Identifiable, Sendable {
     public let risk: NativeToolRisk
     public let requiresReview: Bool
     public let expectedEffect: String
+    public let workingDirectory: String?
+    public let context: String?
 
     public init(
         id: String,
@@ -409,7 +411,9 @@ public struct NativeToolCommand: Codable, Hashable, Identifiable, Sendable {
         purpose: String,
         risk: NativeToolRisk,
         requiresReview: Bool,
-        expectedEffect: String
+        expectedEffect: String,
+        workingDirectory: String? = nil,
+        context: String? = nil
     ) {
         self.id = id
         self.command = command
@@ -417,6 +421,8 @@ public struct NativeToolCommand: Codable, Hashable, Identifiable, Sendable {
         self.risk = risk
         self.requiresReview = requiresReview
         self.expectedEffect = expectedEffect
+        self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.context = context?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 }
 
@@ -484,6 +490,12 @@ public struct NativeToolReport: Codable, Hashable, Identifiable, Sendable {
         self.receipts = receipts
         self.totalBytesUnderNativeReview = receipts.reduce(0) { $0 + $1.allocatedSize }
         self.nonClaims = nonClaims
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

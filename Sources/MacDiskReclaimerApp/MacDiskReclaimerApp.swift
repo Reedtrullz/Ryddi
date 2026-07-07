@@ -2842,7 +2842,17 @@ struct ProjectDependencyReviewView: View {
                                             .foregroundStyle(.secondary)
                                             .fixedSize(horizontal: false, vertical: true)
                                         ForEach(item.commandHints.prefix(3), id: \.id) { command in
-                                            Text("\(command.command) - \(command.purpose)")
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("\(command.command) - \(command.purpose)")
+                                                if let workingDirectory = command.workingDirectory {
+                                                    Text("cwd: \(workingDirectory)")
+                                                        .lineLimit(1)
+                                                        .truncationMode(.middle)
+                                                }
+                                                if let context = command.context {
+                                                    Text(context)
+                                                }
+                                            }
                                                     .font(.caption2)
                                                     .foregroundStyle(.secondary)
                                                     .fixedSize(horizontal: false, vertical: true)
@@ -4230,6 +4240,17 @@ struct FindingDetailView: View {
                                 Text(command.purpose)
                                 Text("Expected effect: \(command.expectedEffect)")
                                     .foregroundStyle(.secondary)
+                                if let workingDirectory = command.workingDirectory {
+                                    Text("Working directory: \(workingDirectory)")
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .textSelection(.enabled)
+                                }
+                                if let context = command.context {
+                                    Text(context)
+                                        .foregroundStyle(.secondary)
+                                }
                                 HStack {
                                     Button {
                                         Task { await model.runNativeToolCommand(receipt: nativeReceipt, command: command, perform: false) }

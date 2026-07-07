@@ -2040,6 +2040,7 @@ final class ReclaimerCoreTests: XCTestCase {
         let webApp = projects.appendingPathComponent("ScriptedWeb", isDirectory: true)
         let packageJSON = """
         {
+          "name": "@fixtures/scripted-web",
           "packageManager": "pnpm@9.1.0",
           "scripts": {
             "build": "vite build",
@@ -2074,6 +2075,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(modules.toolingInfo.toolName, "pnpm")
         XCTAssertEqual(modules.toolingInfo.toolVersion, "9.1.0")
         XCTAssertEqual(modules.toolingInfo.toolSource, "package.json packageManager")
+        XCTAssertEqual(modules.toolingInfo.packageName, "@fixtures/scripted-web")
         XCTAssertTrue(modules.toolingInfo.packageScripts.contains("build"))
         XCTAssertTrue(modules.toolingInfo.packageScripts.contains("clean"))
         XCTAssertTrue(modules.toolingInfo.packageScripts.contains("deploy"))
@@ -2095,15 +2097,16 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(modules.signals.contains("script-risk-network-or-publish-review"))
         XCTAssertTrue(modules.signals.contains("script-risk-package-lifecycle"))
         XCTAssertTrue(modules.signals.contains("script-manual-review"))
-        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm install --frozen-lockfile" })
-        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm run clean" })
+        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm install --frozen-lockfile" && $0.workingDirectory == webApp.path })
+        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm run clean" && $0.workingDirectory == webApp.path && ($0.context?.contains("project root") == true) })
+        XCTAssertTrue(modules.signals.contains("command-context"))
 
         let dist = try XCTUnwrap(report.largestItems.first { $0.projectName == "ScriptedWeb" && $0.kind == .webBuildOutput })
-        XCTAssertTrue(dist.commandHints.contains { $0.command == "pnpm run build" })
+        XCTAssertTrue(dist.commandHints.contains { $0.command == "pnpm run build" && $0.workingDirectory == webApp.path })
         XCTAssertTrue(dist.signals.contains("script-command-hint"))
 
         let coverage = try XCTUnwrap(report.largestItems.first { $0.projectName == "ScriptedWeb" && $0.kind == .coverageOutput })
-        XCTAssertTrue(coverage.commandHints.contains { $0.command == "pnpm run test:coverage" })
+        XCTAssertTrue(coverage.commandHints.contains { $0.command == "pnpm run test:coverage" && $0.workingDirectory == webApp.path })
 
         XCTAssertTrue(report.toolSummaries.contains { $0.name == "pnpm" && $0.itemCount >= 3 })
         XCTAssertTrue(report.scriptSummaries.contains { $0.name == "build" && $0.itemCount >= 3 })
@@ -2162,12 +2165,14 @@ final class ReclaimerCoreTests: XCTestCase {
         let webApp = monorepo.appendingPathComponent("apps/web", isDirectory: true)
         let rootPackageJSON = """
         {
+          "name": "fixture-monorepo",
           "packageManager": "pnpm@9.2.0",
           "workspaces": ["apps/*", "packages/*"]
         }
         """
         let appPackageJSON = """
         {
+          "name": "@fixtures/web",
           "scripts": {
             "build": "vite build",
             "clean": "rimraf dist"
@@ -2207,14 +2212,17 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(modules.toolingInfo.toolName, "pnpm")
         XCTAssertEqual(modules.toolingInfo.toolVersion, "9.2.0")
         XCTAssertEqual(modules.toolingInfo.toolSource, "workspace package.json packageManager")
+        XCTAssertEqual(modules.toolingInfo.packageName, "@fixtures/web")
         XCTAssertTrue(modules.signals.contains("workspace-detected"))
         XCTAssertTrue(modules.signals.contains("workspace-pnpm"))
-        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm install --frozen-lockfile" })
-        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm run clean" })
+        XCTAssertTrue(modules.signals.contains("command-context"))
+        XCTAssertTrue(modules.signals.contains("workspace-command-context"))
+        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm install --frozen-lockfile" && $0.workingDirectory == monorepo.path && ($0.context?.contains("workspace root") == true) })
+        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm --filter @fixtures/web run clean" && $0.workingDirectory == monorepo.path && ($0.context?.contains("@fixtures/web") == true) })
 
         let dist = try XCTUnwrap(report.largestItems.first { $0.projectName == "web" && $0.kind == .webBuildOutput })
         XCTAssertEqual(dist.workspaceInfo.rootPath, monorepo.path)
-        XCTAssertTrue(dist.commandHints.contains { $0.command == "pnpm run build" })
+        XCTAssertTrue(dist.commandHints.contains { $0.command == "pnpm --filter @fixtures/web run build" && $0.workingDirectory == monorepo.path })
 
         XCTAssertEqual(report.workspaceRootCount, 1)
         XCTAssertTrue(report.workspaceSummaries.contains { $0.name.contains("MonoRepo") && $0.itemCount >= 2 })

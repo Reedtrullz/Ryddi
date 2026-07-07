@@ -231,6 +231,7 @@ public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
     public let toolName: String?
     public let toolVersion: String?
     public let toolSource: String?
+    public let packageName: String?
     public let packageScripts: [String]
     public let scriptReviews: [ProjectDependencyScriptInfo]
     public let notes: [String]
@@ -239,6 +240,7 @@ public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
         toolName: String? = nil,
         toolVersion: String? = nil,
         toolSource: String? = nil,
+        packageName: String? = nil,
         packageScripts: [String] = [],
         scriptReviews: [ProjectDependencyScriptInfo] = [],
         notes: [String] = []
@@ -246,6 +248,7 @@ public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
         self.toolName = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.toolVersion = toolVersion?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.toolSource = toolSource?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.packageName = packageName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         let normalizedReviews = scriptReviews
             .filter { !$0.name.isEmpty }
             .reduce(into: [String: ProjectDependencyScriptInfo]()) { partial, review in
@@ -280,6 +283,7 @@ public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
         case toolName
         case toolVersion
         case toolSource
+        case packageName
         case packageScripts
         case scriptReviews
         case notes
@@ -291,6 +295,7 @@ public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
             toolName: try container.decodeIfPresent(String.self, forKey: .toolName),
             toolVersion: try container.decodeIfPresent(String.self, forKey: .toolVersion),
             toolSource: try container.decodeIfPresent(String.self, forKey: .toolSource),
+            packageName: try container.decodeIfPresent(String.self, forKey: .packageName),
             packageScripts: try container.decodeIfPresent([String].self, forKey: .packageScripts) ?? [],
             scriptReviews: try container.decodeIfPresent([ProjectDependencyScriptInfo].self, forKey: .scriptReviews) ?? [],
             notes: try container.decodeIfPresent([String].self, forKey: .notes) ?? []
@@ -302,6 +307,7 @@ public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
         try container.encodeIfPresent(toolName, forKey: .toolName)
         try container.encodeIfPresent(toolVersion, forKey: .toolVersion)
         try container.encodeIfPresent(toolSource, forKey: .toolSource)
+        try container.encodeIfPresent(packageName, forKey: .packageName)
         try container.encode(packageScripts, forKey: .packageScripts)
         try container.encode(scriptReviews, forKey: .scriptReviews)
         try container.encode(notes, forKey: .notes)
@@ -1223,9 +1229,15 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             for risk in ProjectDependencyScriptRisk.allCases where risks.contains(risk) {
                 signals.append("script-risk-\(Self.signalToken(risk.label))")
             }
-            if metadata.toolingInfo.scriptReviews.contains(where: { $0.risk.requiresManualReview }) {
+        if metadata.toolingInfo.scriptReviews.contains(where: { $0.risk.requiresManualReview }) {
                 signals.append("script-manual-review")
             }
+        }
+        if commandHints.contains(where: { $0.workingDirectory != nil || $0.context != nil }) {
+            signals.append("command-context")
+        }
+        if commandHints.contains(where: { $0.context?.localizedCaseInsensitiveContains("workspace") == true }) {
+            signals.append("workspace-command-context")
         }
         if metadata.workspaceInfo.isWorkspace {
             signals.append("workspace-detected")
@@ -1392,6 +1404,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         var toolName: String?
         var toolVersion: String?
         var toolSource: String?
+        var packageName: String?
         var scriptReviews: [ProjectDependencyScriptInfo] = []
         var notes: [String] = []
 
@@ -1402,6 +1415,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                 toolVersion = packageInfo.toolVersion
                 toolSource = "package.json packageManager"
             }
+            packageName = packageInfo.packageName
             scriptReviews = packageInfo.scriptReviews
             notes.append(contentsOf: packageInfo.notes)
         }
@@ -1415,6 +1429,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             toolName: toolName,
             toolVersion: toolVersion,
             toolSource: toolSource,
+            packageName: packageName,
             scriptReviews: scriptReviews,
             notes: notes
         )
@@ -1434,6 +1449,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             toolName: workspaceTool,
             toolVersion: workspace.toolingInfo.toolVersion,
             toolSource: workspace.toolingInfo.toolSource.map { "workspace \($0)" } ?? "workspace root",
+            packageName: project.packageName,
             packageScripts: project.packageScripts,
             scriptReviews: project.scriptReviews,
             notes: notes
@@ -1535,20 +1551,25 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         )
     }
 
-    private func packageJSONTooling(at url: URL) -> (toolName: String?, toolVersion: String?, scriptReviews: [ProjectDependencyScriptInfo], notes: [String]) {
+    private func packageJSONTooling(at url: URL) -> (toolName: String?, toolVersion: String?, packageName: String?, scriptReviews: [ProjectDependencyScriptInfo], notes: [String]) {
         var notes: [String] = []
         guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]) else {
-            return (nil, nil, [], [])
+            return (nil, nil, nil, [], [])
         }
         if (values.fileSize ?? 0) > 512_000 {
-            return (nil, nil, [], ["package.json was larger than 512 KB; script and package-manager parsing was skipped."])
+            return (nil, nil, nil, [], ["package.json was larger than 512 KB; script and package-manager parsing was skipped."])
         }
         guard let data = try? Data(contentsOf: url) else {
-            return (nil, nil, [], ["package.json could not be read for script and package-manager evidence."])
+            return (nil, nil, nil, [], ["package.json could not be read for script and package-manager evidence."])
         }
         guard let object = try? JSONSerialization.jsonObject(with: data),
               let json = object as? [String: Any] else {
-            return (nil, nil, [], ["package.json could not be parsed for script and package-manager evidence."])
+            return (nil, nil, nil, [], ["package.json could not be parsed for script and package-manager evidence."])
+        }
+
+        let packageName = (json["name"] as? String).flatMap(Self.parsePackageNameField)
+        if let packageName {
+            notes.append("Detected package name: \(packageName).")
         }
 
         let packageManager = (json["packageManager"] as? String).flatMap(Self.parsePackageManagerField)
@@ -1584,7 +1605,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             notes.append("Some package.json script names were omitted because they are not simple command names.")
         }
 
-        return (packageManager?.name, packageManager?.version, scriptReviews, notes)
+        return (packageManager?.name, packageManager?.version, packageName, scriptReviews, notes)
     }
 
     private func packageJSONWorkspace(at url: URL) -> (patterns: [String], evidence: [String], kind: ProjectDependencyWorkspaceKind?) {
@@ -2054,40 +2075,47 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
     private static func commandHints(for metadata: ProjectDependencyCandidateMetadata) -> [NativeToolCommand] {
         let hints = Set(metadata.manifestHints)
         let tooling = metadata.toolingInfo
+        let commandContext = Self.commandContext(for: metadata)
         switch metadata.kind {
         case .nodeModules:
+            let install = javascriptInstallCommand(for: hints, toolingInfo: tooling, context: commandContext)
             var commands = [
                 commandHint(
                     "project.javascript.install",
-                    javascriptInstallCommand(for: hints, toolingInfo: tooling),
+                    install.command,
                     "Recreate project dependencies after reviewing lockfiles and local edits.",
                     .reclaim,
-                    "Reinstalls project-local dependencies from the selected package manager."
+                    "Reinstalls project-local dependencies from the selected package manager.",
+                    workingDirectory: install.workingDirectory,
+                    context: install.context
                 )
             ]
-            if let clean = javascriptScriptCommand(for: tooling, hints: hints, preferredScripts: ["clean"], id: "project.javascript.script.clean", purpose: "Project-defined clean script detected; review it before using it for project-local cleanup.", risk: .inspect, expectedEffect: "Runs the project's own clean script; exact effect depends on package.json.") {
+            if let clean = javascriptScriptCommand(for: tooling, hints: hints, context: commandContext, preferredScripts: ["clean"], id: "project.javascript.script.clean", purpose: "Project-defined clean script detected; review it before using it for project-local cleanup.", risk: .inspect, expectedEffect: "Runs the project's own clean script; exact effect depends on package.json.") {
                 commands.append(clean)
             }
             return commands
         case .webBuildOutput, .webFrameworkCache:
+            let install = javascriptInstallCommand(for: hints, toolingInfo: tooling, context: commandContext)
             var commands = [
                 commandHint(
                     "project.javascript.install",
-                    javascriptInstallCommand(for: hints, toolingInfo: tooling),
+                    install.command,
                     "Restore dependencies needed to rebuild project-local web artifacts.",
                     .reclaim,
-                    "Recreates project-local dependencies if they were removed."
+                    "Recreates project-local dependencies if they were removed.",
+                    workingDirectory: install.workingDirectory,
+                    context: install.context
                 )
             ]
-            if let build = javascriptScriptCommand(for: tooling, hints: hints, preferredScripts: ["build", "compile", "generate", "export"], id: "project.javascript.script.build", purpose: "Project-defined build script detected for regenerating web output.", risk: .inspect, expectedEffect: "Regenerates project-local build output according to package.json.") {
+            if let build = javascriptScriptCommand(for: tooling, hints: hints, context: commandContext, preferredScripts: ["build", "compile", "generate", "export"], id: "project.javascript.script.build", purpose: "Project-defined build script detected for regenerating web output.", risk: .inspect, expectedEffect: "Regenerates project-local build output according to package.json.") {
                 commands.append(build)
             }
-            if let clean = javascriptScriptCommand(for: tooling, hints: hints, preferredScripts: ["clean"], id: "project.javascript.script.clean", purpose: "Project-defined clean script detected for project artifacts.", risk: .inspect, expectedEffect: "Runs the project's own clean script; exact effect depends on package.json.") {
+            if let clean = javascriptScriptCommand(for: tooling, hints: hints, context: commandContext, preferredScripts: ["clean"], id: "project.javascript.script.clean", purpose: "Project-defined clean script detected for project artifacts.", risk: .inspect, expectedEffect: "Runs the project's own clean script; exact effect depends on package.json.") {
                 commands.append(clean)
             }
             return commands
         case .coverageOutput:
-            return javascriptScriptCommand(for: tooling, hints: hints, preferredScripts: ["coverage", "test:coverage", "test"], id: "project.javascript.script.coverage", purpose: "Project-defined coverage/test script detected for regenerating coverage output.", risk: .inspect, expectedEffect: "Runs the selected package.json script; coverage output depends on project configuration.").map { [$0] } ?? []
+            return javascriptScriptCommand(for: tooling, hints: hints, context: commandContext, preferredScripts: ["coverage", "test:coverage", "test"], id: "project.javascript.script.coverage", purpose: "Project-defined coverage/test script detected for regenerating coverage output.", risk: .inspect, expectedEffect: "Runs the selected package.json script; coverage output depends on project configuration.").map { [$0] } ?? []
         case .pythonVirtualEnvironment:
             return [
                 commandHint(
@@ -2095,7 +2123,9 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     pythonVirtualEnvironmentCommand(for: hints),
                     "Recreate the virtual environment after reviewing Python manifests.",
                     .reclaim,
-                    "Creates a fresh project-local virtual environment and installs declared dependencies when a manifest is present."
+                    "Creates a fresh project-local virtual environment and installs declared dependencies when a manifest is present.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 )
             ]
         case .swiftBuild:
@@ -2105,14 +2135,18 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     "swift package clean",
                     "Let SwiftPM remove project build artifacts after active builds finish.",
                     .reclaim,
-                    "Removes SwiftPM build output for the current package."
+                    "Removes SwiftPM build output for the current package.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 ),
                 commandHint(
                     "project.swift.build",
                     "swift build --scratch-path .build",
                     "Rebuild while keeping future autonomous build output bounded to the project directory.",
                     .inspect,
-                    "Recreates build artifacts inside .build."
+                    "Recreates build artifacts inside .build.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 )
             ]
         case .rustTarget:
@@ -2122,14 +2156,18 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     "cargo clean",
                     "Let Cargo remove project target artifacts after active builds finish.",
                     .reclaim,
-                    "Removes the current project's target output."
+                    "Removes the current project's target output.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 ),
                 commandHint(
                     "project.rust.build",
                     "cargo build",
                     "Rebuild the project after cleanup.",
                     .inspect,
-                    "Regenerates target artifacts."
+                    "Regenerates target artifacts.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 )
             ]
         case .gradleProjectCache, .gradleBuildOutput:
@@ -2139,7 +2177,9 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     "./gradlew clean",
                     "Let Gradle remove project build output after active daemons finish.",
                     .reclaim,
-                    "Removes Gradle project build outputs without raw-deleting source or config."
+                    "Removes Gradle project build outputs without raw-deleting source or config.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 )
             ]
         case .cocoaPodsPods:
@@ -2149,7 +2189,9 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     "pod install",
                     "Restore Pods after checking for local pod edits.",
                     .reclaim,
-                    "Recreates Pods from the Podfile and lockfile when available."
+                    "Recreates Pods from the Podfile and lockfile when available.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 )
             ]
         case .dartTool:
@@ -2159,7 +2201,9 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     "dart pub get",
                     "Regenerate Dart package configuration after review.",
                     .reclaim,
-                    "Restores .dart_tool package metadata from pubspec files."
+                    "Restores .dart_tool package metadata from pubspec files.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 )
             ]
         case .androidBuild:
@@ -2170,14 +2214,18 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                         "flutter clean",
                         "Let Flutter remove project build artifacts after active tools finish.",
                         .reclaim,
-                        "Removes Flutter build output and generated state."
+                        "Removes Flutter build output and generated state.",
+                        workingDirectory: commandContext.projectRootPath,
+                        context: commandContext.projectContext
                     ),
                     commandHint(
                         "project.flutter.pub-get",
                         "flutter pub get",
                         "Restore Flutter/Dart package metadata after cleanup.",
                         .reclaim,
-                        "Regenerates package configuration from pubspec files."
+                        "Regenerates package configuration from pubspec files.",
+                        workingDirectory: commandContext.projectRootPath,
+                        context: commandContext.projectContext
                     )
                 ]
             }
@@ -2187,7 +2235,9 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     "./gradlew clean",
                     "Let Gradle/Android remove project build output after active tools finish.",
                     .reclaim,
-                    "Removes Android project build outputs without raw-deleting source or manifests."
+                    "Removes Android project build outputs without raw-deleting source or manifests.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 )
             ]
         case .goBuildOutput:
@@ -2197,7 +2247,9 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     "go build ./...",
                     "Rebuild Go outputs after review.",
                     .inspect,
-                    "Regenerates Go build output according to the project command."
+                    "Regenerates Go build output according to the project command.",
+                    workingDirectory: commandContext.projectRootPath,
+                    context: commandContext.projectContext
                 )
             ]
         case .other:
@@ -2205,12 +2257,41 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
     }
 
+    private static func commandContext(for metadata: ProjectDependencyCandidateMetadata) -> ProjectDependencyCommandContext {
+        let projectRootPath = metadata.projectRoot.standardizedFileURL.path
+        let workspaceRootPath = metadata.workspaceInfo.rootPath.map {
+            URL(fileURLWithPath: $0).standardizedFileURL.path
+        }
+        let workspaceRelativePath = workspaceRootPath.flatMap { workspacePath in
+            relativePath(from: projectRootPath, toAncestor: workspacePath)
+        }
+        return ProjectDependencyCommandContext(
+            projectRootPath: projectRootPath,
+            projectName: metadata.projectRoot.lastPathComponent,
+            workspaceRootPath: workspaceRootPath,
+            workspaceLabel: metadata.workspaceInfo.label,
+            packageName: metadata.toolingInfo.packageName.flatMap(Self.parsePackageNameField),
+            workspaceRelativePath: workspaceRelativePath
+        )
+    }
+
+    private static func relativePath(from path: String, toAncestor ancestor: String) -> String? {
+        guard path != ancestor else { return nil }
+        let ancestorWithSlash = ancestor.hasSuffix("/") ? ancestor : ancestor + "/"
+        guard path.hasPrefix(ancestorWithSlash) else { return nil }
+        let relative = String(path.dropFirst(ancestorWithSlash.count))
+        guard !relative.isEmpty, isSafeCommandArgument(relative) else { return nil }
+        return relative
+    }
+
     private static func commandHint(
         _ id: String,
         _ command: String,
         _ purpose: String,
         _ risk: NativeToolRisk,
-        _ expectedEffect: String
+        _ expectedEffect: String,
+        workingDirectory: String? = nil,
+        context: String? = nil
     ) -> NativeToolCommand {
         NativeToolCommand(
             id: id,
@@ -2218,69 +2299,97 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             purpose: purpose,
             risk: risk,
             requiresReview: true,
-            expectedEffect: expectedEffect
+            expectedEffect: expectedEffect,
+            workingDirectory: workingDirectory,
+            context: context
         )
     }
 
-    private static func javascriptInstallCommand(for hints: Set<String>, toolingInfo: ProjectDependencyToolingInfo) -> String {
+    private static func javascriptInstallCommand(for hints: Set<String>, toolingInfo: ProjectDependencyToolingInfo, context: ProjectDependencyCommandContext) -> ProjectDependencyCommandSpec {
+        let command: String
         switch toolingInfo.toolName?.lowercased() {
         case "pnpm":
-            return "pnpm install --frozen-lockfile"
+            command = "pnpm install --frozen-lockfile"
         case "yarn":
             if let major = toolingInfo.toolVersion.flatMap(majorVersion), major >= 2 {
-                return "yarn install --immutable"
+                command = "yarn install --immutable"
+            } else {
+                command = "yarn install"
             }
-            return "yarn install"
         case "bun":
-            return "bun install --frozen-lockfile"
+            command = "bun install --frozen-lockfile"
         case "npm":
-            return hints.contains("package-lock.json") || hints.contains("npm-shrinkwrap.json") ? "npm ci" : "npm install"
+            command = hints.contains("package-lock.json") || hints.contains("npm-shrinkwrap.json") ? "npm ci" : "npm install"
         default:
-            break
+            if hints.contains("pnpm-lock.yaml") {
+                command = "pnpm install --frozen-lockfile"
+            } else if hints.contains("yarn.lock") {
+                command = "yarn install"
+            } else if hints.contains("bun.lock") || hints.contains("bun.lockb") {
+                command = "bun install --frozen-lockfile"
+            } else if hints.contains("package-lock.json") || hints.contains("npm-shrinkwrap.json") {
+                command = "npm ci"
+            } else {
+                command = "npm install"
+            }
         }
-        if hints.contains("pnpm-lock.yaml") {
-            return "pnpm install --frozen-lockfile"
-        }
-        if hints.contains("yarn.lock") {
-            return "yarn install"
-        }
-        if hints.contains("bun.lock") || hints.contains("bun.lockb") {
-            return "bun install --frozen-lockfile"
-        }
-        if hints.contains("package-lock.json") || hints.contains("npm-shrinkwrap.json") {
-            return "npm ci"
-        }
-        return "npm install"
+        return ProjectDependencyCommandSpec(
+            command: command,
+            workingDirectory: context.javascriptInstallWorkingDirectory,
+            context: context.javascriptInstallContext
+        )
     }
 
-    private static func javascriptRunCommand(for toolingInfo: ProjectDependencyToolingInfo, hints: Set<String>, script: String) -> String {
+    private static func javascriptRunCommand(for toolingInfo: ProjectDependencyToolingInfo, hints: Set<String>, script: String, context: ProjectDependencyCommandContext) -> ProjectDependencyCommandSpec {
         switch toolingInfo.toolName?.lowercased() {
         case "pnpm":
-            return "pnpm run \(script)"
+            if let selector = context.workspacePackageSelector {
+                return ProjectDependencyCommandSpec(
+                    command: "pnpm --filter \(selector) run \(script)",
+                    workingDirectory: context.workspaceRootPath,
+                    context: context.workspaceScriptContext
+                )
+            }
+            return context.projectSpec(command: "pnpm run \(script)")
         case "yarn":
-            return "yarn \(script)"
+            if let packageName = context.safePackageName {
+                return ProjectDependencyCommandSpec(
+                    command: "yarn workspace \(packageName) run \(script)",
+                    workingDirectory: context.workspaceRootPath,
+                    context: context.workspaceScriptContext
+                )
+            }
+            return context.projectSpec(command: "yarn \(script)")
         case "bun":
-            return "bun run \(script)"
+            return context.projectSpec(command: "bun run \(script)")
         case "npm":
-            return "npm run \(script)"
+            if let relativePath = context.workspaceRelativePath {
+                return ProjectDependencyCommandSpec(
+                    command: "npm --workspace \(relativePath) run \(script)",
+                    workingDirectory: context.workspaceRootPath,
+                    context: context.workspaceScriptContext
+                )
+            }
+            return context.projectSpec(command: "npm run \(script)")
         default:
             break
         }
         if hints.contains("pnpm-lock.yaml") {
-            return "pnpm run \(script)"
+            return context.projectSpec(command: "pnpm run \(script)")
         }
         if hints.contains("yarn.lock") {
-            return "yarn \(script)"
+            return context.projectSpec(command: "yarn \(script)")
         }
         if hints.contains("bun.lock") || hints.contains("bun.lockb") {
-            return "bun run \(script)"
+            return context.projectSpec(command: "bun run \(script)")
         }
-        return "npm run \(script)"
+        return context.projectSpec(command: "npm run \(script)")
     }
 
     private static func javascriptScriptCommand(
         for toolingInfo: ProjectDependencyToolingInfo,
         hints: Set<String>,
+        context: ProjectDependencyCommandContext,
         preferredScripts: [String],
         id: String,
         purpose: String,
@@ -2291,12 +2400,15 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
               scriptReview.isCommandHintEligible else {
             return nil
         }
+        let spec = javascriptRunCommand(for: toolingInfo, hints: hints, script: scriptReview.name, context: context)
         return commandHint(
             "\(id).\(signalToken(scriptReview.name))",
-            javascriptRunCommand(for: toolingInfo, hints: hints, script: scriptReview.name),
+            spec.command,
             "\(purpose) Script review: \(scriptReview.risk.label).",
             risk,
-            expectedEffect
+            expectedEffect,
+            workingDirectory: spec.workingDirectory,
+            context: spec.context
         )
     }
 
@@ -2373,6 +2485,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
         if metadata.workspaceInfo.isWorkspace {
             guidance.append("Workspace context detected: \(metadata.workspaceInfo.label). Review workspace-level dependency hoisting, shared scripts, and sibling packages before cleanup.")
+            guidance.append("Command hints may use the workspace root and package filters when package metadata is available; otherwise run them from the listed working directory after review.")
             if !metadata.workspaceInfo.packagePatterns.isEmpty {
                 guidance.append("Workspace package patterns: \(metadata.workspaceInfo.packagePatterns.prefix(12).joined(separator: ", ")).")
             }
@@ -2645,6 +2758,21 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         return (name, version)
     }
 
+    private static func parsePackageNameField(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 214 else { return nil }
+        guard !trimmed.contains(".."), !trimmed.contains("//") else { return nil }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./@"))
+        guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        if trimmed.hasPrefix("@") {
+            let parts = trimmed.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
+            guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty }) else { return nil }
+            return trimmed
+        }
+        guard !trimmed.contains("/") else { return nil }
+        return trimmed
+    }
+
     private static func safeWorkspacePatterns(_ values: [Any]) -> [String] {
         Array(Set(values.compactMap { value -> String? in
             guard let string = value as? String else { return nil }
@@ -2660,6 +2788,16 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             && pattern.count <= 200
             && !pattern.contains("..")
             && pattern.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    private static func isSafeCommandArgument(_ value: String) -> Bool {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./@"))
+        return !value.isEmpty
+            && value.count <= 240
+            && !value.hasPrefix("-")
+            && !value.contains("..")
+            && !value.contains("//")
+            && value.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     private static func isSafePackageScriptName(_ name: String) -> Bool {
@@ -2782,6 +2920,65 @@ private struct ProjectDependencyCandidateMetadata: Hashable {
     let workspaceInfo: ProjectDependencyWorkspaceInfo
     let ecosystem: ProjectDependencyEcosystem
     let kind: ProjectDependencyKind
+}
+
+private struct ProjectDependencyCommandSpec: Hashable {
+    let command: String
+    let workingDirectory: String?
+    let context: String?
+}
+
+private struct ProjectDependencyCommandContext: Hashable {
+    let projectRootPath: String
+    let projectName: String
+    let workspaceRootPath: String?
+    let workspaceLabel: String
+    let packageName: String?
+    let workspaceRelativePath: String?
+
+    var isWorkspacePackage: Bool {
+        workspaceRootPath != nil && workspaceRelativePath != nil
+    }
+
+    var safePackageName: String? {
+        isWorkspacePackage ? packageName : nil
+    }
+
+    var workspacePackageSelector: String? {
+        guard isWorkspacePackage else { return nil }
+        if let packageName {
+            return packageName
+        }
+        return workspaceRelativePath.map { "./\($0)" }
+    }
+
+    var projectContext: String {
+        "Run from the project root after reviewing active tools and local changes."
+    }
+
+    var javascriptInstallWorkingDirectory: String {
+        isWorkspacePackage ? (workspaceRootPath ?? projectRootPath) : projectRootPath
+    }
+
+    var javascriptInstallContext: String {
+        if isWorkspacePackage {
+            return "Workspace install context: run from the workspace root (\(workspaceLabel)); review hoisted dependencies and sibling packages first."
+        }
+        return projectContext
+    }
+
+    var workspaceScriptContext: String {
+        let target = packageName ?? workspaceRelativePath ?? projectName
+        return "Workspace package script context: run from the workspace root for \(target); review hoisted dependencies and sibling packages first."
+    }
+
+    func projectSpec(command: String) -> ProjectDependencyCommandSpec {
+        ProjectDependencyCommandSpec(
+            command: command,
+            workingDirectory: projectRootPath,
+            context: projectContext
+        )
+    }
 }
 
 private struct ProjectDependencyMeasurement: Hashable {
