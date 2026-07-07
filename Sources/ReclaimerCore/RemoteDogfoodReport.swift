@@ -83,7 +83,7 @@ public enum RemoteDogfoodReportBuilder {
         }
         let dedupedNonClaims = unique(nonClaims)
 
-        let report = RemoteDogfoodReport(
+        let markdownReport = RemoteDogfoodReport(
             id: id,
             createdAt: now,
             target: reportTarget,
@@ -101,20 +101,20 @@ public enum RemoteDogfoodReportBuilder {
         )
 
         return RemoteDogfoodReport(
-            id: report.id,
-            createdAt: report.createdAt,
-            target: report.target,
-            probeID: report.probeID,
-            scanID: report.scanID,
-            growthReportID: report.growthReportID,
-            osSummary: report.osSummary,
-            diskPressureSummary: report.diskPressureSummary,
-            findingCount: report.findingCount,
-            totalFindingBytes: report.totalFindingBytes,
-            reviewQueueCounts: report.reviewQueueCounts,
-            commandResults: report.commandResults,
-            nonClaims: report.nonClaims,
-            markdown: markdown(for: report, scan: scan, growth: growth, privacy: privacy)
+            id: markdownReport.id,
+            createdAt: markdownReport.createdAt,
+            target: markdownReport.target,
+            probeID: markdownReport.probeID,
+            scanID: markdownReport.scanID,
+            growthReportID: markdownReport.growthReportID,
+            osSummary: markdownReport.osSummary,
+            diskPressureSummary: markdownReport.diskPressureSummary,
+            findingCount: markdownReport.findingCount,
+            totalFindingBytes: markdownReport.totalFindingBytes,
+            reviewQueueCounts: markdownReport.reviewQueueCounts,
+            commandResults: markdownReport.commandResults,
+            nonClaims: markdownReport.nonClaims,
+            markdown: markdown(for: markdownReport, scan: scan, growth: growth, privacy: privacy)
         )
     }
 

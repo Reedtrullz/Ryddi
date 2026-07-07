@@ -338,14 +338,30 @@ public final class RemoteTargetResolver: @unchecked Sendable {
                         at: patternURL.deletingLastPathComponent(),
                         includingPropertiesForKeys: nil
                     )) ?? []
-                    let suffix = patternURL.lastPathComponent.replacingOccurrences(of: "*", with: "")
-                    urls.append(contentsOf: matches.filter { $0.lastPathComponent.hasSuffix(suffix) })
+                    let filenamePattern = patternURL.lastPathComponent
+                    urls.append(contentsOf: matches.filter { glob(filenamePattern, matches: $0.lastPathComponent) })
                 } else {
                     urls.append(patternURL)
                 }
             }
         }
         return urls
+    }
+
+    private static func glob(_ pattern: String, matches value: String) -> Bool {
+        var regex = "^"
+        for character in pattern {
+            switch character {
+            case "*":
+                regex += ".*"
+            case "?":
+                regex += "."
+            default:
+                regex += NSRegularExpression.escapedPattern(for: String(character))
+            }
+        }
+        regex += "$"
+        return value.range(of: regex, options: [.regularExpression]) != nil
     }
 
     private func knownHostState(host: String, port: Int?) -> (state: String, fingerprint: String?) {

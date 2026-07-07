@@ -1,14 +1,14 @@
 import Foundation
 
-public final class RemoteSSHCommandRunner: @unchecked Sendable {
-    public static let blockedCommandMessage = "blocked: Ryddi Remote Targets v1 only runs bounded read-only SSH probes."
+final class RemoteSSHCommandRunner: @unchecked Sendable {
+    static let blockedCommandMessage = "blocked: Ryddi Remote Targets v1 only runs bounded read-only SSH probes."
 
     private let target: RemoteTargetReference
     private let runner: any ToolCommandRunning
     private let timeout: TimeInterval
     private let connectTimeout: Int
 
-    public init(
+    init(
         target: RemoteTargetReference,
         runner: any ToolCommandRunning = ProcessToolCommandRunner(),
         timeout: TimeInterval = 15,
@@ -20,11 +20,11 @@ public final class RemoteSSHCommandRunner: @unchecked Sendable {
         self.connectTimeout = max(1, min(connectTimeout, 60))
     }
 
-    public func run(commandID: String, remoteCommand: String) -> RemoteCommandResult {
+    func run(commandID: String, remoteCommand: String) -> RemoteCommandResult {
         runOutput(commandID: commandID, remoteCommand: remoteCommand).result
     }
 
-    public func runOutput(commandID: String, remoteCommand: String) -> (result: RemoteCommandResult, output: ToolCommandOutput?) {
+    func runOutput(commandID: String, remoteCommand: String) -> (result: RemoteCommandResult, output: ToolCommandOutput?) {
         let trimmed = remoteCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         if let blockedReason = Self.blockReason(for: trimmed) {
             return (
@@ -57,16 +57,19 @@ public final class RemoteSSHCommandRunner: @unchecked Sendable {
         return (RemoteCommandResult(commandID: commandID, output: output), output)
     }
 
-    public static func blockReason(for remoteCommand: String) -> String? {
+    static func blockReason(for remoteCommand: String) -> String? {
         let command = remoteCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else {
             return "Empty remote commands are not allowed."
         }
-        let normalized = command.lowercased()
-        if normalized == "sudo -n true" {
-            return nil
+        guard allowedRemoteCommands.contains(command) else {
+            return "Command is not part of Ryddi Remote Targets v1 read-only probe/scan allowlist."
         }
+        let normalized = command.lowercased()
         if normalized.contains("sudo ") {
+            if normalized == "sudo -n true" {
+                return nil
+            }
             return "Remote sudo commands are guidance-only except the non-interactive sudo capability probe."
         }
         let destructiveFragments = [
@@ -91,5 +94,9 @@ public final class RemoteSSHCommandRunner: @unchecked Sendable {
             return "SSH policy options are owned by Ryddi, not remote command strings."
         }
         return nil
+    }
+
+    private static var allowedRemoteCommands: Set<String> {
+        Set(RemoteProbeBuilder.commands.map(\.command) + RemoteScanBuilder.scanCommands.map(\.command))
     }
 }

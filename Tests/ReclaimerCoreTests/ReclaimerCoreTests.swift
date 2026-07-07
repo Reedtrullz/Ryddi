@@ -304,8 +304,11 @@ final class ReclaimerCoreTests: XCTestCase {
         try FileManager.default.createDirectory(at: includeRoot, withIntermediateDirectories: true)
         let configURL = sshRoot.appendingPathComponent("config")
         let includeURL = includeRoot.appendingPathComponent("extra.conf")
+        let trailingWildcardURL = includeRoot.appendingPathComponent("team-alpha")
+        let nonMatchingURL = includeRoot.appendingPathComponent("team")
         try """
         Include \(includeURL.path)
+        Include \(includeRoot.path)/team-*
 
         Host prod-vps
           HostName 203.0.113.10
@@ -320,6 +323,14 @@ final class ReclaimerCoreTests: XCTestCase {
           HostName staging.example.invalid
           User ubuntu
         """.write(to: includeURL, atomically: true, encoding: .utf8)
+        try """
+        Host alpha-vps
+          HostName alpha.example.invalid
+        """.write(to: trailingWildcardURL, atomically: true, encoding: .utf8)
+        try """
+        Host should-not-load
+          HostName broad-match-bug.example.invalid
+        """.write(to: nonMatchingURL, atomically: true, encoding: .utf8)
         let knownHostsURL = sshRoot.appendingPathComponent("known_hosts")
         try "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKey\n".write(
             to: knownHostsURL,
@@ -340,8 +351,9 @@ final class ReclaimerCoreTests: XCTestCase {
         let resolver = RemoteTargetResolver(configURL: configURL, knownHostsURL: knownHostsURL, runner: runner)
 
         let targets = resolver.targets()
-        XCTAssertEqual(targets.map(\.input), ["prod-vps", "staging-vps"])
+        XCTAssertEqual(targets.map(\.input), ["alpha-vps", "prod-vps", "staging-vps"])
         XCTAssertFalse(targets.contains { $0.input.contains("*") })
+        XCTAssertFalse(targets.contains { $0.input == "should-not-load" })
 
         let resolved = try resolver.resolve("prod-vps")
         XCTAssertEqual(resolved.alias, "prod-vps")
@@ -1403,7 +1415,7 @@ final class ReclaimerCoreTests: XCTestCase {
         let runner = FakeToolRunner(outputs: [])
         let ssh = RemoteSSHCommandRunner(target: target, runner: runner)
 
-        for unsafeCommand in ["docker system prune", "colima reset", "rm -rf /tmp/build", "remote execute cleanup", "find /tmp -delete"] {
+        for unsafeCommand in ["docker system prune", "colima reset", "rm -rf /tmp/build", "remote execute cleanup", "find /tmp -delete", "bash -c 'rm -rf /tmp/build'"] {
             let result = ssh.run(commandID: "unsafe", remoteCommand: unsafeCommand)
             XCTAssertNil(result.exitCode)
             XCTAssertTrue(result.stderrPreview.contains { $0.contains("blocked") }, unsafeCommand)
