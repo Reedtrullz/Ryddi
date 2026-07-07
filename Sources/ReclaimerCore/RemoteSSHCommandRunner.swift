@@ -21,9 +21,14 @@ public final class RemoteSSHCommandRunner: @unchecked Sendable {
     }
 
     public func run(commandID: String, remoteCommand: String) -> RemoteCommandResult {
+        runOutput(commandID: commandID, remoteCommand: remoteCommand).result
+    }
+
+    public func runOutput(commandID: String, remoteCommand: String) -> (result: RemoteCommandResult, output: ToolCommandOutput?) {
         let trimmed = remoteCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         if let blockedReason = Self.blockReason(for: trimmed) {
-            return RemoteCommandResult(
+            return (
+                RemoteCommandResult(
                 commandID: commandID,
                 displayCommand: trimmed,
                 exitCode: nil,
@@ -31,6 +36,8 @@ public final class RemoteSSHCommandRunner: @unchecked Sendable {
                 stdoutPreview: [],
                 stderrPreview: ["\(Self.blockedCommandMessage) \(blockedReason)"],
                 redactionApplied: false
+                ),
+                nil
             )
         }
 
@@ -47,7 +54,7 @@ public final class RemoteSSHCommandRunner: @unchecked Sendable {
             ]
         )
         let output = runner.run(invocation, timeout: timeout)
-        return RemoteCommandResult(commandID: commandID, output: output)
+        return (RemoteCommandResult(commandID: commandID, output: output), output)
     }
 
     public static func blockReason(for remoteCommand: String) -> String? {

@@ -470,6 +470,145 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(runner.commands.isEmpty)
     }
 
+    func testRemoteParsersHandleLinuxDiskJournalAptAndDockerOutput() throws {
+        let os = RemoteParsers.parseOSRelease("""
+        NAME="Ubuntu"
+        VERSION_ID="24.04"
+        PRETTY_NAME="Ubuntu 24.04.2 LTS"
+        """)
+        XCTAssertEqual(os, "Ubuntu 24.04.2 LTS")
+
+        let filesystems = RemoteParsers.parseDF("""
+        Filesystem     1024-blocks     Used Available Capacity Mounted on
+        /dev/vda1         20480000 18432000   2048000      90% /
+        tmpfs               512000        0    512000       0% /run
+        """)
+        XCTAssertEqual(filesystems.first?.mount, "/")
+        XCTAssertEqual(filesystems.first?.usedBytes, 18_432_000 * 1024)
+        XCTAssertEqual(filesystems.first?.capacityPercent, 90)
+
+        let duRows = RemoteParsers.parseDU("""
+        2048000 /var/lib/docker
+        512000 /opt/apps/releases/2025-01-01
+        """)
+        XCTAssertEqual(duRows.first?.path, "/var/lib/docker")
+        XCTAssertEqual(duRows.first?.bytes, 2_048_000 * 1024)
+
+        XCTAssertEqual(RemoteParsers.parseJournalctlDiskUsage("Archived and active journals take up 1.5G in the file system."), 1_610_612_736)
+        XCTAssertEqual(RemoteParsers.parseDockerSystemDF("""
+        TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+        Images          10        3         5GB       2GB (40%)
+        Local Volumes   4         4         20GB      0B (0%)
+        Build Cache     20        0         8GB       8GB
+        """).first { $0.type == "Build Cache" }?.reclaimableBytes, 8_000_000_000)
+    }
+
+    func testRemoteProbeBuilderRunsReadOnlyProbeCommandsAndSummarizesHost() throws {
+        let target = RemoteTargetReference(input: "prod-vps", alias: "prod-vps", knownHostsState: "known")
+        let outputs = [
+            remoteSSHOutput("uname -srm", stdout: "Linux 6.8.0 x86_64\n"),
+            remoteSSHOutput("hostname", stdout: "prod-1\n"),
+            remoteSSHOutput("id -un", stdout: "deploy\n"),
+            remoteSSHOutput("printf \"$HOME\"", stdout: "/home/deploy"),
+            remoteSSHOutput("test -r /etc/os-release && sed -n '1,40p' /etc/os-release || true", stdout: "PRETTY_NAME=\"Ubuntu 24.04.2 LTS\"\n"),
+            remoteSSHOutput("df -Pk", stdout: "/dev/vda1 20480000 10240000 10240000 50% /\n"),
+            remoteSSHOutput("df -Pi", stdout: "/dev/vda1 100000 50000 50000 50% /\n"),
+            remoteSSHOutput("command -v docker journalctl apt-get sudo", stdout: "/usr/bin/docker\n/usr/bin/journalctl\n/usr/bin/apt-get\n/usr/bin/sudo\n"),
+            remoteSSHOutput("sudo -n true", exitCode: 1, stderr: "sudo: a password is required\n")
+        ]
+        let runner = FakeToolRunner(outputs: outputs)
+
+        let report = RemoteProbeBuilder(target: target, runner: runner).probe()
+
+        XCTAssertEqual(report.osSummary, "Ubuntu 24.04.2 LTS")
+        XCTAssertEqual(report.homeDirectory, "/home/deploy")
+        XCTAssertEqual(report.sudoNonInteractive, false)
+        XCTAssertEqual(report.availableTools, ["apt-get", "docker", "journalctl", "sudo"])
+        XCTAssertEqual(report.commands.count, 9)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("read-only commands") })
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("StrictHostKeyChecking=no"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("prune"))
+    }
+
+    func testRemoteScanBuilderClassifiesVPSBucketsAndReportRedactsPaths() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let outputs = [
+            remoteSSHOutput("df -Pk", stdout: """
+            Filesystem     1024-blocks     Used Available Capacity Mounted on
+            /dev/vda1         20480000 19046400   1433600      93% /
+            """),
+            remoteSSHOutput("df -Pi", stdout: """
+            Filesystem      Inodes  IUsed IFree IUse% Mounted on
+            /dev/vda1       100000  96000  4000   96% /
+            """),
+            remoteSSHOutput("du -k -d 1 /var /home /opt /srv /tmp /var/tmp /var/log /var/lib 2>/dev/null", stdout: """
+            2048000 /var/lib/docker
+            1536000 /var/lib/docker/volumes
+            512000 /opt/apps/releases/2025-01-01
+            102400 /var/log
+            4096 /tmp/build
+            131072 /srv/app/uploads
+            """, stderr: "du: cannot read directory '/var/lib/private': Permission denied\n"),
+            remoteSSHOutput("find /var /home /opt /srv -xdev -type f -size +1024M -printf '%s\\t%p\\n' 2>/dev/null | sort -nr | head -50", stdout: """
+            3221225472\t/var/backups/db.dump
+            2147483648\t/home/deploy/large.iso
+            """),
+            remoteSSHOutput("journalctl --disk-usage", stdout: "Archived and active journals take up 1.5G in the file system.\n"),
+            remoteSSHOutput("du -sk /var/cache/apt/archives 2>/dev/null", stdout: "204800 /var/cache/apt/archives\n"),
+            remoteSSHOutput("docker system df -v", stdout: """
+            TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+            Images          10        3         5GB       2GB (40%)
+            Containers      5         1         1GB       900MB (90%)
+            Local Volumes   4         4         20GB      0B (0%)
+            Build Cache     20        0         8GB       8GB
+            """),
+            remoteSSHOutput("docker ps -a --size --format '{{.ID}}\\t{{.Names}}\\t{{.Status}}\\t{{.Size}}'", stdout: "abc123\tweb\tExited (0)\t10MB\n"),
+            remoteSSHOutput("docker images --format '{{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}'", stdout: "app\told\tsha256:old\t1GB\n"),
+            remoteSSHOutput("docker volume ls --format '{{.Name}}\\t{{.Driver}}\\t{{.Scope}}'", stdout: "postgres-data\tlocal\tlocal\n")
+        ]
+        let runner = FakeToolRunner(outputs: outputs)
+        let privacy = ReportPrivacyOptions(pathStyle: .redacted, homeDirectory: URL(fileURLWithPath: "/home/deploy"))
+
+        let report = RemoteScanBuilder(target: target, runner: runner).scan(preset: .vpsGeneral, privacy: privacy)
+        let buckets = Set(report.findings.map(\.bucket))
+
+        XCTAssertTrue(buckets.contains("Disk pressure"))
+        XCTAssertTrue(buckets.contains("Inode pressure"))
+        XCTAssertTrue(buckets.contains("Journald logs"))
+        XCTAssertTrue(buckets.contains("APT cache"))
+        XCTAssertTrue(buckets.contains("Docker images"))
+        XCTAssertTrue(buckets.contains("Docker containers"))
+        XCTAssertTrue(buckets.contains("Docker build cache"))
+        XCTAssertTrue(buckets.contains("Docker volumes"))
+        XCTAssertTrue(buckets.contains("Old deploy releases"))
+        XCTAssertTrue(buckets.contains("Large backup files"))
+        XCTAssertTrue(buckets.contains("Large remote files"))
+        XCTAssertTrue(buckets.contains("Remote temp"))
+        XCTAssertTrue(buckets.contains("Permission denied"))
+        XCTAssertTrue(buckets.contains("App data"))
+        XCTAssertFalse(report.findings.contains { $0.safetyClass == .autoSafe })
+        XCTAssertEqual(report.findings.first { $0.bucket == "Docker volumes" }?.safetyClass, .preserveByDefault)
+        XCTAssertTrue(report.nativeGuidance.contains { $0.command.contains("journalctl --vacuum") })
+        XCTAssertTrue(report.nativeGuidance.contains { $0.command.contains("apt-get autoclean") })
+        XCTAssertTrue(report.nativeGuidance.contains { $0.command.contains("docker system df -v") })
+
+        let markdown = RemoteReportBuilder.build(report: report, privacy: privacy).markdown
+        XCTAssertTrue(markdown.contains("# Ryddi Remote Target Report"))
+        XCTAssertTrue(markdown.contains("<path redacted>"))
+        XCTAssertFalse(markdown.contains("/home/deploy/large.iso"))
+        XCTAssertTrue(markdown.contains("No cleanup was executed"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("prune"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("reset"))
+    }
+
     func testDefaultScopePresetsSeparateGeneralAndDeveloperRoots() throws {
         let general = DefaultScopes.plan(for: .general, home: tempRoot, includeUnavailable: true)
         let developer = DefaultScopes.plan(for: .developer, home: tempRoot, includeUnavailable: true)
@@ -4403,6 +4542,34 @@ final class ReclaimerCoreTests: XCTestCase {
             stdout: stdout,
             stderr: stderr
         )
+    }
+
+    private func remoteSSHOutput(
+        _ remoteCommand: String,
+        target: String = "prod-vps",
+        exitCode: Int32 = 0,
+        stdout: String = "",
+        stderr: String = ""
+    ) -> ToolCommandOutput {
+        fakeOutput(
+            "/usr/bin/ssh",
+            remoteSSHArguments(target: target, command: remoteCommand),
+            exitCode: exitCode,
+            stdout: stdout,
+            stderr: stderr
+        )
+    }
+
+    private func remoteSSHArguments(target: String, command: String, connectTimeout: Int = 10) -> [String] {
+        [
+            "-T",
+            "-o", "BatchMode=yes",
+            "-o", "NumberOfPasswordPrompts=0",
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", "ConnectTimeout=\(connectTimeout)",
+            target,
+            command
+        ]
     }
 
     private func finding(
