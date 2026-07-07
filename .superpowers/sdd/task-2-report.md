@@ -89,3 +89,20 @@ Output:
 
 - `Sources/ReclaimerCore/RemoteDogfoodReport.swift`
 - `Tests/ReclaimerCoreTests/ReclaimerCoreTests.swift`
+
+## Re-Review Fix
+
+Sanitized the `RemoteDogfoodReport` object itself when privacy is not full, so redacted exports no longer keep raw target metadata or command previews in Codable/SwiftUI/AuditStore-facing state.
+
+### Verification
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter RemoteDogfood
+```
+
+Output:
+
+- Build complete
+- `testRemoteDogfoodReportComposesScanGrowthAndRedactsPaths` passed
+- `testRemoteDogfoodReportKeepsFullDetailsWhenPrivacyIsFull` passed
+- Executed 2 tests, 0 failures

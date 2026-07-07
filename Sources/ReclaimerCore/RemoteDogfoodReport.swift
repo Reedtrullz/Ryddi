@@ -57,12 +57,15 @@ public enum RemoteDogfoodReportBuilder {
         privacy: ReportPrivacyOptions = .default,
         now: Date = Date()
     ) -> RemoteDogfoodReport {
+        let shouldSanitize = privacy.pathStyle != .full || privacy.redactUserText
         let totalFindingBytes = scan.findings.reduce(into: Int64(0)) { partialResult, finding in
             partialResult += finding.allocatedBytes ?? 0
         }
         let reviewQueueCounts = Dictionary(grouping: scan.findings, by: { $0.recommendedNextAction.rawValue })
             .mapValues(\.count)
         let commandResults = (probe?.commands ?? []) + scan.commands
+        let reportTarget = shouldSanitize ? sanitizedTarget(from: scan.target) : scan.target
+        let reportCommandResults = shouldSanitize ? commandResults.map(sanitizedCommandResult) : commandResults
         let id = UUID().uuidString
         let baseNonClaims = [
             "No cleanup was executed on the remote target.",
@@ -83,7 +86,7 @@ public enum RemoteDogfoodReportBuilder {
         let report = RemoteDogfoodReport(
             id: id,
             createdAt: now,
-            target: scan.target,
+            target: reportTarget,
             probeID: probe?.id,
             scanID: scan.id,
             growthReportID: growth?.id,
@@ -92,7 +95,7 @@ public enum RemoteDogfoodReportBuilder {
             findingCount: scan.findings.count,
             totalFindingBytes: totalFindingBytes,
             reviewQueueCounts: reviewQueueCounts,
-            commandResults: commandResults,
+            commandResults: reportCommandResults,
             nonClaims: dedupedNonClaims,
             markdown: ""
         )
@@ -121,8 +124,8 @@ public enum RemoteDogfoodReportBuilder {
         growth: RemoteGrowthReport?,
         privacy: ReportPrivacyOptions
     ) -> String {
-        let targetLabel = privacy.pathStyle == .redacted ? "<target redacted>" : (report.target.alias ?? report.target.input)
-        let hostLabel = privacy.pathStyle == .redacted ? "<host redacted>" : (report.target.resolvedHost ?? "unknown")
+        let targetLabel = report.target.alias ?? report.target.input
+        let hostLabel = report.target.resolvedHost ?? "unknown"
 
         var lines: [String] = []
         lines.append("# Ryddi Remote Dogfood Report")
@@ -185,6 +188,30 @@ public enum RemoteDogfoodReportBuilder {
         }
         lines.append("")
         return lines.joined(separator: "\n")
+    }
+
+    private static func sanitizedTarget(from _: RemoteTargetReference) -> RemoteTargetReference {
+        RemoteTargetReference(
+            input: "<target redacted>",
+            alias: nil,
+            resolvedUser: nil,
+            resolvedHost: "<host redacted>",
+            resolvedPort: nil,
+            knownHostsState: "redacted",
+            fingerprint: nil
+        )
+    }
+
+    private static func sanitizedCommandResult(from result: RemoteCommandResult) -> RemoteCommandResult {
+        RemoteCommandResult(
+            commandID: result.commandID,
+            displayCommand: "<command redacted>",
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            stdoutPreview: [],
+            stderrPreview: [],
+            redactionApplied: true
+        )
     }
 
     private static func diskPressureSummary(_ filesystems: [RemoteFilesystemSummary]) -> String {

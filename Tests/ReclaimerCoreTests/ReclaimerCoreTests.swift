@@ -598,11 +598,27 @@ final class ReclaimerCoreTests: XCTestCase {
             now: Date(timeIntervalSince1970: 40)
         )
 
-        XCTAssertEqual(report.target.id, target.id)
+        let encoded = try JSONEncoder().encode(report)
+        let json = String(decoding: encoded, as: UTF8.self)
+
+        XCTAssertEqual(report.target.id, "<target redacted>")
+        XCTAssertEqual(report.target.input, "<target redacted>")
+        XCTAssertNil(report.target.alias)
+        XCTAssertNil(report.target.resolvedUser)
+        XCTAssertEqual(report.target.resolvedHost, "<host redacted>")
+        XCTAssertNil(report.target.resolvedPort)
+        XCTAssertEqual(report.target.knownHostsState, "redacted")
+        XCTAssertNil(report.target.fingerprint)
         XCTAssertEqual(report.scanID, "scan-1")
         XCTAssertEqual(report.probeID, "probe-1")
         XCTAssertEqual(report.findingCount, 1)
         XCTAssertEqual(report.totalFindingBytes, 180)
+        XCTAssertEqual(report.commandResults.count, 1)
+        XCTAssertEqual(report.commandResults.first?.commandID, "probe.uname")
+        XCTAssertEqual(report.commandResults.first?.displayCommand, "<command redacted>")
+        XCTAssertEqual(report.commandResults.first?.stdoutPreview, [])
+        XCTAssertEqual(report.commandResults.first?.stderrPreview, [])
+        XCTAssertTrue(report.commandResults.first?.redactionApplied ?? false)
         XCTAssertTrue(report.markdown.contains("# Ryddi Remote Dogfood Report"))
         XCTAssertTrue(report.markdown.contains("Ubuntu 24.04 LTS"))
         XCTAssertTrue(report.markdown.contains("<path redacted>"))
@@ -611,9 +627,102 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(report.markdown.contains("prod-vps"))
         XCTAssertFalse(report.markdown.contains("203.0.113.10"))
         XCTAssertFalse(report.markdown.contains("private-client"))
+        XCTAssertFalse(json.contains("prod-vps"))
+        XCTAssertFalse(json.contains("203.0.113.10"))
+        XCTAssertFalse(json.contains("uname -srm"))
+        XCTAssertFalse(json.contains("Linux 6.8.0 x86_64"))
+        XCTAssertFalse(json.contains("private-client"))
+        XCTAssertTrue(json.contains("<target redacted>"))
+        XCTAssertTrue(json.contains("<host redacted>"))
+        XCTAssertTrue(json.contains("<command redacted>"))
         XCTAssertTrue(report.nonClaims.contains { $0.contains("No cleanup was executed") })
         XCTAssertTrue(report.nonClaims.contains { $0.contains("read-only") })
         XCTAssertTrue(report.nonClaims.contains { $0.contains("does not prove current server state") })
+    }
+
+    func testRemoteDogfoodReportKeepsFullDetailsWhenPrivacyIsFull() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let probe = RemoteProbeReport(
+            id: "probe-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: target,
+            osSummary: "Ubuntu 24.04 LTS",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: ["docker", "journalctl"],
+            commands: [
+                RemoteCommandResult(
+                    commandID: "probe.uname",
+                    displayCommand: "uname -srm",
+                    exitCode: 0,
+                    timedOut: false,
+                    stdoutPreview: ["Linux 6.8.0 x86_64"],
+                    stderrPreview: [],
+                    redactionApplied: false
+                )
+            ],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            id: "scan-1",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [
+                RemoteFilesystemSummary(mount: "/", filesystem: "/dev/vda1", usedBytes: 80_000, availableBytes: 20_000, capacityPercent: 80)
+            ],
+            inodeFilesystems: [],
+            findings: [
+                RemoteStorageFinding(
+                    remotePath: "/home/deploy/private-client/cache",
+                    displayPath: "/home/deploy/private-client/cache",
+                    bucket: "Remote storage",
+                    allocatedBytes: 180,
+                    safetyClass: .reviewRequired,
+                    actionKind: .openGuidance,
+                    evidence: [Evidence(kind: "remote.fixture", message: "Fixture evidence.")],
+                    recommendedNextAction: .reviewInFinder
+                )
+            ],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        let report = RemoteDogfoodReportBuilder.build(
+            probe: probe,
+            scan: scan,
+            growth: nil,
+            privacy: .default,
+            now: Date(timeIntervalSince1970: 40)
+        )
+
+        let encoded = try JSONEncoder().encode(report)
+        let json = String(decoding: encoded, as: UTF8.self)
+
+        XCTAssertEqual(report.target.id, target.id)
+        XCTAssertEqual(report.target.input, target.input)
+        XCTAssertEqual(report.target.alias, target.alias)
+        XCTAssertEqual(report.target.resolvedUser, target.resolvedUser)
+        XCTAssertEqual(report.target.resolvedHost, target.resolvedHost)
+        XCTAssertEqual(report.target.resolvedPort, target.resolvedPort)
+        XCTAssertEqual(report.target.knownHostsState, target.knownHostsState)
+        XCTAssertEqual(report.target.fingerprint, target.fingerprint)
+        XCTAssertEqual(report.commandResults.first?.displayCommand, "uname -srm")
+        XCTAssertEqual(report.commandResults.first?.stdoutPreview, ["Linux 6.8.0 x86_64"])
+        XCTAssertFalse(report.commandResults.first?.redactionApplied ?? true)
+        XCTAssertTrue(json.contains("prod-vps"))
+        XCTAssertTrue(json.contains("203.0.113.10"))
+        XCTAssertTrue(json.contains("uname -srm"))
+        XCTAssertTrue(json.contains("Linux 6.8.0 x86_64"))
     }
 
     func testRemoteSSHRunnerBuildsSafeNonInteractiveInvocation() throws {
