@@ -1168,6 +1168,8 @@ struct ReclaimerCLI {
             try remoteProbe(args: rest)
         case "scan":
             try remoteScan(args: rest, mode: "scan")
+        case "dogfood":
+            try remoteDogfood(args: rest)
         case "native":
             try remoteNative(args: rest)
         case "plan":
@@ -1240,6 +1242,67 @@ struct ReclaimerCLI {
             printJSON(report)
         } else if options.outputPath == nil {
             printRemoteScanReport(report, title: mode == "plan" ? "Remote Report-Only Plan" : "Remote Scan Report")
+        }
+    }
+
+    static func remoteDogfood(args: [String]) throws {
+        let options = ParsedOptions(args)
+        try options.validateReportPrivacyOptions()
+        guard let targetInput = remoteTargetArgument(args) else {
+            throw CLIError.message("remote dogfood requires TARGET")
+        }
+
+        let store = AuditStore()
+        let fromAudit = args.contains("--from-audit")
+        let probe: RemoteProbeReport?
+        let scan: RemoteScanReport
+
+        if fromAudit {
+            let queryTarget = RemoteTargetReference(input: targetInput, alias: targetInput)
+            guard let latestScan = store.latestRemoteScanReport(matching: queryTarget) else {
+                throw CLIError.message("remote dogfood --from-audit found no saved remote scan for \(targetInput)")
+            }
+            scan = latestScan
+            probe = store.latestRemoteProbeReport(matching: queryTarget)
+        } else {
+            let target = try RemoteTargetResolver().resolve(targetInput)
+            let liveProbe = RemoteProbeBuilder(target: target, timeout: options.timeoutSeconds).probe()
+            guard liveProbe.commands.contains(where: { $0.exitCode == 0 }) else {
+                throw CLIError.message("Remote dogfood could not reach \(targetInput) with read-only SSH commands; no cleanup was executed and no password prompt was requested.")
+            }
+            probe = liveProbe
+            scan = RemoteScanBuilder(target: target, timeout: options.timeoutSeconds).scan(
+                preset: try options.remoteScanPreset(),
+                privacy: options.reportPrivacy
+            )
+        }
+
+        let previous = store.recentRemoteScanReports(limit: Int.max)
+            .first { $0.id != scan.id && $0.target.id == scan.target.id }
+        let growth = previous.map {
+            RemoteGrowthReportBuilder.build(previous: $0, current: scan, privacy: options.reportPrivacy)
+        }
+        let report = RemoteDogfoodReportBuilder.build(
+            probe: probe,
+            scan: scan,
+            growth: growth,
+            privacy: options.reportPrivacy
+        )
+
+        if options.saveAudit {
+            let url = try store.save(remoteDogfoodReport: report)
+            FileHandle.standardError.write(Data("saved remote dogfood report: \(url.path)\n".utf8))
+        }
+        if let output = options.outputPath {
+            let url = URL(fileURLWithPath: output).standardizedFileURL
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+            FileHandle.standardError.write(Data("wrote remote dogfood report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else if options.outputPath == nil {
+            print(report.markdown)
         }
     }
 
@@ -1809,6 +1872,10 @@ struct ReclaimerCLI {
               remote targets list [--json]
               remote probe TARGET [--json] [--timeout SECONDS] [--save-audit]
               remote scan TARGET [--preset vps-general] [--json] [--timeout SECONDS]
+                    [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
+              remote dogfood TARGET [--json] [--timeout SECONDS]
+                    [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
+              remote dogfood --from-audit TARGET [--json]
                     [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
               remote native TARGET [--json] [--timeout SECONDS]
               remote plan TARGET [--preset vps-general] [--json] [--timeout SECONDS]
