@@ -73,6 +73,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
 - read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
+- Remote Targets for agentless, report-only SSH/VPS storage evidence: target discovery from SSH config, safe probe, VPS scan, native guidance, redacted Markdown export, and local audit history
 - native-tool command preview and execution receipts for selected non-destructive Homebrew/package-manager cleanup commands, while Docker/Colima destructive commands remain guidance-only
 - Xcode DerivedData, module cache, archive, DeviceSupport, simulator, runtime, and developer-state review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
@@ -159,6 +160,10 @@ swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
 swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
+swift run --scratch-path .build reclaimer remote targets list
+swift run --scratch-path .build reclaimer remote probe my-vps --json --timeout 5
+swift run --scratch-path .build reclaimer remote scan my-vps --preset vps-general --path-style redacted --output ryddi-vps-report.md
+swift run --scratch-path .build reclaimer remote native my-vps
 swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
 swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch
 swift run --scratch-path .build reclaimer policy export --output ryddi-policy.json
@@ -222,6 +227,21 @@ swift run --scratch-path .build reclaimer scopes saved import ryddi-scope-sets.j
 Templates and saved scope sets store scan roots only. They do not grant cleanup permission, change safety rules, or make any path auto-cleanable. Saved scope exports can contain private local paths, so review them before sharing.
 
 ## Permission Coverage
+
+## Remote Targets
+
+Remote Targets extends the same evidence-first workflow to SSH/VPS hosts. Ryddi uses your existing SSH config and the system `ssh` client; it does not store keys, passwords, sudo credentials, or install a remote agent.
+
+The first remote release is report-only:
+
+- list non-wildcard SSH aliases from `~/.ssh/config`;
+- resolve a target with `ssh -G`;
+- probe OS, home directory, disk/inode pressure, available tools, and non-interactive sudo capability;
+- scan Linux VPS storage signals such as journald, APT cache, Docker storage, old deploy releases, large files, temp paths, and permission-denied areas;
+- export redacted Markdown reports and save local audit records;
+- recommend native commands for manual review.
+
+Ryddi does not run remote cleanup, Docker prune/reset, `rm`, `find -delete`, sudo cleanup, or unattended destructive maintenance in Remote Targets v1.
 
 Ryddi can summarize current scan coverage before you review cleanup candidates:
 

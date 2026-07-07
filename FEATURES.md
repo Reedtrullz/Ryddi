@@ -49,6 +49,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review recovery | Combine app-held items and saved receipts into a recovery view that separates Ryddi-restorable items from Trash review, dry-run/skipped no-ops, native-tool guidance, and non-recoverable direct deletes. | `RecoveryCenter`, `reclaimer recovery`, app Recovery Center |
 | Prefer native cleanup | Report Docker/Colima/package-manager cleanup as native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims; execute only one selected non-destructive/non-placeholder command at a time with dry-run default and a local receipt. | `NativeToolGuidance`, `NativeToolExecutor`, `reclaimer native`, `reclaimer native run`, app native receipt preview |
 | Inventory containers | Run bounded read-only Docker/Colima inspection commands and record storage buckets, images, containers, volumes, profiles, missing/not-running states, and command outcomes. | `ContainerInventoryScanner`, `reclaimer containers`, app Container Inventory |
+| Review remote SSH/VPS targets | Use the system SSH client and existing SSH config to collect bounded, read-only disk evidence from Linux VPS targets, classify storage buckets conservatively, emit native guidance, export redacted reports, and save local audit records without remote cleanup. | `RemoteTargetResolver`, `RemoteSSHCommandRunner`, `RemoteProbeBuilder`, `RemoteScanBuilder`, `RemoteReportBuilder`, `reclaimer remote`, app Remote Targets |
 | Automate conservatively | Scheduled jobs are report-only, can target Developer/General/All presets, built-in templates, or saved scope sets, and can be previewed before installation; unattended destructive cleanup is not enabled in v1. | `ScheduleConfiguration`, `LaunchAgentManager`, `ReclaimerAgent`, `schedule preview`, `schedule install` |
 | Keep local audit trail | Save plans, receipts, native reports, container reports, active-file reports, and general review reports under Application Support with local-only JSON. | `AuditStore`, app Audit History |
 | Package for direct distribution | Build unsigned previews for testing, or fail-closed signed release artifacts that require Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and manifest proof. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, release-preview and signed-release workflows |
@@ -67,6 +68,7 @@ Included:
 - Docker/Colima reporting and native cleanup guidance.
 - Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, plus one-command execution receipts for selected non-destructive/non-placeholder commands; no automatic native command execution.
 - Read-only Docker/Colima live inventory for native storage estimates and profile/object context.
+- Agentless Remote Targets for SSH/VPS report-only review: SSH alias discovery, safe probe, Linux VPS disk/inode evidence, journald/APT/Docker/deploy-release/large-file/temp buckets, native guidance, redacted Markdown export, local audit history, and no remote cleanup execution.
 - Local user protections and exclusions, plus user path policy JSON import/export.
 - Local user rule-pack preview/import/export for custom review/protection signals, disabled by default unless a scan passes `--include-user-rules` or the app User Rules scan toggle is on.
 - Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulator data, protected developer-state roots, Xcode/simctl guidance, audit saving, and no Xcode-state mutation.
@@ -114,6 +116,7 @@ Deferred:
 - Mac App Store sandbox packaging.
 - Automatic deletion of safe-after-condition or review-required items.
 - Automatic execution of native Docker/Colima/Homebrew/package-manager cleanup commands.
+- Remote cleanup execution, remote Docker prune/reset execution, sudo password management, remote agent installation, secrets inventory, database cleanup, and unattended destructive SSH maintenance.
 - Raw deletion or unattended execution of Docker/Colima VM disks, volumes, package stores, destructive prune/reset commands, or placeholder commands.
 - Screenshot/GIF walkthrough for Full Disk Access onboarding in release materials.
 
