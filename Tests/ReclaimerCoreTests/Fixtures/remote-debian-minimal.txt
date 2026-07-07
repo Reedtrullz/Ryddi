@@ -1,0 +1,20 @@
+### df -Pk
+Filesystem     1024-blocks    Used Available Capacity Mounted on
+/dev/sda1       20511356 9980000   9460000      52% /
+
+### df -Pi
+Filesystem      Inodes IUsed   IFree IUse% Mounted on
+/dev/sda1      1310720 45000 1265720    4% /
+
+### du -k
+65536 /var/log
+131072 /home/admin
+
+### journalctl --disk-usage
+No journal files were found.
+
+### apt cache du
+4096 /var/cache/apt
+
+### docker system df -v
+docker: command not found

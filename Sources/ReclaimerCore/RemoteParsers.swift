@@ -70,6 +70,9 @@ public enum RemoteParsers {
     }
 
     public static func parseJournalctlDiskUsage(_ output: String) -> Int64? {
+        if output.localizedCaseInsensitiveContains("No journal files were found") {
+            return 0
+        }
         let pattern = #"([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?)(?:i?B|B)?"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
         let range = NSRange(output.startIndex..<output.endIndex, in: output)

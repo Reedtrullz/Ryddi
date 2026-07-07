@@ -1150,6 +1150,21 @@ final class ReclaimerCoreTests: XCTestCase {
         """).first { $0.type == "Build Cache" }?.reclaimableBytes, 8_000_000_000)
     }
 
+    func testRemoteParserFixturesHandleUbuntuDockerAndDebianMinimal() throws {
+        let ubuntu = try fixtureText("remote-ubuntu-24-docker.txt")
+        XCTAssertTrue(ubuntu.contains("3.4GB"))
+        let ubuntuFilesystems = RemoteParsers.parseDF(fixtureSection("df -Pk", in: ubuntu))
+        XCTAssertEqual(ubuntuFilesystems.first?.capacityPercent, 83)
+        let ubuntuJournal = RemoteParsers.parseJournalctlDiskUsage(fixtureSection("journalctl --disk-usage", in: ubuntu))
+        XCTAssertEqual(ubuntuJournal, 805_306_368)
+
+        let debian = try fixtureText("remote-debian-minimal.txt")
+        let debianFilesystems = RemoteParsers.parseDF(fixtureSection("df -Pk", in: debian))
+        XCTAssertEqual(debianFilesystems.first?.capacityPercent, 52)
+        let debianJournal = RemoteParsers.parseJournalctlDiskUsage(fixtureSection("journalctl --disk-usage", in: debian))
+        XCTAssertEqual(debianJournal, 0)
+    }
+
     func testRemoteProbeBuilderRunsReadOnlyProbeCommandsAndSummarizesHost() throws {
         let target = RemoteTargetReference(input: "prod-vps", alias: "prod-vps", knownHostsState: "known")
         let outputs = [
@@ -5310,6 +5325,24 @@ final class ReclaimerCoreTests: XCTestCase {
         ]
         let data = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try data.write(to: contents.appendingPathComponent("Info.plist"))
+    }
+
+    private func fixtureText(_ name: String) throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures")
+            .appendingPathComponent(name)
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func fixtureSection(_ title: String, in text: String) -> String {
+        let marker = "### \(title)"
+        guard let start = text.range(of: marker) else { return "" }
+        let rest = text[start.upperBound...]
+        if let end = rest.range(of: "\n### ") {
+            return String(rest[..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return String(rest).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func requireGit() throws {
