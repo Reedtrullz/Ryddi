@@ -1755,6 +1755,7 @@ final class ReclaimerCoreTests: XCTestCase {
         try Data(repeating: 5, count: 128).write(to: hidden)
         let oldDate = Date(timeIntervalSince1970: 1_700_000_000)
         try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: oldInstaller.path)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: archive.path)
         try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: oldNote.path)
 
         let report = DownloadsReviewScanner().review(
@@ -1770,16 +1771,75 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.largestItems.contains { $0.displayName == "Archive.zip" && $0.kind == .archive })
         XCTAssertTrue(report.largestItems.contains { $0.displayName == "old-note.txt" && $0.signals.contains("old-download") })
         XCTAssertTrue(report.largestItems.contains { $0.displayName == ".hidden-download" })
+        XCTAssertEqual(report.largestItems.first { $0.displayName == "OldInstaller.dmg" }?.workflow, .trashReview)
+        XCTAssertEqual(report.largestItems.first { $0.displayName == "Archive.zip" }?.workflow, .archiveReview)
+        XCTAssertEqual(report.largestItems.first { $0.displayName == "Package.pkg" }?.workflow, .keepForNow)
+        XCTAssertEqual(report.largestItems.first { $0.displayName == "old-note.txt" }?.workflow, .manualReview)
+        XCTAssertTrue(report.largestItems.first { $0.displayName == "OldInstaller.dmg" }?.workflowSteps.contains { $0.contains("Trash") } == true)
+        XCTAssertTrue(report.workflowSummaries.contains { $0.workflow == .trashReview && $0.itemCount >= 1 })
+        XCTAssertTrue(report.workflowSummaries.contains { $0.workflow == .archiveReview && $0.itemCount >= 1 })
+        XCTAssertTrue(report.workflowSummaries.contains { $0.workflow == .keepForNow && $0.itemCount >= 1 })
+        XCTAssertTrue(report.workflowSummaries.contains { $0.workflow == .manualReview && $0.itemCount >= 1 })
         XCTAssertGreaterThanOrEqual(report.installerBytes, 5_120)
         XCTAssertGreaterThanOrEqual(report.archiveBytes, 2_048)
         XCTAssertGreaterThan(report.oldCandidateBytes, 0)
         XCTAssertTrue(report.guidance.contains { $0.contains("Finder") })
+        XCTAssertTrue(report.guidance.contains { $0.contains("workflow buckets") })
         XCTAssertTrue(report.nonClaims.contains { $0.contains("does not delete") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("workflow labels") })
         XCTAssertTrue(FileManager.default.fileExists(atPath: oldInstaller.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: archive.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: oldNote.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: hidden.path))
+    }
+
+    func testDownloadsReviewDecodesLegacyAuditWithoutWorkflowFields() throws {
+        let json = """
+        {
+          "id": "legacy-downloads",
+          "createdAt": "1970-01-01T00:00:00Z",
+          "rootPath": "/tmp/Downloads",
+          "permissionState": "readable",
+          "totalLogicalSize": 10,
+          "totalAllocatedSize": 10,
+          "itemCount": 1,
+          "displayedItemCount": 1,
+          "installerBytes": 10,
+          "archiveBytes": 0,
+          "oldCandidateBytes": 10,
+          "reviewCandidateBytes": 10,
+          "kindSummaries": [],
+          "largestItems": [
+            {
+              "id": "legacy-item",
+              "path": "/tmp/Downloads/OldInstaller.dmg",
+              "displayName": "OldInstaller.dmg",
+              "kind": "diskImage",
+              "logicalSize": 10,
+              "allocatedSize": 10,
+              "itemCount": 1,
+              "isDirectory": false,
+              "isSymbolicLink": false,
+              "ageDays": 120,
+              "signals": ["installer", "old-download"],
+              "recommendation": "Review for Trash after confirming the app or package is already installed.",
+              "guidance": ["Confirm the software is installed and working before removing this installer."]
+            }
+          ],
+          "notes": [],
+          "guidance": [],
+          "nonClaims": []
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let report = try decoder.decode(DownloadsReviewReport.self, from: Data(json.utf8))
+
+        XCTAssertEqual(report.id, "legacy-downloads")
+        XCTAssertEqual(report.largestItems.first?.workflow, .trashReview)
+        XCTAssertTrue(report.largestItems.first?.workflowSteps.contains { $0.contains("Trash") } == true)
+        XCTAssertTrue(report.workflowSummaries.contains { $0.workflow == .trashReview && $0.itemCount == 1 })
     }
 
     func testDownloadsReviewReportsMissingRootAsCoverageEvidence() throws {

@@ -55,7 +55,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - first-class large-file and old-file review mode with category/safety summaries, row actions, and no automatic cleanup
 - archive-candidate review checklist for large/old personal files, with keep/archive/Trash-review/cleanup-plan/blocked recommendations
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
-- report-only Downloads review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
+- report-only Downloads review for old downloads, installers, archives, app bundles, Finder workflow buckets, row actions, and local audit history
 - report-only Browser Cache review for cache roots, protected profile roots, quit-first guidance, and local audit history
 - report-only Package Cache review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native-tool guidance, and local audit history
 - report-only Project Dependencies review for project-local node_modules, virtual environments, build folders, Pods, framework caches, Flutter/Android outputs, protected project files, optional local VCS status, saved per-project review policies, detected package managers, package names, package.json script-risk previews, workspace-aware native rebuild command hints, and local audit history
@@ -309,7 +309,7 @@ swift run --scratch-path .build reclaimer downloads --json --save-audit
 swift run --scratch-path .build reclaimer downloads --path ~/Downloads --old-days 90 --limit 40
 ```
 
-Downloads Review reports the configured Downloads root, permission state, total size, installer/archive/old-download candidate bytes, kind summaries, largest items, and Finder guidance. It is report-only: Ryddi does not delete, move, archive, compress, or Trash Downloads entries.
+Downloads Review reports the configured Downloads root, permission state, total size, installer/archive/old-download candidate bytes, kind summaries, workflow summaries, largest items, and Finder guidance. Rows are bucketed into `Trash Review`, `Archive Review`, `Keep For Now`, or `Manual Review`, with copy/reveal/Quick Look/Terminal actions in the app. It is report-only: Ryddi does not delete, move, archive, compress, or Trash Downloads entries.
 
 ## Browser Cache Review
 

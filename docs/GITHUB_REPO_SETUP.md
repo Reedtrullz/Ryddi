@@ -71,7 +71,7 @@ Initial MVP:
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - AI-agent storage buckets and retention profiles that separate reclaimable cache, old-history compression review, protected state, quit-first data, and manual review
 - Native-tool command preview and execution receipts for selected non-destructive/non-placeholder cleanup commands, with Docker/Colima destructive commands kept guidance-only
-- Report-only Downloads Review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
+- Report-only Downloads Review for old downloads, installers, archives, app bundles, Finder workflow buckets, row actions, and local audit history
 - Report-only Browser Cache Review for cache roots, protected profile roots, quit-first guidance, and local audit history
 - Report-only Package Cache Review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native cleanup guidance, and local audit history
 - Report-only Project Dependencies Review for project-local dependency/build artifact folders, protected project roots, local VCS status, saved per-project policies, detected package-manager/package-name/script/script-risk/workspace context, bounded/redacted package.json command previews, workspace-aware native rebuild command hints with working-directory context, and local audit history

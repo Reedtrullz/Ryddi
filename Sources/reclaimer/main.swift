@@ -2908,16 +2908,26 @@ func printDownloadsReview(_ report: DownloadsReviewReport, options: ParsedOption
         }
     }
 
+    if !report.workflowSummaries.isEmpty {
+        print("\nBy workflow")
+        for summary in report.workflowSummaries {
+            print("- \(pad(summary.workflow.label, 18)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
     if report.largestItems.isEmpty {
         print("\nNo Downloads items found at the configured root.")
     } else {
         print("\nLargest Downloads items")
-        print("\(pad("Allocated", 11)) \(pad("Kind", 18)) \(pad("Age", 8)) \(pad("Modified", 12)) Path")
+        print("\(pad("Allocated", 11)) \(pad("Kind", 18)) \(pad("Workflow", 16)) \(pad("Age", 8)) \(pad("Modified", 12)) Path")
         for item in report.largestItems.prefix(options.limit) {
             let modified = item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "unknown"
             let age = item.ageDays.map { "\($0)d" } ?? "unknown"
-            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.kind.label, 18)) \(pad(age, 8)) \(pad(modified, 12)) \(item.path)")
+            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.kind.label, 18)) \(pad(item.workflow.label, 16)) \(pad(age, 8)) \(pad(modified, 12)) \(item.path)")
             print("  - \(item.recommendation)")
+            if let step = item.workflowSteps.first {
+                print("  workflow: \(step)")
+            }
             if let guidance = item.guidance.first {
                 print("  next: \(guidance)")
             }

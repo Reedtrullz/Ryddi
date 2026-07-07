@@ -2062,6 +2062,29 @@ struct DownloadsReviewView: View {
                         }
                     }
 
+                    SectionBox(title: "By Workflow") {
+                        if report.workflowSummaries.isEmpty {
+                            Text("No workflow buckets were recorded for this Downloads review.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 6) {
+                                ForEach(report.workflowSummaries) { summary in
+                                    HStack {
+                                        Text(summary.workflow.label)
+                                        Spacer()
+                                        Text("\(summary.itemCount)")
+                                            .monospacedDigit()
+                                            .foregroundStyle(.secondary)
+                                        Text(ByteFormat.string(summary.allocatedSize))
+                                            .frame(width: 90, alignment: .trailing)
+                                            .monospacedDigit()
+                                    }
+                                    .font(.caption)
+                                }
+                            }
+                        }
+                    }
+
                     SectionBox(title: "Largest Downloads Items") {
                         if report.largestItems.isEmpty {
                             Text("No Downloads items found at the configured root.")
@@ -2071,9 +2094,11 @@ struct DownloadsReviewView: View {
                                 HStack {
                                     Text("Allocated").frame(width: 92, alignment: .leading)
                                     Text("Kind").frame(width: 116, alignment: .leading)
+                                    Text("Workflow").frame(width: 118, alignment: .leading)
                                     Text("Age").frame(width: 64, alignment: .leading)
                                     Text("Path")
                                     Spacer()
+                                    Text("Actions").frame(width: 132, alignment: .trailing)
                                 }
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
@@ -2086,6 +2111,8 @@ struct DownloadsReviewView: View {
                                                 .monospacedDigit()
                                             Text(item.kind.label)
                                                 .frame(width: 116, alignment: .leading)
+                                            Text(item.workflow.label)
+                                                .frame(width: 118, alignment: .leading)
                                             Text(item.ageDays.map { "\($0)d" } ?? "unknown")
                                                 .frame(width: 64, alignment: .leading)
                                             Text(item.path)
@@ -2093,12 +2120,20 @@ struct DownloadsReviewView: View {
                                                 .truncationMode(.middle)
                                                 .textSelection(.enabled)
                                             Spacer()
+                                            DownloadsReviewItemActionButtons(item: item)
+                                                .frame(width: 132, alignment: .trailing)
                                         }
                                         .font(.caption)
                                         Text(item.recommendation)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                             .fixedSize(horizontal: false, vertical: true)
+                                        if let step = item.workflowSteps.first {
+                                            Text("Workflow: \(step)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
                                     }
                                     .padding(.vertical, 6)
                                 }
@@ -5576,6 +5611,43 @@ struct DuplicateFileActionButtons: View {
 
 struct AppReviewItemActionButtons: View {
     let item: AppReviewItem
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button {
+                PathActions.copyPath(item.path)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .help("Copy path")
+
+            Button {
+                PathActions.revealInFinder(item.path)
+            } label: {
+                Image(systemName: "folder")
+            }
+            .help("Reveal in Finder")
+
+            Button {
+                PathActions.quickLook(item.path)
+            } label: {
+                Image(systemName: "eye")
+            }
+            .help("Quick Look")
+
+            Button {
+                PathActions.openTerminal(at: item.path, isDirectory: item.isDirectory)
+            } label: {
+                Image(systemName: "terminal")
+            }
+            .help("Open Terminal here")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+struct DownloadsReviewItemActionButtons: View {
+    let item: DownloadsReviewItem
 
     var body: some View {
         HStack(spacing: 4) {
