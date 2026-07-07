@@ -423,6 +423,53 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(store.recentRemoteScanReports().first?.nonClaims.contains { $0.contains("No cleanup was executed") } ?? false)
     }
 
+    func testRemoteSSHRunnerBuildsSafeNonInteractiveInvocation() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 2222,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let expectedArguments = [
+            "-T",
+            "-o", "BatchMode=yes",
+            "-o", "NumberOfPasswordPrompts=0",
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", "ConnectTimeout=12",
+            "prod-vps",
+            "uname -srm"
+        ]
+        let output = fakeOutput("/usr/bin/ssh", expectedArguments, stdout: "Linux 6.8 x86_64\n")
+        let runner = FakeToolRunner(outputs: [output])
+        let ssh = RemoteSSHCommandRunner(target: target, runner: runner, timeout: 120, connectTimeout: 12)
+
+        let result = ssh.run(commandID: "probe.uname", remoteCommand: "uname -srm")
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.stdoutPreview, ["Linux 6.8 x86_64"])
+        XCTAssertEqual(runner.commands, ["/usr/bin/ssh \(expectedArguments.joined(separator: " "))"])
+        XCTAssertEqual(runner.timeouts, [60])
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("ForwardAgent"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("StrictHostKeyChecking=no"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("IdentityFile"))
+    }
+
+    func testRemoteSSHRunnerBlocksDestructiveRemoteCommandsBeforeLaunch() throws {
+        let target = RemoteTargetReference(input: "prod-vps", alias: "prod-vps")
+        let runner = FakeToolRunner(outputs: [])
+        let ssh = RemoteSSHCommandRunner(target: target, runner: runner)
+
+        for unsafeCommand in ["docker system prune", "colima reset", "rm -rf /tmp/build", "remote execute cleanup", "find /tmp -delete"] {
+            let result = ssh.run(commandID: "unsafe", remoteCommand: unsafeCommand)
+            XCTAssertNil(result.exitCode)
+            XCTAssertTrue(result.stderrPreview.contains { $0.contains("blocked") }, unsafeCommand)
+        }
+        XCTAssertTrue(runner.commands.isEmpty)
+    }
+
     func testDefaultScopePresetsSeparateGeneralAndDeveloperRoots() throws {
         let general = DefaultScopes.plan(for: .general, home: tempRoot, includeUnavailable: true)
         let developer = DefaultScopes.plan(for: .developer, home: tempRoot, includeUnavailable: true)
@@ -4312,6 +4359,7 @@ final class ReclaimerCoreTests: XCTestCase {
         private let lock = NSLock()
         private let outputs: [String: ToolCommandOutput]
         private var recordedCommands: [String] = []
+        private var recordedTimeouts: [TimeInterval] = []
 
         init(outputs: [ToolCommandOutput]) {
             self.outputs = Dictionary(uniqueKeysWithValues: outputs.map { ($0.invocation.displayCommand, $0) })
@@ -4323,9 +4371,16 @@ final class ReclaimerCoreTests: XCTestCase {
             return recordedCommands
         }
 
+        var timeouts: [TimeInterval] {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedTimeouts
+        }
+
         func run(_ invocation: ToolCommandInvocation, timeout: TimeInterval) -> ToolCommandOutput {
             lock.lock()
             recordedCommands.append(invocation.displayCommand)
+            recordedTimeouts.append(timeout)
             lock.unlock()
             return outputs[invocation.displayCommand] ?? ToolCommandOutput(
                 invocation: invocation,
