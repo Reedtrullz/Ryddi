@@ -41,6 +41,7 @@ playground.xcworkspace
 DerivedData/
 dist/
 .publish-Ryddi-*/
+.superpowers/
 
 # CocoaPods
 #
