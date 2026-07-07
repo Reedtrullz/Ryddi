@@ -424,6 +424,51 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(store.recentRemoteScanReports().first?.nonClaims.contains { $0.contains("No cleanup was executed") } ?? false)
     }
 
+    func testAuditStoreRoundTripsRemoteDogfoodReportsAndFindsLatestTargetEvidence() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let scan = RemoteScanReport(
+            id: "scan-1",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+        let probe = RemoteProbeReport(
+            id: "probe-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: target,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+        let dogfood = RemoteDogfoodReportBuilder.build(probe: probe, scan: scan, growth: nil)
+        _ = try store.save(remoteDogfoodReport: dogfood)
+
+        XCTAssertEqual(store.recentRemoteDogfoodReports().first?.id, dogfood.id)
+        XCTAssertEqual(store.latestRemoteScanReport(matching: target)?.id, scan.id)
+        XCTAssertEqual(store.latestRemoteProbeReport(matching: target)?.id, probe.id)
+    }
+
     func testRemoteGrowthReportComparesSavedScansAndRedactsPaths() throws {
         let target = RemoteTargetReference(
             input: "prod-vps",

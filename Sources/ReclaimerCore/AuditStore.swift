@@ -70,6 +70,13 @@ public final class AuditStore: @unchecked Sendable {
         return url
     }
 
+    public func save(remoteDogfoodReport report: RemoteDogfoodReport) throws -> URL {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("remote-dogfood-\(report.id).json")
+        try encoder.encode(report).write(to: url, options: .atomic)
+        return url
+    }
+
     public func save(activeFileReviewReport: ActiveFileReviewReport) throws -> URL {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent("active-files-\(activeFileReviewReport.id).json")
@@ -259,6 +266,29 @@ public final class AuditStore: @unchecked Sendable {
             .compactMap { try? decoder.decode(RemoteScanReport.self, from: Data(contentsOf: $0)) }
     }
 
+    public func recentRemoteDogfoodReports(limit: Int = 20) -> [RemoteDogfoodReport] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
+            return []
+        }
+        return files
+            .filter { $0.lastPathComponent.hasPrefix("remote-dogfood-") }
+            .sorted { lhs, rhs in
+                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return left > right
+            }
+            .prefix(limit)
+            .compactMap { try? decoder.decode(RemoteDogfoodReport.self, from: Data(contentsOf: $0)) }
+    }
+
+    public func latestRemoteScanReport(matching target: RemoteTargetReference) -> RemoteScanReport? {
+        recentRemoteScanReports(limit: Int.max).first { remoteTargetsMatch($0.target, target) }
+    }
+
+    public func latestRemoteProbeReport(matching target: RemoteTargetReference) -> RemoteProbeReport? {
+        recentRemoteProbeReports(limit: Int.max).first { remoteTargetsMatch($0.target, target) }
+    }
+
     public func remoteScanReport(id: String) -> RemoteScanReport? {
         recentRemoteScanReports(limit: Int.max).first { $0.id == id }
     }
@@ -396,5 +426,13 @@ public final class AuditStore: @unchecked Sendable {
             }
             .prefix(limit)
             .compactMap { try? decoder.decode(AppUninstallExecutionReceipt.self, from: Data(contentsOf: $0)) }
+    }
+
+    private func remoteTargetsMatch(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
+        lhs.id == rhs.id || (
+            lhs.resolvedHost == rhs.resolvedHost &&
+                lhs.resolvedUser == rhs.resolvedUser &&
+                lhs.resolvedPort == rhs.resolvedPort
+        )
     }
 }
