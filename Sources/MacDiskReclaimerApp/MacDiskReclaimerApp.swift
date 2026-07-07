@@ -7200,10 +7200,16 @@ final class DashboardModel {
             remoteScanReport = recentRemoteScanReports.first
         }
         syncRemoteDogfoodReport()
-        if recentRemoteScanReports.count >= 2 {
+        if
+            let currentRemoteScan = recentRemoteScanReports.first,
+            let previousRemoteScan = store.latestPreviousRemoteScanReport(
+                forConcreteTarget: currentRemoteScan.target,
+                excludingReportID: currentRemoteScan.id
+            )
+        {
             remoteGrowthReport = RemoteGrowthReportBuilder.build(
-                previous: recentRemoteScanReports[1],
-                current: recentRemoteScanReports[0],
+                previous: previousRemoteScan,
+                current: currentRemoteScan,
                 limit: 10
             )
         } else {
@@ -7725,12 +7731,15 @@ final class DashboardModel {
     }
 
     func exportRemoteRedactedGrowthReport() async {
-        guard remoteGrowthReport != nil, recentRemoteScanReports.count >= 2 else {
+        let store = AuditStore()
+        guard
+            let current = recentRemoteScanReports.first,
+            let previous = store.latestPreviousRemoteScanReport(forConcreteTarget: current.target, excludingReportID: current.id),
+            remoteGrowthReport != nil
+        else {
             error = "Remote growth export needs at least two saved remote scans."
             return
         }
-        let previous = recentRemoteScanReports[1]
-        let current = recentRemoteScanReports[0]
         isWorking = true
         defer { isWorking = false }
         do {
@@ -7760,8 +7769,9 @@ final class DashboardModel {
             error = "Remote dogfood export needs at least one saved remote scan."
             return
         }
-        let probe = recentRemoteProbeReports.first { $0.target.id == scan.target.id }
-        let previous = recentRemoteScanReports.dropFirst().first { $0.target.id == scan.target.id }
+        let store = AuditStore()
+        let probe = store.latestRemoteProbeReport(forConcreteTarget: scan.target)
+        let previous = store.latestPreviousRemoteScanReport(forConcreteTarget: scan.target, excludingReportID: scan.id)
         isWorking = true
         defer { isWorking = false }
         do {
@@ -7799,7 +7809,7 @@ final class DashboardModel {
             }
             return
         }
-        remoteDogfoodReport = recentRemoteDogfoodReports.first { $0.target.id == scan.target.id }
+        remoteDogfoodReport = AuditStore().latestRemoteDogfoodReport(forConcreteTarget: scan.target)
     }
 
     func restoreHeldItem(_ item: HeldItem) {

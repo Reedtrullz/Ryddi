@@ -652,6 +652,173 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.latestRemoteScanReport(matching: idQuery)?.id, firstScan.id)
     }
 
+    func testAuditStoreDoesNotCrossMatchResolvedTargetsWhenAliasOrIDOverlap() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let storedTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture-a"
+        )
+        let conflictingTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.11",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture-b"
+        )
+
+        let probe = RemoteProbeReport(
+            id: "probe-identity-conflict",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: storedTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            id: "scan-identity-conflict",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: storedTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+
+        XCTAssertNil(store.latestRemoteProbeReport(matching: conflictingTarget))
+        XCTAssertNil(store.latestRemoteScanReport(matching: conflictingTarget))
+        XCTAssertNil(store.latestRemoteProbeReport(forConcreteTarget: conflictingTarget))
+    }
+
+    func testAuditStoreRejectsAmbiguousSavedRemoteScanQueryAcrossConcreteTargets() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let firstTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-a",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:first"
+        )
+        let secondTarget = RemoteTargetReference(
+            id: "target-002",
+            input: "prod-b",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.11",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:second"
+        )
+
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-001",
+            createdAt: Date(timeIntervalSince1970: 10),
+            preset: .vpsGeneral,
+            target: firstTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-002",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: secondTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+
+        let query = RemoteTargetReference(input: "shared-alias")
+        XCTAssertThrowsError(try store.selectedRemoteScanReport(forAuditQuery: query)) { error in
+            XCTAssertEqual(
+                error as? AuditStore.RemoteAuditQueryError,
+                .ambiguousSavedTargetQuery("shared-alias")
+            )
+        }
+    }
+
+    func testAuditStoreRejectsAmbiguousSavedRemoteScanQueryAcrossUnresolvedTargetsButKeepsUniqueIDLookup() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let firstTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-a",
+            alias: "shared-alias",
+            knownHostsState: "unknown"
+        )
+        let secondTarget = RemoteTargetReference(
+            id: "target-002",
+            input: "prod-b",
+            alias: "shared-alias",
+            knownHostsState: "unknown"
+        )
+
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-001",
+            createdAt: Date(timeIntervalSince1970: 10),
+            preset: .vpsGeneral,
+            target: firstTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-002",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: secondTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+
+        XCTAssertThrowsError(try store.selectedRemoteScanReport(forAuditQuery: RemoteTargetReference(input: "shared-alias"))) { error in
+            XCTAssertEqual(
+                error as? AuditStore.RemoteAuditQueryError,
+                .ambiguousSavedTargetQuery("shared-alias")
+            )
+        }
+        XCTAssertEqual(
+            try store.selectedRemoteScanReport(forAuditQuery: RemoteTargetReference(input: "target-001"))?.id,
+            "scan-001"
+        )
+    }
+
     func testAuditStoreSelectsProbeForSameConcreteTargetAsSelectedScan() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
         let store = AuditStore(root: root)
@@ -720,6 +887,133 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertEqual(scan.id, selectedScan.id)
         XCTAssertEqual(store.latestRemoteProbeReport(forConcreteTarget: scan.target)?.id, selectedProbe.id)
+    }
+
+    func testAuditStoreSelectsConcreteProbeByResolvedIdentityInsteadOfSharedIDConflict() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let selectedTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:selected"
+        )
+        let collidingTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps-shadow",
+            alias: "shadow-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.11",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:colliding"
+        )
+
+        _ = try store.save(remoteProbeReport: RemoteProbeReport(
+            id: "probe-selected",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: selectedTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteProbeReport: RemoteProbeReport(
+            id: "probe-colliding",
+            createdAt: Date(timeIntervalSince1970: 20),
+            target: collidingTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        ))
+
+        XCTAssertEqual(store.latestRemoteProbeReport(forConcreteTarget: selectedTarget)?.id, "probe-selected")
+    }
+
+    func testAuditStorePreviousRemoteScanUsesConcreteIdentityInsteadOfSharedIDConflict() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let previousCorrectTarget = RemoteTargetReference(
+            id: "older-id",
+            input: "prod-vps-old",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:correct"
+        )
+        let previousWrongTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps-shadow",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.11",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:wrong"
+        )
+        let currentTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:current"
+        )
+
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-previous-correct",
+            createdAt: Date(timeIntervalSince1970: 10),
+            preset: .vpsGeneral,
+            target: previousCorrectTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-previous-wrong",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: previousWrongTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-current",
+            createdAt: Date(timeIntervalSince1970: 30),
+            preset: .vpsGeneral,
+            target: currentTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+
+        XCTAssertEqual(
+            store.latestPreviousRemoteScanReport(forConcreteTarget: currentTarget, excludingReportID: "scan-current")?.id,
+            "scan-previous-correct"
+        )
     }
 
     func testRemoteGrowthReportComparesSavedScansAndRedactsPaths() throws {

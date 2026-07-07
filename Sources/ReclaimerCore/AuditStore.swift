@@ -1,6 +1,17 @@
 import Foundation
 
 public final class AuditStore: @unchecked Sendable {
+    public enum RemoteAuditQueryError: Error, LocalizedError, Equatable {
+        case ambiguousSavedTargetQuery(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case let .ambiguousSavedTargetQuery(query):
+                return "saved remote target query is ambiguous for \(query)"
+            }
+        }
+    }
+
     private let root: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -293,6 +304,23 @@ public final class AuditStore: @unchecked Sendable {
         recentRemoteProbeReports(limit: Int.max).first { concreteTargetMatches($0.target, target) }
     }
 
+    public func selectedRemoteScanReport(forAuditQuery target: RemoteTargetReference) throws -> RemoteScanReport? {
+        try uniquelySelectedSavedRemoteReport(from: recentRemoteScanReports(limit: Int.max), query: target, target: \.target)
+    }
+
+    public func latestRemoteDogfoodReport(forConcreteTarget target: RemoteTargetReference) -> RemoteDogfoodReport? {
+        recentRemoteDogfoodReports(limit: Int.max).first { concreteTargetMatches($0.target, target) }
+    }
+
+    public func latestPreviousRemoteScanReport(
+        forConcreteTarget target: RemoteTargetReference,
+        excludingReportID excludedID: String
+    ) -> RemoteScanReport? {
+        recentRemoteScanReports(limit: Int.max).first {
+            $0.id != excludedID && concreteTargetMatches($0.target, target)
+        }
+    }
+
     public func remoteScanReport(id: String) -> RemoteScanReport? {
         recentRemoteScanReports(limit: Int.max).first { $0.id == id }
     }
@@ -433,12 +461,21 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     private func localTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
-        resolvedTargetMatches(lhs, rhs) || !localTargetIdentifiers(lhs).isDisjoint(with: localTargetIdentifiers(rhs))
+        if resolvedTargetMatches(lhs, rhs) {
+            return true
+        }
+        if resolvedTargetConflicts(lhs, rhs) {
+            return false
+        }
+        return !localTargetIdentifiers(lhs).isDisjoint(with: localTargetIdentifiers(rhs))
     }
 
     private func concreteTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
         if resolvedTargetMatches(lhs, rhs) {
             return true
+        }
+        if resolvedTargetConflicts(lhs, rhs) {
+            return false
         }
         guard
             let leftID = normalizedIdentity(lhs.id),
@@ -453,6 +490,22 @@ public final class AuditStore: @unchecked Sendable {
         Set([target.id, target.input, target.alias].compactMap(normalizedIdentity))
     }
 
+    private func uniquelySelectedSavedRemoteReport<Report>(
+        from reports: [Report],
+        query: RemoteTargetReference,
+        target targetKeyPath: KeyPath<Report, RemoteTargetReference>
+    ) throws -> Report? {
+        let matches = reports.filter { localTargetMatches($0[keyPath: targetKeyPath], query) }
+        guard !matches.isEmpty else {
+            return nil
+        }
+        let groups = Set(matches.map { targetGroupKey(for: $0[keyPath: targetKeyPath]) })
+        guard groups.count == 1 else {
+            throw RemoteAuditQueryError.ambiguousSavedTargetQuery(auditQueryLabel(for: query))
+        }
+        return matches.first
+    }
+
     private func resolvedTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
         guard
             let leftUser = normalizedIdentity(lhs.resolvedUser),
@@ -465,6 +518,47 @@ public final class AuditStore: @unchecked Sendable {
             return false
         }
         return leftUser == rightUser && leftHost == rightHost && leftPort == rightPort
+    }
+
+    private func resolvedTargetConflicts(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
+        hasCompleteResolvedIdentity(lhs) && hasCompleteResolvedIdentity(rhs) && !resolvedTargetMatches(lhs, rhs)
+    }
+
+    private func hasCompleteResolvedIdentity(_ target: RemoteTargetReference) -> Bool {
+        normalizedIdentity(target.resolvedUser) != nil &&
+            normalizedIdentity(target.resolvedHost) != nil &&
+            target.resolvedPort != nil
+    }
+
+    private func targetGroupKey(for target: RemoteTargetReference) -> String {
+        if let concrete = concreteIdentityKey(for: target) {
+            return "concrete:\(concrete)"
+        }
+        if let id = normalizedIdentity(target.id) {
+            return "unresolved-id:\(id)"
+        }
+        if let alias = normalizedIdentity(target.alias) {
+            return "unresolved-alias:\(alias)"
+        }
+        return "unresolved-input:\(normalizedIdentity(target.input) ?? "<empty>")"
+    }
+
+    private func concreteIdentityKey(for target: RemoteTargetReference) -> String? {
+        guard
+            let user = normalizedIdentity(target.resolvedUser),
+            let host = normalizedIdentity(target.resolvedHost),
+            let port = target.resolvedPort
+        else {
+            return nil
+        }
+        return "\(user)@\(host):\(port)"
+    }
+
+    private func auditQueryLabel(for target: RemoteTargetReference) -> String {
+        normalizedIdentity(target.input) ??
+            normalizedIdentity(target.alias) ??
+            normalizedIdentity(target.id) ??
+            "<unknown>"
     }
 
     private func normalizedIdentity(_ value: String?) -> String? {

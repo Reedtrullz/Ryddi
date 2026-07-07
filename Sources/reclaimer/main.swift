@@ -1259,8 +1259,14 @@ struct ReclaimerCLI {
 
         if fromAudit {
             let queryTarget = RemoteTargetReference(input: targetInput)
-            guard let latestScan = store.latestRemoteScanReport(matching: queryTarget) else {
-                throw CLIError.message("remote dogfood --from-audit found no saved remote scan for \(targetInput)")
+            let latestScan: RemoteScanReport
+            do {
+                guard let selectedScan = try store.selectedRemoteScanReport(forAuditQuery: queryTarget) else {
+                    throw CLIError.message("remote dogfood --from-audit found no saved remote scan for \(targetInput)")
+                }
+                latestScan = selectedScan
+            } catch let error as AuditStore.RemoteAuditQueryError {
+                throw CLIError.message("remote dogfood --from-audit \(error.localizedDescription)")
             }
             scan = latestScan
             probe = store.latestRemoteProbeReport(forConcreteTarget: scan.target)
@@ -1277,9 +1283,7 @@ struct ReclaimerCLI {
             )
         }
 
-        let previous = store.recentRemoteScanReports(limit: Int.max)
-            .first { $0.id != scan.id && $0.target.id == scan.target.id }
-        let growth = previous.map {
+        let growth = store.latestPreviousRemoteScanReport(forConcreteTarget: scan.target, excludingReportID: scan.id).map {
             RemoteGrowthReportBuilder.build(previous: $0, current: scan, privacy: options.reportPrivacy)
         }
         let report = RemoteDogfoodReportBuilder.build(
