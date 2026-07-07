@@ -73,7 +73,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
 - read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
-- Remote Targets for agentless, report-only SSH/VPS storage evidence: target discovery from SSH config, safe probe, VPS scan, native guidance, redacted Markdown export, and local audit history
+- Remote Targets for agentless, report-only SSH/VPS storage evidence: target discovery from SSH config, safe probe, VPS scan, native guidance, redacted Markdown export, saved remote growth diffs, and local audit history
 - native-tool command preview and execution receipts for selected non-destructive Homebrew/package-manager cleanup commands, while Docker/Colima destructive commands remain guidance-only
 - Xcode DerivedData, module cache, archive, DeviceSupport, simulator, runtime, and developer-state review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
@@ -164,6 +164,9 @@ swift run --scratch-path .build reclaimer remote targets list
 swift run --scratch-path .build reclaimer remote probe my-vps --json --timeout 5
 swift run --scratch-path .build reclaimer remote scan my-vps --preset vps-general --path-style redacted --output ryddi-vps-report.md
 swift run --scratch-path .build reclaimer remote native my-vps
+swift run --scratch-path .build reclaimer remote history list
+swift run --scratch-path .build reclaimer remote history diff
+swift run --scratch-path .build reclaimer remote history report --path-style redacted --output ryddi-vps-growth.md
 swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
 swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch
 swift run --scratch-path .build reclaimer policy export --output ryddi-policy.json
@@ -239,9 +242,20 @@ The first remote release is report-only:
 - probe OS, home directory, disk/inode pressure, available tools, and non-interactive sudo capability;
 - scan Linux VPS storage signals such as journald, APT cache, Docker storage, old deploy releases, large files, temp paths, and permission-denied areas;
 - export redacted Markdown reports and save local audit records;
+- compare saved remote scan audit records locally with `remote history` to see bucket/path growth without reconnecting to the server;
 - recommend native commands for manual review.
 
 Ryddi does not run remote cleanup, Docker prune/reset, `rm`, `find -delete`, sudo cleanup, or unattended destructive maintenance in Remote Targets v1.
+
+Remote history reads saved local audit records only:
+
+```bash
+swift run --scratch-path .build reclaimer remote history list
+swift run --scratch-path .build reclaimer remote history diff --limit 10
+swift run --scratch-path .build reclaimer remote history report --path-style redacted --output ryddi-vps-growth.md
+```
+
+Remote growth reports compare saved scan-time evidence. They do not prove current server state, exact reclaim, or cleanup safety.
 
 Ryddi can summarize current scan coverage before you review cleanup candidates:
 

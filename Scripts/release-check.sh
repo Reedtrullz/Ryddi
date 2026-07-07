@@ -881,6 +881,111 @@ grep -q "# Ryddi Growth Report" "$scratch/growth-report.md"
 grep -q "Largest Category Deltas" "$scratch/growth-report.md"
 grep -q "does not prove exact current disk state" "$scratch/growth-report.md"
 grep -q "<path redacted>" "$scratch/growth-report.md"
+mkdir -p "$scratch/audit"
+cat >"$scratch/audit/remote-scan-previous.json" <<'JSON'
+{
+  "id": "previous-remote",
+  "createdAt": "2026-07-07T18:00:00Z",
+  "preset": "vps-general",
+  "target": {
+    "id": "prod-vps",
+    "input": "prod-vps",
+    "alias": "prod-vps",
+    "resolvedUser": "deploy",
+    "resolvedHost": "203.0.113.10",
+    "resolvedPort": 22,
+    "knownHostsState": "known",
+    "fingerprint": "ssh-ed25519:fixture"
+  },
+  "diskFilesystems": [],
+  "inodeFilesystems": [],
+  "findings": [
+    {
+      "id": "Remote storage:/home/deploy/private-client/cache",
+      "remotePath": "/home/deploy/private-client/cache",
+      "displayPath": "/home/deploy/private-client/cache",
+      "bucket": "Remote storage",
+      "allocatedBytes": 100,
+      "safetyClass": "reviewRequired",
+      "actionKind": "openGuidance",
+      "evidence": [{"kind": "remote.fixture", "message": "Previous fixture evidence."}],
+      "recommendedNextAction": "reviewInFinder"
+    },
+    {
+      "id": "Journald logs:/var/log/journal",
+      "remotePath": "/var/log/journal",
+      "displayPath": "/var/log/journal",
+      "bucket": "Journald logs",
+      "allocatedBytes": 20,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "nativeToolCommand",
+      "evidence": [{"kind": "remote.fixture", "message": "Previous fixture evidence."}],
+      "recommendedNextAction": "useNativeTool"
+    }
+  ],
+  "nativeGuidance": [],
+  "commands": [],
+  "nonClaims": ["No cleanup was executed on the remote target."]
+}
+JSON
+cat >"$scratch/audit/remote-scan-current.json" <<'JSON'
+{
+  "id": "current-remote",
+  "createdAt": "2026-07-07T19:00:00Z",
+  "preset": "vps-general",
+  "target": {
+    "id": "prod-vps",
+    "input": "prod-vps",
+    "alias": "prod-vps",
+    "resolvedUser": "deploy",
+    "resolvedHost": "203.0.113.10",
+    "resolvedPort": 22,
+    "knownHostsState": "known",
+    "fingerprint": "ssh-ed25519:fixture"
+  },
+  "diskFilesystems": [],
+  "inodeFilesystems": [],
+  "findings": [
+    {
+      "id": "Remote storage:/home/deploy/private-client/cache",
+      "remotePath": "/home/deploy/private-client/cache",
+      "displayPath": "/home/deploy/private-client/cache",
+      "bucket": "Remote storage",
+      "allocatedBytes": 180,
+      "safetyClass": "reviewRequired",
+      "actionKind": "openGuidance",
+      "evidence": [{"kind": "remote.fixture", "message": "Current fixture evidence."}],
+      "recommendedNextAction": "reviewInFinder"
+    },
+    {
+      "id": "Journald logs:/var/log/journal",
+      "remotePath": "/var/log/journal",
+      "displayPath": "/var/log/journal",
+      "bucket": "Journald logs",
+      "allocatedBytes": 10,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "nativeToolCommand",
+      "evidence": [{"kind": "remote.fixture", "message": "Current fixture evidence."}],
+      "recommendedNextAction": "useNativeTool"
+    }
+  ],
+  "nativeGuidance": [],
+  "commands": [],
+  "nonClaims": ["No cleanup was executed on the remote target."]
+}
+JSON
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" remote history list --json >"$scratch/remote-history-list.json"
+grep -q '"current-remote"' "$scratch/remote-history-list.json"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" remote history diff --limit 5 --current-id current-remote --previous-id previous-remote >"$scratch/remote-history-diff.txt"
+grep -q "Remote growth diff" "$scratch/remote-history-diff.txt"
+grep -q "Remote storage" "$scratch/remote-history-diff.txt"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" remote history report --current-id current-remote --previous-id previous-remote --path-style redacted --output "$scratch/remote-growth-report.md"
+grep -q "# Ryddi Remote Growth Report" "$scratch/remote-growth-report.md"
+grep -q "<path redacted>" "$scratch/remote-growth-report.md"
+if grep -q "private-client" "$scratch/remote-growth-report.md"; then
+  echo "remote growth report leaked redacted path component" >&2
+  exit 1
+fi
 RYDDI_REPORT_ROOT="$scratch/reports" "$app/Contents/MacOS/reclaimer" report --path "$root/Tests" --limit 5 --output "$scratch/evidence-report.md" --ignore-user-policy --path-style redacted --redact-user-text
 grep -q "# Ryddi Evidence Report" "$scratch/evidence-report.md"
 grep -q "Explicit Non-Claims" "$scratch/evidence-report.md"
@@ -1027,6 +1132,7 @@ Verification performed:
 - bundled reclaimer drilldown --json on disposable nested fixture
 - bundled reclaimer apps uninstall-preview and apps uninstall --dry-run on a disposable app fixture, with redacted Markdown and saved JSON audit
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md
+- bundled reclaimer remote history list/diff/report on disposable saved remote scan audit records, with redacted remote growth Markdown
 - bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
 - bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy
 - bundled reclaimer plan --save-audit on disposable fixture plus redacted plans export --output saved-plan-report.md

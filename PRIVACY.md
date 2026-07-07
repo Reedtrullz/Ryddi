@@ -48,7 +48,7 @@ Native-tool reports read scan findings and generate local command preview receip
 
 Container inventory can run read-only Docker and Colima inspection commands. The resulting local reports can include Docker image names, container names, volume names, context endpoints, Colima profile names, command exit states, and short command-output previews. Ryddi does not upload this inventory and does not run prune, delete, stop, reset, or raw VM-disk commands.
 
-Remote Targets can read your local SSH config to list non-wildcard host aliases and can use the system `ssh` client to resolve and probe a target. Remote reports can include SSH aliases, resolved user/host/port values, known-host state, host-key fingerprint snippets, remote OS summary, remote home directory, remote paths, filesystem names, Docker object names, command IDs, exit codes, and short stdout/stderr previews. Ryddi does not store SSH private keys, passwords, passphrases, sudo passwords, tokens, or remote secrets. Remote Targets v1 does not install an agent on the server, upload remote scan results, run remote cleanup, run Docker prune/reset, run `rm`, run `find -delete`, or run sudo cleanup commands. `sudo -n true` is used only as a non-interactive capability probe.
+Remote Targets can read your local SSH config to list non-wildcard host aliases and can use the system `ssh` client to resolve and probe a target. Remote reports can include SSH aliases, resolved user/host/port values, known-host state, host-key fingerprint snippets, remote OS summary, remote home directory, remote paths, filesystem names, Docker object names, command IDs, exit codes, and short stdout/stderr previews. Saved remote growth reports compare local remote-scan audit records and can include target metadata, bucket names, remote paths or redacted path placeholders, size deltas, safety classes, and next-action labels. Ryddi does not store SSH private keys, passwords, passphrases, sudo passwords, tokens, or remote secrets. Remote Targets v1 does not install an agent on the server, upload remote scan results, run remote cleanup, run Docker prune/reset, run `rm`, run `find -delete`, or run sudo cleanup commands. `sudo -n true` is used only as a non-interactive capability probe.
 
 User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
 
@@ -92,8 +92,8 @@ Ryddi can write:
 - saved Markdown dogfood reports when you choose an output path;
 - saved native-tool preview reports;
 - saved container inventory reports;
-- saved remote probe and scan audit records;
-- saved remote Markdown evidence reports when you choose an output path or export from the app;
+- saved remote probe, scan, and local growth-history audit records;
+- saved remote Markdown evidence and growth reports when you choose an output path or export from the app;
 - saved active-file review reports;
 - saved report-only review reports for Downloads, browser caches, package caches, project dependencies, Xcode storage, device backups, and Trash;
 - saved user path policy for protections and exclusions;

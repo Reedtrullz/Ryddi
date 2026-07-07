@@ -1172,6 +1172,8 @@ struct ReclaimerCLI {
             try remoteNative(args: rest)
         case "plan":
             try remoteScan(args: rest, mode: "plan")
+        case "history":
+            try remoteHistory(args: rest)
         default:
             throw CLIError.message("Unknown remote command: \(subcommand)")
         }
@@ -1253,6 +1255,66 @@ struct ReclaimerCLI {
         } else {
             printRemoteNativeGuidance(report.nativeGuidance, target: report.target)
         }
+    }
+
+    static func remoteHistory(args: [String]) throws {
+        let subcommand = args.first?.hasPrefix("--") == true ? "list" : (args.first ?? "list")
+        let optionArgs = args.first?.hasPrefix("--") == true ? args : Array(args.dropFirst())
+        let options = ParsedOptions(optionArgs)
+        let store = AuditStore()
+        switch subcommand {
+        case "list":
+            let reports = store.recentRemoteScanReports(limit: options.limit)
+            if options.json {
+                printJSON(reports)
+            } else {
+                printRemoteScanHistory(reports)
+            }
+        case "diff", "report":
+            try options.validateReportPrivacyOptions()
+            let pair = try remoteHistoryPair(options: options, store: store)
+            let report = RemoteGrowthReportBuilder.build(
+                previous: pair.previous,
+                current: pair.current,
+                limit: options.limit,
+                privacy: options.reportPrivacy
+            )
+            if subcommand == "report", let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                FileHandle.standardError.write(Data("wrote remote growth report: \(url.path)\n".utf8))
+            }
+            if options.json {
+                printJSON(report)
+            } else if subcommand == "report", options.outputPath == nil {
+                print(report.markdown)
+            } else if subcommand == "diff" {
+                printRemoteGrowthDeltas(report)
+            }
+        default:
+            throw CLIError.message("remote history requires list, diff, or report")
+        }
+    }
+
+    static func remoteHistoryPair(options: ParsedOptions, store: AuditStore) throws -> (previous: RemoteScanReport, current: RemoteScanReport) {
+        if options.currentSnapshotID != nil || options.previousSnapshotID != nil {
+            guard let currentID = options.currentSnapshotID, let previousID = options.previousSnapshotID else {
+                throw CLIError.message("remote history requires both --current-id and --previous-id when comparing explicit remote scans")
+            }
+            guard let current = store.remoteScanReport(id: currentID) else {
+                throw CLIError.message("No saved remote scan report found for --current-id \(currentID)")
+            }
+            guard let previous = store.remoteScanReport(id: previousID) else {
+                throw CLIError.message("No saved remote scan report found for --previous-id \(previousID)")
+            }
+            return (previous, current)
+        }
+        let reports = store.recentRemoteScanReports(limit: 2)
+        guard reports.count == 2 else {
+            throw CLIError.message("remote history requires at least two saved remote scan reports")
+        }
+        return (reports[1], reports[0])
     }
 
     static func remoteTargetArgument(_ args: [String]) -> String? {
@@ -1750,6 +1812,10 @@ struct ReclaimerCLI {
                     [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
               remote native TARGET [--json] [--timeout SECONDS]
               remote plan TARGET [--preset vps-general] [--json] [--timeout SECONDS]
+              remote history [list] [--json] [--limit N]
+              remote history diff [--json] [--limit N] [--current-id ID --previous-id ID]
+              remote history report [--json] [--limit N] [--current-id ID --previous-id ID]
+                    [--path-style full|home-relative|redacted] [--output PATH]
               policy list [--json]
               policy protect PATH [--reason TEXT]
               policy exclude PATH [--reason TEXT]
@@ -4061,6 +4127,62 @@ func printRemoteNativeGuidance(_ guidance: [RemoteNativeGuidance], target: Remot
     for note in RemoteScanReport.defaultNonClaims {
         print("- \(note)")
     }
+}
+
+func printRemoteScanHistory(_ reports: [RemoteScanReport]) {
+    print("Ryddi remote scan history")
+    if reports.isEmpty {
+        print("No saved remote scan reports found.")
+        return
+    }
+    print("\(pad("Created", 22)) \(pad("Findings", 10)) \(pad("Bytes", 12)) Target")
+    for report in reports {
+        let bytes = report.findings.reduce(Int64(0)) { $0 + ($1.allocatedBytes ?? 0) }
+        let target = report.target.alias ?? report.target.input
+        let host = report.target.resolvedHost.map { " (\($0))" } ?? ""
+        print("\(pad(report.createdAt.formatted(), 22)) \(pad(String(report.findings.count), 10)) \(pad(ByteFormat.string(bytes), 12)) \(target)\(host)")
+        print("  id: \(report.id)")
+    }
+    print("\nNon-claims")
+    print("- Remote history reads saved local audit records only; it does not connect to servers.")
+    print("- A saved remote scan report can contain private host metadata and paths; review before sharing.")
+}
+
+func printRemoteGrowthDeltas(_ report: RemoteGrowthReport) {
+    print("Remote growth diff \(report.id)")
+    print("Target: \(report.target.alias ?? report.target.input)")
+    print("Previous: \(report.previousScanID) at \(report.previousCreatedAt.formatted())")
+    print("Current: \(report.currentScanID) at \(report.currentCreatedAt.formatted())")
+    print("Delta: \(signedBytes(report.deltaAllocatedBytes)) across saved finding bytes")
+
+    print("\nLargest bucket deltas")
+    if report.bucketDeltas.isEmpty {
+        print("No remote bucket deltas recorded.")
+    } else {
+        print("\(pad("Delta", 12)) \(pad("Current", 12)) \(pad("Previous", 12)) Bucket")
+        for delta in report.bucketDeltas {
+            print("\(pad(signedBytes(delta.deltaAllocatedBytes), 12)) \(pad(ByteFormat.string(delta.currentAllocatedBytes), 12)) \(pad(ByteFormat.string(delta.previousAllocatedBytes), 12)) \(delta.bucket)")
+        }
+    }
+
+    print("\nLargest path deltas")
+    if report.findingDeltas.isEmpty {
+        print("No remote path deltas recorded.")
+    } else {
+        print("\(pad("Delta", 12)) \(pad("Current", 12)) \(pad("Safety", 22)) Path")
+        for delta in report.findingDeltas {
+            print("\(pad(signedBytes(delta.deltaAllocatedBytes), 12)) \(pad(ByteFormat.string(delta.currentAllocatedBytes), 12)) \(pad(delta.currentSafetyClass?.label ?? "-", 22)) \(delta.displayPath)")
+        }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func signedBytes(_ bytes: Int64) -> String {
+    bytes > 0 ? "+\(ByteFormat.string(bytes))" : ByteFormat.string(bytes)
 }
 
 func printUserPathPolicy(_ policy: UserPathPolicy) {

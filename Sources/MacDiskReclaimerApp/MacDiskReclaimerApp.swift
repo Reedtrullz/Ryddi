@@ -1855,6 +1855,13 @@ struct RemoteTargetsView: View {
                             Label("Export Redacted", systemImage: "eye.slash")
                         }
                         .disabled(model.remoteScanReport == nil || model.isWorking)
+
+                        Button {
+                            Task { await model.exportRemoteRedactedGrowthReport() }
+                        } label: {
+                            Label("Export Growth", systemImage: "chart.line.uptrend.xyaxis")
+                        }
+                        .disabled(model.remoteGrowthReport == nil || model.isWorking)
                     }
                 }
 
@@ -1951,6 +1958,52 @@ struct RemoteTargetsView: View {
                         }
                     }
 
+                    if let growth = model.remoteGrowthReport {
+                        SectionBox(title: "Saved Growth") {
+                            HStack(spacing: 16) {
+                                MetricTile(title: "Saved scans", value: "\(growth.previousFindingCount) -> \(growth.currentFindingCount)")
+                                MetricTile(title: "Finding bytes", value: remoteSignedBytes(growth.deltaAllocatedBytes))
+                                MetricTile(title: "Buckets", value: "\(growth.bucketDeltas.count)")
+                                MetricTile(title: "Path deltas", value: "\(growth.findingDeltas.count)")
+                            }
+                            Text("Compares saved local remote scan audit records only. It does not reconnect to the host or prove current server state.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if !growth.bucketDeltas.isEmpty {
+                                Text("Largest bucket deltas")
+                                    .font(.headline)
+                                ForEach(growth.bucketDeltas.prefix(6)) { delta in
+                                    HStack {
+                                        Text(delta.bucket)
+                                        Spacer()
+                                        Text(remoteSignedBytes(delta.deltaAllocatedBytes))
+                                            .foregroundStyle(delta.deltaAllocatedBytes >= 0 ? .orange : .secondary)
+                                    }
+                                }
+                            }
+                            if !growth.findingDeltas.isEmpty {
+                                Text("Largest path deltas")
+                                    .font(.headline)
+                                ForEach(growth.findingDeltas.prefix(6)) { delta in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack {
+                                            Text(remoteSignedBytes(delta.deltaAllocatedBytes))
+                                                .font(.caption.weight(.semibold))
+                                            Text(delta.bucket)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            Spacer()
+                                        }
+                                        Text(delta.displayPath)
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     SectionBox(title: "Command Receipts") {
                         ForEach(report.commands, id: \.commandID) { command in
                             RemoteCommandOutcomeRow(command: command)
@@ -1974,6 +2027,13 @@ struct RemoteTargetsView: View {
                         .textSelection(.enabled)
                 }
 
+                if let url = model.lastRemoteGrowthReportExportURL {
+                    Text("Last remote growth export: \(url.path)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
                 if let error = model.error {
                     Text(error)
                         .foregroundStyle(.red)
@@ -1986,6 +2046,10 @@ struct RemoteTargetsView: View {
     private func remotePressureLabel(_ filesystems: [RemoteFilesystemSummary]) -> String {
         let maxPressure = filesystems.compactMap(\.capacityPercent).max()
         return maxPressure.map { "\($0)%" } ?? "Unknown"
+    }
+
+    private func remoteSignedBytes(_ bytes: Int64) -> String {
+        bytes > 0 ? "+\(ByteFormat.string(bytes))" : ByteFormat.string(bytes)
     }
 }
 
@@ -6441,6 +6505,7 @@ final class DashboardModel {
     var remoteTargetInput = ""
     var remoteProbeReport: RemoteProbeReport?
     var remoteScanReport: RemoteScanReport?
+    var remoteGrowthReport: RemoteGrowthReport?
     var activeFileReview: ActiveFileReviewReport?
     var trashReview: TrashReviewReport?
     var downloadsReview: DownloadsReviewReport?
@@ -6456,6 +6521,7 @@ final class DashboardModel {
     var lastGrowthReportExportURL: URL?
     var lastArchiveReviewExportURL: URL?
     var lastRemoteReportExportURL: URL?
+    var lastRemoteGrowthReportExportURL: URL?
     var lastPolicyExportURL: URL?
     var lastScopeSetExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
@@ -7088,6 +7154,15 @@ final class DashboardModel {
         if remoteScanReport == nil {
             remoteScanReport = recentRemoteScanReports.first
         }
+        if recentRemoteScanReports.count >= 2 {
+            remoteGrowthReport = RemoteGrowthReportBuilder.build(
+                previous: recentRemoteScanReports[1],
+                current: recentRemoteScanReports[0],
+                limit: 10
+            )
+        } else {
+            remoteGrowthReport = nil
+        }
         recentActiveFileReviewReports = store.recentActiveFileReviewReports()
         recentTrashReviewReports = store.recentTrashReviewReports()
         recentDownloadsReviewReports = store.recentDownloadsReviewReports()
@@ -7596,6 +7671,37 @@ final class DashboardModel {
                 return url
             }.value
             lastRemoteReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportRemoteRedactedGrowthReport() async {
+        guard remoteGrowthReport != nil, recentRemoteScanReports.count >= 2 else {
+            error = "Remote growth export needs at least two saved remote scans."
+            return
+        }
+        let previous = recentRemoteScanReports[1]
+        let current = recentRemoteScanReports[0]
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let url = try await Task.detached {
+                let privacy = ReportPrivacyOptions(pathStyle: .redacted)
+                let redacted = RemoteGrowthReportBuilder.build(
+                    previous: previous,
+                    current: current,
+                    limit: 25,
+                    privacy: privacy
+                )
+                let root = ReportStore.defaultRoot()
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                let url = root.appendingPathComponent("remote-growth-\(current.id).md")
+                try redacted.markdown.write(to: url, atomically: true, encoding: .utf8)
+                return url
+            }.value
+            lastRemoteGrowthReportExportURL = url
             error = nil
         } catch {
             self.error = error.localizedDescription

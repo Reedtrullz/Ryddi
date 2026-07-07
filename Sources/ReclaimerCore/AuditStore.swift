@@ -259,6 +259,10 @@ public final class AuditStore: @unchecked Sendable {
             .compactMap { try? decoder.decode(RemoteScanReport.self, from: Data(contentsOf: $0)) }
     }
 
+    public func remoteScanReport(id: String) -> RemoteScanReport? {
+        recentRemoteScanReports(limit: Int.max).first { $0.id == id }
+    }
+
     public func recentActiveFileReviewReports(limit: Int = 20) -> [ActiveFileReviewReport] {
         guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
             return []

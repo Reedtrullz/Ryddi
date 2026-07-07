@@ -419,8 +419,112 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertEqual(store.recentRemoteProbeReports().first?.id, probe.id)
         XCTAssertEqual(store.recentRemoteScanReports().first?.id, scan.id)
+        XCTAssertEqual(store.remoteScanReport(id: scan.id)?.id, scan.id)
         XCTAssertEqual(store.recentRemoteScanReports().first?.findings.first?.safetyClass, .preserveByDefault)
         XCTAssertTrue(store.recentRemoteScanReports().first?.nonClaims.contains { $0.contains("No cleanup was executed") } ?? false)
+    }
+
+    func testRemoteGrowthReportComparesSavedScansAndRedactsPaths() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let previous = RemoteScanReport(
+            id: "previous-remote",
+            createdAt: Date(timeIntervalSince1970: 10),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [
+                RemoteStorageFinding(
+                    remotePath: "/home/deploy/private-client/cache",
+                    displayPath: "/home/deploy/private-client/cache",
+                    bucket: "Remote storage",
+                    allocatedBytes: 100,
+                    safetyClass: .reviewRequired,
+                    actionKind: .openGuidance,
+                    evidence: [Evidence(kind: "remote.storage", message: "Previous size.")],
+                    recommendedNextAction: .reviewInFinder
+                ),
+                RemoteStorageFinding(
+                    remotePath: "/var/log/journal",
+                    displayPath: "/var/log/journal",
+                    bucket: "Journald logs",
+                    allocatedBytes: 20,
+                    safetyClass: .safeAfterCondition,
+                    actionKind: .nativeToolCommand,
+                    evidence: [Evidence(kind: "remote.journal", message: "Previous journals.")],
+                    recommendedNextAction: .useNativeTool
+                )
+            ],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+        let current = RemoteScanReport(
+            id: "current-remote",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [
+                RemoteStorageFinding(
+                    remotePath: "/home/deploy/private-client/cache",
+                    displayPath: "/home/deploy/private-client/cache",
+                    bucket: "Remote storage",
+                    allocatedBytes: 180,
+                    safetyClass: .reviewRequired,
+                    actionKind: .openGuidance,
+                    evidence: [Evidence(kind: "remote.storage", message: "Current size.")],
+                    recommendedNextAction: .reviewInFinder
+                ),
+                RemoteStorageFinding(
+                    remotePath: "/var/log/journal",
+                    displayPath: "/var/log/journal",
+                    bucket: "Journald logs",
+                    allocatedBytes: 10,
+                    safetyClass: .safeAfterCondition,
+                    actionKind: .nativeToolCommand,
+                    evidence: [Evidence(kind: "remote.journal", message: "Current journals.")],
+                    recommendedNextAction: .useNativeTool
+                )
+            ],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        let report = RemoteGrowthReportBuilder.build(
+            previous: previous,
+            current: current,
+            limit: 10,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted, homeDirectory: URL(fileURLWithPath: "/home/deploy")),
+            now: Date(timeIntervalSince1970: 30)
+        )
+
+        XCTAssertEqual(report.previousScanID, "previous-remote")
+        XCTAssertEqual(report.currentScanID, "current-remote")
+        XCTAssertEqual(report.previousAllocatedBytes, 120)
+        XCTAssertEqual(report.currentAllocatedBytes, 190)
+        XCTAssertEqual(report.deltaAllocatedBytes, 70)
+        XCTAssertEqual(report.bucketDeltas.first { $0.bucket == "Remote storage" }?.deltaAllocatedBytes, 80)
+        XCTAssertEqual(report.findingDeltas.first { $0.remotePath == "/home/deploy/private-client/cache" }?.deltaAllocatedBytes, 80)
+        XCTAssertTrue(report.markdown.contains("# Ryddi Remote Growth Report"))
+        XCTAssertTrue(report.markdown.contains("Largest Bucket Deltas"))
+        XCTAssertTrue(report.markdown.contains("Largest Path Deltas"))
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertFalse(report.markdown.contains("/home/deploy/private-client/cache"))
+        XCTAssertFalse(report.markdown.contains("private-client"))
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("No cleanup was executed") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("saved remote scan reports") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("Report privacy was applied") })
     }
 
     func testRemoteSSHRunnerBuildsSafeNonInteractiveInvocation() throws {
