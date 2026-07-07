@@ -18,7 +18,12 @@ public final class RemoteProbeBuilder: @unchecked Sendable {
 
     public init(target: RemoteTargetReference, runner: any ToolCommandRunning = ProcessToolCommandRunner(), timeout: TimeInterval = 15) {
         self.target = target
-        self.ssh = RemoteSSHCommandRunner(target: target, runner: runner, timeout: timeout)
+        self.ssh = RemoteSSHCommandRunner(
+            target: target,
+            runner: runner,
+            timeout: timeout,
+            connectTimeout: max(1, min(Int(timeout.rounded(.up)), 10))
+        )
     }
 
     public func probe() -> RemoteProbeReport {

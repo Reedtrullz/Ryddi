@@ -70,6 +70,8 @@ struct ReclaimerCLI {
             try native(args: args)
         case "containers":
             try containers(args: args)
+        case "remote":
+            try remote(args: args)
         case "policy":
             try policy(args: args)
         case "scan":
@@ -1152,6 +1154,127 @@ struct ReclaimerCLI {
         }
     }
 
+    static func remote(args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.message("remote requires targets, probe, scan, native, or plan")
+        }
+        let rest = Array(args.dropFirst())
+        switch subcommand {
+        case "execute", "prune", "reset":
+            throw CLIError.message("Remote \(subcommand) is not available in v1; Remote Targets are report-only and never run destructive cleanup.")
+        case "targets":
+            try remoteTargets(args: rest)
+        case "probe":
+            try remoteProbe(args: rest)
+        case "scan":
+            try remoteScan(args: rest, mode: "scan")
+        case "native":
+            try remoteNative(args: rest)
+        case "plan":
+            try remoteScan(args: rest, mode: "plan")
+        default:
+            throw CLIError.message("Unknown remote command: \(subcommand)")
+        }
+    }
+
+    static func remoteTargets(args: [String]) throws {
+        let subcommand = args.first ?? "list"
+        let options = ParsedOptions(Array(args.dropFirst()))
+        guard subcommand == "list" else {
+            throw CLIError.message("remote targets supports only: list")
+        }
+        let targets = RemoteTargetResolver().targets()
+        if options.json {
+            printJSON(targets)
+        } else {
+            printRemoteTargets(targets)
+        }
+    }
+
+    static func remoteProbe(args: [String]) throws {
+        let options = ParsedOptions(args)
+        guard let targetInput = remoteTargetArgument(args) else {
+            throw CLIError.message("remote probe requires TARGET")
+        }
+        let target = try RemoteTargetResolver().resolve(targetInput)
+        let report = RemoteProbeBuilder(target: target, timeout: options.timeoutSeconds).probe()
+        guard report.commands.contains(where: { $0.exitCode == 0 }) else {
+            throw CLIError.message("Remote probe could not reach \(targetInput) with read-only SSH commands; no cleanup was executed and no password prompt was requested.")
+        }
+        if options.saveAudit {
+            let url = try AuditStore().save(remoteProbeReport: report)
+            FileHandle.standardError.write(Data("saved remote probe report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else {
+            printRemoteProbeReport(report)
+        }
+    }
+
+    static func remoteScan(args: [String], mode: String) throws {
+        let options = ParsedOptions(args)
+        try options.validateReportPrivacyOptions()
+        guard let targetInput = remoteTargetArgument(args) else {
+            throw CLIError.message("remote \(mode) requires TARGET")
+        }
+        let target = try RemoteTargetResolver().resolve(targetInput)
+        let report = RemoteScanBuilder(target: target, timeout: options.timeoutSeconds).scan(
+            preset: try options.remoteScanPreset(),
+            privacy: options.reportPrivacy
+        )
+        if options.saveAudit {
+            let url = try AuditStore().save(remoteScanReport: report)
+            FileHandle.standardError.write(Data("saved remote scan report: \(url.path)\n".utf8))
+        }
+        if let output = options.outputPath {
+            let markdown = RemoteReportBuilder.build(report: report, privacy: options.reportPrivacy).markdown
+            let url = URL(fileURLWithPath: output).standardizedFileURL
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            FileHandle.standardError.write(Data("wrote remote report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else if options.outputPath == nil {
+            printRemoteScanReport(report, title: mode == "plan" ? "Remote Report-Only Plan" : "Remote Scan Report")
+        }
+    }
+
+    static func remoteNative(args: [String]) throws {
+        let options = ParsedOptions(args)
+        guard let targetInput = remoteTargetArgument(args) else {
+            throw CLIError.message("remote native requires TARGET")
+        }
+        let target = try RemoteTargetResolver().resolve(targetInput)
+        let report = RemoteScanBuilder(target: target, timeout: options.timeoutSeconds).scan()
+        if options.json {
+            printJSON(report.nativeGuidance)
+        } else {
+            printRemoteNativeGuidance(report.nativeGuidance, target: report.target)
+        }
+    }
+
+    static func remoteTargetArgument(_ args: [String]) -> String? {
+        var skipNext = false
+        let valueFlags = Set(["--timeout", "--preset", "--path-style", "--output"])
+        for arg in args {
+            if skipNext {
+                skipNext = false
+                continue
+            }
+            if valueFlags.contains(arg) {
+                skipNext = true
+                continue
+            }
+            if arg.hasPrefix("--") {
+                continue
+            }
+            return arg
+        }
+        return nil
+    }
+
     static func policy(args: [String]) throws {
         guard let subcommand = args.first else {
             throw CLIError.message("policy requires list, protect, exclude, remove, export, or import")
@@ -1621,6 +1744,12 @@ struct ReclaimerCLI {
               native run --command-id COMMAND_ID [--dry-run|--yes] [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
                      [--finding-path PATH] [--timeout SECONDS] [--save-audit] [--include-user-rules]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
+              remote targets list [--json]
+              remote probe TARGET [--json] [--timeout SECONDS] [--save-audit]
+              remote scan TARGET [--preset vps-general] [--json] [--timeout SECONDS]
+                    [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
+              remote native TARGET [--json] [--timeout SECONDS]
+              remote plan TARGET [--preset vps-general] [--json] [--timeout SECONDS]
               policy list [--json]
               policy protect PATH [--reason TEXT]
               policy exclude PATH [--reason TEXT]
@@ -1790,6 +1919,15 @@ struct ParsedOptions {
     func scopePreset() throws -> ScanScopePreset {
         guard let preset = ScanScopePreset(rawValue: presetName) else {
             let allowed = ScanScopePreset.allCases.map(\.rawValue).joined(separator: ", ")
+            throw CLIError.message("--preset must be one of: \(allowed)")
+        }
+        return preset
+    }
+
+    func remoteScanPreset() throws -> RemoteScanPreset {
+        let raw = value(after: "--preset") ?? RemoteScanPreset.vpsGeneral.rawValue
+        guard let preset = RemoteScanPreset(rawValue: raw) else {
+            let allowed = RemoteScanPreset.allCases.map(\.rawValue).joined(separator: ", ")
             throw CLIError.message("--preset must be one of: \(allowed)")
         }
         return preset
@@ -3816,6 +3954,111 @@ func printContainerInventoryReport(_ report: ContainerInventoryReport, options: 
 
     print("\nNon-claims")
     for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printRemoteTargets(_ targets: [RemoteTargetReference]) {
+    print("Ryddi remote targets")
+    if targets.isEmpty {
+        print("No non-wildcard SSH aliases found in ~/.ssh/config.")
+        return
+    }
+    for target in targets {
+        print("- \(target.input)")
+    }
+}
+
+func printRemoteProbeReport(_ report: RemoteProbeReport) {
+    print("Remote probe \(report.id)")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Target: \(report.target.alias ?? report.target.input)")
+    print("Host: \(report.target.resolvedHost ?? "unknown")")
+    print("User: \(report.target.resolvedUser ?? "unknown")")
+    print("Host key: \(report.target.knownHostsState)")
+    print("OS: \(report.osSummary ?? "unknown")")
+    print("Home: \(report.homeDirectory ?? "unknown")")
+    if let sudo = report.sudoNonInteractive {
+        print("Non-interactive sudo: \(sudo ? "available" : "not available")")
+    }
+    if !report.availableTools.isEmpty {
+        print("Tools: \(report.availableTools.joined(separator: ", "))")
+    }
+    print("\nRead-only commands")
+    for command in report.commands {
+        let code = command.exitCode.map(String.init) ?? "blocked"
+        print("- [exit \(code)] \(command.displayCommand)")
+        if let stderr = command.stderrPreview.first {
+            print("  \(stderr)")
+        }
+    }
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
+    print("\(title) \(report.id)")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Target: \(report.target.alias ?? report.target.input)")
+    print("Host: \(report.target.resolvedHost ?? "unknown")")
+    print("Preset: \(report.preset.rawValue)")
+    if !report.diskFilesystems.isEmpty {
+        print("\nFilesystems")
+        for filesystem in report.diskFilesystems {
+            let capacity = filesystem.capacityPercent.map { "\($0)%" } ?? "-"
+            let used = filesystem.usedBytes.map(ByteFormat.string) ?? "-"
+            print("- \(filesystem.mount): \(used) used, \(capacity)")
+        }
+    }
+    if !report.findings.isEmpty {
+        print("\nFindings")
+        print("\(pad("Bucket", 22)) \(pad("Size", 12)) \(pad("Safety", 22)) Next action")
+        for finding in report.findings.sorted(by: { ($0.allocatedBytes ?? 0) > ($1.allocatedBytes ?? 0) }).prefix(40) {
+            let size = finding.allocatedBytes.map(ByteFormat.string) ?? "-"
+            print("\(pad(finding.bucket, 22)) \(pad(size, 12)) \(pad(finding.safetyClass.label, 22)) \(finding.recommendedNextAction.label)")
+            print("  \(finding.displayPath)")
+        }
+    } else {
+        print("\nNo remote findings produced.")
+    }
+    if !report.nativeGuidance.isEmpty {
+        print("\nNative guidance")
+        for item in report.nativeGuidance {
+            print("- \(item.title): \(item.command)")
+            print("  \(item.summary)")
+        }
+    }
+    print("\nRead-only commands")
+    for command in report.commands.prefix(40) {
+        let code = command.exitCode.map(String.init) ?? "blocked"
+        print("- [exit \(code)] \(command.displayCommand)")
+        if let stderr = command.stderrPreview.first {
+            print("  \(stderr)")
+        }
+    }
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printRemoteNativeGuidance(_ guidance: [RemoteNativeGuidance], target: RemoteTargetReference) {
+    print("Remote native guidance")
+    print("Target: \(target.alias ?? target.input)")
+    if guidance.isEmpty {
+        print("No remote native guidance generated.")
+    } else {
+        for item in guidance {
+            print("\n\(item.title)")
+            print("Command: \(item.command)")
+            print("Risk: \(item.risk)")
+            print(item.summary)
+        }
+    }
+    print("\nNon-claims")
+    for note in RemoteScanReport.defaultNonClaims {
         print("- \(note)")
     }
 }
