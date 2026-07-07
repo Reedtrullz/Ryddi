@@ -82,3 +82,44 @@ Result:
   - `swift test --scratch-path "$PWD/.build" --filter ReclaimerCoreTests/testAuditStoreMatchesRemoteTargetsByIdInputAndAliasAndPrefersLatestScan`
   - shell smoke with `RYDDI_AUDIT_ROOT` temp JSON fixtures and `reclaimer remote dogfood --from-audit alias-prod-vps --path-style redacted --json`
   - shell check that `reclaimer remote` error text includes `dogfood`
+
+## Fix Follow-up 2
+
+- Restored resolved remote identity fallback in `AuditStore.latestRemoteScanReport(matching:)` and `latestRemoteProbeReport(matching:)` so saved host/user/port matches still work when ids or aliases drift.
+- Added `AuditStore.latestRemoteProbeReport(forConcreteTarget:)` for the narrower `--from-audit` scan-to-probe pairing path.
+- Updated `remote dogfood --from-audit` to attach a probe only when it belongs to the same concrete saved target as the selected scan, which prevents newer alias-colliding probes from a different target from being reused.
+- Added a regression test that selects a scan by id and proves a newer probe from another target with the same alias is not paired.
+
+### Commands run
+
+```bash
+df -h /System/Volumes/Data
+```
+
+Result:
+
+- `73Gi` free before the Swift test/build loop.
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter ReclaimerCoreTests/testAuditStoreMatchesResolvedTargetsByHostUserAndPortWhenIdsDiffer
+```
+
+Result:
+
+- Failed before the fix with `XCTAssertEqual` mismatches for both saved probe and scan lookup, confirming the resolved-identity regression.
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter 'ReclaimerCoreTests/(testAuditStoreMatchesResolvedTargetsByHostUserAndPortWhenIdsDiffer|testAuditStoreMatchesRemoteTargetsByIdInputAndAliasAndPrefersLatestScan|testAuditStoreSelectsProbeForSameConcreteTargetAsSelectedScan)'
+```
+
+Result:
+
+- Passed after the fix: `Executed 3 tests, with 0 failures`.
+
+```bash
+swift build --scratch-path "$PWD/.build"
+```
+
+Result:
+
+- Passed.

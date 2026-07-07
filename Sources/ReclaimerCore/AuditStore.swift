@@ -289,6 +289,10 @@ public final class AuditStore: @unchecked Sendable {
         recentRemoteProbeReports(limit: Int.max).first { localTargetMatches($0.target, target) }
     }
 
+    public func latestRemoteProbeReport(forConcreteTarget target: RemoteTargetReference) -> RemoteProbeReport? {
+        recentRemoteProbeReports(limit: Int.max).first { concreteTargetMatches($0.target, target) }
+    }
+
     public func remoteScanReport(id: String) -> RemoteScanReport? {
         recentRemoteScanReports(limit: Int.max).first { $0.id == id }
     }
@@ -429,11 +433,38 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     private func localTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
-        !localTargetIdentifiers(lhs).isDisjoint(with: localTargetIdentifiers(rhs))
+        resolvedTargetMatches(lhs, rhs) || !localTargetIdentifiers(lhs).isDisjoint(with: localTargetIdentifiers(rhs))
+    }
+
+    private func concreteTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
+        if resolvedTargetMatches(lhs, rhs) {
+            return true
+        }
+        guard
+            let leftID = normalizedIdentity(lhs.id),
+            let rightID = normalizedIdentity(rhs.id)
+        else {
+            return false
+        }
+        return leftID == rightID
     }
 
     private func localTargetIdentifiers(_ target: RemoteTargetReference) -> Set<String> {
         Set([target.id, target.input, target.alias].compactMap(normalizedIdentity))
+    }
+
+    private func resolvedTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
+        guard
+            let leftUser = normalizedIdentity(lhs.resolvedUser),
+            let rightUser = normalizedIdentity(rhs.resolvedUser),
+            let leftHost = normalizedIdentity(lhs.resolvedHost),
+            let rightHost = normalizedIdentity(rhs.resolvedHost),
+            let leftPort = lhs.resolvedPort,
+            let rightPort = rhs.resolvedPort
+        else {
+            return false
+        }
+        return leftUser == rightUser && leftHost == rightHost && leftPort == rightPort
     }
 
     private func normalizedIdentity(_ value: String?) -> String? {

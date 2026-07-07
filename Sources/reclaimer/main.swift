@@ -1263,7 +1263,7 @@ struct ReclaimerCLI {
                 throw CLIError.message("remote dogfood --from-audit found no saved remote scan for \(targetInput)")
             }
             scan = latestScan
-            probe = store.latestRemoteProbeReport(matching: scan.target)
+            probe = store.latestRemoteProbeReport(forConcreteTarget: scan.target)
         } else {
             let target = try RemoteTargetResolver().resolve(targetInput)
             let liveProbe = RemoteProbeBuilder(target: target, timeout: options.timeoutSeconds).probe()

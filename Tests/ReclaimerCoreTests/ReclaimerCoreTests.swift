@@ -652,6 +652,76 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.latestRemoteScanReport(matching: idQuery)?.id, firstScan.id)
     }
 
+    func testAuditStoreSelectsProbeForSameConcreteTargetAsSelectedScan() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let selectedTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "shared-alias",
+            resolvedUser: nil,
+            resolvedHost: nil,
+            resolvedPort: nil,
+            knownHostsState: "unknown",
+            fingerprint: nil
+        )
+        let collidingTarget = RemoteTargetReference(
+            id: "target-002",
+            input: "prod-vps-shadow",
+            alias: "shared-alias",
+            resolvedUser: nil,
+            resolvedHost: nil,
+            resolvedPort: nil,
+            knownHostsState: "unknown",
+            fingerprint: nil
+        )
+
+        let selectedProbe = RemoteProbeReport(
+            id: "probe-selected",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: selectedTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let selectedScan = RemoteScanReport(
+            id: "scan-selected",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: selectedTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+        let newerCollidingProbe = RemoteProbeReport(
+            id: "probe-colliding",
+            createdAt: Date(timeIntervalSince1970: 30),
+            target: collidingTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: selectedProbe)
+        _ = try store.save(remoteScanReport: selectedScan)
+        _ = try store.save(remoteProbeReport: newerCollidingProbe)
+
+        let idQuery = RemoteTargetReference(input: "target-001")
+        let scan = try XCTUnwrap(store.latestRemoteScanReport(matching: idQuery))
+
+        XCTAssertEqual(scan.id, selectedScan.id)
+        XCTAssertEqual(store.latestRemoteProbeReport(forConcreteTarget: scan.target)?.id, selectedProbe.id)
+    }
+
     func testRemoteGrowthReportComparesSavedScansAndRedactsPaths() throws {
         let target = RemoteTargetReference(
             input: "prod-vps",
