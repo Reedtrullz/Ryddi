@@ -60,3 +60,34 @@ The implementation stays inside the requested scope and follows the existing aud
 
 - Target matching is intentionally permissive across `id` and resolved host/user/port so stored probe/scan evidence can still be found when the alias or input string changes.
 - I did not run the full test suite, only the focused regression test requested by the task brief.
+
+## Follow-up Regression
+
+Added coverage for the reviewer finding that unresolved targets could cross-match when all resolved fields were `nil`.
+
+### RED
+
+Ran:
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter AuditStore
+```
+
+Observed failures before the matcher fix:
+
+- `testAuditStoreDoesNotCrossMatchUnresolvedRemoteTargets` returned probe/scan evidence for an unrelated unresolved target.
+
+### GREEN
+
+Ran the same focused slice after the matcher fix:
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter AuditStore
+```
+
+Result: passed.
+
+## Updated Files
+
+- `Sources/ReclaimerCore/AuditStore.swift`
+- `Tests/ReclaimerCoreTests/ReclaimerCoreTests.swift`

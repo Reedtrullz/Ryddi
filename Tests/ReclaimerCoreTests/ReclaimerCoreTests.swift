@@ -469,6 +469,105 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.latestRemoteProbeReport(matching: target)?.id, probe.id)
     }
 
+    func testAuditStoreDoesNotCrossMatchUnresolvedRemoteTargets() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let unresolvedA = RemoteTargetReference(
+            input: "unresolved-a",
+            alias: "unresolved-a",
+            knownHostsState: "unknown"
+        )
+        let unresolvedB = RemoteTargetReference(
+            input: "unresolved-b",
+            alias: "unresolved-b",
+            knownHostsState: "unknown"
+        )
+
+        let probe = RemoteProbeReport(
+            id: "probe-unresolved",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: unresolvedA,
+            osSummary: "Unknown",
+            homeDirectory: "/home/unknown",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            id: "scan-unresolved",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: unresolvedA,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+
+        XCTAssertNil(store.latestRemoteProbeReport(matching: unresolvedB))
+        XCTAssertNil(store.latestRemoteScanReport(matching: unresolvedB))
+    }
+
+    func testAuditStoreMatchesResolvedTargetsByHostUserAndPortWhenIdsDiffer() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let storedTarget = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let queryTarget = RemoteTargetReference(
+            id: "different-id",
+            input: "alias-changed",
+            alias: "alias-changed",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+
+        let probe = RemoteProbeReport(
+            id: "probe-resolved",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: storedTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            id: "scan-resolved",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: storedTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+
+        XCTAssertEqual(store.latestRemoteProbeReport(matching: queryTarget)?.id, probe.id)
+        XCTAssertEqual(store.latestRemoteScanReport(matching: queryTarget)?.id, scan.id)
+    }
+
     func testRemoteGrowthReportComparesSavedScansAndRedactsPaths() throws {
         let target = RemoteTargetReference(
             input: "prod-vps",

@@ -429,10 +429,18 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     private func remoteTargetsMatch(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
-        lhs.id == rhs.id || (
-            lhs.resolvedHost == rhs.resolvedHost &&
-                lhs.resolvedUser == rhs.resolvedUser &&
-                lhs.resolvedPort == rhs.resolvedPort
-        )
+        if lhs.id == rhs.id {
+            return true
+        }
+        guard hasResolvedIdentity(lhs), hasResolvedIdentity(rhs) else {
+            return false
+        }
+        return lhs.resolvedHost == rhs.resolvedHost &&
+            lhs.resolvedUser == rhs.resolvedUser &&
+            lhs.resolvedPort == rhs.resolvedPort
+    }
+
+    private func hasResolvedIdentity(_ target: RemoteTargetReference) -> Bool {
+        target.resolvedHost != nil || target.resolvedUser != nil || target.resolvedPort != nil
     }
 }
