@@ -2044,6 +2044,8 @@ final class ReclaimerCoreTests: XCTestCase {
           "scripts": {
             "build": "vite build",
             "clean": "rimraf dist coverage",
+            "deploy": "vercel --prod --token=abc123",
+            "postinstall": "node scripts/postinstall.js",
             "test:coverage": "vitest --coverage",
             "bad script": "echo unsafe"
           }
@@ -2074,10 +2076,25 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(modules.toolingInfo.toolSource, "package.json packageManager")
         XCTAssertTrue(modules.toolingInfo.packageScripts.contains("build"))
         XCTAssertTrue(modules.toolingInfo.packageScripts.contains("clean"))
+        XCTAssertTrue(modules.toolingInfo.packageScripts.contains("deploy"))
+        XCTAssertTrue(modules.toolingInfo.packageScripts.contains("postinstall"))
         XCTAssertTrue(modules.toolingInfo.packageScripts.contains("test:coverage"))
         XCTAssertFalse(modules.toolingInfo.packageScripts.contains("bad script"))
+        let scriptReviewsByName = Dictionary(uniqueKeysWithValues: modules.toolingInfo.scriptReviews.map { ($0.name, $0) })
+        XCTAssertEqual(scriptReviewsByName["build"]?.risk, .rebuild)
+        XCTAssertEqual(scriptReviewsByName["clean"]?.risk, .cleanup)
+        XCTAssertEqual(scriptReviewsByName["deploy"]?.risk, .networkOrPublishReview)
+        XCTAssertEqual(scriptReviewsByName["deploy"]?.commandPreview, "vercel --prod --token=[redacted]")
+        XCTAssertEqual(scriptReviewsByName["postinstall"]?.risk, .lifecycle)
+        XCTAssertEqual(scriptReviewsByName["test:coverage"]?.risk, .test)
+        XCTAssertFalse(scriptReviewsByName["deploy"]?.isCommandHintEligible ?? true)
         XCTAssertTrue(modules.signals.contains("tool-pnpm"))
         XCTAssertTrue(modules.signals.contains("package-json-scripts"))
+        XCTAssertTrue(modules.signals.contains("script-review"))
+        XCTAssertTrue(modules.signals.contains("script-risk-cleanup"))
+        XCTAssertTrue(modules.signals.contains("script-risk-network-or-publish-review"))
+        XCTAssertTrue(modules.signals.contains("script-risk-package-lifecycle"))
+        XCTAssertTrue(modules.signals.contains("script-manual-review"))
         XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm install --frozen-lockfile" })
         XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm run clean" })
 
@@ -2091,10 +2108,52 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.toolSummaries.contains { $0.name == "pnpm" && $0.itemCount >= 3 })
         XCTAssertTrue(report.scriptSummaries.contains { $0.name == "build" && $0.itemCount >= 3 })
         XCTAssertTrue(report.scriptSummaries.contains { $0.name == "clean" && $0.itemCount >= 3 })
-        XCTAssertTrue(report.nonClaims.contains { $0.contains("package.json scripts") })
+        XCTAssertTrue(report.scriptRiskSummaries.contains { $0.name == ProjectDependencyScriptRisk.cleanup.label && $0.itemCount >= 3 })
+        XCTAssertTrue(report.scriptRiskSummaries.contains { $0.name == ProjectDependencyScriptRisk.networkOrPublishReview.label && $0.itemCount >= 3 })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("package.json script names") })
         let protectedRoot = try XCTUnwrap(report.protectedProjectRoots.first { $0.projectName == "ScriptedWeb" })
         XCTAssertEqual(protectedRoot.toolingInfo.toolName, "pnpm")
         XCTAssertTrue(protectedRoot.toolingInfo.packageScripts.contains("build"))
+        XCTAssertEqual(protectedRoot.toolingInfo.scriptReview(named: "clean")?.risk, .cleanup)
+    }
+
+    func testProjectDependencyReviewBlocksDangerousPackageScriptCommandHints() throws {
+        let projects = tempRoot.appendingPathComponent("Projects", isDirectory: true)
+        let webApp = projects.appendingPathComponent("DangerousClean", isDirectory: true)
+        let packageJSON = """
+        {
+          "packageManager": "npm@10.8.0",
+          "scripts": {
+            "clean": "rm -rf ~",
+            "build": "vite build"
+          }
+        }
+        """
+        try FileManager.default.createDirectory(at: webApp.appendingPathComponent("node_modules/react"), withIntermediateDirectories: true)
+        try packageJSON.write(to: webApp.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try "lockfile\n".write(to: webApp.appendingPathComponent("package-lock.json"), atomically: true, encoding: .utf8)
+        try "react package\n".write(to: webApp.appendingPathComponent("node_modules/react/index.js"), atomically: true, encoding: .utf8)
+
+        let report = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                roots: [projects],
+                limit: 20,
+                maximumSearchDepth: 4,
+                measurementDepth: 6
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        let modules = try XCTUnwrap(report.largestItems.first { $0.projectName == "DangerousClean" && $0.kind == .nodeModules })
+        let cleanReview = try XCTUnwrap(modules.toolingInfo.scriptReview(named: "clean"))
+        XCTAssertEqual(cleanReview.risk, .destructiveReview)
+        XCTAssertFalse(cleanReview.isCommandHintEligible)
+        XCTAssertTrue(modules.signals.contains("script-risk-destructive-review"))
+        XCTAssertTrue(modules.signals.contains("script-manual-review"))
+        XCTAssertTrue(modules.commandHints.contains { $0.command == "npm ci" })
+        XCTAssertFalse(modules.commandHints.contains { $0.command == "npm run clean" })
+        XCTAssertFalse(modules.signals.contains("script-command-hint"))
+        XCTAssertTrue(report.scriptRiskSummaries.contains { $0.name == ProjectDependencyScriptRisk.destructiveReview.label && $0.itemCount >= 1 })
     }
 
     func testProjectDependencyReviewDetectsWorkspaceContext() throws {

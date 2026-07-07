@@ -164,11 +164,75 @@ public struct ProjectDependencyVCSInfo: Codable, Hashable, Sendable {
     )
 }
 
+public enum ProjectDependencyScriptRisk: String, Codable, CaseIterable, Hashable, Sendable {
+    case rebuild
+    case cleanup
+    case test
+    case lifecycle
+    case destructiveReview
+    case networkOrPublishReview
+    case unknown
+
+    public var label: String {
+        switch self {
+        case .rebuild: return "Rebuild or generate"
+        case .cleanup: return "Cleanup"
+        case .test: return "Test or quality check"
+        case .lifecycle: return "Package lifecycle"
+        case .destructiveReview: return "Destructive review"
+        case .networkOrPublishReview: return "Network or publish review"
+        case .unknown: return "Unknown"
+        }
+    }
+
+    public var requiresManualReview: Bool {
+        switch self {
+        case .rebuild, .cleanup, .test:
+            return false
+        case .lifecycle, .destructiveReview, .networkOrPublishReview, .unknown:
+            return true
+        }
+    }
+
+    public var isCommandHintEligible: Bool {
+        switch self {
+        case .rebuild, .cleanup, .test:
+            return true
+        case .lifecycle, .destructiveReview, .networkOrPublishReview, .unknown:
+            return false
+        }
+    }
+}
+
+public struct ProjectDependencyScriptInfo: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let commandPreview: String
+    public let risk: ProjectDependencyScriptRisk
+    public let evidence: [String]
+    public let isCommandHintEligible: Bool
+
+    public init(
+        name: String,
+        commandPreview: String,
+        risk: ProjectDependencyScriptRisk,
+        evidence: [String] = [],
+        isCommandHintEligible: Bool? = nil
+    ) {
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.commandPreview = commandPreview.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.risk = risk
+        self.evidence = Array(Set(evidence.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap(\.nilIfEmpty))).sorted().prefixArray(12)
+        self.isCommandHintEligible = isCommandHintEligible ?? risk.isCommandHintEligible
+    }
+}
+
 public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
     public let toolName: String?
     public let toolVersion: String?
     public let toolSource: String?
     public let packageScripts: [String]
+    public let scriptReviews: [ProjectDependencyScriptInfo]
     public let notes: [String]
 
     public init(
@@ -176,12 +240,25 @@ public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
         toolVersion: String? = nil,
         toolSource: String? = nil,
         packageScripts: [String] = [],
+        scriptReviews: [ProjectDependencyScriptInfo] = [],
         notes: [String] = []
     ) {
         self.toolName = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.toolVersion = toolVersion?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.toolSource = toolSource?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        self.packageScripts = Array(Set(packageScripts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap(\.nilIfEmpty))).sorted().prefixArray(50)
+        let normalizedReviews = scriptReviews
+            .filter { !$0.name.isEmpty }
+            .reduce(into: [String: ProjectDependencyScriptInfo]()) { partial, review in
+                partial[review.name] = review
+            }
+            .values
+            .sorted { $0.name < $1.name }
+            .prefixArray(50)
+        self.scriptReviews = normalizedReviews
+        self.packageScripts = Array(Set(
+            packageScripts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap(\.nilIfEmpty)
+                + normalizedReviews.map(\.name)
+        )).sorted().prefixArray(50)
         self.notes = Array(Set(notes.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap(\.nilIfEmpty))).sorted().prefixArray(20)
     }
 
@@ -193,6 +270,41 @@ public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
             return "\(toolName) \(toolVersion)"
         }
         return toolName
+    }
+
+    public func scriptReview(named name: String) -> ProjectDependencyScriptInfo? {
+        scriptReviews.first { $0.name == name }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case toolName
+        case toolVersion
+        case toolSource
+        case packageScripts
+        case scriptReviews
+        case notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            toolName: try container.decodeIfPresent(String.self, forKey: .toolName),
+            toolVersion: try container.decodeIfPresent(String.self, forKey: .toolVersion),
+            toolSource: try container.decodeIfPresent(String.self, forKey: .toolSource),
+            packageScripts: try container.decodeIfPresent([String].self, forKey: .packageScripts) ?? [],
+            scriptReviews: try container.decodeIfPresent([ProjectDependencyScriptInfo].self, forKey: .scriptReviews) ?? [],
+            notes: try container.decodeIfPresent([String].self, forKey: .notes) ?? []
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(toolName, forKey: .toolName)
+        try container.encodeIfPresent(toolVersion, forKey: .toolVersion)
+        try container.encodeIfPresent(toolSource, forKey: .toolSource)
+        try container.encode(packageScripts, forKey: .packageScripts)
+        try container.encode(scriptReviews, forKey: .scriptReviews)
+        try container.encode(notes, forKey: .notes)
     }
 }
 
@@ -598,6 +710,7 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
     public let kindSummaries: [ProjectDependencySummary]
     public let toolSummaries: [ProjectDependencySummary]
     public let scriptSummaries: [ProjectDependencySummary]
+    public let scriptRiskSummaries: [ProjectDependencySummary]
     public let workspaceSummaries: [ProjectDependencySummary]
     public let vcsSummaries: [ProjectDependencySummary]
     public let policySummaries: [ProjectDependencySummary]
@@ -624,6 +737,7 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         kindSummaries: [ProjectDependencySummary],
         toolSummaries: [ProjectDependencySummary] = [],
         scriptSummaries: [ProjectDependencySummary] = [],
+        scriptRiskSummaries: [ProjectDependencySummary] = [],
         workspaceSummaries: [ProjectDependencySummary] = [],
         vcsSummaries: [ProjectDependencySummary] = [],
         policySummaries: [ProjectDependencySummary] = [],
@@ -649,6 +763,7 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         self.kindSummaries = kindSummaries
         self.toolSummaries = toolSummaries
         self.scriptSummaries = scriptSummaries
+        self.scriptRiskSummaries = scriptRiskSummaries
         self.workspaceSummaries = workspaceSummaries
         self.vcsSummaries = vcsSummaries
         self.policySummaries = policySummaries
@@ -676,6 +791,7 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         case kindSummaries
         case toolSummaries
         case scriptSummaries
+        case scriptRiskSummaries
         case workspaceSummaries
         case vcsSummaries
         case policySummaries
@@ -704,6 +820,7 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         kindSummaries = try container.decode([ProjectDependencySummary].self, forKey: .kindSummaries)
         toolSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .toolSummaries) ?? []
         scriptSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .scriptSummaries) ?? []
+        scriptRiskSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .scriptRiskSummaries) ?? []
         workspaceSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .workspaceSummaries) ?? []
         vcsSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .vcsSummaries) ?? []
         policySummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .policySummaries) ?? []
@@ -732,6 +849,7 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         try container.encode(kindSummaries, forKey: .kindSummaries)
         try container.encode(toolSummaries, forKey: .toolSummaries)
         try container.encode(scriptSummaries, forKey: .scriptSummaries)
+        try container.encode(scriptRiskSummaries, forKey: .scriptRiskSummaries)
         try container.encode(workspaceSummaries, forKey: .workspaceSummaries)
         try container.encode(vcsSummaries, forKey: .vcsSummaries)
         try container.encode(policySummaries, forKey: .policySummaries)
@@ -857,6 +975,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             kindSummaries: Self.kindSummaries(for: sortedItems),
             toolSummaries: Self.toolSummaries(for: sortedItems),
             scriptSummaries: Self.scriptSummaries(for: sortedItems),
+            scriptRiskSummaries: Self.scriptRiskSummaries(for: sortedItems),
             workspaceSummaries: Self.workspaceSummaries(for: sortedItems),
             vcsSummaries: Self.vcsSummaries(for: sortedItems),
             policySummaries: Self.policySummaries(for: sortedItems),
@@ -1098,6 +1217,16 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         if !metadata.toolingInfo.packageScripts.isEmpty {
             signals.append("package-json-scripts")
         }
+        if !metadata.toolingInfo.scriptReviews.isEmpty {
+            signals.append("script-review")
+            let risks = Set(metadata.toolingInfo.scriptReviews.map(\.risk))
+            for risk in ProjectDependencyScriptRisk.allCases where risks.contains(risk) {
+                signals.append("script-risk-\(Self.signalToken(risk.label))")
+            }
+            if metadata.toolingInfo.scriptReviews.contains(where: { $0.risk.requiresManualReview }) {
+                signals.append("script-manual-review")
+            }
+        }
         if metadata.workspaceInfo.isWorkspace {
             signals.append("workspace-detected")
             if let kind = metadata.workspaceInfo.kind {
@@ -1263,7 +1392,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         var toolName: String?
         var toolVersion: String?
         var toolSource: String?
-        var scripts: [String] = []
+        var scriptReviews: [ProjectDependencyScriptInfo] = []
         var notes: [String] = []
 
         if hints.contains("package.json") {
@@ -1273,7 +1402,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                 toolVersion = packageInfo.toolVersion
                 toolSource = "package.json packageManager"
             }
-            scripts = packageInfo.scripts
+            scriptReviews = packageInfo.scriptReviews
             notes.append(contentsOf: packageInfo.notes)
         }
 
@@ -1286,7 +1415,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             toolName: toolName,
             toolVersion: toolVersion,
             toolSource: toolSource,
-            packageScripts: scripts,
+            scriptReviews: scriptReviews,
             notes: notes
         )
     }
@@ -1306,6 +1435,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             toolVersion: workspace.toolingInfo.toolVersion,
             toolSource: workspace.toolingInfo.toolSource.map { "workspace \($0)" } ?? "workspace root",
             packageScripts: project.packageScripts,
+            scriptReviews: project.scriptReviews,
             notes: notes
         )
     }
@@ -1405,7 +1535,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         )
     }
 
-    private func packageJSONTooling(at url: URL) -> (toolName: String?, toolVersion: String?, scripts: [String], notes: [String]) {
+    private func packageJSONTooling(at url: URL) -> (toolName: String?, toolVersion: String?, scriptReviews: [ProjectDependencyScriptInfo], notes: [String]) {
         var notes: [String] = []
         guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]) else {
             return (nil, nil, [], [])
@@ -1428,29 +1558,33 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
 
         let rawScripts = (json["scripts"] as? [String: Any]) ?? [:]
         var omittedUnsafeScriptName = false
-        let scripts = rawScripts.compactMap { key, value -> String? in
-            guard value is String else { return nil }
+        let scriptReviews = rawScripts.compactMap { key, value -> ProjectDependencyScriptInfo? in
+            guard let command = value as? String else { return nil }
             let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
             guard Self.isSafePackageScriptName(trimmed) else {
                 omittedUnsafeScriptName = true
                 return nil
             }
-            return trimmed
-        }.sorted()
+            return Self.packageScriptReview(name: trimmed, command: command)
+        }.sorted { $0.name < $1.name }
 
-        if !scripts.isEmpty {
-            notes.append("Detected package.json scripts: \(scripts.prefix(12).joined(separator: ", ")).")
+        if !scriptReviews.isEmpty {
+            notes.append("Detected package.json scripts: \(scriptReviews.map(\.name).prefix(12).joined(separator: ", ")).")
         } else if !rawScripts.isEmpty {
-            notes.append("package.json scripts were present but no simple script names were accepted for command hints.")
+            notes.append("package.json scripts were present but no simple script names were accepted for review.")
         } else {
             notes.append("package.json has no scripts object.")
+        }
+        let manualReviewScripts = scriptReviews.filter { $0.risk.requiresManualReview }.map(\.name)
+        if !manualReviewScripts.isEmpty {
+            notes.append("Some package.json scripts need manual review before command hints: \(manualReviewScripts.prefix(12).joined(separator: ", ")).")
         }
         if omittedUnsafeScriptName {
             notes.append("Some package.json script names were omitted because they are not simple command names.")
         }
 
-        return (packageManager?.name, packageManager?.version, scripts, notes)
+        return (packageManager?.name, packageManager?.version, scriptReviews, notes)
     }
 
     private func packageJSONWorkspace(at url: URL) -> (patterns: [String], evidence: [String], kind: ProjectDependencyWorkspaceKind?) {
@@ -1822,6 +1956,20 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
     }
 
+    private static func scriptRiskSummaries(for items: [ProjectDependencyItem]) -> [ProjectDependencySummary] {
+        ProjectDependencyScriptRisk.allCases.compactMap { risk in
+            let matches = items.filter { item in
+                item.toolingInfo.scriptReviews.contains { $0.risk == risk }
+            }
+            guard !matches.isEmpty else { return nil }
+            return ProjectDependencySummary(
+                name: risk.label,
+                itemCount: matches.count,
+                allocatedSize: matches.reduce(Int64(0)) { $0 + $1.allocatedSize }
+            )
+        }
+    }
+
     private static func workspaceSummaries(for items: [ProjectDependencyItem]) -> [ProjectDependencySummary] {
         let workspacePaths = Set(items.compactMap(\.workspaceInfo.rootPath))
         return workspacePaths.sorted().map { path in
@@ -2139,13 +2287,14 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         risk: NativeToolRisk,
         expectedEffect: String
     ) -> NativeToolCommand? {
-        guard let script = preferredScripts.first(where: { toolingInfo.packageScripts.contains($0) }) else {
+        guard let scriptReview = preferredScripts.compactMap({ toolingInfo.scriptReview(named: $0) }).first,
+              scriptReview.isCommandHintEligible else {
             return nil
         }
         return commandHint(
-            "\(id).\(signalToken(script))",
-            javascriptRunCommand(for: toolingInfo, hints: hints, script: script),
-            purpose,
+            "\(id).\(signalToken(scriptReview.name))",
+            javascriptRunCommand(for: toolingInfo, hints: hints, script: scriptReview.name),
+            "\(purpose) Script review: \(scriptReview.risk.label).",
             risk,
             expectedEffect
         )
@@ -2212,6 +2361,15 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
         if !metadata.toolingInfo.packageScripts.isEmpty {
             guidance.append("Detected package.json scripts for review: \(metadata.toolingInfo.packageScripts.prefix(12).joined(separator: ", ")).")
+        }
+        if !metadata.toolingInfo.scriptReviews.isEmpty {
+            let reviewSummary = metadata.toolingInfo.scriptReviews.prefix(6).map { review in
+                "\(review.name) [\(review.risk.label)]: \(review.commandPreview)"
+            }.joined(separator: "; ")
+            guidance.append("Script review evidence: \(reviewSummary)")
+            if metadata.toolingInfo.scriptReviews.contains(where: { $0.risk.requiresManualReview }) {
+                guidance.append("One or more package scripts require manual review before using native command hints.")
+            }
         }
         if metadata.workspaceInfo.isWorkspace {
             guidance.append("Workspace context detected: \(metadata.workspaceInfo.label). Review workspace-level dependency hoisting, shared scripts, and sibling packages before cleanup.")
@@ -2320,6 +2478,163 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
     }
 
+    private static func packageScriptReview(name: String, command: String) -> ProjectDependencyScriptInfo {
+        let preview = packageScriptCommandPreview(command)
+        let classification = classifyPackageScript(name: name, commandPreview: preview)
+        return ProjectDependencyScriptInfo(
+            name: name,
+            commandPreview: preview,
+            risk: classification.risk,
+            evidence: classification.evidence
+        )
+    }
+
+    private static func packageScriptCommandPreview(_ command: String) -> String {
+        let collapsed = command.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let redacted = redactLikelySecrets(in: collapsed)
+        if redacted.count <= 180 {
+            return redacted
+        }
+        return "\(redacted.prefix(177))..."
+    }
+
+    private static func redactLikelySecrets(in text: String) -> String {
+        var output = text
+        let patterns = [
+            #"(?i)(^|[\s;&|])([A-Z0-9_]*(TOKEN|SECRET|PASSWORD|PASS|API_KEY|KEY)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^ "';&|]+)"#,
+            #"(?i)(--(?:token|secret|password|api-key|key)(?:=|\s+))("[^"]*"|'[^']*'|[^ "';&|]+)"#
+        ]
+        let templates = [
+            "$1$2=[redacted]",
+            "$1[redacted]"
+        ]
+        for (pattern, template) in zip(patterns, templates) {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(output.startIndex..<output.endIndex, in: output)
+            output = regex.stringByReplacingMatches(in: output, range: range, withTemplate: template)
+        }
+        return output
+    }
+
+    private static func classifyPackageScript(name: String, commandPreview: String) -> (risk: ProjectDependencyScriptRisk, evidence: [String]) {
+        let lowerName = name.lowercased()
+        let lowerCommand = commandPreview.lowercased()
+        var evidence: [String] = []
+
+        if hasDangerousScriptPattern(lowerCommand) {
+            evidence.append("Command preview contains destructive system or broad deletion patterns.")
+            return (.destructiveReview, evidence)
+        }
+
+        if hasNetworkOrPublishScriptPattern(name: lowerName, command: lowerCommand) {
+            evidence.append("Script name or command preview looks like publish, release, deploy, or network activity.")
+            return (.networkOrPublishReview, evidence)
+        }
+
+        if lifecycleScriptNames.contains(lowerName) {
+            evidence.append("Script name is an npm package lifecycle hook.")
+            return (.lifecycle, evidence)
+        }
+
+        if lowerName.contains("clean") || lowerName.contains("prune") || lowerName.contains("reset") || lowerName.contains("purge") {
+            evidence.append("Script name looks like project cleanup.")
+            return (.cleanup, evidence)
+        }
+        if lowerCommand.contains("rimraf ") || lowerCommand.contains("del-cli ") || lowerCommand.contains("trash ") || lowerCommand.contains("rm -rf ") || lowerCommand.contains("rm -fr ") {
+            evidence.append("Command preview contains project cleanup tooling.")
+            return (.cleanup, evidence)
+        }
+
+        if ["build", "compile", "generate", "export"].contains(lowerName) || lowerName.hasPrefix("build:") || lowerName.hasPrefix("generate:") {
+            evidence.append("Script name looks like rebuild or generation.")
+            return (.rebuild, evidence)
+        }
+        if containsAny(lowerCommand, ["vite build", "next build", "nuxt build", "webpack", "rollup", "tsc ", "swift build", "cargo build"]) {
+            evidence.append("Command preview contains common build tooling.")
+            return (.rebuild, evidence)
+        }
+
+        if lowerName.contains("test") || lowerName.contains("coverage") || lowerName.contains("lint") || lowerName.contains("typecheck") || lowerName == "check" || lowerName.hasSuffix(":check") {
+            evidence.append("Script name looks like test, coverage, lint, or quality check.")
+            return (.test, evidence)
+        }
+        if containsAny(lowerCommand, ["vitest", "jest", "playwright test", "eslint", "tsc --noemit", "npm test", "pnpm test", "yarn test"]) {
+            evidence.append("Command preview contains common test or quality tooling.")
+            return (.test, evidence)
+        }
+
+        evidence.append("No known cleanup, rebuild, test, lifecycle, deploy, or destructive pattern matched.")
+        return (.unknown, evidence)
+    }
+
+    private static func hasDangerousScriptPattern(_ command: String) -> Bool {
+        containsAny(command, [
+            "sudo ",
+            "rm -rf /",
+            "rm -fr /",
+            "rm -rf ~",
+            "rm -fr ~",
+            "rm -rf $home",
+            "rm -fr $home",
+            "rm -rf ${home}",
+            "rm -fr ${home}",
+            "rm -rf ..",
+            "rm -fr ..",
+            "rimraf /",
+            "rimraf ~",
+            "rimraf $home",
+            "rimraf ${home}",
+            "rimraf ..",
+            "del-cli /",
+            "del-cli ~",
+            "del-cli ..",
+            "trash /",
+            "trash ~",
+            "trash ..",
+            "diskutil erase",
+            "mkfs",
+            "dd if=",
+            "chmod -r 777 /",
+            "chown -r ",
+            "launchctl unload",
+            "killall "
+        ])
+    }
+
+    private static func hasNetworkOrPublishScriptPattern(name: String, command: String) -> Bool {
+        if containsAny(name, ["deploy", "publish", "release"]) {
+            return true
+        }
+        return containsAny(command, [
+            "npm publish",
+            "pnpm publish",
+            "yarn publish",
+            "yarn npm publish",
+            "bun publish",
+            "changeset publish",
+            "semantic-release",
+            "release-it",
+            "git push",
+            "gh release",
+            "curl ",
+            "wget ",
+            "ssh ",
+            "scp ",
+            "rsync ",
+            "vercel ",
+            "netlify deploy",
+            "firebase deploy",
+            "wrangler deploy",
+            "docker push",
+            "kubectl ",
+            "helm "
+        ])
+    }
+
+    private static func containsAny(_ value: String, _ needles: [String]) -> Bool {
+        needles.contains { value.contains($0) }
+    }
+
     private static func parsePackageManagerField(_ value: String) -> (name: String, version: String?)? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -2424,10 +2739,25 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         "src/main/AndroidManifest.xml"
     ]
 
+    private static let lifecycleScriptNames: Set<String> = [
+        "preinstall",
+        "install",
+        "postinstall",
+        "prepack",
+        "postpack",
+        "prepare",
+        "prepublish",
+        "prepublishonly",
+        "preversion",
+        "version",
+        "postversion"
+    ]
+
     public static let guidance = [
         "Review project status, VCS changes, lockfiles, and active terminals before cleanup.",
         "Use saved project policies to mark recurring projects for review, preserve-by-default, or skip-review; policies do not grant cleanup permission.",
         "Use workspace/monorepo evidence to review dependency hoisting, shared package-manager commands, and sibling packages before removing project-local artifacts.",
+        "Review package.json script command previews before using script command hints; destructive, lifecycle, publish, deploy, network, and unknown scripts stay manual-review only.",
         "Prefer detected package-manager and project-script commands such as package-manager install/clean, `swift package clean`, `cargo clean`, `./gradlew clean`, `flutter clean`, or `pod install` over blind deletion.",
         "Skip active builds, dev servers, simulators, IDE indexing, and terminals using the project.",
         "Treat project-local dependencies as rebuildable evidence only when the project has the expected manifests and network/toolchain access."
@@ -2436,8 +2766,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
     public static let nonClaims = [
         "Project Dependency Review is report-only; it does not delete, move, Trash, prune, purge, clean, or modify project files.",
         "Saved Project Dependencies policies only annotate or skip report rows; they do not make project dependencies safe to delete.",
-        "Detected package managers and package.json scripts are guidance evidence only; Ryddi does not execute project scripts or prove they are safe.",
-        "Detected workspace and monorepo metadata is guidance evidence only; Ryddi does not prove workspace scripts, hoisted dependencies, or sibling-package state are safe to remove.",
+        "Detected package managers, package.json script names, command previews, and script-risk classes are guidance evidence only; Ryddi does not execute project scripts or prove they are safe.",
+        "Detected workspace and monorepo metadata is guidance evidence only; Ryddi does not prove workspace scripts, hoisted dependencies, sibling-package state, or inherited package-manager commands are safe to remove.",
         "Ryddi does not measure project source, manifests, lockfiles, env files, credentials, IDE settings, or unknown project state as cleanup candidates.",
         "Project-local dependency and build directories may contain generated code, local editable installs, offline dependencies, or unsaved development state; review the project before cleanup.",
         "Classification is path-and-manifest based and cannot prove the owning tool is idle or that all active handles are closed.",

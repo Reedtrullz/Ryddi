@@ -2660,11 +2660,34 @@ struct ProjectDependencyReviewView: View {
 
                         SectionBox(title: "Package Scripts") {
                             if report.scriptSummaries.isEmpty {
-                                Text("No package.json scripts were accepted for command hints.")
+                                Text("No package.json scripts were accepted for review.")
                                     .foregroundStyle(.secondary)
                             } else {
                                 VStack(spacing: 6) {
                                     ForEach(report.scriptSummaries.prefix(12)) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.itemCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+
+                        SectionBox(title: "Script Risk") {
+                            if report.scriptRiskSummaries.isEmpty {
+                                Text("No package.json script command previews were classified.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.scriptRiskSummaries) { summary in
                                         HStack {
                                             Text(summary.name)
                                             Spacer()
@@ -2788,6 +2811,12 @@ struct ProjectDependencyReviewView: View {
                                                 .foregroundStyle(.secondary)
                                                 .fixedSize(horizontal: false, vertical: true)
                                         }
+                                        ForEach(item.toolingInfo.scriptReviews.prefix(4)) { review in
+                                            Text("Script review: \(review.name) [\(review.risk.label)] \(review.commandPreview)")
+                                                .font(.caption2)
+                                                .foregroundStyle(review.isCommandHintEligible ? Color.secondary : Color.orange)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
                                         if item.workspaceInfo.isWorkspace {
                                             Text("Workspace: \(item.workspaceInfo.label)")
                                                 .font(.caption2)
@@ -2865,6 +2894,12 @@ struct ProjectDependencyReviewView: View {
                                             Text("Scripts: \(protectedRoot.toolingInfo.packageScripts.prefix(12).joined(separator: ", "))")
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        ForEach(protectedRoot.toolingInfo.scriptReviews.prefix(4)) { review in
+                                            Text("Script review: \(review.name) [\(review.risk.label)] \(review.commandPreview)")
+                                                .font(.caption2)
+                                                .foregroundStyle(review.isCommandHintEligible ? Color.secondary : Color.orange)
                                                 .fixedSize(horizontal: false, vertical: true)
                                         }
                                         if protectedRoot.workspaceInfo.isWorkspace {

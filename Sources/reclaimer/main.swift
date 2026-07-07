@@ -3108,6 +3108,13 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
         }
     }
 
+    if !report.scriptRiskSummaries.isEmpty {
+        print("\nBy package.json script risk")
+        for summary in report.scriptRiskSummaries {
+            print("- \(pad(summary.name, 28)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
     if !report.workspaceSummaries.isEmpty {
         print("\nBy workspace")
         for summary in report.workspaceSummaries.prefix(options.limit) {
@@ -3156,6 +3163,12 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             if !item.toolingInfo.packageScripts.isEmpty {
                 print("  scripts: \(item.toolingInfo.packageScripts.prefix(12).joined(separator: ", "))")
             }
+            if !item.toolingInfo.scriptReviews.isEmpty {
+                for review in item.toolingInfo.scriptReviews.prefix(4) {
+                    let hintState = review.isCommandHintEligible ? "hint eligible" : "manual review"
+                    print("  script review: \(review.name) [\(review.risk.label), \(hintState)] \(review.commandPreview)")
+                }
+            }
             if item.workspaceInfo.isWorkspace {
                 print("  workspace: \(item.workspaceInfo.label)")
                 if let rootPath = item.workspaceInfo.rootPath {
@@ -3194,6 +3207,12 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             }
             if !protectedRoot.toolingInfo.packageScripts.isEmpty {
                 print("  scripts: \(protectedRoot.toolingInfo.packageScripts.prefix(12).joined(separator: ", "))")
+            }
+            if !protectedRoot.toolingInfo.scriptReviews.isEmpty {
+                for review in protectedRoot.toolingInfo.scriptReviews.prefix(4) {
+                    let hintState = review.isCommandHintEligible ? "hint eligible" : "manual review"
+                    print("  script review: \(review.name) [\(review.risk.label), \(hintState)] \(review.commandPreview)")
+                }
             }
             if protectedRoot.workspaceInfo.isWorkspace {
                 print("  workspace: \(protectedRoot.workspaceInfo.label)")
