@@ -1862,6 +1862,13 @@ struct RemoteTargetsView: View {
                             Label("Export Growth", systemImage: "chart.line.uptrend.xyaxis")
                         }
                         .disabled(model.remoteGrowthReport == nil || model.isWorking)
+
+                        Button {
+                            Task { await model.exportRemoteDogfoodReportFromAudit() }
+                        } label: {
+                            Label("Dogfood Report", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .disabled(model.recentRemoteScanReports.isEmpty || model.isWorking)
                     }
                 }
 
@@ -1958,6 +1965,25 @@ struct RemoteTargetsView: View {
                         }
                     }
 
+                    if let dogfood = model.remoteDogfoodReport {
+                        SectionBox(title: "Dogfood Evidence") {
+                            HStack(spacing: 16) {
+                                MetricTile(title: "Findings", value: "\(dogfood.findingCount)")
+                                MetricTile(title: "Finding bytes", value: ByteFormat.string(dogfood.totalFindingBytes))
+                                MetricTile(title: "Commands", value: "\(dogfood.commandResults.count)")
+                                MetricTile(title: "Disk pressure", value: dogfood.diskPressureSummary)
+                            }
+                            Text("Built from read-only remote evidence. It does not run cleanup or reconnect when exported from saved audit.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            ForEach(dogfood.nonClaims.prefix(5), id: \.self) { note in
+                                Text("• \(note)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
                     if let growth = model.remoteGrowthReport {
                         SectionBox(title: "Saved Growth") {
                             HStack(spacing: 16) {
@@ -2029,6 +2055,13 @@ struct RemoteTargetsView: View {
 
                 if let url = model.lastRemoteGrowthReportExportURL {
                     Text("Last remote growth export: \(url.path)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                if let url = model.lastRemoteDogfoodReportExportURL {
+                    Text("Last remote dogfood export: \(url.path)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -6482,6 +6515,7 @@ final class DashboardModel {
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
     var recentRemoteProbeReports: [RemoteProbeReport] = []
     var recentRemoteScanReports: [RemoteScanReport] = []
+    var recentRemoteDogfoodReports: [RemoteDogfoodReport] = []
     var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
     var recentTrashReviewReports: [TrashReviewReport] = []
     var recentDownloadsReviewReports: [DownloadsReviewReport] = []
@@ -6506,6 +6540,7 @@ final class DashboardModel {
     var remoteProbeReport: RemoteProbeReport?
     var remoteScanReport: RemoteScanReport?
     var remoteGrowthReport: RemoteGrowthReport?
+    var remoteDogfoodReport: RemoteDogfoodReport?
     var activeFileReview: ActiveFileReviewReport?
     var trashReview: TrashReviewReport?
     var downloadsReview: DownloadsReviewReport?
@@ -6522,6 +6557,7 @@ final class DashboardModel {
     var lastArchiveReviewExportURL: URL?
     var lastRemoteReportExportURL: URL?
     var lastRemoteGrowthReportExportURL: URL?
+    var lastRemoteDogfoodReportExportURL: URL?
     var lastPolicyExportURL: URL?
     var lastScopeSetExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
@@ -7148,11 +7184,15 @@ final class DashboardModel {
         recentContainerInventoryReports = store.recentContainerInventoryReports()
         recentRemoteProbeReports = store.recentRemoteProbeReports()
         recentRemoteScanReports = store.recentRemoteScanReports()
+        recentRemoteDogfoodReports = store.recentRemoteDogfoodReports()
         if remoteProbeReport == nil {
             remoteProbeReport = recentRemoteProbeReports.first
         }
         if remoteScanReport == nil {
             remoteScanReport = recentRemoteScanReports.first
+        }
+        if remoteDogfoodReport == nil {
+            remoteDogfoodReport = recentRemoteDogfoodReports.first
         }
         if recentRemoteScanReports.count >= 2 {
             remoteGrowthReport = RemoteGrowthReportBuilder.build(
@@ -7702,6 +7742,43 @@ final class DashboardModel {
                 return url
             }.value
             lastRemoteGrowthReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportRemoteDogfoodReportFromAudit() async {
+        guard let scan = recentRemoteScanReports.first else {
+            error = "Remote dogfood export needs at least one saved remote scan."
+            return
+        }
+        let probe = recentRemoteProbeReports.first { $0.target.id == scan.target.id }
+        let previous = recentRemoteScanReports.dropFirst().first { $0.target.id == scan.target.id }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = RemoteDogfoodReportBuilder.build(
+                probe: probe,
+                scan: scan,
+                growth: previous.map {
+                    RemoteGrowthReportBuilder.build(
+                        previous: $0,
+                        current: scan,
+                        privacy: ReportPrivacyOptions(pathStyle: .redacted)
+                    )
+                },
+                privacy: ReportPrivacyOptions(pathStyle: .redacted)
+            )
+            let url = try await Task.detached {
+                let root = ReportStore.defaultRoot()
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                let url = root.appendingPathComponent("remote-dogfood-\(report.id).md")
+                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                return url
+            }.value
+            remoteDogfoodReport = report
+            lastRemoteDogfoodReportExportURL = url
             error = nil
         } catch {
             self.error = error.localizedDescription
