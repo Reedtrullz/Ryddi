@@ -15,6 +15,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
     public let match: RuleMatchSpec
     public let evidence: [String]
     public let conditions: [String]
+    public let conditionGates: [PlanConditionKind]
     public let recovery: String?
 
     public init(
@@ -27,6 +28,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         match: RuleMatchSpec,
         evidence: [String],
         conditions: [String] = [],
+        conditionGates: [PlanConditionKind] = [],
         recovery: String? = nil
     ) {
         self.id = id
@@ -38,7 +40,37 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         self.match = match
         self.evidence = evidence
         self.conditions = conditions
+        self.conditionGates = conditionGates
         self.recovery = recovery
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case category
+        case priority
+        case safetyClass
+        case actionKind
+        case match
+        case evidence
+        case conditions
+        case conditionGates
+        case recovery
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.category = try container.decode(String.self, forKey: .category)
+        self.priority = try container.decode(Int.self, forKey: .priority)
+        self.safetyClass = try container.decode(SafetyClass.self, forKey: .safetyClass)
+        self.actionKind = try container.decode(ActionKind.self, forKey: .actionKind)
+        self.match = try container.decode(RuleMatchSpec.self, forKey: .match)
+        self.evidence = try container.decode([String].self, forKey: .evidence)
+        self.conditions = try container.decodeIfPresent([String].self, forKey: .conditions) ?? []
+        self.conditionGates = try container.decodeIfPresent([PlanConditionKind].self, forKey: .conditionGates) ?? []
+        self.recovery = try container.decodeIfPresent(String.self, forKey: .recovery)
     }
 }
 
@@ -127,6 +159,7 @@ public final class RuleEngine: @unchecked Sendable {
                     actionKind: rule.actionKind,
                     evidence: rule.evidence,
                     conditions: rule.conditions,
+                    conditionGates: rule.conditionGates,
                     recovery: rule.recovery
                 )
             )

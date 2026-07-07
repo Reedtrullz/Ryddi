@@ -23,3 +23,48 @@ jobs:
             dist/Ryddi-developer-preview.zip
             dist/Ryddi-developer-preview.zip.sha256
             dist/Ryddi-release-manifest.txt
+
+  signed-release:
+    name: Build signed notarized release
+    runs-on: macos-15
+    if: ${{ vars.RYDDI_ENABLE_SIGNED_RELEASE == 'true' }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Import Developer ID certificate
+        env:
+          DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          printf '%s' "$DEVELOPER_ID_CERTIFICATE_BASE64" | base64 --decode > developer-id.p12
+          security import developer-id.p12 -k build.keychain -P "$DEVELOPER_ID_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Signed release check
+        env:
+          RYDDI_RELEASE_SIGNING: required
+          RYDDI_ARTIFACT_BASENAME: Ryddi-v0.2.0
+          RYDDI_VERSION: 0.2.0
+          RYDDI_BUILD_NUMBER: 2
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
+        run: Scripts/release-check.sh
+
+      - name: Upload signed release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ryddi-v0.2.0-signed-notarized
+          if-no-files-found: error
+          path: |
+            dist/Ryddi-v0.2.0.zip
+            dist/Ryddi-v0.2.0.zip.sha256
+            dist/Ryddi-release-manifest.txt

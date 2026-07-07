@@ -8,6 +8,7 @@ artifact_basename="${RYDDI_ARTIFACT_BASENAME:-Ryddi-developer-preview}"
 zip_path="$dist/$artifact_basename.zip"
 checksum_path="$zip_path.sha256"
 manifest_path="$dist/Ryddi-release-manifest.txt"
+signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/ryddi-release-check.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 
@@ -36,6 +37,7 @@ plist="$app/Contents/Info.plist"
 bundle_name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$plist")"
 bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$plist")"
 bundle_version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")"
+bundle_build="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$plist")"
 
 if [[ "$bundle_name" != "Ryddi" ]]; then
   echo "unexpected CFBundleName: $bundle_name" >&2
@@ -44,6 +46,11 @@ fi
 
 if [[ "$bundle_id" != "com.reidar.ryddi" ]]; then
   echo "unexpected CFBundleIdentifier: $bundle_id" >&2
+  exit 1
+fi
+
+if [[ "$signing_required" == "required" && "$bundle_version" != "${RYDDI_VERSION:-0.2.0}" ]]; then
+  echo "unexpected release CFBundleShortVersionString: $bundle_version" >&2
   exit 1
 fi
 
@@ -731,6 +738,13 @@ grep -q '"ownerSummaries"' "$scratch/overview-smoke.json"
 grep -q '"topOffenderTable"' "$scratch/overview-smoke.json"
 grep -q '"estimatedImmediateReclaim"' "$scratch/overview-smoke.json"
 grep -q '"group" : "safety"' "$scratch/overview-smoke.json"
+"$app/Contents/MacOS/reclaimer" trust --json --path "$root/Tests" --limit 5 >"$scratch/trust-smoke.json"
+grep -q '"recommendedActions"' "$scratch/trust-smoke.json"
+grep -q '"nonClaims"' "$scratch/trust-smoke.json"
+"$app/Contents/MacOS/reclaimer" dogfood --path "$root/Tests" --path-style redacted --output "$scratch/dogfood-smoke.md"
+grep -q "No cleanup was executed" "$scratch/dogfood-smoke.md"
+grep -q "does not grant macOS permissions" "$scratch/dogfood-smoke.md"
+grep -q "cannot promise exact free-space gains" "$scratch/dogfood-smoke.md"
 "$app/Contents/MacOS/reclaimer" explain "$receipt_fixture" --min-size 1 --max-depth 2 --no-lsof >"$scratch/explain-smoke.txt"
 grep -q "Ryddi finding explanation" "$scratch/explain-smoke.txt"
 grep -q "What this is" "$scratch/explain-smoke.txt"
@@ -925,6 +939,8 @@ fi
 
 echo "==> Checking code signing state"
 signing_state="unsigned developer preview"
+notarization_state="not requested"
+spctl_state="not assessed"
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   codesign --verify --deep --strict --verbose=2 "$app"
   signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
@@ -936,7 +952,20 @@ if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
 elif codesign --verify --deep --strict --verbose=2 "$app" >"$scratch/codesign-verify.txt" 2>&1; then
   signing_state="pre-signed outside this script"
 else
+  if [[ "$signing_required" == "required" ]]; then
+    echo "RYDDI_RELEASE_SIGNING=required but app is unsigned." >&2
+    exit 1
+  fi
   echo "CODESIGN_IDENTITY not set; treating artifact as unsigned developer preview."
+fi
+
+if [[ "$signing_required" == "required" ]]; then
+  echo "==> Notarizing signed app"
+  "$root/Scripts/notarize-app.sh" "$app"
+  notarization_state="submitted, accepted, and stapled"
+  spctl --assess --type execute --verbose "$app"
+  spctl_state="accepted"
+  codesign --verify --deep --strict --verbose=2 "$app"
 fi
 
 echo "==> Creating zip artifact and checksum"
@@ -960,8 +989,11 @@ Bundle: $app
 Bundle name: $bundle_name
 Bundle id: $bundle_id
 Bundle version: $bundle_version
+Bundle build: $bundle_build
 Rules: ${rules_path#$app/}
 Signing state: $signing_state
+Notarization state: $notarization_state
+Gatekeeper assessment: $spctl_state
 Artifact: $zip_path
 Checksum: $(cat "$checksum_path")
 
@@ -986,6 +1018,8 @@ Verification performed:
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
+- bundled reclaimer trust --json --path Tests
+- bundled reclaimer dogfood --path Tests --path-style redacted --output dogfood-smoke.md
 - bundled reclaimer explain on disposable Codex cache fixture with text and JSON explanation output
 - bundled reclaimer queues --path Tests --limit 5, queues --json, and queues --queue unknown
 - bundled reclaimer large --path disposable fixture with text and JSON review output
@@ -1001,10 +1035,11 @@ Verification performed:
 - bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
 - bundled reclaimer policy protect/list/export/import/replace with temporary config roots
 - codesign verification when CODESIGN_IDENTITY is set
+- notarization, stapling, spctl assessment, and strict codesign verification when RYDDI_RELEASE_SIGNING=required
 - zip artifact and SHA-256 checksum generation
 
 Non-claims:
-- This manifest is not a notarization receipt.
+- This manifest is not a notarization receipt unless Notarization state says submitted, accepted, and stapled.
 - Unsigned developer preview artifacts may trigger Gatekeeper warnings.
 - Packaging does not grant Full Disk Access.
 - Packaging does not execute cleanup, install a LaunchAgent, or verify real disk reclaim.

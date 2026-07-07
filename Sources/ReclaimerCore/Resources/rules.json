@@ -135,6 +135,7 @@
       },
       "evidence": ["Codex cache/temp data is rebuildable; deletion may make the next start or plugin refresh slower."],
       "conditions": ["Skip files open by Codex."],
+      "conditionGates": ["openFileClear"],
       "recovery": "Codex can regenerate these caches."
     },
     {
@@ -169,6 +170,7 @@
       },
       "evidence": ["Xcode DerivedData contains regenerated build products and indexes."],
       "conditions": ["Skip if Xcode or build processes have open handles."],
+      "conditionGates": ["openFileClear"],
       "recovery": "Xcode rebuilds DerivedData; the next build may be slower."
     },
     {
@@ -390,6 +392,7 @@
       },
       "evidence": ["Known temporary build/scratch prefix under /private/tmp."],
       "conditions": ["Only delete stale paths with no open handles."],
+      "conditionGates": ["openFileClear"],
       "recovery": "Temporary scratch data is expected to be recreated."
     },
     {

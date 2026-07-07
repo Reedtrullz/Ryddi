@@ -23,7 +23,9 @@ Ryddi treats cleanup as evidence review:
 
 ## Current Status
 
-Ryddi is an early MVP. It has a shared Swift core, a CLI, and a SwiftUI app shell. The safest path today is scan, review, dry run, then reclaim only selected auto-safe items.
+Ryddi is preparing the `v0.2.0` trust release. It has a shared Swift core, a CLI, and a SwiftUI app cockpit. The safest path today is scan, review, dry run, then reclaim only selected auto-safe items.
+
+`v0.2.0` should be called a signed release only when the release manifest proves Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification. Local debug builds and unsigned preview artifacts are useful for testing, but they are not the trust release.
 
 No telemetry, path uploads, remote analysis, root helper, or Mac App Store sandboxing in v1.
 
@@ -41,6 +43,8 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - local scan history snapshots and category growth deltas
 - exportable local Markdown growth reports comparing saved scan snapshots
 - menu bar disk-pressure status with report-only scan shortcut
+- trust readiness cockpit and `reclaimer trust --json` summary for disk pressure, scan coverage, latest plan/receipt state, report-only automation, next-action buckets, and release trust evidence
+- dogfood report mode with `reclaimer dogfood --preset general --path-style redacted --output FILE.md`, explicitly proving no cleanup, no permission grant, and no exact APFS reclaim promise
 - permission/degraded-scan coverage, first-run Full Disk Access walkthrough, and APFS accounting notes
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
 - exportable local Markdown reclaim plan reports with selected actions, blocked items, safety buckets, and non-claims
@@ -126,6 +130,8 @@ swift run --scratch-path .build reclaimer rules user preview ryddi-user-rules.js
 swift run --scratch-path .build reclaimer rules user import ryddi-user-rules.json
 swift run --scratch-path .build reclaimer scan --preset general --include-user-rules
 swift run --scratch-path .build reclaimer status
+swift run --scratch-path .build reclaimer trust --json
+swift run --scratch-path .build reclaimer dogfood --preset general --path-style redacted --output ryddi-dogfood.md
 swift run --scratch-path .build reclaimer permissions
 swift run --scratch-path .build reclaimer permissions guide --output ryddi-permissions-guide.md
 swift run --scratch-path .build reclaimer active --path ~/Library/Caches --limit 25
@@ -171,6 +177,23 @@ swift run --scratch-path .build reclaimer holding list
 ```
 
 Execution is dry-run unless `--yes` is supplied. Even with `--yes`, the executor refuses protected classes, revalidates the path, reclassifies it, and skips open files.
+
+## Install And Release Trust
+
+For local development:
+
+```bash
+swift build --scratch-path .build
+Scripts/release-check.sh
+```
+
+For a signed `v0.2.0` release gate, provide Developer ID and notarization credentials, then run:
+
+```bash
+RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh
+```
+
+The signed release gate must produce `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, and strict codesign proof. If credentials are missing or any check fails, do not publish the build as `v0.2.0`.
 
 ## Scope Templates And Saved Scope Sets
 

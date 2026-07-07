@@ -137,6 +137,7 @@ public struct RuleMatch: Codable, Hashable, Sendable {
     public let actionKind: ActionKind
     public let evidence: [String]
     public let conditions: [String]
+    public let conditionGates: [PlanConditionKind]
     public let recovery: String?
 
     public init(
@@ -147,6 +148,7 @@ public struct RuleMatch: Codable, Hashable, Sendable {
         actionKind: ActionKind,
         evidence: [String],
         conditions: [String] = [],
+        conditionGates: [PlanConditionKind] = [],
         recovery: String? = nil
     ) {
         self.ruleID = ruleID
@@ -156,6 +158,7 @@ public struct RuleMatch: Codable, Hashable, Sendable {
         self.actionKind = actionKind
         self.evidence = evidence
         self.conditions = conditions
+        self.conditionGates = conditionGates
         self.recovery = recovery
     }
 }
@@ -165,17 +168,42 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
     public let processSummary: [String]
     public let checkedAt: Date
     public let checkFailed: String?
+    public let checkedRecursively: Bool
+    public let checkedPath: String?
 
     public init(
         isOpen: Bool,
         processSummary: [String] = [],
         checkedAt: Date = Date(),
-        checkFailed: String? = nil
+        checkFailed: String? = nil,
+        checkedRecursively: Bool = false,
+        checkedPath: String? = nil
     ) {
         self.isOpen = isOpen
         self.processSummary = processSummary
         self.checkedAt = checkedAt
         self.checkFailed = checkFailed
+        self.checkedRecursively = checkedRecursively
+        self.checkedPath = checkedPath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isOpen
+        case processSummary
+        case checkedAt
+        case checkFailed
+        case checkedRecursively
+        case checkedPath
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.isOpen = try container.decode(Bool.self, forKey: .isOpen)
+        self.processSummary = try container.decodeIfPresent([String].self, forKey: .processSummary) ?? []
+        self.checkedAt = try container.decodeIfPresent(Date.self, forKey: .checkedAt) ?? Date(timeIntervalSince1970: 0)
+        self.checkFailed = try container.decodeIfPresent(String.self, forKey: .checkFailed)
+        self.checkedRecursively = try container.decodeIfPresent(Bool.self, forKey: .checkedRecursively) ?? false
+        self.checkedPath = try container.decodeIfPresent(String.self, forKey: .checkedPath)
     }
 }
 
@@ -274,13 +302,54 @@ public extension Finding {
     }
 }
 
+public enum PlanConditionKind: String, Codable, CaseIterable, Hashable, Sendable {
+    case openFileClear
+    case recursiveOpenFileClear
+    case userPolicyClear
+    case notSymbolicLink
+    case manualReviewRequired
+    case nativeToolRequired
+    case appQuitRequired
+    case minimumAgeRequired
+    case finalClassificationRequired
+
+    public var label: String {
+        switch self {
+        case .openFileClear: "Open-file clear"
+        case .recursiveOpenFileClear: "Recursive open-file clear"
+        case .userPolicyClear: "User policy clear"
+        case .notSymbolicLink: "Not a symbolic link"
+        case .manualReviewRequired: "Manual review required"
+        case .nativeToolRequired: "Native tool required"
+        case .appQuitRequired: "App quit required"
+        case .minimumAgeRequired: "Minimum age required"
+        case .finalClassificationRequired: "Final classification required"
+        }
+    }
+}
+
 public struct PlanCondition: Codable, Hashable, Sendable {
+    public let kind: PlanConditionKind
     public let message: String
     public let isSatisfied: Bool
 
-    public init(message: String, isSatisfied: Bool) {
+    public init(kind: PlanConditionKind = .manualReviewRequired, message: String, isSatisfied: Bool) {
+        self.kind = kind
         self.message = message
         self.isSatisfied = isSatisfied
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case message
+        case isSatisfied
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.kind = try container.decodeIfPresent(PlanConditionKind.self, forKey: .kind) ?? .manualReviewRequired
+        self.message = try container.decode(String.self, forKey: .message)
+        self.isSatisfied = try container.decode(Bool.self, forKey: .isSatisfied)
     }
 }
 

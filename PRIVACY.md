@@ -20,6 +20,10 @@ Active-handle review runs bounded open-file checks over cleanup-relevant candida
 
 Disk status and the menu bar item read local volume capacity/free-space metadata. They do not inspect file contents or send disk pressure information anywhere.
 
+Trust readiness reads local disk status, scan coverage, current findings, latest local plans/receipts, LaunchAgent status, and signing-state text. It does not upload anything and does not execute cleanup.
+
+Dogfood reports combine existing local evidence into a Markdown report: disk status, scan coverage, top owners, review queues, selected dry-run summary, active-handle summary, protected buckets, permission advisory, and non-claims. Dogfood mode never performs cleanup, never installs automation, and never grants permissions.
+
 Permission coverage checks use local filesystem existence and readability checks for configured scan roots. They can report readable, denied, missing, and unknown scope states, but they do not grant macOS permissions or prove that Full Disk Access is globally enabled. Permission walkthrough exports are local Markdown/JSON guidance derived from the same local readback; opening settings or saving a guide does not change macOS privacy state.
 
 Duplicate review is different from normal metadata scanning: it reads regular file bytes to compute local SHA-256 content hashes for same-size candidates. File contents are not stored, uploaded, or sent to any remote service. The duplicate CLI requires explicit `--path` roots, and preserve-by-default files are excluded unless the user explicitly opts into that review.
@@ -68,6 +72,8 @@ Growth report export reads saved scan-history snapshots to write local Markdown.
 
 Report exports support path privacy controls. `home-relative` reports hide your home-directory prefix, `redacted` reports replace report paths with `<path redacted>`, and user-entered policy reasons can be redacted from exports. These controls affect the generated report only; saved local audit JSON, plans, receipts, and scan snapshots can still contain original local paths.
 
+Dogfood report redaction uses the same path privacy controls. Redacted reports hide full paths in the generated Markdown, but they can still include owner names, categories, workflow labels, counts, sizes, process summaries, command labels, and other local context. Review any report before sharing it.
+
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
 ## What Ryddi Writes
@@ -79,6 +85,7 @@ Ryddi can write:
 - saved Markdown reclaim plan reports;
 - saved Markdown receipt reports;
 - saved Markdown growth reports;
+- saved Markdown dogfood reports when you choose an output path;
 - saved native-tool preview reports;
 - saved container inventory reports;
 - saved active-file review reports;

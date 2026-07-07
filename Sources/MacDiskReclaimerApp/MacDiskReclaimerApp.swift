@@ -327,6 +327,8 @@ struct OverviewView: View {
                 ProgressView("Working...")
             }
 
+            TrustReadinessCardsView(report: model.trustReadinessReport)
+
             ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
 
             if let url = model.lastReportExportURL {
@@ -447,6 +449,66 @@ struct OverviewView: View {
             Spacer()
         }
         .padding(24)
+    }
+}
+
+struct TrustReadinessCardsView: View {
+    let report: TrustReadinessReport
+
+    var body: some View {
+        SectionBox(title: "Trust Readiness") {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                MetricTile(title: "Disk Pressure", value: report.diskStatus.pressure.label)
+                MetricTile(title: "Scan Coverage", value: report.permissionSummary.coverageLevel.label)
+                MetricTile(title: "Safe Reclaim", value: ByteFormat.string(report.latestPlanSummary?.expectedImmediateReclaim ?? 0))
+                MetricTile(title: "Automation", value: report.automationInstalled ? "Report-only" : "Off")
+                MetricTile(title: "Quit First", value: countActions(.quitAppFirst))
+                MetricTile(title: "Native Tool", value: countActions(.useNativeTool))
+                MetricTile(title: "Valuable History", value: countActions(.protectByDefault))
+                MetricTile(title: "Release Trust", value: report.signingState.localizedCaseInsensitiveContains("notarized") ? "Notarized" : "Verify")
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(report.recommendedActions.prefix(5)) { action in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: symbol(for: action.severity))
+                            .foregroundStyle(color(for: action.severity))
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(action.title)
+                                .font(.caption.weight(.semibold))
+                            Text(action.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func countActions(_ action: ReviewNextAction) -> String {
+        let count = report.nextActionCounts[action.rawValue] ?? 0
+        return count == 0 ? "0" : "\(count)"
+    }
+
+    private func symbol(for severity: TrustReadinessSeverity) -> String {
+        switch severity {
+        case .ready: "checkmark.circle"
+        case .info: "info.circle"
+        case .warning: "exclamationmark.triangle"
+        case .blocked: "xmark.octagon"
+        }
+    }
+
+    private func color(for severity: TrustReadinessSeverity) -> Color {
+        switch severity {
+        case .ready: .green
+        case .info: .blue
+        case .warning: .orange
+        case .blocked: .red
+        }
     }
 }
 
@@ -1511,6 +1573,11 @@ struct ActiveFileReviewView: View {
                                             .font(.headline)
                                         Text(ByteFormat.string(item.finding.allocatedSize))
                                             .foregroundStyle(.secondary)
+                                        if item.finding.openFileStatus?.checkedRecursively == true {
+                                            Label("Recursive", systemImage: "folder.badge.gearshape")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
                                         Spacer()
                                         SafetyBadge(safetyClass: item.finding.safetyClass)
                                     }
@@ -2095,6 +2162,7 @@ struct DownloadsReviewView: View {
                                     Text("Allocated").frame(width: 92, alignment: .leading)
                                     Text("Kind").frame(width: 116, alignment: .leading)
                                     Text("Workflow").frame(width: 118, alignment: .leading)
+                                    Text("Next").frame(width: 112, alignment: .leading)
                                     Text("Age").frame(width: 64, alignment: .leading)
                                     Text("Path")
                                     Spacer()
@@ -2113,6 +2181,9 @@ struct DownloadsReviewView: View {
                                                 .frame(width: 116, alignment: .leading)
                                             Text(item.workflow.label)
                                                 .frame(width: 118, alignment: .leading)
+                                            Text(item.nextAction.label)
+                                                .foregroundStyle(.secondary)
+                                                .frame(width: 112, alignment: .leading)
                                             Text(item.ageDays.map { "\($0)d" } ?? "unknown")
                                                 .frame(width: 64, alignment: .leading)
                                             Text(item.path)
@@ -3524,6 +3595,7 @@ struct TrashReviewView: View {
                                 HStack {
                                     Text("Allocated").frame(width: 92, alignment: .leading)
                                     Text("Items").frame(width: 56, alignment: .leading)
+                                    Text("Next").frame(width: 112, alignment: .leading)
                                     Text("Modified").frame(width: 92, alignment: .leading)
                                     Text("Path")
                                     Spacer()
@@ -3539,6 +3611,9 @@ struct TrashReviewView: View {
                                                 .monospacedDigit()
                                             Text("\(item.itemCount)")
                                                 .frame(width: 56, alignment: .leading)
+                                            Text(item.nextAction.label)
+                                                .foregroundStyle(.secondary)
+                                                .frame(width: 112, alignment: .leading)
                                             Text(item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "unknown")
                                                 .frame(width: 92, alignment: .leading)
                                             Text(item.path)
@@ -4013,6 +4088,8 @@ struct AppReviewGroupView: View {
                         Spacer()
                         Text(item.category)
                             .foregroundStyle(.secondary)
+                        Text(item.nextAction.label)
+                            .foregroundStyle(.secondary)
                         Text(ByteFormat.string(item.allocatedSize))
                             .monospacedDigit()
                         SafetyBadge(safetyClass: item.safetyClass)
@@ -4253,6 +4330,12 @@ struct FindingDetailView: View {
                     SafetyBadge(safetyClass: finding.safetyClass)
                     Text(finding.actionKind.label)
                     Text(ByteFormat.string(finding.allocatedSize))
+                    Text(finding.reviewNextAction.label)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.quaternary.opacity(0.4))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
 
                 SectionBox(title: "Summary") {
@@ -4439,6 +4522,9 @@ struct AutomationView: View {
                 .font(.largeTitle.bold())
             Text("Automation is report-first. Installing the LaunchAgent writes a plist for the current scan scope; it does not load or run until you choose to load it with launchctl.")
                 .foregroundStyle(.secondary)
+            Text("Scheduled work is report-only.")
+                .font(.headline)
+                .foregroundStyle(.blue)
 
             HStack {
                 SafetyBadge(safetyClass: .safeAfterCondition)
@@ -4447,8 +4533,8 @@ struct AutomationView: View {
 
             HStack {
                 MetricTile(title: "Scheduled scope", value: scheduledScopeText)
-                MetricTile(title: "Scheduled report", value: "Dry-run plan")
-                MetricTile(title: "Default time", value: "09:30")
+                MetricTile(title: "Scheduled report", value: model.launchAgentStatus.reportKind.label)
+                MetricTile(title: "Default time", value: model.launchAgentStatus.nextScheduledTimeDisplay)
             }
 
             HStack {
@@ -4468,6 +4554,22 @@ struct AutomationView: View {
                     .foregroundStyle(.secondary)
             }
 
+            SectionBox(title: "Status") {
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 8) {
+                    automationStatusRow("Installed", model.launchAgentStatus.installed ? "yes" : "no")
+                    automationStatusRow("Loaded Check", model.launchAgentStatus.loadedState)
+                    automationStatusRow("Last Log", model.launchAgentStatus.lastLogPath)
+                    automationStatusRow("Scope", model.launchAgentStatus.scopeSummary)
+                    automationStatusRow("Report Kind", model.launchAgentStatus.reportKind.label)
+                }
+                Divider()
+                ForEach(model.launchAgentStatus.nonClaims, id: \.self) { note in
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             SectionBox(title: "Manual load command") {
                 Text("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.reidar.ryddi.agent.plist")
                     .font(.system(.body, design: .monospaced))
@@ -4479,6 +4581,16 @@ struct AutomationView: View {
             Spacer()
         }
         .padding(24)
+    }
+
+    private func automationStatusRow(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .textSelection(.enabled)
+        }
+        .font(.caption)
     }
 }
 
@@ -5472,6 +5584,7 @@ struct TopOffenderHeader: View {
             Text("Safety").frame(width: 150, alignment: .leading)
             Text("Category").frame(width: 130, alignment: .leading)
             Text("Owner").frame(width: 110, alignment: .leading)
+            Text("Next").frame(width: 124, alignment: .leading)
             Text("Age").frame(width: 48, alignment: .leading)
             Text("Path")
             Spacer()
@@ -5535,6 +5648,11 @@ struct TopOffenderRowView: View {
             Text(row.ownerName)
                 .frame(width: 110, alignment: .leading)
                 .lineLimit(1)
+            Text(row.nextAction.label)
+                .font(.caption)
+                .foregroundStyle(nextActionColor)
+                .frame(width: 124, alignment: .leading)
+                .lineLimit(1)
             Text(row.ageDays.map { "\($0)d" } ?? "-")
                 .frame(width: 48, alignment: .leading)
                 .foregroundStyle(.secondary)
@@ -5571,6 +5689,16 @@ struct TopOffenderRowView: View {
         case .review: .orange
         case .protected: .purple
         case .blocked: .red
+        }
+    }
+
+    private var nextActionColor: Color {
+        switch row.nextAction {
+        case .safeMaintenance: .green
+        case .quitAppFirst: .orange
+        case .useNativeTool: .blue
+        case .reviewInFinder, .archiveCandidate: .secondary
+        case .protectByDefault, .doNotTouch: .red
         }
     }
 }
@@ -6098,12 +6226,14 @@ final class DashboardModel {
     var lastPolicyExportURL: URL?
     var lastScopeSetExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
+    var diskStatus: DiskStatusSnapshot = DiskStatusReader().snapshot()
     var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.scopes(for: .developer, includeUnavailable: true))
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
     var lastScanDate: Date?
     var launchAgentInstalled = false
+    var launchAgentStatus: LaunchAgentStatus = LaunchAgentManager().status()
     var error: String?
 
     var selectedScopePlan: ScanScopePlan {
@@ -6147,6 +6277,18 @@ final class DashboardModel {
 
     var reviewQueueReport: ReviewQueueReport {
         FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: 12)
+    }
+
+    var trustReadinessReport: TrustReadinessReport {
+        TrustReadinessBuilder.build(
+            diskStatus: diskStatus,
+            permissionSummary: permissionReport,
+            findings: findings,
+            latestPlan: plan ?? recentPlans.first,
+            latestReceipt: lastExecutionReceipt ?? lastDryRunReceipt ?? recentReceipts.first,
+            automationInstalled: launchAgentStatus.installed,
+            signingState: "App runtime; verify signed and notarized releases with the manifest"
+        )
     }
 
     var queueSummaries: [ReviewQueueSummary] {
@@ -6309,6 +6451,7 @@ final class DashboardModel {
             diskDrillDown = result.4
             userPathPolicy = result.5
             permissionReport = result.6
+            diskStatus = DiskStatusReader().snapshot()
             _ = try ScanHistoryStore().save(overview: result.3)
             loadHistory()
             plan = nil
@@ -7219,6 +7362,8 @@ final class DashboardModel {
     }
 
     func refreshAutomation() {
-        launchAgentInstalled = FileManager.default.fileExists(atPath: LaunchAgentManager().installedPath().path)
+        launchAgentStatus = LaunchAgentManager().status()
+        launchAgentInstalled = launchAgentStatus.installed
+        diskStatus = DiskStatusReader().snapshot()
     }
 }

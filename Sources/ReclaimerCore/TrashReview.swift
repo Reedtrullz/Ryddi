@@ -37,6 +37,12 @@ public struct TrashReviewItem: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public extension TrashReviewItem {
+    var nextAction: ReviewNextAction {
+        .reviewInFinder
+    }
+}
+
 public struct TrashReviewReport: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let createdAt: Date

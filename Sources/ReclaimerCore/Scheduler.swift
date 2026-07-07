@@ -137,6 +137,43 @@ public struct LaunchAgentPreview: Codable, Hashable, Sendable {
     }
 }
 
+public struct LaunchAgentStatus: Codable, Hashable, Sendable {
+    public let label: String
+    public let installedPath: String
+    public let installed: Bool
+    public let loadedState: String
+    public let lastLogPath: String
+    public let nextScheduledTimeDisplay: String
+    public let reportKind: ScheduledReportKind
+    public let scopeSummary: String
+    public let programArguments: [String]
+    public let nonClaims: [String]
+
+    public init(
+        label: String,
+        installedPath: String,
+        installed: Bool,
+        loadedState: String,
+        lastLogPath: String,
+        nextScheduledTimeDisplay: String,
+        reportKind: ScheduledReportKind,
+        scopeSummary: String,
+        programArguments: [String],
+        nonClaims: [String]
+    ) {
+        self.label = label
+        self.installedPath = installedPath
+        self.installed = installed
+        self.loadedState = loadedState
+        self.lastLogPath = lastLogPath
+        self.nextScheduledTimeDisplay = nextScheduledTimeDisplay
+        self.reportKind = reportKind
+        self.scopeSummary = scopeSummary
+        self.programArguments = programArguments
+        self.nonClaims = nonClaims
+    }
+}
+
 public final class LaunchAgentManager: @unchecked Sendable {
     public let label = "com.reidar.ryddi.agent"
     private let fileManager: FileManager
@@ -200,6 +237,27 @@ public final class LaunchAgentManager: @unchecked Sendable {
         )
     }
 
+    public func status(
+        cliPath: String = "reclaimer",
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        schedule: ScheduleConfiguration = ScheduleConfiguration()
+    ) -> LaunchAgentStatus {
+        let preview = preview(cliPath: cliPath, home: home, schedule: schedule)
+        let installed = fileManager.fileExists(atPath: preview.plistPath)
+        return LaunchAgentStatus(
+            label: label,
+            installedPath: preview.plistPath,
+            installed: installed,
+            loadedState: installed ? loadedStateBestEffort() : "not installed",
+            lastLogPath: preview.logPath,
+            nextScheduledTimeDisplay: String(format: "%02d:%02d", schedule.hour, schedule.minute),
+            reportKind: schedule.reportKind,
+            scopeSummary: schedule.scopeSelection.summary,
+            programArguments: preview.programArguments,
+            nonClaims: schedule.nonClaims
+        )
+    }
+
     public func load(home: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
         let target = installedPath(home: home)
         try runLaunchctl(arguments: ["bootstrap", "gui/\(getuid())", target.path])
@@ -226,5 +284,30 @@ public final class LaunchAgentManager: @unchecked Sendable {
                 userInfo: [NSLocalizedDescriptionKey: message?.isEmpty == false ? message! : "launchctl exited with status \(process.terminationStatus)."]
             )
         }
+    }
+
+    private func loadedStateBestEffort() -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["print", "gui/\(getuid())/\(label)"]
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return "unknown: \(error.localizedDescription)"
+        }
+        if process.terminationStatus == 0 {
+            return "loaded"
+        }
+        let message = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let message, !message.isEmpty {
+            return "not loaded: \(message)"
+        }
+        return "not loaded"
     }
 }

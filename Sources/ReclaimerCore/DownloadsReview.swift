@@ -225,6 +225,19 @@ public struct DownloadsReviewItem: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public extension DownloadsReviewItem {
+    var nextAction: ReviewNextAction {
+        switch workflow {
+        case .trashReview, .manualReview:
+            return .reviewInFinder
+        case .archiveReview:
+            return .archiveCandidate
+        case .keepForNow:
+            return .protectByDefault
+        }
+    }
+}
+
 public struct DownloadsReviewKindSummary: Codable, Hashable, Identifiable, Sendable {
     public var id: String { kind.rawValue }
     public let kind: DownloadsReviewKind

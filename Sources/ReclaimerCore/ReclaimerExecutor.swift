@@ -100,7 +100,8 @@ public final class ReclaimerExecutor: @unchecked Sendable {
 
         let openStatus = openFileChecker.status(for: url)
         guard !openStatus.isOpen, openStatus.checkFailed == nil else {
-            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Open-file check blocked action.")
+            let scope = openStatus.checkedRecursively ? "Recursive open-file check" : "Open-file check"
+            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "\(scope) blocked action.")
         }
 
         guard mode == .perform else {

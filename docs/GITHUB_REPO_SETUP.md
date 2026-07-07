@@ -99,3 +99,21 @@ Known limits:
 - Project Dependencies Review does not delete, move, Trash, prune, purge, clean, execute project scripts, or modify project files, source, manifests, lockfiles, env files, dependencies, build outputs, credentials, IDE settings, workspace metadata, generated code, local editable installs, or unknown project state
 - Xcode Review does not delete, move, Trash, prune, purge, reset simulators, or modify Xcode files
 ```
+
+## v0.2.0 Trust Release Notes Draft
+
+```markdown
+## Ryddi v0.2.0
+
+First signed trust release, published only after `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` passes.
+
+- Developer ID signed, notarized, stapled, Gatekeeper assessed, strict codesign verified, and shipped with SHA-256 plus release manifest proof
+- Trust readiness cockpit and `reclaimer trust --json`
+- Redacted dogfood reports with explicit no-cleanup, no-permission-grant, and no-exact-APFS-reclaim non-claims
+- Typed plan-condition gates so display copy cannot accidentally grant cleanup authority
+- Recursive open-handle checks and final-state execution revalidation
+- Report-only automation status with exact LaunchAgent scope/report evidence
+- General cleaner next-action guidance for safe maintenance, quit-first, native-tool, Finder review, archive, protect, and do-not-touch paths
+
+Do not publish as `v0.2.0` if signing or notarization credentials are absent or any release gate fails.
+```

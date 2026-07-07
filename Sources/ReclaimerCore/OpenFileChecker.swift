@@ -9,13 +9,19 @@ public struct LsofOpenFileChecker: OpenFileChecking {
 
     public func status(for url: URL) -> OpenFileStatus {
         let lsof = URL(fileURLWithPath: "/usr/sbin/lsof")
+        let checkInfo = checkMode(for: url)
         guard FileManager.default.isExecutableFile(atPath: lsof.path) else {
-            return OpenFileStatus(isOpen: false, checkFailed: "lsof was not available.")
+            return OpenFileStatus(
+                isOpen: false,
+                checkFailed: "lsof was not available.",
+                checkedRecursively: checkInfo.recursive,
+                checkedPath: url.path
+            )
         }
 
         let process = Process()
         process.executableURL = lsof
-        process.arguments = arguments(for: url)
+        process.arguments = checkInfo.arguments
         let output = Pipe()
         let error = Pipe()
         process.standardOutput = output
@@ -25,18 +31,28 @@ public struct LsofOpenFileChecker: OpenFileChecking {
             try process.run()
             process.waitUntilExit()
         } catch {
-            return OpenFileStatus(isOpen: false, checkFailed: "Could not run lsof: \(error.localizedDescription)")
+            return OpenFileStatus(
+                isOpen: false,
+                checkFailed: "Could not run lsof: \(error.localizedDescription)",
+                checkedRecursively: checkInfo.recursive,
+                checkedPath: url.path
+            )
         }
 
         let data = output.fileHandleForReading.readDataToEndOfFile()
         let stderr = error.fileHandleForReading.readDataToEndOfFile()
         if process.terminationStatus == 1, data.isEmpty {
-            return OpenFileStatus(isOpen: false)
+            return OpenFileStatus(isOpen: false, checkedRecursively: checkInfo.recursive, checkedPath: url.path)
         }
 
         guard process.terminationStatus == 0 else {
             let message = String(data: stderr, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return OpenFileStatus(isOpen: false, checkFailed: message?.isEmpty == false ? message : "lsof exited with status \(process.terminationStatus).")
+            return OpenFileStatus(
+                isOpen: false,
+                checkFailed: message?.isEmpty == false ? message : "lsof exited with status \(process.terminationStatus).",
+                checkedRecursively: checkInfo.recursive,
+                checkedPath: url.path
+            )
         }
 
         let lines = String(data: data, encoding: .utf8)?
@@ -59,15 +75,20 @@ public struct LsofOpenFileChecker: OpenFileChecking {
             }
         }
 
-        return OpenFileStatus(isOpen: !processes.isEmpty, processSummary: Array(Set(processes)).sorted())
+        return OpenFileStatus(
+            isOpen: !processes.isEmpty,
+            processSummary: Array(Set(processes)).sorted(),
+            checkedRecursively: checkInfo.recursive,
+            checkedPath: url.path
+        )
     }
 
-    private func arguments(for url: URL) -> [String] {
+    private func checkMode(for url: URL) -> (arguments: [String], recursive: Bool) {
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
-            return ["-F", "pcn", "+D", url.path]
+            return (["-F", "pcn", "+D", url.path], true)
         }
-        return ["-F", "pcn", "--", url.path]
+        return (["-F", "pcn", "--", url.path], false)
     }
 }
 

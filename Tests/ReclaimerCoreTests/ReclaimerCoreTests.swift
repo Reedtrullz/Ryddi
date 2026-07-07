@@ -1605,6 +1605,87 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("cannot prove macOS Full Disk Access") })
     }
 
+    func testTrustReadinessRecommendsFullDiskAccessAndDryRunWhenCoverageIsDegraded() {
+        let permissionReport = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Caches", path: "/fixture/Library/Caches", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Mail", path: "/fixture/Library/Mail", permissionState: .denied, message: "Path exists but is not readable.")
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+        let diskStatus = DiskStatusSnapshot(
+            createdAt: Date(timeIntervalSince1970: 0),
+            path: "/fixture",
+            totalBytes: 1_000,
+            freeBytes: 100,
+            importantFreeBytes: nil,
+            availableBytes: nil,
+            pressure: .warning,
+            notes: []
+        )
+        let candidate = finding(
+            path: "/fixture/Library/Caches/Codex/blob",
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false
+        )
+
+        let report = TrustReadinessBuilder.build(
+            diskStatus: diskStatus,
+            permissionSummary: permissionReport,
+            findings: [candidate],
+            latestPlan: nil,
+            latestReceipt: nil,
+            automationInstalled: false,
+            signingState: "unsigned test"
+        )
+
+        XCTAssertTrue(report.recommendedActions.contains { $0.id == "permissions.review-full-disk-access" })
+        XCTAssertTrue(report.recommendedActions.contains { $0.id == "plan.create-dry-run" })
+        XCTAssertEqual(report.nextActionCounts[ReviewNextAction.safeMaintenance.rawValue], 1)
+    }
+
+    func testTrustReadinessWarnsWhenLatestReceiptIsDryRunOnly() {
+        let permissionReport = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Caches", path: "/fixture/Library/Caches", permissionState: .readable, message: "Directory is readable.")
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+        let receipt = ExecutionReceipt(
+            createdAt: Date(timeIntervalSince1970: 10),
+            ruleVersion: "test",
+            mode: ExecutionMode.dryRun.rawValue,
+            beforeFreeBytes: nil,
+            afterFreeBytes: nil,
+            actions: [
+                ExecutionActionReceipt(path: "/fixture/cache", action: .deleteCache, status: "dry-run", message: "Would delete.")
+            ],
+            userConfirmed: false
+        )
+
+        let report = TrustReadinessBuilder.build(
+            diskStatus: DiskStatusSnapshot(
+                createdAt: Date(timeIntervalSince1970: 0),
+                path: "/fixture",
+                totalBytes: 1_000,
+                freeBytes: 900,
+                importantFreeBytes: nil,
+                availableBytes: nil,
+                pressure: .healthy,
+                notes: []
+            ),
+            permissionSummary: permissionReport,
+            latestReceipt: receipt,
+            automationInstalled: true,
+            signingState: "signed and notarized test"
+        )
+
+        XCTAssertTrue(report.recommendedActions.contains { $0.id == "receipt.dry-run-only" })
+        XCTAssertEqual(report.latestReceiptSummary?.dryRunCount, 1)
+        XCTAssertEqual(report.recommendedActions.first { $0.id == "release.signing" }?.severity, .ready)
+    }
+
     func testPermissionWalkthroughGuidesDegradedCoverageWithoutGrantingPermission() {
         let report = PermissionAdvisor.report(
             scopeSummaries: [
@@ -3355,7 +3436,8 @@ final class ReclaimerCoreTests: XCTestCase {
             safety: .autoSafe,
             action: .deleteCache,
             open: false,
-            conditions: ["Skip files open by Codex."]
+            conditions: ["Skip files open by Codex."],
+            conditionGates: [.openFileClear]
         )
 
         let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: [staleCondition, openOnlyCondition], mode: .autoSafeOnly)
@@ -3363,6 +3445,26 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(plan.items.first { $0.finding.path == staleCondition.path }?.selected ?? true)
         XCTAssertTrue(plan.items.first { $0.finding.path == openOnlyCondition.path }?.selected ?? false)
         XCTAssertTrue(plan.items.first { $0.finding.path == staleCondition.path }?.conditions.contains { $0.message.contains("stale") && !$0.isSatisfied } ?? false)
+    }
+
+    func testPlanConditionDecodesLegacyJSONAsManualReviewRequired() throws {
+        let data = Data(#"{"message":"legacy condition","isSatisfied":true}"#.utf8)
+
+        let decoded = try JSONDecoder().decode(PlanCondition.self, from: data)
+
+        XCTAssertEqual(decoded.kind, .manualReviewRequired)
+        XCTAssertEqual(decoded.message, "legacy condition")
+        XCTAssertTrue(decoded.isSatisfied)
+    }
+
+    func testOpenFileStatusDecodesLegacyJSONWithNonRecursiveDefaults() throws {
+        let data = Data(#"{"isOpen":false,"processSummary":[],"checkedAt":0}"#.utf8)
+
+        let decoded = try JSONDecoder().decode(OpenFileStatus.self, from: data)
+
+        XCTAssertFalse(decoded.isOpen)
+        XCTAssertFalse(decoded.checkedRecursively)
+        XCTAssertNil(decoded.checkedPath)
     }
 
     func testPlanBuilderDeduplicatesNestedSelectedFindings() throws {
@@ -3376,6 +3478,104 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(plan.items.first { $0.finding.path == parentPath }?.selected ?? false)
         XCTAssertFalse(plan.items.first { $0.finding.path == childPath }?.selected ?? true)
         XCTAssertEqual(plan.expectedImmediateReclaim, 1_000)
+    }
+
+    func testReviewNextActionMappings() {
+        let safeCache = finding(path: "/fixture/Library/Caches/Codex/blob", safety: .autoSafe, action: .deleteCache, open: false)
+        let activeBrowser = finding(path: "/fixture/Library/Caches/Google/Chrome", safety: .autoSafe, action: .deleteCache, open: true, category: "Browser")
+        let nativePackage = finding(path: "/fixture/.npm", safety: .safeAfterCondition, action: .nativeToolCommand, open: false, category: "Package cache")
+        let personalLarge = finding(path: "/fixture/Documents/movie.mov", safety: .reviewRequired, action: .compress, open: false, category: "Large file")
+        let protectedData = finding(path: "/fixture/.codex/auth.json", safety: .neverTouch, action: .reportOnly, open: false)
+
+        XCTAssertEqual(safeCache.reviewNextAction, .safeMaintenance)
+        XCTAssertEqual(activeBrowser.reviewNextAction, .quitAppFirst)
+        XCTAssertEqual(nativePackage.reviewNextAction, .useNativeTool)
+        XCTAssertEqual(personalLarge.reviewNextAction, .archiveCandidate)
+        XCTAssertEqual(protectedData.reviewNextAction, .doNotTouch)
+
+        let download = DownloadsReviewItem(
+            path: "/fixture/Downloads/archive.zip",
+            displayName: "archive.zip",
+            kind: .archive,
+            workflow: .archiveReview,
+            logicalSize: 10,
+            allocatedSize: 10,
+            itemCount: 1,
+            isDirectory: false,
+            signals: [],
+            recommendation: "fixture",
+            guidance: [],
+            workflowSteps: []
+        )
+        let trash = TrashReviewItem(
+            path: "/fixture/.Trash/old",
+            displayName: "old",
+            logicalSize: 10,
+            allocatedSize: 10,
+            itemCount: 1,
+            isDirectory: false,
+            guidance: []
+        )
+        let appSupport = AppReviewItem(
+            ownerKey: "fixture",
+            path: "/fixture/Library/Application Support/Fixture",
+            displayName: "Fixture",
+            logicalSize: 10,
+            allocatedSize: 10,
+            isDirectory: true,
+            modificationDate: nil,
+            category: "App state",
+            safetyClass: .safeAfterCondition,
+            actionKind: .openGuidance,
+            evidence: []
+        )
+
+        XCTAssertEqual(download.nextAction, .archiveCandidate)
+        XCTAssertEqual(trash.nextAction, .reviewInFinder)
+        XCTAssertEqual(appSupport.nextAction, .reviewInFinder)
+    }
+
+    func testDogfoodReportRedactsPathsAndIncludesNonClaims() {
+        let cache = finding(
+            path: tempRoot.appendingPathComponent("Library/Caches/Codex/blob").path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            allocatedSize: 512,
+            category: "Codex"
+        )
+        let scopes = [ScanScope(name: "Fixture", root: tempRoot)]
+        let overview = FindingAnalytics.overview(findings: [cache], scopes: scopes, topLimit: 5)
+        let queues = FindingAnalytics.reviewQueueReport(findings: [cache], limitPerQueue: 5)
+        let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: [cache], mode: .autoSafeOnly)
+        let active = ActiveFileReviewScanner(openFileChecker: NoOpenFilesChecker()).review(findings: [cache], options: ActiveFileReviewOptions(limit: 5))
+        let permissionReport = PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries)
+        let diskStatus = DiskStatusSnapshot(
+            path: tempRoot.path,
+            totalBytes: 1_000,
+            freeBytes: 800,
+            importantFreeBytes: nil,
+            availableBytes: nil,
+            pressure: .healthy,
+            notes: []
+        )
+
+        let report = DogfoodReportBuilder.build(
+            preset: .general,
+            overview: overview,
+            queues: queues,
+            plan: plan,
+            activeFileReport: active,
+            permissionReport: permissionReport,
+            diskStatus: diskStatus,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted)
+        )
+
+        XCTAssertFalse(report.markdown.contains(tempRoot.path))
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertTrue(report.markdown.contains("No cleanup was executed"))
+        XCTAssertTrue(report.markdown.contains("does not grant macOS permissions"))
+        XCTAssertTrue(report.markdown.contains("cannot promise exact free-space gains"))
     }
 
     func testActiveFileReviewReportsOpenCleanupCandidatesWithProcesses() throws {
@@ -3527,6 +3727,53 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: target.appendingPathComponent("valuable.bin").path))
         XCTAssertTrue(receipt.actions.contains { $0.status == "skipped" && $0.message.contains("symbolic link") })
+    }
+
+    func testExecutorSkipsDirectoryWhenRecursiveOpenFileCheckFindsOpenChild() throws {
+        let cache = tempRoot.appendingPathComponent("Library/Caches/Codex", isDirectory: true)
+        let child = cache.appendingPathComponent("open-child.bin")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data(repeating: 9, count: 128).write(to: child)
+        let plannedFinding = finding(
+            path: cache.path,
+            safety: .autoSafe,
+            action: .deleteCache,
+            open: false,
+            conditionGates: [.openFileClear],
+            allocatedSize: 128,
+            isDirectory: true
+        )
+        let plan = ReclaimPlan(
+            mode: "test",
+            items: [
+                ReclaimPlanItem(
+                    finding: plannedFinding,
+                    selected: true,
+                    proposedAction: .deleteCache,
+                    conditions: [PlanCondition(kind: .openFileClear, message: "fixture", isSatisfied: true)],
+                    estimatedImmediateReclaim: 128
+                )
+            ],
+            dryRunSummary: []
+        )
+
+        let receipt = ReclaimerExecutor(
+            openFileChecker: StaticOpenFileChecker(
+                openStatuses: [
+                    cache.path: OpenFileStatus(
+                        isOpen: true,
+                        processSummary: ["fixture pid 42"],
+                        checkedRecursively: true,
+                        checkedPath: cache.path
+                    )
+                ]
+            )
+        )
+        .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: child.path))
+        XCTAssertEqual(receipt.actions.first?.status, "skipped")
+        XCTAssertTrue(receipt.actions.first?.message.contains("Recursive open-file check") ?? false)
     }
 
     func testQuarantineHoldCanMoveFixture() throws {
@@ -3700,6 +3947,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(plist.contains("<string>--yes</string>"))
         XCTAssertFalse(plist.contains("<string>prune</string>"))
         XCTAssertFalse(plist.contains("<string>reset</string>"))
+        XCTAssertFalse(plist.contains("<string>uninstall</string>"))
     }
 
     func testLaunchAgentPlistCanScheduleGeneralEvidenceReport() {
@@ -3762,6 +4010,31 @@ final class ReclaimerCoreTests: XCTestCase {
             "10"
         ])
         XCTAssertTrue(preview.nonClaims.contains { $0.contains("preset, template, or saved scope set") })
+    }
+
+    func testLaunchAgentStatusPreservesScopeAndForbiddenArgumentsStayExcluded() {
+        let schedule = ScheduleConfiguration(
+            hour: 6,
+            minute: 45,
+            reportKind: .plan,
+            scopeSelection: ScheduledScopeSelection(template: "weekly-general"),
+            limit: 33,
+            includeUserRules: true
+        )
+
+        let status = LaunchAgentManager().status(cliPath: "/tmp/reclaimer", home: tempRoot, schedule: schedule)
+
+        XCTAssertFalse(status.installed)
+        XCTAssertEqual(status.scopeSummary, "Template: weekly-general")
+        XCTAssertEqual(status.reportKind, .plan)
+        XCTAssertEqual(status.nextScheduledTimeDisplay, "06:45")
+        XCTAssertTrue(status.programArguments.contains("plan"))
+        XCTAssertTrue(status.programArguments.contains("--template"))
+        XCTAssertTrue(status.programArguments.contains("weekly-general"))
+        for forbidden in ["execute", "--yes", "prune", "reset", "uninstall", "native", "run"] {
+            XCTAssertFalse(status.programArguments.contains(forbidden), "scheduled arguments must not contain \(forbidden)")
+        }
+        XCTAssertTrue(status.nonClaims.contains { $0.contains("report-only") })
     }
 
     func testLaunchAgentPlistEscapesXMLValues() {
@@ -3958,6 +4231,7 @@ final class ReclaimerCoreTests: XCTestCase {
         action: ActionKind,
         open: Bool,
         conditions: [String] = [],
+        conditionGates: [PlanConditionKind] = [],
         allocatedSize: Int64 = 128,
         isDirectory: Bool = false,
         category: String = "Fixture",
@@ -3971,7 +4245,8 @@ final class ReclaimerCoreTests: XCTestCase {
                 safetyClass: safety,
                 actionKind: action,
                 evidence: ["Fixture evidence."],
-                conditions: conditions
+                conditions: conditions,
+                conditionGates: conditionGates
             )
         ]
         return Finding(

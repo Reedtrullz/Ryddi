@@ -1,6 +1,6 @@
 # Ryddi Release Checklist
 
-This project is intended for direct macOS distribution outside the Mac App Store. A public release should be explicit about whether it is an unsigned developer preview or a signed/notarized build.
+This project is intended for direct macOS distribution outside the Mac App Store. A public release must be explicit about whether it is an unsigned developer preview or a signed/notarized build. `v0.2.0` is the first trust release and must not be published unless the signed gate passes.
 
 ## Developer Preview
 
@@ -31,6 +31,8 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer overview --path Tests --limit 5 --sort reclaim --group safety` prints a bounded overview with grouped top-offender rows and conservative reclaim estimates.
 - [ ] `reclaimer overview --path Tests --limit 5 --sort reclaim --group safety` includes owner/app/tool summaries.
 - [ ] `reclaimer overview --json --path Tests --limit 5 --sort reclaim --group safety` includes bounded `mapNodes`, `ownerSummaries`, and `topOffenderTable`.
+- [ ] `reclaimer trust --json --path Tests` reports trust readiness, scan coverage, latest local audit state, next-action counts, release trust state, and non-claims without executing cleanup.
+- [ ] `reclaimer dogfood --path Tests --path-style redacted --output DOGFOOD.md` writes a report with disk status, scan coverage, top owners, queues, selected dry-run summary, active-handle summary, protected buckets, and non-claims without full paths or cleanup.
 - [ ] `reclaimer queues --path Tests --limit 5 --json` reports all shared review queues, conservative reclaim estimates, sample rows, and queue non-claims without creating a cleanup plan.
 - [ ] `reclaimer queues --path Tests --queue unknown --limit 5 --json` reports one queue with full queue accounting, bounded rows, guidance, and non-claims without creating a cleanup plan.
 - [ ] `reclaimer explain FIXTURE --json --min-size 1` reports what/why/risk/action/recovery/condition/next-step sections and non-claims without executing cleanup.
@@ -78,12 +80,42 @@ This project is intended for direct macOS distribution outside the Mac App Store
 
 ## Signed And Notarized Build
 
+- [ ] `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` exits `0`.
 - [ ] `CODESIGN_IDENTITY` is set to a Developer ID Application certificate.
+- [ ] `RYDDI_VERSION=0.2.0` and `RYDDI_BUILD_NUMBER=2` are used by the packaging scripts.
 - [ ] `Scripts/package-app.sh` signs `dist/Ryddi.app` with Hardened Runtime.
 - [ ] `Scripts/notarize-app.sh dist/Ryddi.app` completes successfully.
+- [ ] Notarization credentials are supplied through `NOTARY_PROFILE` or `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD`.
+- [ ] `xcrun stapler validate dist/Ryddi.app` passes.
 - [ ] `spctl --assess --type execute --verbose dist/Ryddi.app` accepts the app.
 - [ ] `codesign --verify --deep --strict --verbose=2 dist/Ryddi.app` passes.
+- [ ] `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` exist.
+- [ ] `dist/Ryddi-release-manifest.txt` records signed, notarized, stapled, Gatekeeper, strict codesign, bundle version `0.2.0`, and build `2` proof.
 - [ ] GitHub release artifact and checksum are uploaded.
+
+## v0.2.0 Release Notes Template
+
+```markdown
+## Ryddi v0.2.0
+
+First trust release.
+
+- Signed and notarized outside the Mac App Store, only if the release manifest proves Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification.
+- Trust readiness cockpit in the app and `reclaimer trust --json`.
+- Dogfood report mode: `reclaimer dogfood --preset general --path-style redacted --output ryddi-dogfood.md`.
+- Typed plan-condition gates and fail-closed cleanup selection.
+- Recursive open-handle checks for directory cleanup candidates.
+- Final-state execution checks immediately before cleanup.
+- Report-only automation status and LaunchAgent proof.
+- General cleaner next-action guidance across top offenders, Downloads, Trash, Apps & Leftovers, and detail rows.
+
+Non-claims:
+
+- No cleanup is performed by packaging, trust readiness, dogfood reports, or scheduled automation.
+- Full Disk Access remains user controlled.
+- APFS/free-space gains are estimates, not exact promises.
+- VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, Codex sessions, credentials, and unknown app state remain protected by default.
+```
 
 ## Trust And Safety Notes
 

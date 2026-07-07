@@ -14,6 +14,8 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Explain ownership | Group non-overlapping findings by scanner owner hints or category fallback so users can see which app/tool appears responsible for storage. | `OwnerStorageSummary`, `ScanOverview.ownerSummaries`, `reclaimer overview`, app Top Owners, evidence reports |
 | Track growth | Local scan snapshots compare category/scope/safety growth between scans and export local before/after Markdown reports. | `ScanHistoryStore`, `GrowthReportBuilder`, `reclaimer history`, `reclaimer history report`, app Growth History |
 | Watch disk pressure | Menu bar status item and CLI status report current free space using explicit warning/critical thresholds. | `DiskStatusReader`, `reclaimer status`, app menu bar |
+| Show trust readiness | Summarize disk pressure, scan coverage, latest plan/receipt state, report-only automation, next-action buckets, release trust evidence, and explicit non-claims before raw cleanup navigation. | `TrustReadinessReport`, `TrustReadinessBuilder`, `reclaimer trust`, app Summary trust cards |
+| Dogfood safely | Generate a redacted real-machine report that includes disk status, scan coverage, owners, queues, selected dry-run summary, active-handle summary, protected buckets, and explicit no-cleanup non-claims. | `DogfoodReportBuilder`, `reclaimer dogfood`, release-check smoke |
 | Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, first-run Full Disk Access walkthrough steps, exportable guidance, and explicit permission non-claims. | `PermissionAdvisor`, `PermissionWalkthroughBuilder`, `reclaimer permissions`, `reclaimer permissions guide`, app Permissions |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Export evidence reports | Produce local Markdown reports with disk status, scan coverage, safety/category buckets, top findings, user policy, accounting notes, optional path privacy controls, and explicit non-claims. | `EvidenceReportBuilder`, `ReportPrivacyOptions`, `ReportStore`, `reclaimer report`, app Export Report |
@@ -49,7 +51,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Inventory containers | Run bounded read-only Docker/Colima inspection commands and record storage buckets, images, containers, volumes, profiles, missing/not-running states, and command outcomes. | `ContainerInventoryScanner`, `reclaimer containers`, app Container Inventory |
 | Automate conservatively | Scheduled jobs are report-only, can target Developer/General/All presets, built-in templates, or saved scope sets, and can be previewed before installation; unattended destructive cleanup is not enabled in v1. | `ScheduleConfiguration`, `LaunchAgentManager`, `ReclaimerAgent`, `schedule preview`, `schedule install` |
 | Keep local audit trail | Save plans, receipts, native reports, container reports, active-file reports, and general review reports under Application Support with local-only JSON. | `AuditStore`, app Audit History |
-| Package for direct distribution | Build an unsigned developer preview or signed app bundle, verify release-shaped artifacts, create checksum/manifest output, and leave notarization as an explicit credentialed step. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, release-preview workflow |
+| Package for direct distribution | Build unsigned previews for testing, or fail-closed signed release artifacts that require Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and manifest proof. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, release-preview and signed-release workflows |
 | Stay private | No telemetry, cloud upload, or remote AI analysis. | architecture and README policy |
 
 ## MVP Feature Boundaries
@@ -74,6 +76,8 @@ Included:
 - Local scan history and growth deltas.
 - Exportable local Markdown growth reports for saved snapshot comparisons.
 - Menu bar disk-pressure status with report-only scan shortcut.
+- Trust readiness cockpit and CLI report for disk pressure, permissions, dry-run/receipt state, automation, next-action buckets, and release trust evidence.
+- Dogfood report mode for redacted, no-cleanup real-machine evidence packages.
 - Exportable local Markdown evidence reports.
 - Exportable local Markdown reclaim plan reports.
 - Exportable local Markdown execution receipt reports.
@@ -122,6 +126,7 @@ Deferred:
 - `reclaimer holding restore` restores a held fixture, and `holding expire` is dry-run unless `--yes` is supplied.
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
 - `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records signing state, and creates a zip/checksum/manifest.
+- `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` fails unless Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and manifest proof all pass.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview --sort reclaim --group safety` reports grouped top offenders with confidence, conservative immediate-reclaim estimates, permission coverage, category summaries, owner summaries, and APFS notes.
 - `reclaimer queues --path FIXTURE --limit 5 --json` reports all review queues with counts, allocated bytes, conservative reclaim estimates, sample rows, and non-claims without creating a cleanup plan.
@@ -147,6 +152,8 @@ Deferred:
 - App Rule Catalog can preview, validate, import, export, and reveal local user rule packs; app scans only include user rules when the toolbar User Rules toggle is on.
 - `reclaimer explain PATH --json --min-size 1` emits a structured explanation with what/why/risk/action/recovery/condition/next-step sections and non-claims without executing cleanup.
 - `reclaimer permissions --json --path FIXTURE` reports coverage level, readable/denied/missing counts, recommended actions, and non-claims.
+- `reclaimer trust --json --path FIXTURE` reports trust readiness, next-action counts, latest audit summary, signing state, and non-claims without executing cleanup.
+- `reclaimer dogfood --path FIXTURE --path-style redacted --output DOGFOOD.md` writes a redacted Markdown report and includes no-cleanup, no-permission-grant, and no-exact-APFS-reclaim non-claims.
 - `reclaimer permissions guide --path FIXTURE --output GUIDE.md` writes a local Markdown first-run walkthrough with Full Disk Access steps, rescan/report-only commands, affected scopes, and non-claims.
 - `reclaimer active --path FIXTURE --json` reports cleanup candidates blocked by open handles or failed open-file checks, with process summaries when available, and does not quit processes or execute cleanup.
 - `reclaimer report --path FIXTURE --limit 5 --output REPORT.md` writes a local Markdown report with top findings, policy, accounting notes, and non-claims without executing cleanup.

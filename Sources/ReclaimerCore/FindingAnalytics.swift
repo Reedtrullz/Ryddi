@@ -197,6 +197,76 @@ public enum TopOffenderConfidence: String, Codable, CaseIterable, Hashable, Iden
     }
 }
 
+public enum ReviewNextAction: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case safeMaintenance
+    case quitAppFirst
+    case useNativeTool
+    case reviewInFinder
+    case archiveCandidate
+    case protectByDefault
+    case doNotTouch
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .safeMaintenance: "Safe maintenance"
+        case .quitAppFirst: "Quit app first"
+        case .useNativeTool: "Use native tool"
+        case .reviewInFinder: "Review in Finder"
+        case .archiveCandidate: "Archive candidate"
+        case .protectByDefault: "Protect by default"
+        case .doNotTouch: "Do not touch"
+        }
+    }
+
+    public var guidance: String {
+        switch self {
+        case .safeMaintenance:
+            "Include this in a dry-run plan, then execute only after the receipt is clean."
+        case .quitAppFirst:
+            "Quit the owning app or tool, then re-run the active-file check."
+        case .useNativeTool:
+            "Use the package manager, simulator, container, or vendor tool instead of raw deletion."
+        case .reviewInFinder:
+            "Open the item in Finder and decide whether it is still valuable."
+        case .archiveCandidate:
+            "Consider archiving or moving this out of primary storage after review."
+        case .protectByDefault:
+            "Keep it unless you explicitly know it is disposable."
+        case .doNotTouch:
+            "Ryddi should not remove this automatically."
+        }
+    }
+}
+
+public extension Finding {
+    var reviewNextAction: ReviewNextAction {
+        if openFileStatus?.isOpen == true || openFileStatus?.checkFailed != nil {
+            return .quitAppFirst
+        }
+        if safetyClass == .neverTouch {
+            return .doNotTouch
+        }
+        if safetyClass == .preserveByDefault {
+            return .protectByDefault
+        }
+        if actionKind == .nativeToolCommand {
+            return .useNativeTool
+        }
+        if safetyClass == .autoSafe, actionKind == .deleteCache || actionKind == .trash {
+            return .safeMaintenance
+        }
+        if actionKind == .compress || primaryCategory.localizedCaseInsensitiveContains("large") {
+            return .archiveCandidate
+        }
+        if safetyClass == .reviewRequired {
+            return .archiveCandidate
+        }
+        return .reviewInFinder
+    }
+}
+
 public struct TopOffenderRow: Codable, Hashable, Identifiable, Sendable {
     public var id: String { finding.id }
     public let finding: Finding
@@ -214,6 +284,7 @@ public struct TopOffenderRow: Codable, Hashable, Identifiable, Sendable {
     public let confidence: TopOffenderConfidence
     public let reclaimabilityLabel: String
     public let evidenceSummary: String
+    public let nextAction: ReviewNextAction
 
     public init(finding: Finding, referenceDate: Date = Date()) {
         self.finding = finding
@@ -235,6 +306,7 @@ public struct TopOffenderRow: Codable, Hashable, Identifiable, Sendable {
             confidence: confidence
         )
         evidenceSummary = TopOffenderRow.evidenceSummary(for: finding)
+        nextAction = finding.reviewNextAction
     }
 
     private static func estimatedImmediateReclaim(for finding: Finding) -> Int64 {

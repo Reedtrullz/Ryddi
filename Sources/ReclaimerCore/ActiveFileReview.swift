@@ -161,6 +161,9 @@ public final class ActiveFileReviewScanner: @unchecked Sendable {
             "Quit the listed app or process, then rerun Plan or Dry Run before reclaim.",
             "If the process is unfamiliar or system-owned, leave the path untouched and inspect it manually."
         ]
+        if status.checkedRecursively {
+            lines.insert("Directory tree was checked recursively with lsof.", at: 0)
+        }
         if !status.processSummary.isEmpty {
             lines.insert("Open by: \(status.processSummary.joined(separator: ", "))", at: 0)
         }

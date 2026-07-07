@@ -107,6 +107,19 @@ public struct AppReviewItem: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public extension AppReviewItem {
+    var nextAction: ReviewNextAction {
+        switch safetyClass {
+        case .neverTouch:
+            return .doNotTouch
+        case .preserveByDefault:
+            return .protectByDefault
+        case .autoSafe, .safeAfterCondition, .reviewRequired:
+            return actionKind == .nativeToolCommand ? .useNativeTool : .reviewInFinder
+        }
+    }
+}
+
 public struct AppReviewGroup: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let ownerName: String

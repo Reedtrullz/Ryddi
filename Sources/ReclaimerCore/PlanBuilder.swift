@@ -67,63 +67,90 @@ public final class PlanBuilder: @unchecked Sendable {
     private func conditions(for finding: Finding) -> [PlanCondition] {
         var conditions: [PlanCondition] = []
         if let open = finding.openFileStatus {
-            conditions.append(PlanCondition(message: "No active open file handle", isSatisfied: !open.isOpen && open.checkFailed == nil))
+            conditions.append(PlanCondition(
+                kind: open.checkedRecursively ? .recursiveOpenFileClear : .openFileClear,
+                message: open.checkedRecursively ? "No active open file handle in directory tree" : "No active open file handle",
+                isSatisfied: !open.isOpen && open.checkFailed == nil
+            ))
             if let failure = open.checkFailed {
-                conditions.append(PlanCondition(message: "Open-file check failed: \(failure)", isSatisfied: false))
+                conditions.append(PlanCondition(kind: .openFileClear, message: "Open-file check failed: \(failure)", isSatisfied: false))
             }
         }
         if finding.safetyClass == .neverTouch || finding.safetyClass == .preserveByDefault {
-            conditions.append(PlanCondition(message: "Path is protected by policy", isSatisfied: false))
+            conditions.append(PlanCondition(kind: .userPolicyClear, message: "Path is protected by policy", isSatisfied: false))
         }
         if finding.isSymbolicLink {
-            conditions.append(PlanCondition(message: "Symbolic links require manual review", isSatisfied: false))
+            conditions.append(PlanCondition(kind: .notSymbolicLink, message: "Symbolic links require manual review", isSatisfied: false))
         }
         for match in finding.ruleMatches.prefix(1) {
+            for gate in match.conditionGates {
+                conditions.append(condition(for: gate, finding: finding))
+            }
             for condition in match.conditions {
-                conditions.append(PlanCondition(message: condition, isSatisfied: isAutomaticallySatisfiedRuleCondition(condition, finding: finding)))
+                let kind = inferredConditionKind(condition)
+                let satisfied = match.conditionGates.contains(kind) && isGateSatisfied(kind, finding: finding)
+                conditions.append(PlanCondition(kind: kind, message: condition, isSatisfied: satisfied))
             }
         }
         return conditions
     }
 
-    private func isAutomaticallySatisfiedRuleCondition(_ condition: String, finding: Finding) -> Bool {
+    private func condition(for gate: PlanConditionKind, finding: Finding) -> PlanCondition {
+        switch gate {
+        case .openFileClear:
+            return PlanCondition(kind: gate, message: "Required open-file check is clear", isSatisfied: isGateSatisfied(gate, finding: finding))
+        case .recursiveOpenFileClear:
+            return PlanCondition(kind: gate, message: "Required recursive open-file check is clear", isSatisfied: isGateSatisfied(gate, finding: finding))
+        case .userPolicyClear:
+            return PlanCondition(kind: gate, message: "No user protection or exclusion blocks this path", isSatisfied: true)
+        case .notSymbolicLink:
+            return PlanCondition(kind: gate, message: "Path is not a symbolic link", isSatisfied: !finding.isSymbolicLink)
+        case .manualReviewRequired:
+            return PlanCondition(kind: gate, message: "Manual review required before cleanup", isSatisfied: false)
+        case .nativeToolRequired:
+            return PlanCondition(kind: gate, message: "Use the native tool before cleanup", isSatisfied: false)
+        case .appQuitRequired:
+            return PlanCondition(kind: gate, message: "Quit the owning app before cleanup", isSatisfied: false)
+        case .minimumAgeRequired:
+            return PlanCondition(kind: gate, message: "Minimum age requirement is not machine-verified", isSatisfied: false)
+        case .finalClassificationRequired:
+            return PlanCondition(kind: gate, message: "Final classification will be rechecked at execution", isSatisfied: true)
+        }
+    }
+
+    private func isGateSatisfied(_ gate: PlanConditionKind, finding: Finding) -> Bool {
+        switch gate {
+        case .openFileClear:
+            guard let open = finding.openFileStatus else { return false }
+            return !open.isOpen && open.checkFailed == nil
+        case .recursiveOpenFileClear:
+            guard let open = finding.openFileStatus else { return false }
+            return open.checkedRecursively && !open.isOpen && open.checkFailed == nil
+        case .userPolicyClear, .finalClassificationRequired:
+            return true
+        case .notSymbolicLink:
+            return !finding.isSymbolicLink
+        case .manualReviewRequired, .nativeToolRequired, .appQuitRequired, .minimumAgeRequired:
+            return false
+        }
+    }
+
+    private func inferredConditionKind(_ condition: String) -> PlanConditionKind {
         let lower = condition.lowercased()
 
-        let blockedTerms = [
-            "manual",
-            "review",
-            "stale",
-            "retention",
-            "current-day",
-            "current day",
-            "recent",
-            "quit",
-            "native",
-            "running app",
-            "unknown profile",
-            "versions",
-            "sound-library",
-            "sound library",
-            "after reviewing",
-            "before removal",
-            "prefer native"
-        ]
-        if blockedTerms.contains(where: lower.contains) {
-            return false
+        if lower.contains("native") || lower.contains("prefer native") {
+            return .nativeToolRequired
         }
-
-        let mentionsOpenFileGuard = lower.contains("open handle")
-            || lower.contains("open file")
-            || lower.contains("open log")
-            || lower.contains("files open")
-            || lower.contains("files that are open")
-            || lower.contains("open by")
-            || lower.contains("have open handles")
-
-        guard mentionsOpenFileGuard, let open = finding.openFileStatus else {
-            return false
+        if lower.contains("quit") || lower.contains("running app") {
+            return .appQuitRequired
         }
-        return !open.isOpen && open.checkFailed == nil
+        if lower.contains("stale") || lower.contains("retention") || lower.contains("current-day") || lower.contains("current day") || lower.contains("recent") {
+            return .minimumAgeRequired
+        }
+        if lower.contains("open handle") || lower.contains("open file") || lower.contains("open log") || lower.contains("files open") || lower.contains("files that are open") || lower.contains("open by") || lower.contains("have open handles") {
+            return .openFileClear
+        }
+        return .manualReviewRequired
     }
 
     private func deduplicateNestedSelections(_ items: [ReclaimPlanItem]) -> [ReclaimPlanItem] {

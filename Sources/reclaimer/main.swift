@@ -22,6 +22,10 @@ struct ReclaimerCLI {
         switch command {
         case "status":
             try status(args: args)
+        case "trust":
+            try trust(args: args)
+        case "dogfood":
+            try dogfood(args: args)
         case "overview":
             try overview(args: args)
         case "queues":
@@ -118,6 +122,66 @@ struct ReclaimerCLI {
             printJSON(snapshot)
         } else {
             printDiskStatus(snapshot)
+        }
+    }
+
+    static func trust(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let scopes = try options.scopes(includeUnavailable: true)
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: NoOpenFilesChecker())
+        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
+        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        let store = AuditStore()
+        let report = TrustReadinessBuilder.build(
+            diskStatus: DiskStatusReader().snapshot(),
+            permissionSummary: PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries),
+            findings: findings,
+            latestPlan: store.recentPlans(limit: 1).first,
+            latestReceipt: store.recentReceipts(limit: 1).first,
+            automationInstalled: FileManager.default.fileExists(atPath: LaunchAgentManager().installedPath().path),
+            signingState: ProcessInfo.processInfo.environment["RYDDI_SIGNING_STATE"] ?? "CLI/source runtime; verify distributed app with release manifest"
+        )
+        if options.json {
+            printJSON(report)
+        } else {
+            printTrustReadiness(report)
+        }
+    }
+
+    static func dogfood(args: [String]) throws {
+        let options = ParsedOptions(args)
+        try options.validateReportPrivacyOptions()
+        let preset = try options.scopePreset()
+        let scopes = try options.scopes(includeUnavailable: true)
+        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: NoOpenFilesChecker())
+        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
+        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        let queues = FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: options.limit)
+        let plan = PlanBuilder(openFileChecker: LsofOpenFileChecker()).buildPlan(from: findings, mode: .autoSafeOnly)
+        let activeReport = ActiveFileReviewScanner(openFileChecker: LsofOpenFileChecker()).review(
+            findings: findings,
+            options: ActiveFileReviewOptions(limit: options.limit)
+        )
+        let report = DogfoodReportBuilder.build(
+            preset: preset,
+            overview: overview,
+            queues: queues,
+            plan: plan,
+            activeFileReport: activeReport,
+            permissionReport: PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries),
+            diskStatus: DiskStatusReader().snapshot(),
+            privacy: options.reportPrivacy
+        )
+        if let output = options.outputPath {
+            let url = URL(fileURLWithPath: output).standardizedFileURL
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+            FileHandle.standardError.write(Data("wrote dogfood report: \(url.path)\n".utf8))
+        }
+        if options.json {
+            printJSON(report)
+        } else if options.outputPath == nil {
+            print(report.markdown)
         }
     }
 
@@ -1422,12 +1486,12 @@ struct ReclaimerCLI {
             try manager.uninstall()
             print("removed launch agent plist if present")
         case "status":
-            let path = manager.installedPath()
-            let installed = FileManager.default.fileExists(atPath: path.path)
-            if ParsedOptions(Array(args.dropFirst())).json {
-                printJSON(ScheduleStatusOutput(installed: installed, path: path.path))
+            let options = ParsedOptions(Array(args.dropFirst()))
+            let status = manager.status(cliPath: URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path)
+            if options.json {
+                printJSON(status)
             } else {
-                print(installed ? "installed: \(path.path)" : "not installed")
+                printLaunchAgentStatus(status)
             }
         default:
             throw CLIError.message("Unknown schedule subcommand: \(subcommand)")
@@ -1480,6 +1544,9 @@ struct ReclaimerCLI {
 
             Commands:
               status [--json] [--path PATH]
+              trust [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
+              dogfood [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--output PATH]
+                      [--path-style full|home-relative|redacted] [--redact-user-text]
               scopes [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
               scopes templates list [--json] [--include-missing-scopes]
               scopes templates show TEMPLATE_ID [--json]
@@ -1944,17 +2011,59 @@ enum CLIError: LocalizedError {
     }
 }
 
-struct ScheduleStatusOutput: Encodable {
-    let installed: Bool
-    let path: String
-}
-
 func printJSON<T: Encodable>(_ value: T) {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     encoder.dateEncodingStrategy = .iso8601
     let data = try! encoder.encode(value)
     print(String(data: data, encoding: .utf8)!)
+}
+
+func printTrustReadiness(_ report: TrustReadinessReport) {
+    print("Ryddi trust readiness")
+    print("Generated: \(report.createdAt.formatted())")
+    print("Disk: \(report.diskStatus.pressure.label) - \(report.diskStatus.statusLine)")
+    print("Coverage: \(report.permissionSummary.coverageLevel.label), \(report.permissionSummary.readableCount)/\(report.permissionSummary.totalCount) readable")
+    print("Automation: \(report.automationInstalled ? "installed" : "not installed")")
+    print("Signing: \(report.signingState)")
+    if let plan = report.latestPlanSummary {
+        print("Latest plan: \(plan.selectedCount)/\(plan.itemCount) selected, \(ByteFormat.string(plan.expectedImmediateReclaim)) expected reclaim")
+    } else {
+        print("Latest plan: none")
+    }
+    if let receipt = report.latestReceiptSummary {
+        print("Latest receipt: \(receipt.mode), \(receipt.actionCount) action(s), \(receipt.errorCount) error(s)")
+    } else {
+        print("Latest receipt: none")
+    }
+    print("\nRecommended actions")
+    for action in report.recommendedActions {
+        print("- [\(action.severity.label)] \(action.title): \(action.detail)")
+    }
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printLaunchAgentStatus(_ status: LaunchAgentStatus) {
+    print("Ryddi scheduled report status")
+    print("Label: \(status.label)")
+    print("Installed: \(status.installed ? "yes" : "no")")
+    print("Plist: \(status.installedPath)")
+    print("Loaded check: \(status.loadedState)")
+    print("Log: \(status.lastLogPath)")
+    print("Scope: \(status.scopeSummary)")
+    print("Report: \(status.reportKind.label)")
+    print("Next scheduled time: \(status.nextScheduledTimeDisplay)")
+    print("\nProgram arguments:")
+    for argument in status.programArguments {
+        print("- \(argument)")
+    }
+    print("\nNon-claims")
+    for note in status.nonClaims {
+        print("- \(note)")
+    }
 }
 
 func printSchedulePreview(_ preview: LaunchAgentPreview) {
@@ -2179,12 +2288,12 @@ func printTopOffenderTable(_ table: TopOffenderTable) {
 
 func printTopOffenderRows(_ rows: [TopOffenderRow]) {
     print(
-        "\(pad("Reclaim", 11)) \(pad("Allocated", 11)) \(pad("Age", 6)) \(pad("Confidence", 12)) \(pad("Safety", 22)) \(pad("Category", 18)) \(pad("Owner", 16)) \(pad("Action", 16)) Path"
+        "\(pad("Reclaim", 11)) \(pad("Allocated", 11)) \(pad("Age", 6)) \(pad("Confidence", 12)) \(pad("Safety", 22)) \(pad("Category", 18)) \(pad("Owner", 16)) \(pad("Next", 18)) Path"
     )
     for row in rows {
         let age = row.ageDays.map { "\($0)d" } ?? "-"
         print(
-            "\(pad(ByteFormat.string(row.estimatedImmediateReclaim), 11)) \(pad(ByteFormat.string(row.allocatedSize), 11)) \(pad(age, 6)) \(pad(row.confidence.label, 12)) \(pad(row.safetyClass.label, 22)) \(pad(row.category, 18)) \(pad(row.ownerName, 16)) \(pad(row.actionKind.label, 16)) \(row.path)"
+            "\(pad(ByteFormat.string(row.estimatedImmediateReclaim), 11)) \(pad(ByteFormat.string(row.allocatedSize), 11)) \(pad(age, 6)) \(pad(row.confidence.label, 12)) \(pad(row.safetyClass.label, 22)) \(pad(row.category, 18)) \(pad(row.ownerName, 16)) \(pad(row.nextAction.label, 18)) \(row.path)"
         )
     }
 }
@@ -2550,7 +2659,7 @@ func printActiveFileReviewReport(_ report: ActiveFileReviewReport) {
         print("\nNo open-handle blockers found in the checked cleanup candidates.")
     } else {
         print("\nOpen-handle blockers")
-        print("\(pad("State", 13)) \(pad("Bytes", 11)) \(pad("Safety", 22)) \(pad("Processes", 36)) Path")
+        print("\(pad("State", 13)) \(pad("Bytes", 11)) \(pad("Scope", 10)) \(pad("Safety", 22)) \(pad("Processes", 36)) Path")
         for item in report.items {
             let processes: String
             if !item.processSummary.isEmpty {
@@ -2560,7 +2669,8 @@ func printActiveFileReviewReport(_ report: ActiveFileReviewReport) {
             } else {
                 processes = "-"
             }
-            print("\(pad(item.state.label, 13)) \(pad(ByteFormat.string(item.finding.allocatedSize), 11)) \(pad(item.finding.safetyClass.label, 22)) \(pad(processes, 36)) \(item.finding.path)")
+            let scope = item.finding.openFileStatus?.checkedRecursively == true ? "recursive" : "single"
+            print("\(pad(item.state.label, 13)) \(pad(ByteFormat.string(item.finding.allocatedSize), 11)) \(pad(scope, 10)) \(pad(item.finding.safetyClass.label, 22)) \(pad(processes, 36)) \(item.finding.path)")
             for line in item.guidance.prefix(2) {
                 print("  - \(line)")
             }
@@ -2711,7 +2821,7 @@ func printAppGroups(_ groups: [AppReviewGroup], options: ParsedOptions) {
         }
         for item in group.items.prefix(6) {
             let modified = item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "-"
-            print("  - \(ByteFormat.string(item.allocatedSize)) \(item.safetyClass.label) \(item.category) \(modified) \(item.path)")
+            print("  - \(ByteFormat.string(item.allocatedSize)) \(item.safetyClass.label) \(item.category) \(modified) \(item.nextAction.label) \(item.path)")
         }
         if group.items.count > 6 {
             print("  ... \(group.items.count - 6) more item(s)")
@@ -2919,11 +3029,11 @@ func printDownloadsReview(_ report: DownloadsReviewReport, options: ParsedOption
         print("\nNo Downloads items found at the configured root.")
     } else {
         print("\nLargest Downloads items")
-        print("\(pad("Allocated", 11)) \(pad("Kind", 18)) \(pad("Workflow", 16)) \(pad("Age", 8)) \(pad("Modified", 12)) Path")
+        print("\(pad("Allocated", 11)) \(pad("Kind", 18)) \(pad("Workflow", 16)) \(pad("Next", 18)) \(pad("Age", 8)) \(pad("Modified", 12)) Path")
         for item in report.largestItems.prefix(options.limit) {
             let modified = item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "unknown"
             let age = item.ageDays.map { "\($0)d" } ?? "unknown"
-            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.kind.label, 18)) \(pad(item.workflow.label, 16)) \(pad(age, 8)) \(pad(modified, 12)) \(item.path)")
+            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.kind.label, 18)) \(pad(item.workflow.label, 16)) \(pad(item.nextAction.label, 18)) \(pad(age, 8)) \(pad(modified, 12)) \(item.path)")
             print("  - \(item.recommendation)")
             if let step = item.workflowSteps.first {
                 print("  workflow: \(step)")
@@ -3432,10 +3542,10 @@ func printTrashReview(_ report: TrashReviewReport, options: ParsedOptions) {
         print("\nNo Trash items found at the configured root.")
     } else {
         print("\nLargest Trash items")
-        print("\(pad("Allocated", 11)) \(pad("Logical", 11)) \(pad("Items", 8)) \(pad("Modified", 12)) Path")
+        print("\(pad("Allocated", 11)) \(pad("Logical", 11)) \(pad("Items", 8)) \(pad("Next", 18)) \(pad("Modified", 12)) Path")
         for item in report.largestItems.prefix(options.limit) {
             let modified = item.modificationDate?.formatted(date: .numeric, time: .omitted) ?? "unknown"
-            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(ByteFormat.string(item.logicalSize), 11)) \(pad("\(item.itemCount)", 8)) \(pad(modified, 12)) \(item.path)")
+            print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(ByteFormat.string(item.logicalSize), 11)) \(pad("\(item.itemCount)", 8)) \(pad(item.nextAction.label, 18)) \(pad(modified, 12)) \(item.path)")
             if let guidance = item.guidance.first {
                 print("  - \(guidance)")
             }
