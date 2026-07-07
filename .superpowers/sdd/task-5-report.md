@@ -24,3 +24,19 @@ Date: 2026-07-07
 ## Concerns
 
 - The export action uses the most recent saved remote scan and only attaches probe/growth evidence for the same target when present. This matches the task brief, but the cockpit still does not let the user choose among multiple saved dogfood reports or targets.
+
+## Fix implementation update
+
+- Scoped the fix to `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`.
+- Added `currentRemoteDogfoodReport` so the UI only renders dogfood evidence when it matches the current `remoteScanReport` target.
+- Added `syncRemoteDogfoodReport()` and called it from `loadAudit()` and immediately after `scanRemoteTarget()` updates the in-memory scan, so stale dogfood evidence for another host is cleared or retargeted.
+- Added a target label inside `Dogfood Evidence` so matching evidence is never shown without host context.
+
+## Additional commands and results
+
+- `git diff -- Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`
+  - Result: confirmed a narrow local patch limited to the remote dogfood section and dashboard model sync logic in `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`.
+- `swift build --scratch-path "$PWD/.build"`
+  - Result: success. `Build complete! (15.03s)`
+- `git commit -m "fix: clear stale remote dogfood evidence"`
+  - Result: success. Commit subject: `fix: clear stale remote dogfood evidence`.

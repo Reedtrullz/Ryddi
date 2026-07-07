@@ -1965,7 +1965,7 @@ struct RemoteTargetsView: View {
                         }
                     }
 
-                    if let dogfood = model.remoteDogfoodReport {
+                    if let dogfood = model.currentRemoteDogfoodReport {
                         SectionBox(title: "Dogfood Evidence") {
                             HStack(spacing: 16) {
                                 MetricTile(title: "Findings", value: "\(dogfood.findingCount)")
@@ -1973,6 +1973,9 @@ struct RemoteTargetsView: View {
                                 MetricTile(title: "Commands", value: "\(dogfood.commandResults.count)")
                                 MetricTile(title: "Disk pressure", value: dogfood.diskPressureSummary)
                             }
+                            Text("Target: \(dogfood.target.alias ?? dogfood.target.input)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             Text("Built from read-only remote evidence. It does not run cleanup or reconnect when exported from saved audit.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -6541,6 +6544,11 @@ final class DashboardModel {
     var remoteScanReport: RemoteScanReport?
     var remoteGrowthReport: RemoteGrowthReport?
     var remoteDogfoodReport: RemoteDogfoodReport?
+    var currentRemoteDogfoodReport: RemoteDogfoodReport? {
+        guard let dogfood = remoteDogfoodReport else { return nil }
+        guard let scan = remoteScanReport else { return dogfood }
+        return dogfood.target.id == scan.target.id ? dogfood : nil
+    }
     var activeFileReview: ActiveFileReviewReport?
     var trashReview: TrashReviewReport?
     var downloadsReview: DownloadsReviewReport?
@@ -7191,9 +7199,7 @@ final class DashboardModel {
         if remoteScanReport == nil {
             remoteScanReport = recentRemoteScanReports.first
         }
-        if remoteDogfoodReport == nil {
-            remoteDogfoodReport = recentRemoteDogfoodReports.first
-        }
+        syncRemoteDogfoodReport()
         if recentRemoteScanReports.count >= 2 {
             remoteGrowthReport = RemoteGrowthReportBuilder.build(
                 previous: recentRemoteScanReports[1],
@@ -7685,6 +7691,7 @@ final class DashboardModel {
                 return RemoteScanBuilder(target: target).scan(preset: .vpsGeneral)
             }.value
             remoteScanReport = report
+            syncRemoteDogfoodReport()
             _ = try AuditStore().save(remoteScanReport: report)
             loadAudit()
             error = report.commands.contains { $0.exitCode == 0 } ? nil : "Remote scan did not reach the target with read-only SSH commands."
@@ -7783,6 +7790,16 @@ final class DashboardModel {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    private func syncRemoteDogfoodReport() {
+        guard let scan = remoteScanReport else {
+            if remoteDogfoodReport == nil {
+                remoteDogfoodReport = recentRemoteDogfoodReports.first
+            }
+            return
+        }
+        remoteDogfoodReport = recentRemoteDogfoodReports.first { $0.target.id == scan.target.id }
     }
 
     func restoreHeldItem(_ item: HeldItem) {
