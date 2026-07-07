@@ -74,7 +74,7 @@ Initial MVP:
 - Report-only Downloads Review for old downloads, installers, archives, app bundles, Finder guidance, and local audit history
 - Report-only Browser Cache Review for cache roots, protected profile roots, quit-first guidance, and local audit history
 - Report-only Package Cache Review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native cleanup guidance, and local audit history
-- Report-only Project Dependencies Review for project-local dependency/build artifact folders, protected project roots, local VCS status, saved per-project policies, detected package-manager/script context, native rebuild command hints, and local audit history
+- Report-only Project Dependencies Review for project-local dependency/build artifact folders, protected project roots, local VCS status, saved per-project policies, detected package-manager/script/workspace context, native rebuild command hints, and local audit history
 - Report-only Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulator data, protected developer-state roots, Xcode/simctl guidance, and local audit history
 - Report-only Device Backups Review for local iPhone/iPad MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, and local audit history
 - Report-only Trash Review for current user Trash size, largest items, Finder guidance, and local audit history
@@ -96,6 +96,6 @@ Known limits:
 - no screenshots/GIFs for the first-run permission walkthrough yet
 - no root helper or system-wide cleanup
 - app uninstall execution can move only the selected app bundle to Trash after dry run and confirmation; related app support files stay review-only
-- Project Dependencies Review does not delete, move, Trash, prune, purge, clean, or modify project files, source, manifests, lockfiles, env files, dependencies, build outputs, credentials, IDE settings, generated code, local editable installs, or unknown project state
+- Project Dependencies Review does not delete, move, Trash, prune, purge, clean, or modify project files, source, manifests, lockfiles, env files, dependencies, build outputs, credentials, IDE settings, workspace metadata, generated code, local editable installs, or unknown project state
 - Xcode Review does not delete, move, Trash, prune, purge, reset simulators, or modify Xcode files
 ```

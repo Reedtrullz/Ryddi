@@ -42,6 +42,8 @@ Container inventory can run read-only Docker and Colima inspection commands. The
 
 User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
 
+Project Dependencies reports can include detected package-manager names/versions, accepted package.json script names, workspace or monorepo marker names, workspace package patterns, project root paths, workspace root paths, and local VCS status summaries. Ryddi does not upload this information, execute scripts, run package-manager commands, or prove that workspace scripts or hoisted dependencies are safe to remove.
+
 Project dependency policies store local project review choices you create. These entries can include project root paths, project names, review/preserve/skip decisions, and optional reasons. Ryddi uses them locally to annotate Project Dependencies reports or skip known-noisy projects from that report by default; policies do not grant cleanup permission.
 
 Policy export writes a local JSON document containing those paths, reasons, timestamps, schema version, and non-claims. Ryddi does not upload the export. Review it before sharing because it can reveal project names, usernames, customer names, or other private path details. Policy import changes only Ryddi's local path policy; it does not delete files, run cleanup, grant Full Disk Access, or prove that imported paths still exist. Import merges by default and replaces the whole policy only when `--replace` is supplied.

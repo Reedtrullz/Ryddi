@@ -3073,6 +3073,9 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
     print("Review-required bytes: \(ByteFormat.string(report.reviewRequiredBytes))")
     print("Allocated project dependency bytes: \(ByteFormat.string(report.totalAllocatedSize))")
     print("Logical project dependency bytes: \(ByteFormat.string(report.totalLogicalSize))")
+    if report.workspaceRootCount > 0 || !report.workspaceSummaries.isEmpty {
+        print("Workspace roots detected: \(report.workspaceRootCount)")
+    }
     if options.includeVCSStatus || !report.vcsSummaries.isEmpty {
         print("Projects with local VCS changes: \(report.projectsWithDirtyVCSCount)")
     }
@@ -3102,6 +3105,13 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
         print("\nBy package.json script")
         for summary in report.scriptSummaries.prefix(options.limit) {
             print("- \(pad(summary.name, 18)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
+    if !report.workspaceSummaries.isEmpty {
+        print("\nBy workspace")
+        for summary in report.workspaceSummaries.prefix(options.limit) {
+            print("- \(pad(summary.name, 28)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
         }
     }
 
@@ -3146,6 +3156,15 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             if !item.toolingInfo.packageScripts.isEmpty {
                 print("  scripts: \(item.toolingInfo.packageScripts.prefix(12).joined(separator: ", "))")
             }
+            if item.workspaceInfo.isWorkspace {
+                print("  workspace: \(item.workspaceInfo.label)")
+                if let rootPath = item.workspaceInfo.rootPath {
+                    print("  workspace root: \(rootPath)")
+                }
+                if !item.workspaceInfo.packagePatterns.isEmpty {
+                    print("  workspace packages: \(item.workspaceInfo.packagePatterns.prefix(12).joined(separator: ", "))")
+                }
+            }
             if let decision = item.projectPolicyDecision {
                 let reason = item.projectPolicyReason.map { " - \($0)" } ?? ""
                 print("  policy: \(decision.label)\(reason)")
@@ -3176,6 +3195,12 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             if !protectedRoot.toolingInfo.packageScripts.isEmpty {
                 print("  scripts: \(protectedRoot.toolingInfo.packageScripts.prefix(12).joined(separator: ", "))")
             }
+            if protectedRoot.workspaceInfo.isWorkspace {
+                print("  workspace: \(protectedRoot.workspaceInfo.label)")
+                if let rootPath = protectedRoot.workspaceInfo.rootPath {
+                    print("  workspace root: \(rootPath)")
+                }
+            }
             print("  vcs: \(protectedRoot.vcsInfo.state.label) - \(protectedRoot.vcsInfo.summary)")
             if let decision = protectedRoot.projectPolicyDecision {
                 let reason = protectedRoot.projectPolicyReason.map { " - \($0)" } ?? ""
@@ -3194,6 +3219,9 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             let reason = project.reason.map { " - \($0)" } ?? ""
             print("- \(project.projectName): \(project.decision.label)\(reason)")
             print("  \(project.projectRootPath)")
+            if let workspace = project.workspaceInfo, workspace.isWorkspace {
+                print("  workspace: \(workspace.label)")
+            }
             print("  \(manifests)")
             print("  \(project.note)")
         }

@@ -2097,6 +2097,75 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(protectedRoot.toolingInfo.packageScripts.contains("build"))
     }
 
+    func testProjectDependencyReviewDetectsWorkspaceContext() throws {
+        let projects = tempRoot.appendingPathComponent("Projects", isDirectory: true)
+        let monorepo = projects.appendingPathComponent("MonoRepo", isDirectory: true)
+        let webApp = monorepo.appendingPathComponent("apps/web", isDirectory: true)
+        let rootPackageJSON = """
+        {
+          "packageManager": "pnpm@9.2.0",
+          "workspaces": ["apps/*", "packages/*"]
+        }
+        """
+        let appPackageJSON = """
+        {
+          "scripts": {
+            "build": "vite build",
+            "clean": "rimraf dist"
+          }
+        }
+        """
+        let pnpmWorkspace = """
+        packages:
+          - "apps/*"
+          - "packages/*"
+        """
+        try FileManager.default.createDirectory(at: webApp.appendingPathComponent("node_modules/react"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: webApp.appendingPathComponent("dist/assets"), withIntermediateDirectories: true)
+        try rootPackageJSON.write(to: monorepo.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try pnpmWorkspace.write(to: monorepo.appendingPathComponent("pnpm-workspace.yaml"), atomically: true, encoding: .utf8)
+        try "lockfile\n".write(to: monorepo.appendingPathComponent("pnpm-lock.yaml"), atomically: true, encoding: .utf8)
+        try appPackageJSON.write(to: webApp.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try "react package\n".write(to: webApp.appendingPathComponent("node_modules/react/index.js"), atomically: true, encoding: .utf8)
+        try "bundle\n".write(to: webApp.appendingPathComponent("dist/assets/app.js"), atomically: true, encoding: .utf8)
+
+        let report = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                roots: [projects],
+                limit: 20,
+                maximumSearchDepth: 6,
+                measurementDepth: 6
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        let modules = try XCTUnwrap(report.largestItems.first { $0.projectName == "web" && $0.kind == .nodeModules })
+        XCTAssertEqual(modules.projectRootPath, webApp.path)
+        XCTAssertEqual(modules.workspaceInfo.rootPath, monorepo.path)
+        XCTAssertEqual(modules.workspaceInfo.kind, .pnpm)
+        XCTAssertTrue(modules.workspaceInfo.packagePatterns.contains("apps/*"))
+        XCTAssertTrue(modules.workspaceInfo.manifestHints.contains("pnpm-workspace.yaml"))
+        XCTAssertEqual(modules.toolingInfo.toolName, "pnpm")
+        XCTAssertEqual(modules.toolingInfo.toolVersion, "9.2.0")
+        XCTAssertEqual(modules.toolingInfo.toolSource, "workspace package.json packageManager")
+        XCTAssertTrue(modules.signals.contains("workspace-detected"))
+        XCTAssertTrue(modules.signals.contains("workspace-pnpm"))
+        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm install --frozen-lockfile" })
+        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm run clean" })
+
+        let dist = try XCTUnwrap(report.largestItems.first { $0.projectName == "web" && $0.kind == .webBuildOutput })
+        XCTAssertEqual(dist.workspaceInfo.rootPath, monorepo.path)
+        XCTAssertTrue(dist.commandHints.contains { $0.command == "pnpm run build" })
+
+        XCTAssertEqual(report.workspaceRootCount, 1)
+        XCTAssertTrue(report.workspaceSummaries.contains { $0.name.contains("MonoRepo") && $0.itemCount >= 2 })
+        XCTAssertTrue(report.guidance.contains { $0.contains("workspace/monorepo") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("workspace and monorepo metadata") })
+        let protectedRoot = try XCTUnwrap(report.protectedProjectRoots.first { $0.projectName == "web" })
+        XCTAssertEqual(protectedRoot.workspaceInfo.rootPath, monorepo.path)
+        XCTAssertTrue(protectedRoot.note.contains("workspace metadata"))
+    }
+
     func testProjectDependencyReviewAppliesSavedProjectPolicies() throws {
         let projects = tempRoot.appendingPathComponent("Projects", isDirectory: true)
         let preserved = projects.appendingPathComponent("PreservedWeb", isDirectory: true)

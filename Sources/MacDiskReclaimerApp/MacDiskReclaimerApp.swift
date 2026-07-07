@@ -2535,6 +2535,7 @@ struct ProjectDependencyReviewView: View {
                         MetricTile(title: "Needs review", value: ByteFormat.string(report.reviewRequiredBytes))
                         MetricTile(title: "Measured items", value: "\(report.itemCount)")
                         MetricTile(title: "Project roots", value: "\(report.rootSummaries.count)")
+                        MetricTile(title: "Workspaces", value: "\(report.workspaceRootCount)")
                         MetricTile(title: "VCS changes", value: "\(report.projectsWithDirtyVCSCount)")
                         MetricTile(title: "Skipped policy", value: "\(report.policySkippedProjects.count)")
                     }
@@ -2679,6 +2680,29 @@ struct ProjectDependencyReviewView: View {
                                 }
                             }
                         }
+
+                        SectionBox(title: "By Workspace") {
+                            if report.workspaceSummaries.isEmpty {
+                                Text("No workspace or monorepo evidence was detected.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.workspaceSummaries.prefix(12)) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.itemCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     SectionBox(title: "Project Roots") {
@@ -2764,6 +2788,26 @@ struct ProjectDependencyReviewView: View {
                                                 .foregroundStyle(.secondary)
                                                 .fixedSize(horizontal: false, vertical: true)
                                         }
+                                        if item.workspaceInfo.isWorkspace {
+                                            Text("Workspace: \(item.workspaceInfo.label)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                            if let workspaceRoot = item.workspaceInfo.rootPath {
+                                                Text(workspaceRoot)
+                                                    .font(.system(.caption2, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.middle)
+                                                    .textSelection(.enabled)
+                                            }
+                                            if !item.workspaceInfo.packagePatterns.isEmpty {
+                                                Text("Workspace packages: \(item.workspaceInfo.packagePatterns.prefix(12).joined(separator: ", "))")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.secondary)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                        }
                                         Text(item.vcsInfo.summary)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
@@ -2823,6 +2867,20 @@ struct ProjectDependencyReviewView: View {
                                                 .foregroundStyle(.secondary)
                                                 .fixedSize(horizontal: false, vertical: true)
                                         }
+                                        if protectedRoot.workspaceInfo.isWorkspace {
+                                            Text("Workspace: \(protectedRoot.workspaceInfo.label)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                            if let workspaceRoot = protectedRoot.workspaceInfo.rootPath {
+                                                Text(workspaceRoot)
+                                                    .font(.system(.caption2, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.middle)
+                                                    .textSelection(.enabled)
+                                            }
+                                        }
                                         Text("\(protectedRoot.vcsInfo.state.label): \(protectedRoot.vcsInfo.summary)")
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
@@ -2863,6 +2921,12 @@ struct ProjectDependencyReviewView: View {
                                             Text(reason)
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
+                                        }
+                                        if let workspace = skipped.workspaceInfo, workspace.isWorkspace {
+                                            Text("Workspace: \(workspace.label)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
                                         }
                                         Text(skipped.note)
                                             .font(.caption2)

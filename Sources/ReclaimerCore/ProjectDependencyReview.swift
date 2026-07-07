@@ -196,6 +196,78 @@ public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
     }
 }
 
+public enum ProjectDependencyWorkspaceKind: String, Codable, CaseIterable, Hashable, Sendable {
+    case javascript
+    case pnpm
+    case yarn
+    case npm
+    case bun
+    case turbo
+    case nx
+    case lerna
+    case rush
+    case cargo
+    case gradle
+    case other
+
+    public var label: String {
+        switch self {
+        case .javascript: return "JavaScript workspace"
+        case .pnpm: return "pnpm workspace"
+        case .yarn: return "Yarn workspace"
+        case .npm: return "npm workspace"
+        case .bun: return "Bun workspace"
+        case .turbo: return "Turborepo"
+        case .nx: return "Nx workspace"
+        case .lerna: return "Lerna workspace"
+        case .rush: return "Rush workspace"
+        case .cargo: return "Cargo workspace"
+        case .gradle: return "Gradle multi-project"
+        case .other: return "Workspace"
+        }
+    }
+}
+
+public struct ProjectDependencyWorkspaceInfo: Codable, Hashable, Sendable {
+    public let rootPath: String?
+    public let rootName: String?
+    public let kind: ProjectDependencyWorkspaceKind?
+    public let manifestHints: [String]
+    public let packagePatterns: [String]
+    public let evidence: [String]
+    public let toolingInfo: ProjectDependencyToolingInfo
+
+    public init(
+        rootPath: String? = nil,
+        rootName: String? = nil,
+        kind: ProjectDependencyWorkspaceKind? = nil,
+        manifestHints: [String] = [],
+        packagePatterns: [String] = [],
+        evidence: [String] = [],
+        toolingInfo: ProjectDependencyToolingInfo = .none
+    ) {
+        self.rootPath = rootPath?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.rootName = rootName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.kind = kind
+        self.manifestHints = Array(Set(manifestHints.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap(\.nilIfEmpty))).sorted().prefixArray(50)
+        self.packagePatterns = Array(Set(packagePatterns.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap(\.nilIfEmpty))).sorted().prefixArray(50)
+        self.evidence = Array(Set(evidence.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap(\.nilIfEmpty))).sorted().prefixArray(20)
+        self.toolingInfo = toolingInfo
+    }
+
+    public static let none = ProjectDependencyWorkspaceInfo()
+
+    public var isWorkspace: Bool {
+        rootPath != nil
+    }
+
+    public var label: String {
+        let kindLabel = kind?.label ?? ProjectDependencyWorkspaceKind.other.label
+        guard let rootName else { return kindLabel }
+        return "\(rootName) (\(kindLabel))"
+    }
+}
+
 public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let path: String
@@ -213,6 +285,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
     public let ageDays: Int?
     public let manifestHints: [String]
     public let toolingInfo: ProjectDependencyToolingInfo
+    public let workspaceInfo: ProjectDependencyWorkspaceInfo
     public let signals: [String]
     public let vcsInfo: ProjectDependencyVCSInfo
     public let commandHints: [NativeToolCommand]
@@ -238,6 +311,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         ageDays: Int? = nil,
         manifestHints: [String],
         toolingInfo: ProjectDependencyToolingInfo = .none,
+        workspaceInfo: ProjectDependencyWorkspaceInfo = .none,
         signals: [String],
         vcsInfo: ProjectDependencyVCSInfo = .notChecked,
         commandHints: [NativeToolCommand] = [],
@@ -262,6 +336,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         self.ageDays = ageDays
         self.manifestHints = manifestHints
         self.toolingInfo = toolingInfo
+        self.workspaceInfo = workspaceInfo
         self.signals = signals
         self.vcsInfo = vcsInfo
         self.commandHints = commandHints
@@ -288,6 +363,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         case ageDays
         case manifestHints
         case toolingInfo
+        case workspaceInfo
         case signals
         case vcsInfo
         case commandHints
@@ -315,6 +391,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         ageDays = try container.decodeIfPresent(Int.self, forKey: .ageDays)
         manifestHints = try container.decode([String].self, forKey: .manifestHints)
         toolingInfo = try container.decodeIfPresent(ProjectDependencyToolingInfo.self, forKey: .toolingInfo) ?? .none
+        workspaceInfo = try container.decodeIfPresent(ProjectDependencyWorkspaceInfo.self, forKey: .workspaceInfo) ?? .none
         signals = try container.decode([String].self, forKey: .signals)
         vcsInfo = try container.decodeIfPresent(ProjectDependencyVCSInfo.self, forKey: .vcsInfo) ?? .notChecked
         commandHints = try container.decodeIfPresent([NativeToolCommand].self, forKey: .commandHints) ?? []
@@ -342,6 +419,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         try container.encodeIfPresent(ageDays, forKey: .ageDays)
         try container.encode(manifestHints, forKey: .manifestHints)
         try container.encode(toolingInfo, forKey: .toolingInfo)
+        try container.encode(workspaceInfo, forKey: .workspaceInfo)
         try container.encode(signals, forKey: .signals)
         try container.encode(vcsInfo, forKey: .vcsInfo)
         try container.encode(commandHints, forKey: .commandHints)
@@ -389,6 +467,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
     public let projectName: String
     public let manifestHints: [String]
     public let toolingInfo: ProjectDependencyToolingInfo
+    public let workspaceInfo: ProjectDependencyWorkspaceInfo
     public let vcsInfo: ProjectDependencyVCSInfo
     public let projectPolicyDecision: ProjectDependencyPolicyDecision?
     public let projectPolicyReason: String?
@@ -400,6 +479,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         projectName: String,
         manifestHints: [String],
         toolingInfo: ProjectDependencyToolingInfo = .none,
+        workspaceInfo: ProjectDependencyWorkspaceInfo = .none,
         vcsInfo: ProjectDependencyVCSInfo = .notChecked,
         projectPolicyDecision: ProjectDependencyPolicyDecision? = nil,
         projectPolicyReason: String? = nil,
@@ -410,6 +490,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         self.projectName = projectName
         self.manifestHints = manifestHints
         self.toolingInfo = toolingInfo
+        self.workspaceInfo = workspaceInfo
         self.vcsInfo = vcsInfo
         self.projectPolicyDecision = projectPolicyDecision
         self.projectPolicyReason = projectPolicyReason
@@ -422,6 +503,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         case projectName
         case manifestHints
         case toolingInfo
+        case workspaceInfo
         case vcsInfo
         case projectPolicyDecision
         case projectPolicyReason
@@ -435,6 +517,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         projectName = try container.decode(String.self, forKey: .projectName)
         manifestHints = try container.decode([String].self, forKey: .manifestHints)
         toolingInfo = try container.decodeIfPresent(ProjectDependencyToolingInfo.self, forKey: .toolingInfo) ?? .none
+        workspaceInfo = try container.decodeIfPresent(ProjectDependencyWorkspaceInfo.self, forKey: .workspaceInfo) ?? .none
         vcsInfo = try container.decodeIfPresent(ProjectDependencyVCSInfo.self, forKey: .vcsInfo) ?? .notChecked
         projectPolicyDecision = try container.decodeIfPresent(ProjectDependencyPolicyDecision.self, forKey: .projectPolicyDecision)
         projectPolicyReason = try container.decodeIfPresent(String.self, forKey: .projectPolicyReason)
@@ -448,6 +531,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         try container.encode(projectName, forKey: .projectName)
         try container.encode(manifestHints, forKey: .manifestHints)
         try container.encode(toolingInfo, forKey: .toolingInfo)
+        try container.encode(workspaceInfo, forKey: .workspaceInfo)
         try container.encode(vcsInfo, forKey: .vcsInfo)
         try container.encodeIfPresent(projectPolicyDecision, forKey: .projectPolicyDecision)
         try container.encodeIfPresent(projectPolicyReason, forKey: .projectPolicyReason)
@@ -460,6 +544,7 @@ public struct ProjectDependencyPolicySkippedProject: Codable, Hashable, Identifi
     public let projectRootPath: String
     public let projectName: String
     public let manifestHints: [String]
+    public let workspaceInfo: ProjectDependencyWorkspaceInfo?
     public let decision: ProjectDependencyPolicyDecision
     public let reason: String?
     public let note: String
@@ -469,6 +554,7 @@ public struct ProjectDependencyPolicySkippedProject: Codable, Hashable, Identifi
         projectRootPath: String,
         projectName: String,
         manifestHints: [String],
+        workspaceInfo: ProjectDependencyWorkspaceInfo? = nil,
         decision: ProjectDependencyPolicyDecision,
         reason: String? = nil,
         note: String
@@ -477,6 +563,7 @@ public struct ProjectDependencyPolicySkippedProject: Codable, Hashable, Identifi
         self.projectRootPath = projectRootPath
         self.projectName = projectName
         self.manifestHints = manifestHints
+        self.workspaceInfo = workspaceInfo
         self.decision = decision
         self.reason = reason
         self.note = note
@@ -511,8 +598,10 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
     public let kindSummaries: [ProjectDependencySummary]
     public let toolSummaries: [ProjectDependencySummary]
     public let scriptSummaries: [ProjectDependencySummary]
+    public let workspaceSummaries: [ProjectDependencySummary]
     public let vcsSummaries: [ProjectDependencySummary]
     public let policySummaries: [ProjectDependencySummary]
+    public let workspaceRootCount: Int
     public let projectsWithDirtyVCSCount: Int
     public let largestItems: [ProjectDependencyItem]
     public let protectedProjectRoots: [ProjectDependencyProtectedProjectRoot]
@@ -535,8 +624,10 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         kindSummaries: [ProjectDependencySummary],
         toolSummaries: [ProjectDependencySummary] = [],
         scriptSummaries: [ProjectDependencySummary] = [],
+        workspaceSummaries: [ProjectDependencySummary] = [],
         vcsSummaries: [ProjectDependencySummary] = [],
         policySummaries: [ProjectDependencySummary] = [],
+        workspaceRootCount: Int = 0,
         projectsWithDirtyVCSCount: Int = 0,
         largestItems: [ProjectDependencyItem],
         protectedProjectRoots: [ProjectDependencyProtectedProjectRoot],
@@ -558,8 +649,10 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         self.kindSummaries = kindSummaries
         self.toolSummaries = toolSummaries
         self.scriptSummaries = scriptSummaries
+        self.workspaceSummaries = workspaceSummaries
         self.vcsSummaries = vcsSummaries
         self.policySummaries = policySummaries
+        self.workspaceRootCount = max(0, workspaceRootCount)
         self.projectsWithDirtyVCSCount = max(0, projectsWithDirtyVCSCount)
         self.largestItems = largestItems
         self.protectedProjectRoots = protectedProjectRoots
@@ -583,8 +676,10 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         case kindSummaries
         case toolSummaries
         case scriptSummaries
+        case workspaceSummaries
         case vcsSummaries
         case policySummaries
+        case workspaceRootCount
         case projectsWithDirtyVCSCount
         case largestItems
         case protectedProjectRoots
@@ -609,8 +704,10 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         kindSummaries = try container.decode([ProjectDependencySummary].self, forKey: .kindSummaries)
         toolSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .toolSummaries) ?? []
         scriptSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .scriptSummaries) ?? []
+        workspaceSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .workspaceSummaries) ?? []
         vcsSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .vcsSummaries) ?? []
         policySummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .policySummaries) ?? []
+        workspaceRootCount = try container.decodeIfPresent(Int.self, forKey: .workspaceRootCount) ?? 0
         projectsWithDirtyVCSCount = try container.decodeIfPresent(Int.self, forKey: .projectsWithDirtyVCSCount) ?? 0
         largestItems = try container.decode([ProjectDependencyItem].self, forKey: .largestItems)
         protectedProjectRoots = try container.decode([ProjectDependencyProtectedProjectRoot].self, forKey: .protectedProjectRoots)
@@ -635,8 +732,10 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         try container.encode(kindSummaries, forKey: .kindSummaries)
         try container.encode(toolSummaries, forKey: .toolSummaries)
         try container.encode(scriptSummaries, forKey: .scriptSummaries)
+        try container.encode(workspaceSummaries, forKey: .workspaceSummaries)
         try container.encode(vcsSummaries, forKey: .vcsSummaries)
         try container.encode(policySummaries, forKey: .policySummaries)
+        try container.encode(workspaceRootCount, forKey: .workspaceRootCount)
         try container.encode(projectsWithDirtyVCSCount, forKey: .projectsWithDirtyVCSCount)
         try container.encode(largestItems, forKey: .largestItems)
         try container.encode(protectedProjectRoots, forKey: .protectedProjectRoots)
@@ -758,8 +857,10 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             kindSummaries: Self.kindSummaries(for: sortedItems),
             toolSummaries: Self.toolSummaries(for: sortedItems),
             scriptSummaries: Self.scriptSummaries(for: sortedItems),
+            workspaceSummaries: Self.workspaceSummaries(for: sortedItems),
             vcsSummaries: Self.vcsSummaries(for: sortedItems),
             policySummaries: Self.policySummaries(for: sortedItems),
+            workspaceRootCount: Self.workspaceRootCount(for: sortedItems),
             projectsWithDirtyVCSCount: Self.projectsWithDirtyVCSCount(for: sortedItems),
             largestItems: Array(sortedItems.prefix(options.limit)),
             protectedProjectRoots: protectedProjectRoots(for: sortedItems),
@@ -997,6 +1098,12 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         if !metadata.toolingInfo.packageScripts.isEmpty {
             signals.append("package-json-scripts")
         }
+        if metadata.workspaceInfo.isWorkspace {
+            signals.append("workspace-detected")
+            if let kind = metadata.workspaceInfo.kind {
+                signals.append("workspace-\(kind.rawValue)")
+            }
+        }
         for command in commandHints where command.id.contains(".script.") {
             signals.append("script-command-hint")
             break
@@ -1032,6 +1139,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             ageDays: ageDays,
             manifestHints: metadata.manifestHints,
             toolingInfo: metadata.toolingInfo,
+            workspaceInfo: metadata.workspaceInfo,
             signals: signals,
             vcsInfo: vcsInfo,
             commandHints: commandHints,
@@ -1052,11 +1160,13 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         let name = url.lastPathComponent
         let lowerName = name.lowercased()
         let project = projectRoot(for: url, boundary: boundary)
+        let workspaceInfo = workspaceInfo(for: project.root, boundary: boundary)
         let hints = project.manifestHints
         let hintSet = Set(hints)
+        let toolingInfo = effectiveToolingInfo(project: project.toolingInfo, workspace: workspaceInfo)
 
         func metadata(_ ecosystem: ProjectDependencyEcosystem, _ kind: ProjectDependencyKind) -> ProjectDependencyCandidateMetadata {
-            ProjectDependencyCandidateMetadata(projectRoot: project.root, manifestHints: hints, toolingInfo: project.toolingInfo, ecosystem: ecosystem, kind: kind)
+            ProjectDependencyCandidateMetadata(projectRoot: project.root, manifestHints: hints, toolingInfo: toolingInfo, workspaceInfo: workspaceInfo, ecosystem: ecosystem, kind: kind)
         }
 
         if lowerName == "node_modules" {
@@ -1181,6 +1291,120 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         )
     }
 
+    private func effectiveToolingInfo(
+        project: ProjectDependencyToolingInfo,
+        workspace: ProjectDependencyWorkspaceInfo
+    ) -> ProjectDependencyToolingInfo {
+        let canInheritWorkspaceTool = project.toolName == nil || project.toolSource == "package.json"
+        guard canInheritWorkspaceTool, workspace.isWorkspace, let workspaceTool = workspace.toolingInfo.toolName else {
+            return project
+        }
+        var notes = project.notes
+        notes.append("Inherited package-manager evidence from workspace root: \(workspace.label).")
+        return ProjectDependencyToolingInfo(
+            toolName: workspaceTool,
+            toolVersion: workspace.toolingInfo.toolVersion,
+            toolSource: workspace.toolingInfo.toolSource.map { "workspace \($0)" } ?? "workspace root",
+            packageScripts: project.packageScripts,
+            notes: notes
+        )
+    }
+
+    private func workspaceInfo(for projectRoot: URL, boundary: URL) -> ProjectDependencyWorkspaceInfo {
+        let boundary = boundary.standardizedFileURL
+        var current = projectRoot.standardizedFileURL
+        while true {
+            if let workspace = workspaceInfo(at: current) {
+                return workspace
+            }
+            if current.path == boundary.path || current.path == "/" {
+                break
+            }
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            if parent.path == current.path {
+                break
+            }
+            current = parent
+        }
+        return .none
+    }
+
+    private func workspaceInfo(at url: URL) -> ProjectDependencyWorkspaceInfo? {
+        var workspaceManifestHints: [String] = []
+        var evidence: [String] = []
+        var packagePatterns: [String] = []
+        var kind: ProjectDependencyWorkspaceKind?
+
+        let packageJSON = url.appendingPathComponent("package.json")
+        if fileManager.fileExists(atPath: packageJSON.path) {
+            workspaceManifestHints.append("package.json")
+            let workspace = packageJSONWorkspace(at: packageJSON)
+            if !workspace.patterns.isEmpty {
+                packagePatterns.append(contentsOf: workspace.patterns)
+                evidence.append(contentsOf: workspace.evidence)
+                kind = workspace.kind
+            }
+        }
+
+        let pnpmWorkspace = url.appendingPathComponent("pnpm-workspace.yaml")
+        if fileManager.fileExists(atPath: pnpmWorkspace.path) {
+            workspaceManifestHints.append("pnpm-workspace.yaml")
+            packagePatterns.append(contentsOf: pnpmWorkspacePatterns(at: pnpmWorkspace))
+            evidence.append("Detected pnpm-workspace.yaml.")
+            kind = .pnpm
+        }
+
+        if fileManager.fileExists(atPath: url.appendingPathComponent("lerna.json").path) {
+            workspaceManifestHints.append("lerna.json")
+            evidence.append("Detected lerna.json.")
+            kind = kind ?? .lerna
+        }
+        if fileManager.fileExists(atPath: url.appendingPathComponent("turbo.json").path) {
+            workspaceManifestHints.append("turbo.json")
+            evidence.append("Detected turbo.json.")
+            kind = kind ?? .turbo
+        }
+        if fileManager.fileExists(atPath: url.appendingPathComponent("nx.json").path) {
+            workspaceManifestHints.append("nx.json")
+            evidence.append("Detected nx.json.")
+            kind = kind ?? .nx
+        }
+        if fileManager.fileExists(atPath: url.appendingPathComponent("rush.json").path) {
+            workspaceManifestHints.append("rush.json")
+            evidence.append("Detected rush.json.")
+            kind = kind ?? .rush
+        }
+
+        let cargoManifest = url.appendingPathComponent("Cargo.toml")
+        if fileManager.fileExists(atPath: cargoManifest.path), cargoManifestContainsWorkspace(at: cargoManifest) {
+            workspaceManifestHints.append("Cargo.toml")
+            evidence.append("Detected Cargo.toml [workspace].")
+            kind = kind ?? .cargo
+        }
+
+        for filename in ["settings.gradle", "settings.gradle.kts"] {
+            let settings = url.appendingPathComponent(filename)
+            if fileManager.fileExists(atPath: settings.path), gradleSettingsContainsSubprojects(at: settings) {
+                workspaceManifestHints.append(filename)
+                evidence.append("Detected Gradle settings with included subprojects.")
+                kind = kind ?? .gradle
+            }
+        }
+
+        guard kind != nil || !evidence.isEmpty else { return nil }
+        let rootHints = manifestHints(at: url)
+        let tooling = toolingInfo(at: url, manifestHints: rootHints)
+        return ProjectDependencyWorkspaceInfo(
+            rootPath: url.path,
+            rootName: url.lastPathComponent,
+            kind: kind ?? .other,
+            manifestHints: Array(Set(rootHints + workspaceManifestHints)).sorted(),
+            packagePatterns: packagePatterns,
+            evidence: evidence,
+            toolingInfo: tooling
+        )
+    }
+
     private func packageJSONTooling(at url: URL) -> (toolName: String?, toolVersion: String?, scripts: [String], notes: [String]) {
         var notes: [String] = []
         guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]) else {
@@ -1229,6 +1453,91 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         return (packageManager?.name, packageManager?.version, scripts, notes)
     }
 
+    private func packageJSONWorkspace(at url: URL) -> (patterns: [String], evidence: [String], kind: ProjectDependencyWorkspaceKind?) {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]), (values.fileSize ?? 0) <= 512_000 else {
+            return ([], [], nil)
+        }
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let json = object as? [String: Any] else {
+            return ([], [], nil)
+        }
+        let packageManager = (json["packageManager"] as? String).flatMap(Self.parsePackageManagerField)
+        var patterns: [String] = []
+        if let array = json["workspaces"] as? [Any] {
+            patterns.append(contentsOf: Self.safeWorkspacePatterns(array))
+        } else if let object = json["workspaces"] as? [String: Any],
+                  let packages = object["packages"] as? [Any] {
+            patterns.append(contentsOf: Self.safeWorkspacePatterns(packages))
+        }
+        guard !patterns.isEmpty else { return ([], [], nil) }
+        let kind = packageManager.map { Self.workspaceKind(forPackageManager: $0.name) } ?? .javascript
+        return (
+            patterns,
+            ["Detected package.json workspaces: \(patterns.prefix(12).joined(separator: ", "))."],
+            kind
+        )
+    }
+
+    private func pnpmWorkspacePatterns(at url: URL) -> [String] {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]), (values.fileSize ?? 0) <= 512_000 else {
+            return []
+        }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return []
+        }
+        var inPackages = false
+        var patterns: [String] = []
+        for rawLine in text.split(whereSeparator: \.isNewline).map(String.init) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("#") || trimmed.isEmpty {
+                continue
+            }
+            if trimmed == "packages:" {
+                inPackages = true
+                continue
+            }
+            guard inPackages else { continue }
+            if trimmed.hasPrefix("-") {
+                let pattern = trimmed
+                    .dropFirst()
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                if Self.isSafeWorkspacePattern(pattern) {
+                    patterns.append(pattern)
+                }
+            } else if !rawLine.hasPrefix(" ") && !rawLine.hasPrefix("\t") {
+                break
+            }
+        }
+        return Array(Set(patterns)).sorted().prefixArray(50)
+    }
+
+    private func cargoManifestContainsWorkspace(at url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]), (values.fileSize ?? 0) <= 512_000 else {
+            return false
+        }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return false
+        }
+        return text.split(whereSeparator: \.isNewline).contains { line in
+            line.trimmingCharacters(in: .whitespacesAndNewlines) == "[workspace]"
+        }
+    }
+
+    private func gradleSettingsContainsSubprojects(at url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]), (values.fileSize ?? 0) <= 512_000 else {
+            return false
+        }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return false
+        }
+        return text.split(whereSeparator: \.isNewline).contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.hasPrefix("include ") || trimmed.hasPrefix("include(")
+        }
+    }
+
     private func hasPythonVirtualEnvironmentEvidence(at url: URL) -> Bool {
         fileManager.fileExists(atPath: url.appendingPathComponent("pyvenv.cfg").path)
             || fileManager.fileExists(atPath: url.appendingPathComponent("bin/python").path)
@@ -1253,10 +1562,11 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     projectName: item.projectName,
                     manifestHints: hints,
                     toolingInfo: item.toolingInfo,
+                    workspaceInfo: item.workspaceInfo,
                     vcsInfo: item.vcsInfo,
                     projectPolicyDecision: item.projectPolicyDecision,
                     projectPolicyReason: item.projectPolicyReason,
-                    note: "Protected project files, source, manifests, lockfiles, env files, IDE settings, credentials, and unknown project state are intentionally not measured as cleanup candidates. \(manifestText)"
+                    note: "Protected project files, source, manifests, lockfiles, env files, IDE settings, credentials, workspace metadata, and unknown project state are intentionally not measured as cleanup candidates. \(manifestText)"
                 )
             }
     }
@@ -1278,6 +1588,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             projectRootPath: metadata.projectRoot.path,
             projectName: metadata.projectRoot.lastPathComponent,
             manifestHints: metadata.manifestHints,
+            workspaceInfo: metadata.workspaceInfo.isWorkspace ? metadata.workspaceInfo : nil,
             decision: policyRule?.decision ?? .skipReview,
             reason: reason,
             note: "Saved Project Dependencies policy skipped this project from dependency/build artifact review.\(reasonText)"
@@ -1511,6 +1822,19 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
     }
 
+    private static func workspaceSummaries(for items: [ProjectDependencyItem]) -> [ProjectDependencySummary] {
+        let workspacePaths = Set(items.compactMap(\.workspaceInfo.rootPath))
+        return workspacePaths.sorted().map { path in
+            let matches = items.filter { $0.workspaceInfo.rootPath == path }
+            let label = matches.first?.workspaceInfo.label ?? URL(fileURLWithPath: path).lastPathComponent
+            return ProjectDependencySummary(
+                name: label,
+                itemCount: matches.count,
+                allocatedSize: matches.reduce(Int64(0)) { $0 + $1.allocatedSize }
+            )
+        }
+    }
+
     private static func vcsSummaries(for items: [ProjectDependencyItem]) -> [ProjectDependencySummary] {
         ProjectDependencyVCSState.allCases.compactMap { state in
             let matches = items.filter { $0.vcsInfo.state == state }
@@ -1559,6 +1883,10 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             output.append(project)
         }
         return output
+    }
+
+    private static func workspaceRootCount(for items: [ProjectDependencyItem]) -> Int {
+        Set(items.compactMap(\.workspaceInfo.rootPath)).count
     }
 
     private static func parseGitStatus(_ output: String) -> (changedTracked: Int, untracked: Int) {
@@ -1885,6 +2213,12 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         if !metadata.toolingInfo.packageScripts.isEmpty {
             guidance.append("Detected package.json scripts for review: \(metadata.toolingInfo.packageScripts.prefix(12).joined(separator: ", ")).")
         }
+        if metadata.workspaceInfo.isWorkspace {
+            guidance.append("Workspace context detected: \(metadata.workspaceInfo.label). Review workspace-level dependency hoisting, shared scripts, and sibling packages before cleanup.")
+            if !metadata.workspaceInfo.packagePatterns.isEmpty {
+                guidance.append("Workspace package patterns: \(metadata.workspaceInfo.packagePatterns.prefix(12).joined(separator: ", ")).")
+            }
+        }
         for note in metadata.toolingInfo.notes.prefix(3) {
             guidance.append(note)
         }
@@ -1926,6 +2260,9 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
     }
 
     private static func fallbackTool(for hints: Set<String>) -> (name: String, source: String)? {
+        if hints.contains("pnpm-workspace.yaml") {
+            return ("pnpm", "pnpm-workspace.yaml")
+        }
         if hints.contains("pnpm-lock.yaml") {
             return ("pnpm", "pnpm-lock.yaml")
         }
@@ -1968,6 +2305,21 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         return nil
     }
 
+    private static func workspaceKind(forPackageManager name: String) -> ProjectDependencyWorkspaceKind {
+        switch name.lowercased() {
+        case "pnpm":
+            return .pnpm
+        case "yarn":
+            return .yarn
+        case "bun":
+            return .bun
+        case "npm":
+            return .npm
+        default:
+            return .javascript
+        }
+    }
+
     private static func parsePackageManagerField(_ value: String) -> (name: String, version: String?)? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -1976,6 +2328,23 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         guard isSafePackageScriptName(name), !name.isEmpty else { return nil }
         let version = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty : nil
         return (name, version)
+    }
+
+    private static func safeWorkspacePatterns(_ values: [Any]) -> [String] {
+        Array(Set(values.compactMap { value -> String? in
+            guard let string = value as? String else { return nil }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard isSafeWorkspacePattern(trimmed) else { return nil }
+            return trimmed
+        })).sorted().prefixArray(50)
+    }
+
+    private static func isSafeWorkspacePattern(_ pattern: String) -> Bool {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./*@{}!,"))
+        return !pattern.isEmpty
+            && pattern.count <= 200
+            && !pattern.contains("..")
+            && pattern.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     private static func isSafePackageScriptName(_ name: String) -> Bool {
@@ -2019,6 +2388,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         "package.json",
         "package-lock.json",
         "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
         "yarn.lock",
         "bun.lock",
         "bun.lockb",
@@ -2042,7 +2412,11 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         "pubspec.yaml",
         "pubspec.lock",
         "go.mod",
-        "go.sum"
+        "go.sum",
+        "lerna.json",
+        "turbo.json",
+        "nx.json",
+        "rush.json"
     ]
 
     private static let nestedManifestPaths: [String] = [
@@ -2053,6 +2427,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
     public static let guidance = [
         "Review project status, VCS changes, lockfiles, and active terminals before cleanup.",
         "Use saved project policies to mark recurring projects for review, preserve-by-default, or skip-review; policies do not grant cleanup permission.",
+        "Use workspace/monorepo evidence to review dependency hoisting, shared package-manager commands, and sibling packages before removing project-local artifacts.",
         "Prefer detected package-manager and project-script commands such as package-manager install/clean, `swift package clean`, `cargo clean`, `./gradlew clean`, `flutter clean`, or `pod install` over blind deletion.",
         "Skip active builds, dev servers, simulators, IDE indexing, and terminals using the project.",
         "Treat project-local dependencies as rebuildable evidence only when the project has the expected manifests and network/toolchain access."
@@ -2062,6 +2437,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         "Project Dependency Review is report-only; it does not delete, move, Trash, prune, purge, clean, or modify project files.",
         "Saved Project Dependencies policies only annotate or skip report rows; they do not make project dependencies safe to delete.",
         "Detected package managers and package.json scripts are guidance evidence only; Ryddi does not execute project scripts or prove they are safe.",
+        "Detected workspace and monorepo metadata is guidance evidence only; Ryddi does not prove workspace scripts, hoisted dependencies, or sibling-package state are safe to remove.",
         "Ryddi does not measure project source, manifests, lockfiles, env files, credentials, IDE settings, or unknown project state as cleanup candidates.",
         "Project-local dependency and build directories may contain generated code, local editable installs, offline dependencies, or unsaved development state; review the project before cleanup.",
         "Classification is path-and-manifest based and cannot prove the owning tool is idle or that all active handles are closed.",
@@ -2073,6 +2449,7 @@ private struct ProjectDependencyCandidateMetadata: Hashable {
     let projectRoot: URL
     let manifestHints: [String]
     let toolingInfo: ProjectDependencyToolingInfo
+    let workspaceInfo: ProjectDependencyWorkspaceInfo
     let ecosystem: ProjectDependencyEcosystem
     let kind: ProjectDependencyKind
 }
