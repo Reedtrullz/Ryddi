@@ -67,6 +67,8 @@ struct DashboardView: View {
                 TrashReviewView(model: model)
             } else if selectedSection == "Containers" {
                 ContainerInventoryView(model: model)
+            } else if selectedSection == "RemoteTargets" {
+                RemoteTargetsView(model: model)
             } else if selectedSection == "Agents" {
                 AgentStorageReviewView(model: model)
             } else if selectedSection == "Permissions" {
@@ -165,7 +167,7 @@ struct DashboardView: View {
             } label: {
                 Label("Reclaim", systemImage: "trash")
             }
-            .disabled(!model.canReclaimSelected)
+            .disabled(!model.canReclaimSelected || selectedSection == "RemoteTargets")
         }
         .confirmationDialog("Reclaim selected auto-safe items?", isPresented: $showingReclaimConfirmation) {
             Button("Reclaim Selected", role: .destructive) {
@@ -187,6 +189,7 @@ struct DashboardView: View {
             model.loadUserPolicy()
             model.refreshAutomation()
             model.refreshPermissions()
+            model.refreshRemoteTargets()
         }
     }
 
@@ -252,6 +255,10 @@ struct DashboardView: View {
                 Button("Container Inventory") {
                     selectedFinding = nil
                     selectedSection = "Containers"
+                }
+                Button("Remote Targets") {
+                    selectedFinding = nil
+                    selectedSection = "RemoteTargets"
                 }
                 Button("AI Agent Storage") {
                     selectedFinding = nil
@@ -1780,6 +1787,225 @@ struct CommandOutcomeRow: View {
                     .foregroundStyle(.secondary)
             } else if let stderr = command.stderrPreview.first {
                 Text(stderr)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+struct RemoteTargetsView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Remote Targets")
+                            .font(.largeTitle.bold())
+                        Text("Agentless, report-only SSH evidence for VPS disk cleanup decisions.")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        model.refreshRemoteTargets()
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(model.isWorking)
+                }
+
+                SectionBox(title: "Target") {
+                    TextField("SSH alias or host", text: Binding(
+                        get: { model.remoteTargetInput },
+                        set: { model.remoteTargetInput = $0 }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    if !model.remoteTargets.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack {
+                                ForEach(model.remoteTargets) { target in
+                                    Button(target.input) {
+                                        model.remoteTargetInput = target.input
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                        }
+                    }
+                    HStack {
+                        Button {
+                            Task { await model.probeRemoteTarget() }
+                        } label: {
+                            Label("Probe", systemImage: "network")
+                        }
+                        .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
+
+                        Button {
+                            Task { await model.scanRemoteTarget() }
+                        } label: {
+                            Label("Scan", systemImage: "externaldrive")
+                        }
+                        .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
+
+                        Button {
+                            Task { await model.exportRemoteRedactedReport() }
+                        } label: {
+                            Label("Export Redacted", systemImage: "eye.slash")
+                        }
+                        .disabled(model.remoteScanReport == nil || model.isWorking)
+                    }
+                }
+
+                if model.isWorking {
+                    ProgressView("Running read-only remote check...")
+                }
+
+                if let probe = model.remoteProbeReport {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Connection", value: probe.commands.contains { $0.exitCode == 0 } ? "Reached" : "No response")
+                        MetricTile(title: "Host key", value: probe.target.knownHostsState)
+                        MetricTile(title: "OS", value: probe.osSummary ?? "Unknown")
+                        MetricTile(title: "Tools", value: "\(probe.availableTools.count)")
+                    }
+
+                    SectionBox(title: "Connection Evidence") {
+                        Text("Target: \(probe.target.alias ?? probe.target.input)")
+                        Text("Host: \(probe.target.resolvedHost ?? "unknown")")
+                        Text("User: \(probe.target.resolvedUser ?? "unknown")")
+                        Text("Home: \(probe.homeDirectory ?? "unknown")")
+                        if let sudo = probe.sudoNonInteractive {
+                            Text("Non-interactive sudo: \(sudo ? "available" : "not available")")
+                        }
+                    }
+                }
+
+                if let report = model.remoteScanReport {
+                    HStack(spacing: 16) {
+                        MetricTile(title: "Disk pressure", value: remotePressureLabel(report.diskFilesystems))
+                        MetricTile(title: "Inode pressure", value: remotePressureLabel(report.inodeFilesystems))
+                        MetricTile(title: "Findings", value: "\(report.findings.count)")
+                        MetricTile(title: "Native guidance", value: "\(report.nativeGuidance.count)")
+                    }
+
+                    SectionBox(title: "Review Queues") {
+                        let grouped = Dictionary(grouping: report.findings, by: \.recommendedNextAction)
+                        ForEach(grouped.keys.sorted { $0.label < $1.label }, id: \.self) { action in
+                            let rows = grouped[action] ?? []
+                            HStack {
+                                Text(action.label)
+                                    .frame(width: 150, alignment: .leading)
+                                Text("\(rows.count) item(s)")
+                                    .frame(width: 90, alignment: .leading)
+                                Text(ByteFormat.string(rows.compactMap(\.allocatedBytes).reduce(0, +)))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Top Remote Findings") {
+                        ForEach(report.findings.sorted(by: { ($0.allocatedBytes ?? 0) > ($1.allocatedBytes ?? 0) }).prefix(12)) { finding in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(finding.bucket)
+                                        .font(.headline)
+                                    Spacer()
+                                    Text(finding.allocatedBytes.map(ByteFormat.string) ?? "Unknown")
+                                    Text(finding.safetyClass.label)
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(.quaternary.opacity(0.4))
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
+                                Text(finding.displayPath)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .foregroundStyle(.secondary)
+                                Text(finding.recommendedNextAction.label)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Divider()
+                        }
+                    }
+
+                    SectionBox(title: "Native Guidance") {
+                        if report.nativeGuidance.isEmpty {
+                            Text("No native guidance generated.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(report.nativeGuidance) { item in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.title).font(.headline)
+                                    Text(item.command)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                    Text(item.summary)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    SectionBox(title: "Command Receipts") {
+                        ForEach(report.commands, id: \.commandID) { command in
+                            RemoteCommandOutcomeRow(command: command)
+                        }
+                    }
+
+                    SectionBox(title: "Non-Claims") {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text("- \(note)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("No remote scan yet", systemImage: "network", description: Text("Probe or scan an SSH target to collect read-only VPS storage evidence."))
+                }
+
+                if let url = model.lastRemoteReportExportURL {
+                    Text("Last remote export: \(url.path)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(24)
+        }
+    }
+
+    private func remotePressureLabel(_ filesystems: [RemoteFilesystemSummary]) -> String {
+        let maxPressure = filesystems.compactMap(\.capacityPercent).max()
+        return maxPressure.map { "\($0)%" } ?? "Unknown"
+    }
+}
+
+struct RemoteCommandOutcomeRow: View {
+    let command: RemoteCommandResult
+
+    var body: some View {
+        let exitText = command.exitCode.map(String.init) ?? "blocked"
+        VStack(alignment: .leading, spacing: 3) {
+            Text(command.displayCommand)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+            Text("exit \(exitText)")
+                .font(.caption)
+                .foregroundStyle(command.exitCode == 0 ? Color.secondary : Color.orange)
+            if let stderr = command.stderrPreview.first {
+                Text(stderr)
+                    .foregroundStyle(.secondary)
+            } else if let stdout = command.stdoutPreview.first {
+                Text(stdout)
                     .foregroundStyle(.secondary)
             }
         }
@@ -6190,6 +6416,8 @@ final class DashboardModel {
     var recentNativeToolReports: [NativeToolReport] = []
     var recentNativeToolExecutionReceipts: [NativeToolExecutionReceipt] = []
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
+    var recentRemoteProbeReports: [RemoteProbeReport] = []
+    var recentRemoteScanReports: [RemoteScanReport] = []
     var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
     var recentTrashReviewReports: [TrashReviewReport] = []
     var recentDownloadsReviewReports: [DownloadsReviewReport] = []
@@ -6209,6 +6437,10 @@ final class DashboardModel {
     var agentStorageReview: AgentStorageReview?
     var agentRetentionReport: AgentRetentionReport?
     var containerInventory: ContainerInventoryReport?
+    var remoteTargets: [RemoteTargetReference] = []
+    var remoteTargetInput = ""
+    var remoteProbeReport: RemoteProbeReport?
+    var remoteScanReport: RemoteScanReport?
     var activeFileReview: ActiveFileReviewReport?
     var trashReview: TrashReviewReport?
     var downloadsReview: DownloadsReviewReport?
@@ -6223,6 +6455,7 @@ final class DashboardModel {
     var lastReceiptReportExportURL: URL?
     var lastGrowthReportExportURL: URL?
     var lastArchiveReviewExportURL: URL?
+    var lastRemoteReportExportURL: URL?
     var lastPolicyExportURL: URL?
     var lastScopeSetExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
@@ -6847,6 +7080,14 @@ final class DashboardModel {
         recentNativeToolReports = store.recentNativeToolReports()
         recentNativeToolExecutionReceipts = store.recentNativeToolExecutionReceipts()
         recentContainerInventoryReports = store.recentContainerInventoryReports()
+        recentRemoteProbeReports = store.recentRemoteProbeReports()
+        recentRemoteScanReports = store.recentRemoteScanReports()
+        if remoteProbeReport == nil {
+            remoteProbeReport = recentRemoteProbeReports.first
+        }
+        if remoteScanReport == nil {
+            remoteScanReport = recentRemoteScanReports.first
+        }
         recentActiveFileReviewReports = store.recentActiveFileReviewReports()
         recentTrashReviewReports = store.recentTrashReviewReports()
         recentDownloadsReviewReports = store.recentDownloadsReviewReports()
@@ -7280,6 +7521,81 @@ final class DashboardModel {
             containerInventory = report
             _ = try AuditStore().save(containerInventoryReport: report)
             loadAudit()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func refreshRemoteTargets() {
+        remoteTargets = RemoteTargetResolver().targets()
+        if remoteTargetInput.isEmpty, let first = remoteTargets.first {
+            remoteTargetInput = first.input
+        }
+    }
+
+    func probeRemoteTarget() async {
+        let targetInput = remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetInput.isEmpty else {
+            error = "Enter an SSH alias or host before probing."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = try await Task.detached {
+                let target = try RemoteTargetResolver().resolve(targetInput)
+                return RemoteProbeBuilder(target: target).probe()
+            }.value
+            remoteProbeReport = report
+            _ = try AuditStore().save(remoteProbeReport: report)
+            loadAudit()
+            error = report.commands.contains { $0.exitCode == 0 } ? nil : "Remote probe did not reach the target with read-only SSH commands."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func scanRemoteTarget() async {
+        let targetInput = remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetInput.isEmpty else {
+            error = "Enter an SSH alias or host before scanning."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = try await Task.detached {
+                let target = try RemoteTargetResolver().resolve(targetInput)
+                return RemoteScanBuilder(target: target).scan(preset: .vpsGeneral)
+            }.value
+            remoteScanReport = report
+            _ = try AuditStore().save(remoteScanReport: report)
+            loadAudit()
+            error = report.commands.contains { $0.exitCode == 0 } ? nil : "Remote scan did not reach the target with read-only SSH commands."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportRemoteRedactedReport() async {
+        guard let report = remoteScanReport else {
+            error = "Run a remote scan before exporting a remote report."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let url = try await Task.detached {
+                let privacy = ReportPrivacyOptions(pathStyle: .redacted)
+                let markdown = RemoteReportBuilder.build(report: report, privacy: privacy).markdown
+                let root = ReportStore.defaultRoot()
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                let url = root.appendingPathComponent("remote-report-\(report.id).md")
+                try markdown.write(to: url, atomically: true, encoding: .utf8)
+                return url
+            }.value
+            lastRemoteReportExportURL = url
             error = nil
         } catch {
             self.error = error.localizedDescription
