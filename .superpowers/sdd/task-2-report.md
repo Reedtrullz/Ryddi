@@ -106,3 +106,23 @@ Output:
 - `testRemoteDogfoodReportComposesScanGrowthAndRedactsPaths` passed
 - `testRemoteDogfoodReportKeepsFullDetailsWhenPrivacyIsFull` passed
 - Executed 2 tests, 0 failures
+
+## Privacy Re-Review Fix
+
+Updated `RemoteDogfoodReportBuilder` so `diskPressureSummary` is rendered through `ReportPrivacyOptions`, preventing redacted exports from leaking raw remote mount paths like `/srv/private-client/uploads`.
+
+Added `testRemoteDogfoodReportRedactsDiskPressureMountPaths()` with a private mount fixture and a full-privacy assertion in `testRemoteDogfoodReportKeepsFullDetailsWhenPrivacyIsFull()` to prove redacted mode shows `<path redacted>` while full mode keeps the real mount path.
+
+### Verification
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter RemoteDogfood
+```
+
+Output:
+
+- Build complete
+- `testRemoteDogfoodReportComposesScanGrowthAndRedactsPaths` passed
+- `testRemoteDogfoodReportKeepsFullDetailsWhenPrivacyIsFull` passed
+- `testRemoteDogfoodReportRedactsDiskPressureMountPaths` passed
+- Executed 3 tests, 0 failures

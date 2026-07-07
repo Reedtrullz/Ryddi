@@ -640,6 +640,50 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("does not prove current server state") })
     }
 
+    func testRemoteDogfoodReportRedactsDiskPressureMountPaths() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let scan = RemoteScanReport(
+            id: "scan-privacy",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [
+                RemoteFilesystemSummary(mount: "/srv/private-client/uploads", filesystem: "/dev/vdb1", usedBytes: 10_000, availableBytes: 90_000, capacityPercent: 92),
+                RemoteFilesystemSummary(mount: "/", filesystem: "/dev/vda1", usedBytes: 80_000, availableBytes: 20_000, capacityPercent: 80)
+            ],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        let report = RemoteDogfoodReportBuilder.build(
+            probe: nil,
+            scan: scan,
+            growth: nil,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted),
+            now: Date(timeIntervalSince1970: 40)
+        )
+
+        XCTAssertTrue(report.diskPressureSummary.contains("<path redacted>"))
+        XCTAssertFalse(report.diskPressureSummary.contains("/srv"))
+        XCTAssertFalse(report.diskPressureSummary.contains("private-client"))
+        XCTAssertFalse(report.diskPressureSummary.contains("uploads"))
+        XCTAssertTrue(report.markdown.contains("- Disk pressure: 92% on <path redacted>"))
+        XCTAssertFalse(report.markdown.contains("/srv"))
+        XCTAssertFalse(report.markdown.contains("private-client"))
+        XCTAssertFalse(report.markdown.contains("uploads"))
+    }
+
     func testRemoteDogfoodReportKeepsFullDetailsWhenPrivacyIsFull() throws {
         let target = RemoteTargetReference(
             input: "prod-vps",
@@ -677,6 +721,7 @@ final class ReclaimerCoreTests: XCTestCase {
             preset: .vpsGeneral,
             target: target,
             diskFilesystems: [
+                RemoteFilesystemSummary(mount: "/srv/private-client/uploads", filesystem: "/dev/vdb1", usedBytes: 10_000, availableBytes: 90_000, capacityPercent: 92),
                 RemoteFilesystemSummary(mount: "/", filesystem: "/dev/vda1", usedBytes: 80_000, availableBytes: 20_000, capacityPercent: 80)
             ],
             inodeFilesystems: [],
@@ -723,6 +768,8 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(json.contains("203.0.113.10"))
         XCTAssertTrue(json.contains("uname -srm"))
         XCTAssertTrue(json.contains("Linux 6.8.0 x86_64"))
+        XCTAssertTrue(report.diskPressureSummary.contains("/srv/private-client/uploads"))
+        XCTAssertTrue(report.markdown.contains("- Disk pressure: 92% on /srv/private-client/uploads"))
     }
 
     func testRemoteSSHRunnerBuildsSafeNonInteractiveInvocation() throws {

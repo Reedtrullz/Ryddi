@@ -91,7 +91,7 @@ public enum RemoteDogfoodReportBuilder {
             scanID: scan.id,
             growthReportID: growth?.id,
             osSummary: probe?.osSummary,
-            diskPressureSummary: diskPressureSummary(scan.diskFilesystems),
+            diskPressureSummary: diskPressureSummary(scan.diskFilesystems, privacy: privacy),
             findingCount: scan.findings.count,
             totalFindingBytes: totalFindingBytes,
             reviewQueueCounts: reviewQueueCounts,
@@ -214,7 +214,10 @@ public enum RemoteDogfoodReportBuilder {
         )
     }
 
-    private static func diskPressureSummary(_ filesystems: [RemoteFilesystemSummary]) -> String {
+    private static func diskPressureSummary(
+        _ filesystems: [RemoteFilesystemSummary],
+        privacy: ReportPrivacyOptions
+    ) -> String {
         guard let worst = filesystems.max(by: {
             ($0.capacityPercent ?? -1) < ($1.capacityPercent ?? -1)
         }) else {
@@ -223,7 +226,7 @@ public enum RemoteDogfoodReportBuilder {
         guard let capacity = worst.capacityPercent else {
             return "Unknown"
         }
-        return "\(capacity)% on \(worst.mount)"
+        return "\(capacity)% on \(privacy.displayPath(worst.mount))"
     }
 
     private static func signedBytes(_ bytes: Int64) -> String {
