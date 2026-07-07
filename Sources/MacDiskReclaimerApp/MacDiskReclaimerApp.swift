@@ -2203,6 +2203,46 @@ struct BrowserCacheReviewView: View {
                         MetricTile(title: "Protected profiles", value: "\(report.protectedProfileRoots.count)")
                     }
 
+                    SectionBox(title: "Runtime Status") {
+                        if report.runtimeSummaries.isEmpty {
+                            Text("No browser runtime state was available for the inspected cache or profile roots.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(report.runtimeSummaries) { summary in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        HStack {
+                                            Text(summary.browser.label)
+                                                .font(.caption.weight(.semibold))
+                                            Text(summary.state.label)
+                                                .font(.caption)
+                                                .foregroundStyle(summary.state == .running ? .orange : .secondary)
+                                            Spacer()
+                                            if !summary.matchedProcessNames.isEmpty {
+                                                Text(summary.matchedProcessNames.prefix(2).joined(separator: ", "))
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
+                                            }
+                                        }
+                                        Text(summary.note)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        if let firstGuidance = summary.guidance.first {
+                                            Text(firstGuidance)
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
+                                    Divider()
+                                }
+                            }
+                        }
+                    }
+
                     SectionBox(title: "By Browser") {
                         if report.browserSummaries.isEmpty {
                             Text("No browser cache items found in readable cache roots.")

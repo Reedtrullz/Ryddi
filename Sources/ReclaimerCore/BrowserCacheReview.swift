@@ -46,6 +46,93 @@ public enum BrowserCacheKind: String, Codable, CaseIterable, Hashable, Sendable 
     }
 }
 
+public enum BrowserCacheRuntimeState: String, Codable, Hashable, Sendable {
+    case running
+    case notRunning
+    case unknown
+
+    public var label: String {
+        switch self {
+        case .running: return "Running"
+        case .notRunning: return "Not running"
+        case .unknown: return "Unknown"
+        }
+    }
+}
+
+public struct BrowserProcessSnapshot: Hashable, Sendable {
+    public let processNames: [String]
+    public let isAvailable: Bool
+    public let errorMessage: String?
+
+    public init(processNames: [String], isAvailable: Bool = true, errorMessage: String? = nil) {
+        self.processNames = processNames
+        self.isAvailable = isAvailable
+        self.errorMessage = errorMessage
+    }
+
+    public static func current() -> BrowserProcessSnapshot {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "comm="]
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return BrowserProcessSnapshot(
+                processNames: [],
+                isAvailable: false,
+                errorMessage: "Could not inspect process list: \(error.localizedDescription)"
+            )
+        }
+
+        guard process.terminationStatus == 0 else {
+            return BrowserProcessSnapshot(
+                processNames: [],
+                isAvailable: false,
+                errorMessage: "Process list command exited with status \(process.terminationStatus)."
+            )
+        }
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let names = String(decoding: data, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { URL(fileURLWithPath: $0).lastPathComponent }
+
+        return BrowserProcessSnapshot(processNames: names)
+    }
+}
+
+public struct BrowserCacheRuntimeSummary: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { browser.rawValue }
+    public let browser: BrowserCacheBrowser
+    public let state: BrowserCacheRuntimeState
+    public let matchedProcessNames: [String]
+    public let note: String
+    public let guidance: [String]
+
+    public init(
+        browser: BrowserCacheBrowser,
+        state: BrowserCacheRuntimeState,
+        matchedProcessNames: [String],
+        note: String,
+        guidance: [String]
+    ) {
+        self.browser = browser
+        self.state = state
+        self.matchedProcessNames = matchedProcessNames
+        self.note = note
+        self.guidance = guidance
+    }
+}
+
 public struct BrowserCacheItem: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let path: String
@@ -174,6 +261,7 @@ public struct BrowserCacheReviewReport: Codable, Hashable, Identifiable, Sendabl
     public let kindSummaries: [BrowserCacheSummary]
     public let largestItems: [BrowserCacheItem]
     public let protectedProfileRoots: [BrowserCacheProtectedProfileRoot]
+    public let runtimeSummaries: [BrowserCacheRuntimeSummary]
     public let guidance: [String]
     public let nonClaims: [String]
 
@@ -190,6 +278,7 @@ public struct BrowserCacheReviewReport: Codable, Hashable, Identifiable, Sendabl
         kindSummaries: [BrowserCacheSummary],
         largestItems: [BrowserCacheItem],
         protectedProfileRoots: [BrowserCacheProtectedProfileRoot],
+        runtimeSummaries: [BrowserCacheRuntimeSummary],
         guidance: [String],
         nonClaims: [String]
     ) {
@@ -205,8 +294,67 @@ public struct BrowserCacheReviewReport: Codable, Hashable, Identifiable, Sendabl
         self.kindSummaries = kindSummaries
         self.largestItems = largestItems
         self.protectedProfileRoots = protectedProfileRoots
+        self.runtimeSummaries = runtimeSummaries
         self.guidance = guidance
         self.nonClaims = nonClaims
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt
+        case totalLogicalSize
+        case totalAllocatedSize
+        case itemCount
+        case displayedItemCount
+        case candidateBytes
+        case rootSummaries
+        case browserSummaries
+        case kindSummaries
+        case largestItems
+        case protectedProfileRoots
+        case runtimeSummaries
+        case guidance
+        case nonClaims
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString,
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            totalLogicalSize: try container.decode(Int64.self, forKey: .totalLogicalSize),
+            totalAllocatedSize: try container.decode(Int64.self, forKey: .totalAllocatedSize),
+            itemCount: try container.decode(Int.self, forKey: .itemCount),
+            displayedItemCount: try container.decode(Int.self, forKey: .displayedItemCount),
+            candidateBytes: try container.decode(Int64.self, forKey: .candidateBytes),
+            rootSummaries: try container.decodeIfPresent([BrowserCacheRootSummary].self, forKey: .rootSummaries) ?? [],
+            browserSummaries: try container.decodeIfPresent([BrowserCacheSummary].self, forKey: .browserSummaries) ?? [],
+            kindSummaries: try container.decodeIfPresent([BrowserCacheSummary].self, forKey: .kindSummaries) ?? [],
+            largestItems: try container.decodeIfPresent([BrowserCacheItem].self, forKey: .largestItems) ?? [],
+            protectedProfileRoots: try container.decodeIfPresent([BrowserCacheProtectedProfileRoot].self, forKey: .protectedProfileRoots) ?? [],
+            runtimeSummaries: try container.decodeIfPresent([BrowserCacheRuntimeSummary].self, forKey: .runtimeSummaries) ?? [],
+            guidance: try container.decodeIfPresent([String].self, forKey: .guidance) ?? [],
+            nonClaims: try container.decodeIfPresent([String].self, forKey: .nonClaims) ?? []
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(totalLogicalSize, forKey: .totalLogicalSize)
+        try container.encode(totalAllocatedSize, forKey: .totalAllocatedSize)
+        try container.encode(itemCount, forKey: .itemCount)
+        try container.encode(displayedItemCount, forKey: .displayedItemCount)
+        try container.encode(candidateBytes, forKey: .candidateBytes)
+        try container.encode(rootSummaries, forKey: .rootSummaries)
+        try container.encode(browserSummaries, forKey: .browserSummaries)
+        try container.encode(kindSummaries, forKey: .kindSummaries)
+        try container.encode(largestItems, forKey: .largestItems)
+        try container.encode(protectedProfileRoots, forKey: .protectedProfileRoots)
+        try container.encode(runtimeSummaries, forKey: .runtimeSummaries)
+        try container.encode(guidance, forKey: .guidance)
+        try container.encode(nonClaims, forKey: .nonClaims)
     }
 }
 
@@ -261,9 +409,14 @@ public struct BrowserCacheReviewOptions: Hashable, Sendable {
 
 public final class BrowserCacheReviewScanner: @unchecked Sendable {
     private let fileManager: FileManager
+    private let processSnapshotProvider: @Sendable () -> BrowserProcessSnapshot
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        processSnapshotProvider: @escaping @Sendable () -> BrowserProcessSnapshot = BrowserProcessSnapshot.current
+    ) {
         self.fileManager = fileManager
+        self.processSnapshotProvider = processSnapshotProvider
     }
 
     public func review(
@@ -291,6 +444,15 @@ public final class BrowserCacheReviewScanner: @unchecked Sendable {
         let allocated = sortedItems.reduce(Int64(0)) { $0 + $1.allocatedSize }
         let measuredCount = sortedItems.reduce(0) { $0 + max(1, $1.itemCount) }
         let protectedProfiles = options.profileRoots.map { protectedProfileRoot(for: $0) }
+        let runtimeBrowsers = Self.runtimeBrowsers(
+            rootSummaries: summaries,
+            items: sortedItems,
+            protectedProfileRoots: protectedProfiles
+        )
+        let runtimeSummaries = Self.runtimeSummaries(
+            for: runtimeBrowsers,
+            snapshot: processSnapshotProvider()
+        )
 
         return BrowserCacheReviewReport(
             createdAt: createdAt,
@@ -304,6 +466,7 @@ public final class BrowserCacheReviewScanner: @unchecked Sendable {
             kindSummaries: Self.kindSummaries(for: sortedItems),
             largestItems: Array(sortedItems.prefix(options.limit)),
             protectedProfileRoots: protectedProfiles,
+            runtimeSummaries: runtimeSummaries,
             guidance: Self.guidance,
             nonClaims: Self.nonClaims
         )
@@ -517,6 +680,104 @@ public final class BrowserCacheReviewScanner: @unchecked Sendable {
         }
     }
 
+    private static func runtimeBrowsers(
+        rootSummaries: [BrowserCacheRootSummary],
+        items: [BrowserCacheItem],
+        protectedProfileRoots: [BrowserCacheProtectedProfileRoot]
+    ) -> [BrowserCacheBrowser] {
+        var browsers = Set<BrowserCacheBrowser>()
+        for item in items where item.browser != .other {
+            browsers.insert(item.browser)
+        }
+        for root in rootSummaries where root.permissionState != .missing && root.browser != .other {
+            browsers.insert(root.browser)
+        }
+        for profile in protectedProfileRoots where profile.permissionState != .missing && profile.browser != .other {
+            browsers.insert(profile.browser)
+        }
+        return BrowserCacheBrowser.allCases.filter { browsers.contains($0) }
+    }
+
+    private static func runtimeSummaries(
+        for browsers: [BrowserCacheBrowser],
+        snapshot: BrowserProcessSnapshot
+    ) -> [BrowserCacheRuntimeSummary] {
+        browsers.map { browser in
+            guard snapshot.isAvailable else {
+                return BrowserCacheRuntimeSummary(
+                    browser: browser,
+                    state: .unknown,
+                    matchedProcessNames: [],
+                    note: snapshot.errorMessage ?? "Ryddi could not inspect the local process list.",
+                    guidance: [
+                        "Treat \(browser.label) runtime state as unknown before cleanup.",
+                        "Quit \(browser.label) manually and use Active Handles Review or a dry run before any cache cleanup."
+                    ]
+                )
+            }
+
+            let matches = matchingProcessNames(for: browser, in: snapshot.processNames)
+            if matches.isEmpty {
+                return BrowserCacheRuntimeSummary(
+                    browser: browser,
+                    state: .notRunning,
+                    matchedProcessNames: [],
+                    note: "No matching \(browser.label) process was observed in the local process list.",
+                    guidance: [
+                        "No matching process was observed, but cache cleanup should still use a dry run and open-handle checks.",
+                        "Browser helper processes can start or stop while a report is being created."
+                    ]
+                )
+            }
+
+            return BrowserCacheRuntimeSummary(
+                browser: browser,
+                state: .running,
+                matchedProcessNames: matches,
+                note: "Matching \(browser.label) process observed: \(matches.prefix(4).joined(separator: ", ")).",
+                guidance: [
+                    "Quit \(browser.label) before cleanup and rerun Browser Cache Review or Active Handles Review.",
+                    "Open windows, downloads, sessions, and signed-in browser state can still be active even when cache folders look reclaimable."
+                ]
+            )
+        }
+    }
+
+    private static func matchingProcessNames(for browser: BrowserCacheBrowser, in processNames: [String]) -> [String] {
+        let needles = processNameNeedles(for: browser)
+        var seen = Set<String>()
+        var matches: [String] = []
+        for name in processNames {
+            let lower = name.lowercased()
+            guard needles.contains(where: { lower == $0 || lower.contains($0) }) else { continue }
+            guard seen.insert(name).inserted else { continue }
+            matches.append(name)
+            if matches.count >= 12 { break }
+        }
+        return matches
+    }
+
+    private static func processNameNeedles(for browser: BrowserCacheBrowser) -> [String] {
+        switch browser {
+        case .chrome:
+            return ["google chrome", "chrome", "chromium"]
+        case .firefox:
+            return ["firefox", "plugin-container"]
+        case .safari:
+            return ["safari"]
+        case .edge:
+            return ["microsoft edge", "edgemac"]
+        case .brave:
+            return ["brave browser", "brave-browser", "brave"]
+        case .arc:
+            return ["arc", "company.thebrowser.browser"]
+        case .webKit:
+            return ["webkit", "web content", "networking"]
+        case .other:
+            return []
+        }
+    }
+
     private static func browser(for url: URL) -> BrowserCacheBrowser {
         let lower = url.path.lowercased()
         if lower.contains("google/chrome") || lower.contains("com.google.chrome") { return .chrome }
@@ -543,6 +804,7 @@ public final class BrowserCacheReviewScanner: @unchecked Sendable {
 
     public static let guidance = [
         "Quit browsers before planning browser-cache cleanup.",
+        "Runtime status is based on local process-name matching and should be treated as advisory evidence.",
         "Treat browser profiles, cookies, bookmarks, history, passwords, extensions, sessions, and sync state as protected app state.",
         "Prefer browser settings or a Ryddi dry-run plan for cache cleanup; do not raw-delete unknown profile folders."
     ]
@@ -551,6 +813,7 @@ public final class BrowserCacheReviewScanner: @unchecked Sendable {
         "Browser Cache Review is report-only; it does not delete, move, Trash, reset, or modify browser files.",
         "Ryddi does not measure browser profile roots as cache because they can contain bookmarks, cookies, passwords, extensions, sessions, history, and sync state.",
         "Cache classification is path-based and cannot prove a browser is fully quit or that all active handles are closed.",
+        "Browser process detection is advisory and can miss helper processes, stale process names, sandboxed helpers, or processes that start after the report.",
         "Browser cache size is not promised immediate free-space recovery because APFS snapshots, purgeable storage, and concurrent browser activity can affect accounting."
     ]
 }

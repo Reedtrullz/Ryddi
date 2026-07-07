@@ -56,7 +56,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - archive-candidate review checklist for large/old personal files, with keep/archive/Trash-review/cleanup-plan/blocked recommendations
 - duplicate-file review with local content hashing, explicit CLI paths, and no automatic cleanup
 - report-only Downloads review for old downloads, installers, archives, app bundles, Finder workflow buckets, row actions, and local audit history
-- report-only Browser Cache review for cache roots, protected profile roots, quit-first guidance, and local audit history
+- report-only Browser Cache review for cache roots, protected profile roots, advisory browser runtime status, quit-first guidance, and local audit history
 - report-only Package Cache review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native-tool guidance, and local audit history
 - report-only Project Dependencies review for project-local node_modules, virtual environments, build folders, Pods, framework caches, Flutter/Android outputs, protected project files, optional local VCS status, saved per-project review policies, detected package managers, package names, package.json script-risk previews, workspace-aware native rebuild command hints, and local audit history
 - report-only Device Backups review for local iPhone/iPad MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, and local audit history
@@ -320,7 +320,7 @@ swift run --scratch-path .build reclaimer browsers --json --save-audit
 swift run --scratch-path .build reclaimer browsers --path ~/Library/Caches/Google/Chrome --home ~ --limit 40
 ```
 
-Browser Cache Review reports readable/missing cache roots, browser and cache-kind summaries, largest cache items, protected profile roots, and quit-first guidance. It is report-only: Ryddi does not delete, move, Trash, reset, or modify browser files, and it does not treat bookmarks, cookies, history, passwords, extensions, sessions, or sync state as cache.
+Browser Cache Review reports readable/missing cache roots, browser and cache-kind summaries, largest cache items, protected profile roots, advisory browser runtime status from local process-name matching, and quit-first guidance. It is report-only: Ryddi does not delete, move, Trash, reset, quit browsers, or modify browser files, and it does not treat bookmarks, cookies, history, passwords, extensions, sessions, or sync state as cache. Runtime status is a prompt to quit the browser and rerun review or active-handle checks, not proof that all browser work is inactive.
 
 ## Package Cache Review
 

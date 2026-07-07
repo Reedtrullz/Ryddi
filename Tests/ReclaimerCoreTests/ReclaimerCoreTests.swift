@@ -1870,7 +1870,11 @@ final class ReclaimerCoreTests: XCTestCase {
         try Data(repeating: 3, count: 1024).write(to: gpuCache.appendingPathComponent("gpu.bin"))
         try Data("profile password db fixture".utf8).write(to: profileRoot.appendingPathComponent("Default/Login Data"))
 
-        let report = BrowserCacheReviewScanner().review(
+        let report = BrowserCacheReviewScanner(
+            processSnapshotProvider: {
+                BrowserProcessSnapshot(processNames: ["Google Chrome", "Google Chrome Helper"])
+            }
+        ).review(
             options: BrowserCacheReviewOptions(
                 roots: [chromeCache],
                 profileRoots: [profileRoot],
@@ -1890,8 +1894,44 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.protectedProfileRoots.first?.note.contains("bookmarks") == true)
         XCTAssertFalse(report.largestItems.contains { $0.path.contains("Login Data") })
         XCTAssertTrue(FileManager.default.fileExists(atPath: profileRoot.appendingPathComponent("Default/Login Data").path))
+        let runtime = try XCTUnwrap(report.runtimeSummaries.first { $0.browser == .chrome })
+        XCTAssertEqual(runtime.state, .running)
+        XCTAssertTrue(runtime.matchedProcessNames.contains("Google Chrome"))
+        XCTAssertTrue(runtime.guidance.contains { $0.contains("Quit Chrome") })
         XCTAssertTrue(report.guidance.contains { $0.contains("Quit browsers") })
+        XCTAssertTrue(report.guidance.contains { $0.contains("local process-name") })
         XCTAssertTrue(report.nonClaims.contains { $0.contains("report-only") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("process detection") })
+    }
+
+    func testBrowserCacheReviewDecodesLegacyAuditWithoutRuntimeSummaries() throws {
+        let json = """
+        {
+          "id": "legacy-browser-report",
+          "createdAt": "2026-07-07T00:00:00Z",
+          "totalLogicalSize": 10,
+          "totalAllocatedSize": 20,
+          "itemCount": 1,
+          "displayedItemCount": 1,
+          "candidateBytes": 20,
+          "rootSummaries": [],
+          "browserSummaries": [],
+          "kindSummaries": [],
+          "largestItems": [],
+          "protectedProfileRoots": [],
+          "guidance": ["legacy guidance"],
+          "nonClaims": ["legacy non-claim"]
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let report = try decoder.decode(BrowserCacheReviewReport.self, from: Data(json.utf8))
+
+        XCTAssertEqual(report.id, "legacy-browser-report")
+        XCTAssertEqual(report.runtimeSummaries, [])
+        XCTAssertEqual(report.guidance, ["legacy guidance"])
+        XCTAssertEqual(report.nonClaims, ["legacy non-claim"])
     }
 
     func testBrowserCacheReviewReportsMissingRootAsCoverageEvidence() throws {

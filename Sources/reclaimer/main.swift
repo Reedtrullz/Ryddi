@@ -2968,6 +2968,20 @@ func printBrowserCacheReview(_ report: BrowserCacheReviewReport, options: Parsed
         }
     }
 
+    if !report.runtimeSummaries.isEmpty {
+        print("\nBrowser runtime status")
+        for summary in report.runtimeSummaries {
+            print("- \(pad(summary.browser.label, 12)) \(summary.state.label)")
+            if !summary.matchedProcessNames.isEmpty {
+                print("  processes: \(summary.matchedProcessNames.joined(separator: ", "))")
+            }
+            print("  \(summary.note)")
+            if let firstGuidance = summary.guidance.first {
+                print("  guidance: \(firstGuidance)")
+            }
+        }
+    }
+
     print("\nCache roots")
     if report.rootSummaries.isEmpty {
         print("No browser cache roots were inspected.")
