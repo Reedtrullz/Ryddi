@@ -3091,6 +3091,20 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
         }
     }
 
+    if !report.toolSummaries.isEmpty {
+        print("\nBy detected project tool")
+        for summary in report.toolSummaries {
+            print("- \(pad(summary.name, 18)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
+    if !report.scriptSummaries.isEmpty {
+        print("\nBy package.json script")
+        for summary in report.scriptSummaries.prefix(options.limit) {
+            print("- \(pad(summary.name, 18)) \(pad(ByteFormat.string(summary.allocatedSize), 10)) \(summary.itemCount) item(s)")
+        }
+    }
+
     if !report.vcsSummaries.isEmpty {
         print("\nBy VCS state")
         for summary in report.vcsSummaries {
@@ -3126,13 +3140,21 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             print("\(pad(ByteFormat.string(item.allocatedSize), 11)) \(pad(item.ecosystem.label, 14)) \(pad(item.kind.label, 22)) \(pad(item.vcsInfo.state.label, 18)) \(pad(age, 8)) \(item.path)")
             print("  project: \(item.projectName)")
             print("  vcs: \(item.vcsInfo.summary)")
+            if item.toolingInfo.toolName != nil {
+                print("  tool: \(item.toolingInfo.toolLabel)\(item.toolingInfo.toolSource.map { " from \($0)" } ?? "")")
+            }
+            if !item.toolingInfo.packageScripts.isEmpty {
+                print("  scripts: \(item.toolingInfo.packageScripts.prefix(12).joined(separator: ", "))")
+            }
             if let decision = item.projectPolicyDecision {
                 let reason = item.projectPolicyReason.map { " - \($0)" } ?? ""
                 print("  policy: \(decision.label)\(reason)")
             }
             print("  - \(item.recommendation)")
-            if let command = item.commandHints.first {
-                print("  command hint: \(command.command) - \(command.purpose)")
+            if !item.commandHints.isEmpty {
+                for command in item.commandHints.prefix(3) {
+                    print("  command hint: \(command.command) - \(command.purpose)")
+                }
             }
             if let guidance = item.guidance.first {
                 print("  next: \(guidance)")
@@ -3148,6 +3170,12 @@ func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, optio
             let manifests = protectedRoot.manifestHints.isEmpty ? "no standard manifest" : protectedRoot.manifestHints.joined(separator: ", ")
             print("- \(protectedRoot.projectName): \(manifests)")
             print("  \(protectedRoot.projectRootPath)")
+            if protectedRoot.toolingInfo.toolName != nil {
+                print("  tool: \(protectedRoot.toolingInfo.toolLabel)\(protectedRoot.toolingInfo.toolSource.map { " from \($0)" } ?? "")")
+            }
+            if !protectedRoot.toolingInfo.packageScripts.isEmpty {
+                print("  scripts: \(protectedRoot.toolingInfo.packageScripts.prefix(12).joined(separator: ", "))")
+            }
             print("  vcs: \(protectedRoot.vcsInfo.state.label) - \(protectedRoot.vcsInfo.summary)")
             if let decision = protectedRoot.projectPolicyDecision {
                 let reason = protectedRoot.projectPolicyReason.map { " - \($0)" } ?? ""

@@ -2633,6 +2633,54 @@ struct ProjectDependencyReviewView: View {
                         }
                     }
 
+                    HStack(alignment: .top, spacing: 16) {
+                        SectionBox(title: "By Tool") {
+                            if report.toolSummaries.isEmpty {
+                                Text("No project tool evidence was detected.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.toolSummaries) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.itemCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+
+                        SectionBox(title: "Package Scripts") {
+                            if report.scriptSummaries.isEmpty {
+                                Text("No package.json scripts were accepted for command hints.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(spacing: 6) {
+                                    ForEach(report.scriptSummaries.prefix(12)) { summary in
+                                        HStack {
+                                            Text(summary.name)
+                                            Spacer()
+                                            Text("\(summary.itemCount)")
+                                                .monospacedDigit()
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(summary.allocatedSize))
+                                                .frame(width: 90, alignment: .trailing)
+                                                .monospacedDigit()
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     SectionBox(title: "Project Roots") {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach(report.rootSummaries) { root in
@@ -2704,15 +2752,27 @@ struct ProjectDependencyReviewView: View {
                                         .font(.caption)
                                         Text(item.projectName)
                                             .font(.caption2.weight(.semibold))
+                                        if item.toolingInfo.toolName != nil {
+                                            Text("\(item.toolingInfo.toolLabel)\(item.toolingInfo.toolSource.map { " from \($0)" } ?? "")")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        if !item.toolingInfo.packageScripts.isEmpty {
+                                            Text("Scripts: \(item.toolingInfo.packageScripts.prefix(12).joined(separator: ", "))")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
                                         Text(item.vcsInfo.summary)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                             .fixedSize(horizontal: false, vertical: true)
-                                        if let command = item.commandHints.first {
+                                        ForEach(item.commandHints.prefix(3), id: \.id) { command in
                                             Text("\(command.command) - \(command.purpose)")
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                                .fixedSize(horizontal: false, vertical: true)
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.secondary)
+                                                    .fixedSize(horizontal: false, vertical: true)
                                         }
                                         if let decision = item.projectPolicyDecision {
                                             Text("\(decision.label)\(item.projectPolicyReason.map { ": \($0)" } ?? "")")
@@ -2750,6 +2810,18 @@ struct ProjectDependencyReviewView: View {
                                             Text(protectedRoot.manifestHints.joined(separator: ", "))
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
+                                        }
+                                        if protectedRoot.toolingInfo.toolName != nil {
+                                            Text("\(protectedRoot.toolingInfo.toolLabel)\(protectedRoot.toolingInfo.toolSource.map { " from \($0)" } ?? "")")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        if !protectedRoot.toolingInfo.packageScripts.isEmpty {
+                                            Text("Scripts: \(protectedRoot.toolingInfo.packageScripts.prefix(12).joined(separator: ", "))")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
                                         }
                                         Text("\(protectedRoot.vcsInfo.state.label): \(protectedRoot.vcsInfo.summary)")
                                             .font(.caption2)

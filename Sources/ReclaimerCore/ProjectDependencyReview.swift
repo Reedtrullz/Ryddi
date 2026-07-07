@@ -164,6 +164,38 @@ public struct ProjectDependencyVCSInfo: Codable, Hashable, Sendable {
     )
 }
 
+public struct ProjectDependencyToolingInfo: Codable, Hashable, Sendable {
+    public let toolName: String?
+    public let toolVersion: String?
+    public let toolSource: String?
+    public let packageScripts: [String]
+    public let notes: [String]
+
+    public init(
+        toolName: String? = nil,
+        toolVersion: String? = nil,
+        toolSource: String? = nil,
+        packageScripts: [String] = [],
+        notes: [String] = []
+    ) {
+        self.toolName = toolName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.toolVersion = toolVersion?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.toolSource = toolSource?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.packageScripts = Array(Set(packageScripts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap(\.nilIfEmpty))).sorted().prefixArray(50)
+        self.notes = Array(Set(notes.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap(\.nilIfEmpty))).sorted().prefixArray(20)
+    }
+
+    public static let none = ProjectDependencyToolingInfo()
+
+    public var toolLabel: String {
+        guard let toolName else { return "Unknown tool" }
+        if let toolVersion {
+            return "\(toolName) \(toolVersion)"
+        }
+        return toolName
+    }
+}
+
 public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let path: String
@@ -180,6 +212,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
     public let modificationDate: Date?
     public let ageDays: Int?
     public let manifestHints: [String]
+    public let toolingInfo: ProjectDependencyToolingInfo
     public let signals: [String]
     public let vcsInfo: ProjectDependencyVCSInfo
     public let commandHints: [NativeToolCommand]
@@ -204,6 +237,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         modificationDate: Date? = nil,
         ageDays: Int? = nil,
         manifestHints: [String],
+        toolingInfo: ProjectDependencyToolingInfo = .none,
         signals: [String],
         vcsInfo: ProjectDependencyVCSInfo = .notChecked,
         commandHints: [NativeToolCommand] = [],
@@ -227,6 +261,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         self.modificationDate = modificationDate
         self.ageDays = ageDays
         self.manifestHints = manifestHints
+        self.toolingInfo = toolingInfo
         self.signals = signals
         self.vcsInfo = vcsInfo
         self.commandHints = commandHints
@@ -252,6 +287,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         case modificationDate
         case ageDays
         case manifestHints
+        case toolingInfo
         case signals
         case vcsInfo
         case commandHints
@@ -278,6 +314,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         modificationDate = try container.decodeIfPresent(Date.self, forKey: .modificationDate)
         ageDays = try container.decodeIfPresent(Int.self, forKey: .ageDays)
         manifestHints = try container.decode([String].self, forKey: .manifestHints)
+        toolingInfo = try container.decodeIfPresent(ProjectDependencyToolingInfo.self, forKey: .toolingInfo) ?? .none
         signals = try container.decode([String].self, forKey: .signals)
         vcsInfo = try container.decodeIfPresent(ProjectDependencyVCSInfo.self, forKey: .vcsInfo) ?? .notChecked
         commandHints = try container.decodeIfPresent([NativeToolCommand].self, forKey: .commandHints) ?? []
@@ -304,6 +341,7 @@ public struct ProjectDependencyItem: Codable, Hashable, Identifiable, Sendable {
         try container.encodeIfPresent(modificationDate, forKey: .modificationDate)
         try container.encodeIfPresent(ageDays, forKey: .ageDays)
         try container.encode(manifestHints, forKey: .manifestHints)
+        try container.encode(toolingInfo, forKey: .toolingInfo)
         try container.encode(signals, forKey: .signals)
         try container.encode(vcsInfo, forKey: .vcsInfo)
         try container.encode(commandHints, forKey: .commandHints)
@@ -350,6 +388,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
     public let projectRootPath: String
     public let projectName: String
     public let manifestHints: [String]
+    public let toolingInfo: ProjectDependencyToolingInfo
     public let vcsInfo: ProjectDependencyVCSInfo
     public let projectPolicyDecision: ProjectDependencyPolicyDecision?
     public let projectPolicyReason: String?
@@ -360,6 +399,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         projectRootPath: String,
         projectName: String,
         manifestHints: [String],
+        toolingInfo: ProjectDependencyToolingInfo = .none,
         vcsInfo: ProjectDependencyVCSInfo = .notChecked,
         projectPolicyDecision: ProjectDependencyPolicyDecision? = nil,
         projectPolicyReason: String? = nil,
@@ -369,6 +409,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         self.projectRootPath = projectRootPath
         self.projectName = projectName
         self.manifestHints = manifestHints
+        self.toolingInfo = toolingInfo
         self.vcsInfo = vcsInfo
         self.projectPolicyDecision = projectPolicyDecision
         self.projectPolicyReason = projectPolicyReason
@@ -380,6 +421,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         case projectRootPath
         case projectName
         case manifestHints
+        case toolingInfo
         case vcsInfo
         case projectPolicyDecision
         case projectPolicyReason
@@ -392,6 +434,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         projectRootPath = try container.decode(String.self, forKey: .projectRootPath)
         projectName = try container.decode(String.self, forKey: .projectName)
         manifestHints = try container.decode([String].self, forKey: .manifestHints)
+        toolingInfo = try container.decodeIfPresent(ProjectDependencyToolingInfo.self, forKey: .toolingInfo) ?? .none
         vcsInfo = try container.decodeIfPresent(ProjectDependencyVCSInfo.self, forKey: .vcsInfo) ?? .notChecked
         projectPolicyDecision = try container.decodeIfPresent(ProjectDependencyPolicyDecision.self, forKey: .projectPolicyDecision)
         projectPolicyReason = try container.decodeIfPresent(String.self, forKey: .projectPolicyReason)
@@ -404,6 +447,7 @@ public struct ProjectDependencyProtectedProjectRoot: Codable, Hashable, Identifi
         try container.encode(projectRootPath, forKey: .projectRootPath)
         try container.encode(projectName, forKey: .projectName)
         try container.encode(manifestHints, forKey: .manifestHints)
+        try container.encode(toolingInfo, forKey: .toolingInfo)
         try container.encode(vcsInfo, forKey: .vcsInfo)
         try container.encodeIfPresent(projectPolicyDecision, forKey: .projectPolicyDecision)
         try container.encodeIfPresent(projectPolicyReason, forKey: .projectPolicyReason)
@@ -465,6 +509,8 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
     public let rootSummaries: [ProjectDependencyRootSummary]
     public let ecosystemSummaries: [ProjectDependencySummary]
     public let kindSummaries: [ProjectDependencySummary]
+    public let toolSummaries: [ProjectDependencySummary]
+    public let scriptSummaries: [ProjectDependencySummary]
     public let vcsSummaries: [ProjectDependencySummary]
     public let policySummaries: [ProjectDependencySummary]
     public let projectsWithDirtyVCSCount: Int
@@ -487,6 +533,8 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         rootSummaries: [ProjectDependencyRootSummary],
         ecosystemSummaries: [ProjectDependencySummary],
         kindSummaries: [ProjectDependencySummary],
+        toolSummaries: [ProjectDependencySummary] = [],
+        scriptSummaries: [ProjectDependencySummary] = [],
         vcsSummaries: [ProjectDependencySummary] = [],
         policySummaries: [ProjectDependencySummary] = [],
         projectsWithDirtyVCSCount: Int = 0,
@@ -508,6 +556,8 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         self.rootSummaries = rootSummaries
         self.ecosystemSummaries = ecosystemSummaries
         self.kindSummaries = kindSummaries
+        self.toolSummaries = toolSummaries
+        self.scriptSummaries = scriptSummaries
         self.vcsSummaries = vcsSummaries
         self.policySummaries = policySummaries
         self.projectsWithDirtyVCSCount = max(0, projectsWithDirtyVCSCount)
@@ -531,6 +581,8 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         case rootSummaries
         case ecosystemSummaries
         case kindSummaries
+        case toolSummaries
+        case scriptSummaries
         case vcsSummaries
         case policySummaries
         case projectsWithDirtyVCSCount
@@ -555,6 +607,8 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         rootSummaries = try container.decode([ProjectDependencyRootSummary].self, forKey: .rootSummaries)
         ecosystemSummaries = try container.decode([ProjectDependencySummary].self, forKey: .ecosystemSummaries)
         kindSummaries = try container.decode([ProjectDependencySummary].self, forKey: .kindSummaries)
+        toolSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .toolSummaries) ?? []
+        scriptSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .scriptSummaries) ?? []
         vcsSummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .vcsSummaries) ?? []
         policySummaries = try container.decodeIfPresent([ProjectDependencySummary].self, forKey: .policySummaries) ?? []
         projectsWithDirtyVCSCount = try container.decodeIfPresent(Int.self, forKey: .projectsWithDirtyVCSCount) ?? 0
@@ -579,6 +633,8 @@ public struct ProjectDependencyReviewReport: Codable, Hashable, Identifiable, Se
         try container.encode(rootSummaries, forKey: .rootSummaries)
         try container.encode(ecosystemSummaries, forKey: .ecosystemSummaries)
         try container.encode(kindSummaries, forKey: .kindSummaries)
+        try container.encode(toolSummaries, forKey: .toolSummaries)
+        try container.encode(scriptSummaries, forKey: .scriptSummaries)
         try container.encode(vcsSummaries, forKey: .vcsSummaries)
         try container.encode(policySummaries, forKey: .policySummaries)
         try container.encode(projectsWithDirtyVCSCount, forKey: .projectsWithDirtyVCSCount)
@@ -700,6 +756,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             rootSummaries: summaries,
             ecosystemSummaries: Self.ecosystemSummaries(for: sortedItems),
             kindSummaries: Self.kindSummaries(for: sortedItems),
+            toolSummaries: Self.toolSummaries(for: sortedItems),
+            scriptSummaries: Self.scriptSummaries(for: sortedItems),
             vcsSummaries: Self.vcsSummaries(for: sortedItems),
             policySummaries: Self.policySummaries(for: sortedItems),
             projectsWithDirtyVCSCount: Self.projectsWithDirtyVCSCount(for: sortedItems),
@@ -932,6 +990,17 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             }
         }
         let vcsInfo = vcsInfo(for: metadata.projectRoot, includeStatus: includeVCSStatus, cache: &vcsCache)
+        let commandHints = Self.commandHints(for: metadata)
+        if let toolName = metadata.toolingInfo.toolName {
+            signals.append("tool-\(Self.signalToken(toolName))")
+        }
+        if !metadata.toolingInfo.packageScripts.isEmpty {
+            signals.append("package-json-scripts")
+        }
+        for command in commandHints where command.id.contains(".script.") {
+            signals.append("script-command-hint")
+            break
+        }
         switch vcsInfo.state {
         case .clean:
             signals.append("vcs-clean")
@@ -962,9 +1031,10 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             modificationDate: modified,
             ageDays: ageDays,
             manifestHints: metadata.manifestHints,
+            toolingInfo: metadata.toolingInfo,
             signals: signals,
             vcsInfo: vcsInfo,
-            commandHints: Self.commandHints(for: metadata),
+            commandHints: commandHints,
             projectPolicyDecision: policyRule?.decision,
             projectPolicyReason: policyRule?.reason,
             recommendation: Self.recommendation(for: metadata, isOld: isOld),
@@ -986,7 +1056,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         let hintSet = Set(hints)
 
         func metadata(_ ecosystem: ProjectDependencyEcosystem, _ kind: ProjectDependencyKind) -> ProjectDependencyCandidateMetadata {
-            ProjectDependencyCandidateMetadata(projectRoot: project.root, manifestHints: hints, ecosystem: ecosystem, kind: kind)
+            ProjectDependencyCandidateMetadata(projectRoot: project.root, manifestHints: hints, toolingInfo: project.toolingInfo, ecosystem: ecosystem, kind: kind)
         }
 
         if lowerName == "node_modules" {
@@ -1042,14 +1112,14 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         return nil
     }
 
-    private func projectRoot(for candidate: URL, boundary: URL) -> (root: URL, manifestHints: [String]) {
+    private func projectRoot(for candidate: URL, boundary: URL) -> (root: URL, manifestHints: [String], toolingInfo: ProjectDependencyToolingInfo) {
         let boundary = boundary.standardizedFileURL
         var current = candidate.deletingLastPathComponent().standardizedFileURL
         var fallback = current
         while true {
             let hints = manifestHints(at: current)
             if !hints.isEmpty {
-                return (current, hints)
+                return (current, hints, toolingInfo(at: current, manifestHints: hints))
             }
             if current.path == boundary.path || current.path == "/" {
                 break
@@ -1063,7 +1133,8 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             }
             current = parent
         }
-        return (fallback, manifestHints(at: fallback))
+        let hints = manifestHints(at: fallback)
+        return (fallback, hints, toolingInfo(at: fallback, manifestHints: hints))
     }
 
     private func manifestHints(at url: URL) -> [String] {
@@ -1075,6 +1146,87 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             hints.append(path)
         }
         return hints
+    }
+
+    private func toolingInfo(at url: URL, manifestHints: [String]) -> ProjectDependencyToolingInfo {
+        let hints = Set(manifestHints)
+        var toolName: String?
+        var toolVersion: String?
+        var toolSource: String?
+        var scripts: [String] = []
+        var notes: [String] = []
+
+        if hints.contains("package.json") {
+            let packageInfo = packageJSONTooling(at: url.appendingPathComponent("package.json"))
+            if let packageToolName = packageInfo.toolName {
+                toolName = packageToolName
+                toolVersion = packageInfo.toolVersion
+                toolSource = "package.json packageManager"
+            }
+            scripts = packageInfo.scripts
+            notes.append(contentsOf: packageInfo.notes)
+        }
+
+        if toolName == nil, let fallback = Self.fallbackTool(for: hints) {
+            toolName = fallback.name
+            toolSource = fallback.source
+        }
+
+        return ProjectDependencyToolingInfo(
+            toolName: toolName,
+            toolVersion: toolVersion,
+            toolSource: toolSource,
+            packageScripts: scripts,
+            notes: notes
+        )
+    }
+
+    private func packageJSONTooling(at url: URL) -> (toolName: String?, toolVersion: String?, scripts: [String], notes: [String]) {
+        var notes: [String] = []
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]) else {
+            return (nil, nil, [], [])
+        }
+        if (values.fileSize ?? 0) > 512_000 {
+            return (nil, nil, [], ["package.json was larger than 512 KB; script and package-manager parsing was skipped."])
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            return (nil, nil, [], ["package.json could not be read for script and package-manager evidence."])
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let json = object as? [String: Any] else {
+            return (nil, nil, [], ["package.json could not be parsed for script and package-manager evidence."])
+        }
+
+        let packageManager = (json["packageManager"] as? String).flatMap(Self.parsePackageManagerField)
+        if let packageManager {
+            notes.append("Detected packageManager field: \(packageManager.name)\(packageManager.version.map { "@\($0)" } ?? "").")
+        }
+
+        let rawScripts = (json["scripts"] as? [String: Any]) ?? [:]
+        var omittedUnsafeScriptName = false
+        let scripts = rawScripts.compactMap { key, value -> String? in
+            guard value is String else { return nil }
+            let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            guard Self.isSafePackageScriptName(trimmed) else {
+                omittedUnsafeScriptName = true
+                return nil
+            }
+            return trimmed
+        }.sorted()
+
+        if !scripts.isEmpty {
+            notes.append("Detected package.json scripts: \(scripts.prefix(12).joined(separator: ", ")).")
+        } else if !rawScripts.isEmpty {
+            notes.append("package.json scripts were present but no simple script names were accepted for command hints.")
+        } else {
+            notes.append("package.json has no scripts object.")
+        }
+        if omittedUnsafeScriptName {
+            notes.append("Some package.json script names were omitted because they are not simple command names.")
+        }
+
+        return (packageManager?.name, packageManager?.version, scripts, notes)
     }
 
     private func hasPythonVirtualEnvironmentEvidence(at url: URL) -> Bool {
@@ -1100,6 +1252,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
                     projectRootPath: item.projectRootPath,
                     projectName: item.projectName,
                     manifestHints: hints,
+                    toolingInfo: item.toolingInfo,
                     vcsInfo: item.vcsInfo,
                     projectPolicyDecision: item.projectPolicyDecision,
                     projectPolicyReason: item.projectPolicyReason,
@@ -1334,6 +1487,30 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         }
     }
 
+    private static func toolSummaries(for items: [ProjectDependencyItem]) -> [ProjectDependencySummary] {
+        let names = Set(items.compactMap { $0.toolingInfo.toolName })
+        return names.sorted().map { name in
+            let matches = items.filter { $0.toolingInfo.toolName == name }
+            return ProjectDependencySummary(
+                name: name,
+                itemCount: matches.count,
+                allocatedSize: matches.reduce(Int64(0)) { $0 + $1.allocatedSize }
+            )
+        }
+    }
+
+    private static func scriptSummaries(for items: [ProjectDependencyItem]) -> [ProjectDependencySummary] {
+        let scripts = Set(items.flatMap(\.toolingInfo.packageScripts))
+        return scripts.sorted().map { script in
+            let matches = items.filter { $0.toolingInfo.packageScripts.contains(script) }
+            return ProjectDependencySummary(
+                name: script,
+                itemCount: matches.count,
+                allocatedSize: matches.reduce(Int64(0)) { $0 + $1.allocatedSize }
+            )
+        }
+    }
+
     private static func vcsSummaries(for items: [ProjectDependencyItem]) -> [ProjectDependencySummary] {
         ProjectDependencyVCSState.allCases.compactMap { state in
             let matches = items.filter { $0.vcsInfo.state == state }
@@ -1400,44 +1577,41 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
 
     private static func commandHints(for metadata: ProjectDependencyCandidateMetadata) -> [NativeToolCommand] {
         let hints = Set(metadata.manifestHints)
+        let tooling = metadata.toolingInfo
         switch metadata.kind {
         case .nodeModules:
-            return [
+            var commands = [
                 commandHint(
                     "project.javascript.install",
-                    javascriptInstallCommand(for: hints),
+                    javascriptInstallCommand(for: hints, toolingInfo: tooling),
                     "Recreate project dependencies after reviewing lockfiles and local edits.",
                     .reclaim,
                     "Reinstalls project-local dependencies from the selected package manager."
                 )
             ]
+            if let clean = javascriptScriptCommand(for: tooling, hints: hints, preferredScripts: ["clean"], id: "project.javascript.script.clean", purpose: "Project-defined clean script detected; review it before using it for project-local cleanup.", risk: .inspect, expectedEffect: "Runs the project's own clean script; exact effect depends on package.json.") {
+                commands.append(clean)
+            }
+            return commands
         case .webBuildOutput, .webFrameworkCache:
-            return [
+            var commands = [
                 commandHint(
                     "project.javascript.install",
-                    javascriptInstallCommand(for: hints),
+                    javascriptInstallCommand(for: hints, toolingInfo: tooling),
                     "Restore dependencies needed to rebuild project-local web artifacts.",
                     .reclaim,
                     "Recreates project-local dependencies if they were removed."
-                ),
-                commandHint(
-                    "project.javascript.build",
-                    javascriptRunCommand(for: hints, script: "build"),
-                    "Rebuild web output after reviewing the project command set.",
-                    .reclaim,
-                    "Regenerates project-local build output such as dist, out, .next, or framework caches."
                 )
             ]
+            if let build = javascriptScriptCommand(for: tooling, hints: hints, preferredScripts: ["build", "compile", "generate", "export"], id: "project.javascript.script.build", purpose: "Project-defined build script detected for regenerating web output.", risk: .inspect, expectedEffect: "Regenerates project-local build output according to package.json.") {
+                commands.append(build)
+            }
+            if let clean = javascriptScriptCommand(for: tooling, hints: hints, preferredScripts: ["clean"], id: "project.javascript.script.clean", purpose: "Project-defined clean script detected for project artifacts.", risk: .inspect, expectedEffect: "Runs the project's own clean script; exact effect depends on package.json.") {
+                commands.append(clean)
+            }
+            return commands
         case .coverageOutput:
-            return [
-                commandHint(
-                    "project.javascript.test",
-                    javascriptRunCommand(for: hints, script: "test"),
-                    "Regenerate coverage after reviewing the project's test command.",
-                    .inspect,
-                    "Runs the project test script; coverage output depends on project configuration."
-                )
-            ]
+            return javascriptScriptCommand(for: tooling, hints: hints, preferredScripts: ["coverage", "test:coverage", "test"], id: "project.javascript.script.coverage", purpose: "Project-defined coverage/test script detected for regenerating coverage output.", risk: .inspect, expectedEffect: "Runs the selected package.json script; coverage output depends on project configuration.").map { [$0] } ?? []
         case .pythonVirtualEnvironment:
             return [
                 commandHint(
@@ -1572,7 +1746,22 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         )
     }
 
-    private static func javascriptInstallCommand(for hints: Set<String>) -> String {
+    private static func javascriptInstallCommand(for hints: Set<String>, toolingInfo: ProjectDependencyToolingInfo) -> String {
+        switch toolingInfo.toolName?.lowercased() {
+        case "pnpm":
+            return "pnpm install --frozen-lockfile"
+        case "yarn":
+            if let major = toolingInfo.toolVersion.flatMap(majorVersion), major >= 2 {
+                return "yarn install --immutable"
+            }
+            return "yarn install"
+        case "bun":
+            return "bun install --frozen-lockfile"
+        case "npm":
+            return hints.contains("package-lock.json") || hints.contains("npm-shrinkwrap.json") ? "npm ci" : "npm install"
+        default:
+            break
+        }
         if hints.contains("pnpm-lock.yaml") {
             return "pnpm install --frozen-lockfile"
         }
@@ -1588,7 +1777,19 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         return "npm install"
     }
 
-    private static func javascriptRunCommand(for hints: Set<String>, script: String) -> String {
+    private static func javascriptRunCommand(for toolingInfo: ProjectDependencyToolingInfo, hints: Set<String>, script: String) -> String {
+        switch toolingInfo.toolName?.lowercased() {
+        case "pnpm":
+            return "pnpm run \(script)"
+        case "yarn":
+            return "yarn \(script)"
+        case "bun":
+            return "bun run \(script)"
+        case "npm":
+            return "npm run \(script)"
+        default:
+            break
+        }
         if hints.contains("pnpm-lock.yaml") {
             return "pnpm run \(script)"
         }
@@ -1599,6 +1800,27 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
             return "bun run \(script)"
         }
         return "npm run \(script)"
+    }
+
+    private static func javascriptScriptCommand(
+        for toolingInfo: ProjectDependencyToolingInfo,
+        hints: Set<String>,
+        preferredScripts: [String],
+        id: String,
+        purpose: String,
+        risk: NativeToolRisk,
+        expectedEffect: String
+    ) -> NativeToolCommand? {
+        guard let script = preferredScripts.first(where: { toolingInfo.packageScripts.contains($0) }) else {
+            return nil
+        }
+        return commandHint(
+            "\(id).\(signalToken(script))",
+            javascriptRunCommand(for: toolingInfo, hints: hints, script: script),
+            purpose,
+            risk,
+            expectedEffect
+        )
     }
 
     private static func pythonVirtualEnvironmentCommand(for hints: Set<String>) -> String {
@@ -1657,6 +1879,15 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
         if isSymbolicLink {
             guidance.append("Symbolic link was not followed while measuring.")
         }
+        if metadata.toolingInfo.toolName != nil {
+            guidance.append("Detected project tool: \(metadata.toolingInfo.toolLabel)\(metadata.toolingInfo.toolSource.map { " from \($0)" } ?? "").")
+        }
+        if !metadata.toolingInfo.packageScripts.isEmpty {
+            guidance.append("Detected package.json scripts for review: \(metadata.toolingInfo.packageScripts.prefix(12).joined(separator: ", ")).")
+        }
+        for note in metadata.toolingInfo.notes.prefix(3) {
+            guidance.append(note)
+        }
         if let policyRule {
             guidance.append(policyRule.decision.guidance)
             if let reason = policyRule.reason {
@@ -1692,6 +1923,80 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
     private static func hasAndroidHint(_ hints: Set<String>) -> Bool {
         hasGradleHint(hints)
             && (hints.contains("app/src/main/AndroidManifest.xml") || hints.contains("src/main/AndroidManifest.xml"))
+    }
+
+    private static func fallbackTool(for hints: Set<String>) -> (name: String, source: String)? {
+        if hints.contains("pnpm-lock.yaml") {
+            return ("pnpm", "pnpm-lock.yaml")
+        }
+        if hints.contains("yarn.lock") {
+            return ("yarn", "yarn.lock")
+        }
+        if hints.contains("bun.lock") || hints.contains("bun.lockb") {
+            return ("bun", hints.contains("bun.lock") ? "bun.lock" : "bun.lockb")
+        }
+        if hints.contains("package-lock.json") || hints.contains("npm-shrinkwrap.json") || hints.contains("package.json") {
+            return ("npm", hints.contains("package-lock.json") ? "package-lock.json" : "package.json")
+        }
+        if hints.contains("poetry.lock") {
+            return ("poetry", "poetry.lock")
+        }
+        if hints.contains("Pipfile") {
+            return ("pipenv", "Pipfile")
+        }
+        if hints.contains("requirements.txt") || hints.contains("pyproject.toml") || hints.contains("setup.py") {
+            return ("pip", "Python manifest")
+        }
+        if hints.contains("Package.swift") {
+            return ("SwiftPM", "Package.swift")
+        }
+        if hints.contains("Cargo.toml") || hints.contains("Cargo.lock") {
+            return ("Cargo", "Cargo.toml")
+        }
+        if hasGradleHint(hints) {
+            return (hints.contains("gradlew") ? "Gradle wrapper" : "Gradle", "Gradle manifest")
+        }
+        if hints.contains("Podfile") || hints.contains("Podfile.lock") {
+            return ("CocoaPods", "Podfile")
+        }
+        if hints.contains("pubspec.yaml") || hints.contains("pubspec.lock") {
+            return ("Flutter/Dart", "pubspec.yaml")
+        }
+        if hints.contains("go.mod") || hints.contains("go.sum") {
+            return ("Go", "go.mod")
+        }
+        return nil
+    }
+
+    private static func parsePackageManagerField(_ value: String) -> (name: String, version: String?)? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let parts = trimmed.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        let name = parts.first.map(String.init)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard isSafePackageScriptName(name), !name.isEmpty else { return nil }
+        let version = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty : nil
+        return (name, version)
+    }
+
+    private static func isSafePackageScriptName(_ name: String) -> Bool {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_:."))
+        return !name.isEmpty && name.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    private static func majorVersion(_ version: String) -> Int? {
+        let digits = version.split(separator: ".").first?.prefix { $0.isNumber } ?? ""
+        return Int(digits)
+    }
+
+    private static func signalToken(_ value: String) -> String {
+        value.lowercased().map { character in
+            character.isLetter || character.isNumber ? character : "-"
+        }.reduce(into: "") { partial, character in
+            if character == "-", partial.last == "-" {
+                return
+            }
+            partial.append(character)
+        }.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
     private static let webFrameworkCacheNames: Set<String> = [
@@ -1748,7 +2053,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
     public static let guidance = [
         "Review project status, VCS changes, lockfiles, and active terminals before cleanup.",
         "Use saved project policies to mark recurring projects for review, preserve-by-default, or skip-review; policies do not grant cleanup permission.",
-        "Prefer native commands such as package-manager install/clean, `swift package clean`, `cargo clean`, `./gradlew clean`, `flutter clean`, or `pod install` over blind deletion.",
+        "Prefer detected package-manager and project-script commands such as package-manager install/clean, `swift package clean`, `cargo clean`, `./gradlew clean`, `flutter clean`, or `pod install` over blind deletion.",
         "Skip active builds, dev servers, simulators, IDE indexing, and terminals using the project.",
         "Treat project-local dependencies as rebuildable evidence only when the project has the expected manifests and network/toolchain access."
     ]
@@ -1756,6 +2061,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
     public static let nonClaims = [
         "Project Dependency Review is report-only; it does not delete, move, Trash, prune, purge, clean, or modify project files.",
         "Saved Project Dependencies policies only annotate or skip report rows; they do not make project dependencies safe to delete.",
+        "Detected package managers and package.json scripts are guidance evidence only; Ryddi does not execute project scripts or prove they are safe.",
         "Ryddi does not measure project source, manifests, lockfiles, env files, credentials, IDE settings, or unknown project state as cleanup candidates.",
         "Project-local dependency and build directories may contain generated code, local editable installs, offline dependencies, or unsaved development state; review the project before cleanup.",
         "Classification is path-and-manifest based and cannot prove the owning tool is idle or that all active handles are closed.",
@@ -1766,6 +2072,7 @@ public final class ProjectDependencyReviewScanner: @unchecked Sendable {
 private struct ProjectDependencyCandidateMetadata: Hashable {
     let projectRoot: URL
     let manifestHints: [String]
+    let toolingInfo: ProjectDependencyToolingInfo
     let ecosystem: ProjectDependencyEcosystem
     let kind: ProjectDependencyKind
 }
@@ -1790,3 +2097,15 @@ private let projectDependencyResourceKeys: [URLResourceKey] = [
     .totalFileAllocatedSizeKey,
     .contentModificationDateKey
 ]
+
+private extension Array {
+    func prefixArray(_ maxLength: Int) -> [Element] {
+        Array(prefix(Swift.max(0, maxLength)))
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
+}

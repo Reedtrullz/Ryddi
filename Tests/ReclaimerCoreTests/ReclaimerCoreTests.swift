@@ -2035,6 +2035,68 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: dirtyWeb.appendingPathComponent("local-note.md").path))
     }
 
+    func testProjectDependencyReviewDetectsPackageManagerAndPackageScripts() throws {
+        let projects = tempRoot.appendingPathComponent("Projects", isDirectory: true)
+        let webApp = projects.appendingPathComponent("ScriptedWeb", isDirectory: true)
+        let packageJSON = """
+        {
+          "packageManager": "pnpm@9.1.0",
+          "scripts": {
+            "build": "vite build",
+            "clean": "rimraf dist coverage",
+            "test:coverage": "vitest --coverage",
+            "bad script": "echo unsafe"
+          }
+        }
+        """
+        try FileManager.default.createDirectory(at: webApp.appendingPathComponent("node_modules/react"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: webApp.appendingPathComponent("dist/assets"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: webApp.appendingPathComponent("coverage"), withIntermediateDirectories: true)
+        try packageJSON.write(to: webApp.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try "lockfile\n".write(to: webApp.appendingPathComponent("pnpm-lock.yaml"), atomically: true, encoding: .utf8)
+        try "react package\n".write(to: webApp.appendingPathComponent("node_modules/react/index.js"), atomically: true, encoding: .utf8)
+        try "bundle\n".write(to: webApp.appendingPathComponent("dist/assets/app.js"), atomically: true, encoding: .utf8)
+        try "coverage\n".write(to: webApp.appendingPathComponent("coverage/lcov.info"), atomically: true, encoding: .utf8)
+
+        let report = ProjectDependencyReviewScanner().review(
+            options: ProjectDependencyReviewOptions(
+                roots: [projects],
+                limit: 20,
+                maximumSearchDepth: 4,
+                measurementDepth: 6
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        let modules = try XCTUnwrap(report.largestItems.first { $0.projectName == "ScriptedWeb" && $0.kind == .nodeModules })
+        XCTAssertEqual(modules.toolingInfo.toolName, "pnpm")
+        XCTAssertEqual(modules.toolingInfo.toolVersion, "9.1.0")
+        XCTAssertEqual(modules.toolingInfo.toolSource, "package.json packageManager")
+        XCTAssertTrue(modules.toolingInfo.packageScripts.contains("build"))
+        XCTAssertTrue(modules.toolingInfo.packageScripts.contains("clean"))
+        XCTAssertTrue(modules.toolingInfo.packageScripts.contains("test:coverage"))
+        XCTAssertFalse(modules.toolingInfo.packageScripts.contains("bad script"))
+        XCTAssertTrue(modules.signals.contains("tool-pnpm"))
+        XCTAssertTrue(modules.signals.contains("package-json-scripts"))
+        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm install --frozen-lockfile" })
+        XCTAssertTrue(modules.commandHints.contains { $0.command == "pnpm run clean" })
+
+        let dist = try XCTUnwrap(report.largestItems.first { $0.projectName == "ScriptedWeb" && $0.kind == .webBuildOutput })
+        XCTAssertTrue(dist.commandHints.contains { $0.command == "pnpm run build" })
+        XCTAssertTrue(dist.signals.contains("script-command-hint"))
+
+        let coverage = try XCTUnwrap(report.largestItems.first { $0.projectName == "ScriptedWeb" && $0.kind == .coverageOutput })
+        XCTAssertTrue(coverage.commandHints.contains { $0.command == "pnpm run test:coverage" })
+
+        XCTAssertTrue(report.toolSummaries.contains { $0.name == "pnpm" && $0.itemCount >= 3 })
+        XCTAssertTrue(report.scriptSummaries.contains { $0.name == "build" && $0.itemCount >= 3 })
+        XCTAssertTrue(report.scriptSummaries.contains { $0.name == "clean" && $0.itemCount >= 3 })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("package.json scripts") })
+        let protectedRoot = try XCTUnwrap(report.protectedProjectRoots.first { $0.projectName == "ScriptedWeb" })
+        XCTAssertEqual(protectedRoot.toolingInfo.toolName, "pnpm")
+        XCTAssertTrue(protectedRoot.toolingInfo.packageScripts.contains("build"))
+    }
+
     func testProjectDependencyReviewAppliesSavedProjectPolicies() throws {
         let projects = tempRoot.appendingPathComponent("Projects", isDirectory: true)
         let preserved = projects.appendingPathComponent("PreservedWeb", isDirectory: true)
