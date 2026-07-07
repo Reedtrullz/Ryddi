@@ -609,6 +609,45 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertFalse(runner.commands.joined(separator: " ").contains("reset"))
     }
 
+    func testRemoteReportBuilderRedactsCanonicalPathEvenWhenScanUsedFullPaths() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let finding = RemoteStorageFinding(
+            remotePath: "/home/deploy/private-client/database.dump",
+            displayPath: "/home/deploy/private-client/database.dump",
+            bucket: "Large backup files",
+            allocatedBytes: 3_221_225_472,
+            safetyClass: .preserveByDefault,
+            actionKind: .reportOnly,
+            evidence: [Evidence(kind: "remote.large-file", message: "Large remote file")],
+            recommendedNextAction: .archiveCandidate
+        )
+        let report = RemoteScanReport(
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [finding],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: ["No cleanup was executed by this report."]
+        )
+        let privacy = ReportPrivacyOptions(pathStyle: .redacted, homeDirectory: URL(fileURLWithPath: "/home/deploy"))
+
+        let markdown = RemoteReportBuilder.build(report: report, privacy: privacy).markdown
+
+        XCTAssertTrue(markdown.contains("<path redacted>"))
+        XCTAssertFalse(markdown.contains("/home/deploy/private-client/database.dump"))
+        XCTAssertFalse(markdown.contains("private-client"))
+    }
+
     func testDefaultScopePresetsSeparateGeneralAndDeveloperRoots() throws {
         let general = DefaultScopes.plan(for: .general, home: tempRoot, includeUnavailable: true)
         let developer = DefaultScopes.plan(for: .developer, home: tempRoot, includeUnavailable: true)

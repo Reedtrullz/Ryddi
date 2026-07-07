@@ -259,7 +259,8 @@ public enum RemoteReportBuilder {
             lines.append("| Bucket | Path | Size | Safety | Next Action |")
             lines.append("| --- | --- | ---: | --- | --- |")
             for finding in report.findings.sorted(by: { ($0.allocatedBytes ?? 0) > ($1.allocatedBytes ?? 0) }) {
-                lines.append("| \(finding.bucket) | \(finding.displayPath) | \(finding.allocatedBytes.map(ByteFormat.string) ?? "-") | \(finding.safetyClass.label) | \(finding.recommendedNextAction.label) |")
+                let displayPath = privacy.displayPath(finding.remotePath)
+                lines.append("| \(finding.bucket) | \(displayPath) | \(finding.allocatedBytes.map(ByteFormat.string) ?? "-") | \(finding.safetyClass.label) | \(finding.recommendedNextAction.label) |")
             }
         }
         lines.append("")
