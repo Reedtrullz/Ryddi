@@ -10,6 +10,7 @@ Remote Targets extends Ryddi's evidence-first cleanup workflow to SSH/VPS hosts 
 - Reports Linux VPS disk and inode pressure, journald size, APT cache size, Docker storage estimates, old deploy release directories, large files, remote temp paths, app data, and permission-denied areas.
 - Emits manual native guidance for journald, APT, Docker, and deploy release review.
 - Compares saved remote scan audit records locally so you can see bucket and path growth without reconnecting to the host.
+- Packages remote dogfood Markdown from a live read-only scan or disposable saved local audit records.
 - Saves local JSON audit records and optional Markdown reports.
 
 ## CLI
@@ -18,6 +19,8 @@ Remote Targets extends Ryddi's evidence-first cleanup workflow to SSH/VPS hosts 
 swift run --scratch-path .build reclaimer remote targets list
 swift run --scratch-path .build reclaimer remote probe my-vps --json --timeout 5
 swift run --scratch-path .build reclaimer remote scan my-vps --preset vps-general --path-style redacted --output ryddi-vps-report.md
+swift run --scratch-path .build reclaimer remote dogfood my-vps --path-style redacted --output ryddi-vps-dogfood.md --save-audit
+swift run --scratch-path .build reclaimer remote dogfood --from-audit my-vps --path-style redacted --output ryddi-vps-dogfood.md
 swift run --scratch-path .build reclaimer remote native my-vps
 swift run --scratch-path .build reclaimer remote plan my-vps --json
 swift run --scratch-path .build reclaimer remote history list
@@ -34,6 +37,8 @@ Ryddi does not store SSH private keys, passwords, passphrases, sudo passwords, t
 `sudo -n true` is a capability probe only. If it fails, Ryddi records that non-interactive sudo is unavailable and continues with report-only evidence where possible.
 
 Remote history reads saved local audit records only. It does not open SSH, run probe commands, refresh facts, or prove current server state. Growth deltas are review signals from scan-time evidence.
+
+`reclaimer remote dogfood --from-audit` also reads saved local audit records only. It does not reconnect to the host, does not retry SSH, and does not mutate the server while packaging Markdown evidence.
 
 ## Preserve By Default
 

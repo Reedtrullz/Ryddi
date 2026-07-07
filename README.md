@@ -247,6 +247,15 @@ The first remote release is report-only:
 
 Ryddi does not run remote cleanup, Docker prune/reset, `rm`, `find -delete`, sudo cleanup, or unattended destructive maintenance in Remote Targets v1.
 
+Remote dogfood evidence packages can be created from a live read-only scan or from saved audit records:
+
+```bash
+swift run --scratch-path .build reclaimer remote dogfood my-vps --path-style redacted --output ryddi-vps-dogfood.md --save-audit
+swift run --scratch-path .build reclaimer remote dogfood --from-audit my-vps --path-style redacted --output ryddi-vps-dogfood.md
+```
+
+`--from-audit` does not reconnect to the server. It compares and packages saved local evidence only.
+
 Remote history reads saved local audit records only:
 
 ```bash

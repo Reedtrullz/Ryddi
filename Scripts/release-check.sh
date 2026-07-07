@@ -986,6 +986,14 @@ if grep -q "private-client" "$scratch/remote-growth-report.md"; then
   echo "remote growth report leaked redacted path component" >&2
   exit 1
 fi
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" remote dogfood --from-audit prod-vps --path-style redacted --output "$scratch/remote-dogfood-report.md"
+grep -q "# Ryddi Remote Dogfood Report" "$scratch/remote-dogfood-report.md"
+grep -q "No cleanup was executed" "$scratch/remote-dogfood-report.md"
+grep -q "<path redacted>" "$scratch/remote-dogfood-report.md"
+if grep -q "private-client" "$scratch/remote-dogfood-report.md"; then
+  echo "remote dogfood report leaked redacted path component" >&2
+  exit 1
+fi
 RYDDI_REPORT_ROOT="$scratch/reports" "$app/Contents/MacOS/reclaimer" report --path "$root/Tests" --limit 5 --output "$scratch/evidence-report.md" --ignore-user-policy --path-style redacted --redact-user-text
 grep -q "# Ryddi Evidence Report" "$scratch/evidence-report.md"
 grep -q "Explicit Non-Claims" "$scratch/evidence-report.md"
@@ -1133,6 +1141,7 @@ Verification performed:
 - bundled reclaimer apps uninstall-preview and apps uninstall --dry-run on a disposable app fixture, with redacted Markdown and saved JSON audit
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md
 - bundled reclaimer remote history list/diff/report on disposable saved remote scan audit records, with redacted remote growth Markdown
+- bundled reclaimer remote dogfood --from-audit on disposable saved remote audit records, with redacted Markdown and no SSH connection
 - bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
 - bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy
 - bundled reclaimer plan --save-audit on disposable fixture plus redacted plans export --output saved-plan-report.md
