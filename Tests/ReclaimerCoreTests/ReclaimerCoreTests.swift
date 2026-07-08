@@ -3045,7 +3045,7 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertTrue(report.recommendedActions.contains { $0.id == "receipt.dry-run-only" })
         XCTAssertEqual(report.latestReceiptSummary?.dryRunCount, 1)
-        XCTAssertEqual(report.recommendedActions.first { $0.id == "release.signing" }?.severity, .ready)
+        XCTAssertEqual(report.recommendedActions.first { $0.id == "release.trust" }?.severity, .warning)
     }
 
     func testPermissionWalkthroughGuidesDegradedCoverageWithoutGrantingPermission() {

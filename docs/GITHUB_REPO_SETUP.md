@@ -107,8 +107,8 @@ Known limits:
 
 First signed trust release, published only after `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` passes.
 
-- Developer ID signed, notarized, stapled, Gatekeeper assessed, strict codesign verified, and shipped with SHA-256 plus release manifest proof
-- Trust readiness cockpit and `reclaimer trust --json`
+- Developer ID signed, notarized, stapled, Gatekeeper assessed, strict codesign verified, and shipped with SHA-256 plus typed release manifest proof
+- Trust readiness cockpit, `reclaimer trust --json`, and `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt`
 - Redacted dogfood reports with explicit no-cleanup, no-permission-grant, and no-exact-APFS-reclaim non-claims
 - Typed plan-condition gates so display copy cannot accidentally grant cleanup authority
 - Recursive open-handle checks and final-state execution revalidation

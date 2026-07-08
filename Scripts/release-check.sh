@@ -779,6 +779,21 @@ grep -q '"ownerSummaries"' "$scratch/overview-smoke.json"
 grep -q '"topOffenderTable"' "$scratch/overview-smoke.json"
 grep -q '"estimatedImmediateReclaim"' "$scratch/overview-smoke.json"
 grep -q '"group" : "safety"' "$scratch/overview-smoke.json"
+cat >"$scratch/release-trust-fixture.txt" <<'TRUST'
+manifest_schema=ryddi.release-trust.v1
+version=0.2.0
+build=2
+artifact=Ryddi-v0.2.0.zip
+sha256=fixture-sha
+source_commit=fixture-commit
+codesign_verified=true
+hardened_runtime=true
+notarization_status=Accepted
+stapled=true
+gatekeeper=accepted
+TRUST
+"$app/Contents/MacOS/reclaimer" release-trust --json --manifest "$scratch/release-trust-fixture.txt" >"$scratch/release-trust-smoke.json"
+grep -q '"state" : "stapledAndAccepted"' "$scratch/release-trust-smoke.json"
 "$app/Contents/MacOS/reclaimer" trust --json --path "$root/Tests" --limit 5 >"$scratch/trust-smoke.json"
 grep -q '"recommendedActions"' "$scratch/trust-smoke.json"
 grep -q '"nonClaims"' "$scratch/trust-smoke.json"
@@ -1110,16 +1125,28 @@ echo "==> Checking code signing state"
 signing_state="unsigned developer preview"
 notarization_state="not requested"
 spctl_state="not assessed"
+codesign_verified="false"
+hardened_runtime="false"
+notarization_status="not requested"
+stapled="false"
+gatekeeper_status="not assessed"
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   codesign --verify --deep --strict --verbose=2 "$app"
+  codesign_verified="true"
   signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
   if ! grep -qi "runtime" <<<"$signing_details"; then
     echo "signed app does not report Hardened Runtime in codesign details" >&2
     exit 1
   fi
+  hardened_runtime="true"
   signing_state="signed with Hardened Runtime"
 elif codesign --verify --deep --strict --verbose=2 "$app" >"$scratch/codesign-verify.txt" 2>&1; then
   signing_state="pre-signed outside this script"
+  codesign_verified="true"
+  signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
+  if grep -qi "runtime" <<<"$signing_details"; then
+    hardened_runtime="true"
+  fi
 else
   if [[ "$signing_required" == "required" ]]; then
     echo "RYDDI_RELEASE_SIGNING=required but app is unsigned." >&2
@@ -1139,8 +1166,11 @@ if [[ "$signing_required" == "required" ]]; then
   fi
   notary_submission="$(cat "$notary_submission_file" 2>/dev/null || true)"
   notarization_state="accepted and stapled"
+  notarization_status="Accepted"
+  stapled="true"
   spctl --assess --type execute --verbose "$app"
   spctl_state="accepted"
+  gatekeeper_status="accepted"
   codesign --verify --deep --strict --verbose=2 "$app"
 else
   notary_status_file=""
@@ -1153,6 +1183,7 @@ echo "==> Creating zip artifact and checksum"
   /usr/bin/zip -qry -X "$zip_path" "Ryddi.app"
 )
 shasum -a 256 "$zip_path" | tee "$checksum_path"
+artifact_sha="$(awk '{print $1}' "$checksum_path")"
 
 commit="unknown"
 if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -1160,6 +1191,18 @@ if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 cat >"$manifest_path" <<MANIFEST
+manifest_schema=ryddi.release-trust.v1
+version=$bundle_version
+build=$bundle_build
+artifact=$(basename "$zip_path")
+sha256=$artifact_sha
+source_commit=$commit
+codesign_verified=$codesign_verified
+hardened_runtime=$hardened_runtime
+notarization_status=$notarization_status
+stapled=$stapled
+gatekeeper=$gatekeeper_status
+
 Ryddi release check
 Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 Commit: $commit
@@ -1198,6 +1241,7 @@ Verification performed:
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
+- bundled reclaimer release-trust --json against typed disposable accepted manifest proof
 - bundled reclaimer trust --json --path Tests
 - bundled reclaimer dogfood --path Tests --path-style redacted --output dogfood-smoke.md
 - bundled reclaimer explain on disposable Codex cache fixture with text and JSON explanation output

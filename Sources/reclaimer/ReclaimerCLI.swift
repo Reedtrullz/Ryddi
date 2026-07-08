@@ -22,6 +22,8 @@ struct ReclaimerCLI {
         switch command {
         case "status":
             try status(args: args)
+        case "release-trust":
+            try releaseTrust(args: args)
         case "trust":
             try trust(args: args)
         case "dogfood":
@@ -129,6 +131,16 @@ struct ReclaimerCLI {
         }
     }
 
+    static func releaseTrust(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let evidence = ReleaseTrustEvidenceLoader.load(path: options.releaseManifestPath)
+        if options.json {
+            printJSON(evidence)
+        } else {
+            printReleaseTrustEvidence(evidence)
+        }
+    }
+
     static func trust(args: [String]) throws {
         let options = ParsedOptions(args)
         let scopes = try options.scopes(includeUnavailable: true)
@@ -143,7 +155,8 @@ struct ReclaimerCLI {
             latestPlan: store.recentPlans(limit: 1).first,
             latestReceipt: store.recentReceipts(limit: 1).first,
             automationInstalled: FileManager.default.fileExists(atPath: LaunchAgentManager().installedPath().path),
-            signingState: ProcessInfo.processInfo.environment["RYDDI_SIGNING_STATE"] ?? "CLI/source runtime; verify distributed app with release manifest"
+            signingState: ProcessInfo.processInfo.environment["RYDDI_SIGNING_STATE"] ?? "CLI/source runtime; verify distributed app with release manifest",
+            releaseTrustEvidence: ReleaseTrustEvidenceLoader.load(path: options.releaseManifestPath)
         )
         if options.json {
             printJSON(report)
@@ -1639,7 +1652,9 @@ struct ReclaimerCLI {
 
             Commands:
               status [--json] [--path PATH]
+              release-trust [--json] [--manifest PATH]
               trust [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
+                    [--manifest PATH]
               dogfood [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--output PATH]
                       [--path-style full|home-relative|redacted] [--redact-user-text]
               scopes [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
@@ -1823,6 +1838,7 @@ struct ParsedOptions {
     var reason: String? { value(after: "--reason") }
     var summary: String? { value(after: "--summary") }
     var outputPath: String? { value(after: "--output") }
+    var releaseManifestPath: String { value(after: "--manifest") ?? "dist/Ryddi-release-manifest.txt" }
     var reportTitle: String { value(after: "--title") ?? "Ryddi Evidence Report" }
     var planReportTitle: String { value(after: "--title") ?? "Ryddi Plan Report" }
     var receiptReportTitle: String { value(after: "--title") ?? "Ryddi Receipt Report" }
@@ -2195,13 +2211,37 @@ func printAuditPruneResult(plan: AuditPrunePlan, receipt: AuditPruneReceipt) {
     }
 }
 
+func printReleaseTrustEvidence(_ evidence: ReleaseTrustEvidence) {
+    print("Ryddi release trust")
+    print("State: \(evidence.state.label)")
+    print("Summary: \(evidence.summary)")
+    print("Manifest: \(evidence.manifestPath ?? "not supplied")")
+    print("Version: \(evidence.version ?? "unknown")")
+    print("Build: \(evidence.buildNumber ?? "unknown")")
+    print("Artifact: \(evidence.artifactName ?? "unknown")")
+    print("SHA-256: \(evidence.artifactSHA256 ?? "unknown")")
+    print("Commit: \(evidence.sourceCommit ?? "unknown")")
+    print("\nGates")
+    print("- codesign verified: \(evidence.codesignVerified ? "yes" : "no")")
+    print("- Hardened Runtime: \(evidence.hardenedRuntime ? "yes" : "no")")
+    print("- notarization status: \(evidence.notarizationStatus ?? "unknown")")
+    print("- stapled: \(evidence.stapleValidated ? "yes" : "no")")
+    print("- Gatekeeper accepted: \(evidence.gatekeeperAccepted ? "yes" : "no")")
+    if !evidence.warnings.isEmpty {
+        print("\nWarnings")
+        for warning in evidence.warnings {
+            print("- \(warning)")
+        }
+    }
+}
+
 func printTrustReadiness(_ report: TrustReadinessReport) {
     print("Ryddi trust readiness")
     print("Generated: \(report.createdAt.formatted())")
     print("Disk: \(report.diskStatus.pressure.label) - \(report.diskStatus.statusLine)")
     print("Coverage: \(report.permissionSummary.coverageLevel.label), \(report.permissionSummary.readableCount)/\(report.permissionSummary.totalCount) readable")
     print("Automation: \(report.automationInstalled ? "installed" : "not installed")")
-    print("Signing: \(report.signingState)")
+    print("Release trust: \(report.releaseTrustEvidence.state.label) - \(report.releaseTrustEvidence.summary)")
     if let plan = report.latestPlanSummary {
         print("Latest plan: \(plan.selectedCount)/\(plan.itemCount) selected, \(ByteFormat.string(plan.expectedImmediateReclaim)) expected reclaim")
     } else {

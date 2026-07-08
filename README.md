@@ -203,6 +203,14 @@ RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/rele
 
 The signed release gate must produce `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, and strict codesign proof. If credentials are missing or any check fails, do not publish the build as `v0.2.0`.
 
+Verify the manifest with the typed release-trust command before using signed/notarized wording:
+
+```bash
+swift run --scratch-path .build reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt
+```
+
+The trusted state is only `stapledAndAccepted`. Strings such as `not notarized` or a missing manifest stay warning states even if other prose mentions notarization.
+
 If Apple notarization is still processing, the gate exits nonzero before creating the final release zip and prints a resume command. Re-run that command with the recorded submission ID:
 
 ```bash

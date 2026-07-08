@@ -96,6 +96,8 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `codesign --verify --deep --strict --verbose=2 dist/Ryddi.app` passes.
 - [ ] `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` exist.
 - [ ] `dist/Ryddi-release-manifest.txt` records signed, accepted notarization, stapled, Gatekeeper, strict codesign, bundle version `0.2.0`, build `2`, notary submission ID, and status JSON path proof.
+- [ ] `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` reports `state` as `stapledAndAccepted`.
+- [ ] The manifest contains parseable release-trust keys: `manifest_schema=ryddi.release-trust.v1`, `codesign_verified=true`, `hardened_runtime=true`, `notarization_status=Accepted`, `stapled=true`, and `gatekeeper=accepted`.
 - [ ] GitHub release artifact and checksum are uploaded.
 
 ## v0.2.0 Release Notes Template

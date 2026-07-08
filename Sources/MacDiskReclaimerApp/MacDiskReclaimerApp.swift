@@ -858,7 +858,7 @@ struct TrustReadinessCardsView: View {
                 MetricTile(title: "Quit First", value: countActions(.quitAppFirst))
                 MetricTile(title: "Native Tool", value: countActions(.useNativeTool))
                 MetricTile(title: "Valuable History", value: countActions(.protectByDefault))
-                MetricTile(title: "Release Trust", value: report.signingState.localizedCaseInsensitiveContains("notarized") ? "Notarized" : "Verify")
+                MetricTile(title: "Release Trust", value: report.releaseTrustEvidence.state.label)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -6792,7 +6792,8 @@ final class DashboardModel {
             latestPlan: plan ?? recentPlans.first,
             latestReceipt: lastExecutionReceipt ?? lastDryRunReceipt ?? recentReceipts.first,
             automationInstalled: launchAgentStatus.installed,
-            signingState: "App runtime; verify signed and notarized releases with the manifest"
+            signingState: "App runtime; verify signed and notarized releases with the manifest",
+            releaseTrustEvidence: ReleaseTrustEvidenceLoader.load()
         )
     }
 

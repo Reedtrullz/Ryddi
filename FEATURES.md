@@ -52,7 +52,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review remote SSH/VPS targets | Use the system SSH client and existing SSH config to collect bounded, read-only disk evidence from Linux VPS targets, classify storage buckets conservatively, emit native guidance, export redacted reports, compare saved remote scan growth locally, and save local audit records without remote cleanup. | `RemoteTargetResolver`, `RemoteSSHCommandRunner`, `RemoteProbeBuilder`, `RemoteScanBuilder`, `RemoteReportBuilder`, `RemoteGrowthReportBuilder`, `reclaimer remote`, app Remote Targets |
 | Automate conservatively | Scheduled jobs are report-only, can target Developer/General/All presets, built-in templates, or saved scope sets, and can be previewed before installation; unattended destructive cleanup is not enabled in v1. | `ScheduleConfiguration`, `LaunchAgentManager`, `ReclaimerAgent`, `schedule preview`, `schedule install` |
 | Keep local audit trail | Save plans, receipts, native reports, container reports, active-file reports, and general review reports under Application Support with local-only JSON. | `AuditStore`, app Audit History |
-| Package for direct distribution | Build unsigned previews for testing, or fail-closed signed release artifacts that require Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and manifest proof. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, release-preview and signed-release workflows |
+| Package for direct distribution | Build unsigned previews for testing, or fail-closed signed release artifacts that require Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and typed manifest proof. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, `reclaimer release-trust`, release-preview and signed-release workflows |
 | Stay private | No telemetry, cloud upload, or remote AI analysis. | architecture and README policy |
 
 ## MVP Feature Boundaries
@@ -128,8 +128,9 @@ Deferred:
 - App Reclaim is disabled until a successful dry-run receipt exists for the current plan.
 - `reclaimer holding restore` restores a held fixture, and `holding expire` is dry-run unless `--yes` is supplied.
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
-- `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records signing state, and creates a zip/checksum/manifest.
+- `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records typed release-trust keys, and creates a zip/checksum/manifest.
 - `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` fails unless Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and manifest proof all pass.
+- `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` parses the manifest into exact states and does not treat `not notarized` as trusted.
 - `reclaimer remote dogfood --from-audit TARGET --path-style redacted --output FILE.md` packages saved remote evidence without reconnecting to a server or running cleanup.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview --sort reclaim --group safety` reports grouped top offenders with confidence, conservative immediate-reclaim estimates, permission coverage, category summaries, owner summaries, and APFS notes.
@@ -156,7 +157,7 @@ Deferred:
 - App Rule Catalog can preview, validate, import, export, and reveal local user rule packs; app scans only include user rules when the toolbar User Rules toggle is on.
 - `reclaimer explain PATH --json --min-size 1` emits a structured explanation with what/why/risk/action/recovery/condition/next-step sections and non-claims without executing cleanup.
 - `reclaimer permissions --json --path FIXTURE` reports coverage level, readable/denied/missing counts, recommended actions, and non-claims.
-- `reclaimer trust --json --path FIXTURE` reports trust readiness, next-action counts, latest audit summary, signing state, and non-claims without executing cleanup.
+- `reclaimer trust --json --path FIXTURE` reports trust readiness, next-action counts, latest audit summary, typed release trust evidence, and non-claims without executing cleanup.
 - `reclaimer dogfood --path FIXTURE --path-style redacted --output DOGFOOD.md` writes a redacted Markdown report and includes no-cleanup, no-permission-grant, and no-exact-APFS-reclaim non-claims.
 - `reclaimer permissions guide --path FIXTURE --output GUIDE.md` writes a local Markdown first-run walkthrough with Full Disk Access steps, rescan/report-only commands, affected scopes, and non-claims.
 - `reclaimer active --path FIXTURE --json` reports cleanup candidates blocked by open handles or failed open-file checks, with process summaries when available, and does not quit processes or execute cleanup.
