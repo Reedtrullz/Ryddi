@@ -13,7 +13,7 @@ private enum RyddiWindowLayout {
     static let topOffenderTableMinimumWidth: CGFloat = 1160
 }
 
-private enum DashboardResponsiveGrid {
+enum DashboardResponsiveGrid {
     static var metricColumns: [GridItem] {
         [GridItem(.adaptive(minimum: 170, maximum: 320), spacing: 12, alignment: .top)]
     }
@@ -322,6 +322,13 @@ struct OverviewView: View {
                     ProgressView("Working")
                         .controlSize(.large)
                 }
+
+                GuidedSummaryView(
+                    model: model,
+                    report: model.guidedWorkflowReport,
+                    onReclaim: onReclaim,
+                    navigate: navigate
+                )
 
                 DashboardActionStrip(
                     model: model,
@@ -6665,6 +6672,19 @@ final class DashboardModel {
             latestReceipt: lastExecutionReceipt ?? lastDryRunReceipt ?? recentReceipts.first,
             automationInstalled: launchAgentStatus.installed,
             signingState: "App runtime; verify signed and notarized releases with the manifest"
+        )
+    }
+
+    var guidedWorkflowReport: GuidedWorkflowReport {
+        GuidedWorkflowBuilder.build(
+            input: GuidedWorkflowInput(
+                diskStatus: diskStatus,
+                permissionSummary: permissionReport,
+                findings: findings,
+                latestPlan: plan ?? recentPlans.first,
+                latestReceipt: lastExecutionReceipt ?? lastDryRunReceipt ?? recentReceipts.first,
+                trustReadiness: trustReadinessReport
+            )
         )
     }
 

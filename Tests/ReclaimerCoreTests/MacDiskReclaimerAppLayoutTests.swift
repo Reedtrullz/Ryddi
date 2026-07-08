@@ -31,6 +31,32 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testSummaryUsesGuidedWorkflowPrimaryAction() throws {
+        let app = try appSource()
+        let guided = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/GuidedSummaryView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(
+            app.contains("GuidedSummaryView("),
+            "The Summary screen should render the guided proof ladder before the row of secondary actions."
+        )
+        XCTAssertTrue(
+            app.contains("guidedWorkflowReport"),
+            "DashboardModel should expose the shared core workflow report instead of duplicating next-action logic in SwiftUI."
+        )
+        XCTAssertTrue(
+            guided.contains("report.primaryAction"),
+            "The guided Summary view should present one primary action from ReclaimerCore."
+        )
+        XCTAssertTrue(
+            guided.contains("performGuidedAction"),
+            "Guided action routing should be explicit so primary actions cannot silently become inert."
+        )
+    }
+
     private func appSource() throws -> String {
         try String(
             contentsOf: repoRoot()
