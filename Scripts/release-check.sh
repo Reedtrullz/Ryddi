@@ -14,6 +14,25 @@ trap 'rm -rf "$scratch"' EXIT
 
 cd "$root"
 
+if [[ "$signing_required" == "required" ]]; then
+  if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
+    echo "RYDDI_RELEASE_SIGNING=required but CODESIGN_IDENTITY is not set." >&2
+    exit 1
+  fi
+  identity_line="$(security find-identity -v -p codesigning 2>/dev/null | grep -F "$CODESIGN_IDENTITY" || true)"
+  if ! grep -q "Developer ID Application" <<<"$identity_line"; then
+    echo "RYDDI_RELEASE_SIGNING=required requires a Developer ID Application identity." >&2
+    echo "Current CODESIGN_IDENTITY did not resolve to a Developer ID Application certificate." >&2
+    exit 1
+  fi
+  if [[ -z "${NOTARY_PROFILE:-}" ]]; then
+    if [[ -z "${APPLE_ID:-}" || -z "${APPLE_TEAM_ID:-}" || -z "${APPLE_APP_PASSWORD:-}" ]]; then
+      echo "RYDDI_RELEASE_SIGNING=required requires NOTARY_PROFILE or APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_PASSWORD." >&2
+      exit 1
+    fi
+  fi
+fi
+
 echo "==> Running Swift tests"
 swift test --scratch-path "$root/.build"
 

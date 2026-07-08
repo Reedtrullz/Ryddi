@@ -16,6 +16,15 @@ if [[ "$signing_required" == "required" && -z "${CODESIGN_IDENTITY:-}" ]]; then
   exit 1
 fi
 
+if [[ "$signing_required" == "required" && -n "${CODESIGN_IDENTITY:-}" ]]; then
+  identity_line="$(security find-identity -v -p codesigning 2>/dev/null | grep -F "$CODESIGN_IDENTITY" || true)"
+  if ! grep -q "Developer ID Application" <<<"$identity_line"; then
+    echo "RYDDI_RELEASE_SIGNING=required requires a Developer ID Application identity." >&2
+    echo "Current CODESIGN_IDENTITY did not resolve to a Developer ID Application certificate." >&2
+    exit 1
+  fi
+fi
+
 swift build --scratch-path "$root/.build" -c "$configuration" --product RyddiApp
 swift build --scratch-path "$root/.build" -c "$configuration" --product reclaimer
 swift build --scratch-path "$root/.build" -c "$configuration" --product ReclaimerAgent
