@@ -90,7 +90,14 @@ struct DashboardView: View {
             } else if let finding = model.findings.first(where: { $0.id == selectedFinding }) {
                 FindingDetailView(model: model, finding: finding, planItem: model.planItem(for: finding.id))
             } else {
-                OverviewView(model: model)
+                OverviewView(
+                    model: model,
+                    onReclaim: { showingReclaimConfirmation = true },
+                    navigate: { section in
+                        selectedFinding = nil
+                        selectedSection = section
+                    }
+                )
             }
         }
         .toolbar {
@@ -104,6 +111,7 @@ struct DashboardView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 320)
+
             Picker("Saved Scope", selection: Binding(
                 get: { model.selectedSavedScopeSetID ?? "" },
                 set: { model.setSavedScopeSet($0.isEmpty ? nil : $0) }
@@ -116,58 +124,66 @@ struct DashboardView: View {
             .pickerStyle(.menu)
             .frame(width: 190)
             .disabled(model.savedScopeSets.isEmpty)
-            Picker("Template", selection: Binding(
-                get: { model.selectedScopeTemplateID ?? "" },
-                set: { model.setScopeTemplate($0.isEmpty ? nil : $0) }
-            )) {
-                Text("No template").tag("")
-                ForEach(model.scopeTemplates) { template in
-                    Text(template.name).tag(template.id)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(width: 210)
-            Toggle(isOn: Binding(
-                get: { model.includeUserRulesInScans },
-                set: { model.setIncludeUserRulesInScans($0) }
-            )) {
-                Label("User Rules", systemImage: "slider.horizontal.3")
-            }
-            .toggleStyle(.button)
+
             Button {
                 Task { await model.scan() }
             } label: {
                 Label("Scan", systemImage: "magnifyingglass")
             }
+            .disabled(model.isWorking)
+
             Button {
                 Task { await model.buildPlan() }
             } label: {
                 Label("Plan", systemImage: "checklist")
             }
-            Button {
-                Task { await model.runDryRun() }
+            .disabled(model.findings.isEmpty || model.isWorking)
+
+            Menu {
+                Picker("Template", selection: Binding(
+                    get: { model.selectedScopeTemplateID ?? "" },
+                    set: { model.setScopeTemplate($0.isEmpty ? nil : $0) }
+                )) {
+                    Text("No template").tag("")
+                    ForEach(model.scopeTemplates) { template in
+                        Text(template.name).tag(template.id)
+                    }
+                }
+                Toggle(isOn: Binding(
+                    get: { model.includeUserRulesInScans },
+                    set: { model.setIncludeUserRulesInScans($0) }
+                )) {
+                    Label("Include User Rules", systemImage: "slider.horizontal.3")
+                }
+                Divider()
+                Button {
+                    Task { await model.runDryRun() }
+                } label: {
+                    Label("Dry Run", systemImage: "play.circle")
+                }
+                .disabled(model.plan == nil && model.findings.isEmpty)
+                Button {
+                    Task { await model.exportEvidenceReport() }
+                } label: {
+                    Label("Export Report", systemImage: "square.and.arrow.up")
+                }
+                .disabled(model.overview == nil || model.findings.isEmpty)
+                Button {
+                    Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
+                } label: {
+                    Label("Export Redacted", systemImage: "eye.slash")
+                }
+                .disabled(model.overview == nil || model.findings.isEmpty)
+                Divider()
+                Button(role: .destructive) {
+                    showingReclaimConfirmation = true
+                } label: {
+                    Label("Reclaim", systemImage: "trash")
+                }
+                .disabled(!model.canReclaimSelected || selectedSection == "RemoteTargets")
             } label: {
-                Label("Dry Run", systemImage: "play.circle")
+                Label("More", systemImage: "ellipsis.circle")
             }
-            .disabled(model.plan == nil && model.findings.isEmpty)
-            Button {
-                Task { await model.exportEvidenceReport() }
-            } label: {
-                Label("Export Report", systemImage: "square.and.arrow.up")
-            }
-            .disabled(model.overview == nil || model.findings.isEmpty)
-            Button {
-                Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
-            } label: {
-                Label("Export Redacted", systemImage: "eye.slash")
-            }
-            .disabled(model.overview == nil || model.findings.isEmpty)
-            Button(role: .destructive) {
-                showingReclaimConfirmation = true
-            } label: {
-                Label("Reclaim", systemImage: "trash")
-            }
-            .disabled(!model.canReclaimSelected || selectedSection == "RemoteTargets")
         }
         .confirmationDialog("Reclaim selected auto-safe items?", isPresented: $showingReclaimConfirmation) {
             Button("Reclaim Selected", role: .destructive) {
@@ -178,9 +194,6 @@ struct DashboardView: View {
             Text(model.reclaimConfirmationMessage)
         }
         .onAppear {
-            if model.findings.isEmpty {
-                Task { await model.scan() }
-            }
             model.loadSavedScopeSets()
             model.loadAudit()
             model.loadHolding()
@@ -194,109 +207,44 @@ struct DashboardView: View {
     }
 
     private var sidebar: some View {
-        List(selection: $selectedFinding) {
-            Section("Overview") {
-                Button("Summary") {
-                    selectedFinding = nil
-                    selectedSection = "Summary"
-                }
-                Button("Feature Matrix") {
-                    selectedFinding = nil
-                    selectedSection = "Features"
-                }
-                Button("Rule Catalog") {
-                    selectedFinding = nil
-                    selectedSection = "Rules"
-                }
-                Button("Apps & Leftovers") {
-                    selectedFinding = nil
-                    selectedSection = "Apps"
-                }
-                Button("Review Queues") {
-                    selectedFinding = nil
-                    selectedSection = "Queues"
-                }
-                Button("Large & Old Files") {
-                    selectedFinding = nil
-                    selectedSection = "LargeOld"
-                }
-                Button("Duplicate Review") {
-                    selectedFinding = nil
-                    selectedSection = "Duplicates"
-                }
-                Button("Downloads Review") {
-                    selectedFinding = nil
-                    selectedSection = "Downloads"
-                }
-                Button("Browser Caches") {
-                    selectedFinding = nil
-                    selectedSection = "Browsers"
-                }
-                Button("Package Caches") {
-                    selectedFinding = nil
-                    selectedSection = "Packages"
-                }
-                Button("Project Dependencies") {
-                    selectedFinding = nil
-                    selectedSection = "Projects"
-                }
-                Button("Device Backups") {
-                    selectedFinding = nil
-                    selectedSection = "DeviceBackups"
-                }
-                Button("Xcode Review") {
-                    selectedFinding = nil
-                    selectedSection = "Xcode"
-                }
-                Button("Trash Review") {
-                    selectedFinding = nil
-                    selectedSection = "Trash"
-                }
-                Button("Container Inventory") {
-                    selectedFinding = nil
-                    selectedSection = "Containers"
-                }
-                Button("Remote Targets") {
-                    selectedFinding = nil
-                    selectedSection = "RemoteTargets"
-                }
-                Button("AI Agent Storage") {
-                    selectedFinding = nil
-                    selectedSection = "Agents"
-                }
-                Button("Permissions") {
-                    selectedFinding = nil
-                    selectedSection = "Permissions"
-                }
-                Button("Active Handles") {
-                    selectedFinding = nil
-                    selectedSection = "Active"
-                }
-                Button("Scope Sets") {
-                    selectedFinding = nil
-                    selectedSection = "Scopes"
-                }
-                Button("Protections & Exclusions") {
-                    selectedFinding = nil
-                    selectedSection = "Policy"
-                }
-                Button("Audit History") {
-                    selectedFinding = nil
-                    selectedSection = "Audit"
-                }
-                Button("Recovery Center") {
-                    selectedFinding = nil
-                    selectedSection = "Recovery"
-                }
-                Button("Holding Area") {
-                    selectedFinding = nil
-                    selectedSection = "Holding"
-                }
-                Button("Automation") {
-                    selectedFinding = nil
-                    selectedSection = "Automation"
-                }
+        List {
+            Section("Start") {
+                sidebarRow("Summary", systemImage: "gauge.with.dots.needle", section: "Summary")
+                sidebarRow("Review Queues", systemImage: "tray.full", section: "Queues")
+                sidebarRow("Large & Old Files", systemImage: "archivebox", section: "LargeOld")
             }
+
+            Section("General Mac") {
+                sidebarRow("Apps & Leftovers", systemImage: "app.dashed", section: "Apps")
+                sidebarRow("Downloads", systemImage: "arrow.down.circle", section: "Downloads")
+                sidebarRow("Duplicates", systemImage: "doc.on.doc", section: "Duplicates")
+                sidebarRow("Browser Caches", systemImage: "globe", section: "Browsers")
+                sidebarRow("Device Backups", systemImage: "iphone", section: "DeviceBackups")
+                sidebarRow("Trash", systemImage: "trash", section: "Trash")
+            }
+
+            Section("Developer") {
+                sidebarRow("Package Caches", systemImage: "shippingbox", section: "Packages")
+                sidebarRow("Project Dependencies", systemImage: "folder", section: "Projects")
+                sidebarRow("Xcode", systemImage: "hammer", section: "Xcode")
+                sidebarRow("Containers", systemImage: "cube.box", section: "Containers")
+                sidebarRow("Remote Targets", systemImage: "server.rack", section: "RemoteTargets")
+                sidebarRow("AI Agent Storage", systemImage: "brain.head.profile", section: "Agents")
+            }
+
+            Section("Trust") {
+                sidebarRow("Permissions", systemImage: "lock.shield", section: "Permissions")
+                sidebarRow("Active Handles", systemImage: "waveform.path.ecg", section: "Active")
+                sidebarRow("Scope Sets", systemImage: "scope", section: "Scopes")
+                sidebarRow("Protections", systemImage: "hand.raised", section: "Policy")
+                sidebarRow("Audit History", systemImage: "clock.arrow.circlepath", section: "Audit")
+                sidebarRow("Recovery Center", systemImage: "arrow.uturn.backward.circle", section: "Recovery")
+                sidebarRow("Holding Area", systemImage: "tray", section: "Holding")
+                sidebarRow("Automation", systemImage: "calendar.badge.clock", section: "Automation")
+                sidebarRow("Rule Catalog", systemImage: "list.bullet.rectangle", section: "Rules")
+                sidebarRow("Feature Matrix", systemImage: "square.grid.2x2", section: "Features")
+            }
+
             Section("Review Queues") {
                 ForEach(model.queueSummaries) { queue in
                     DisclosureGroup("\(queue.title) (\(queue.count), \(ByteFormat.string(queue.allocatedSize)))") {
@@ -316,146 +264,457 @@ struct DashboardView: View {
             }
         }
         .navigationTitle("Ryddi")
+        .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
+    }
+
+    private func sidebarRow(_ title: String, systemImage: String, section: String) -> some View {
+        Button {
+            selectedFinding = nil
+            selectedSection = section
+        } label: {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(selectedSection == section ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(selectedSection == section ? Color.accentColor.opacity(0.16) : Color.clear)
     }
 }
 
 struct OverviewView: View {
     let model: DashboardModel
+    let onReclaim: () -> Void
+    let navigate: (String) -> Void
+
+    private var topRows: [TopOffenderRow] {
+        Array(FindingAnalytics.topOffenderTable(findings: model.findings, sort: .allocated, group: .none, limit: 8).rows)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Evidence-first reclaim")
-                .font(.largeTitle.bold())
-            Text("Ryddi is a general Mac disk reclaim assistant with a developer and AI-agent cleanup pack being perfected first.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                DashboardHeroView(model: model)
 
-            if model.isWorking {
-                ProgressView("Working...")
-            }
-
-            TrustReadinessCardsView(report: model.trustReadinessReport)
-
-            ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
-
-            if let url = model.lastReportExportURL {
-                Text("Latest report: \(url.path)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-            if let url = model.lastGrowthReportExportURL {
-                Text("Latest growth report: \(url.path)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-            if let url = model.lastArchiveReviewExportURL {
-                Text("Latest archive review: \(url.path)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            HStack(spacing: 16) {
-                MetricTile(title: "Findings", value: "\(model.findings.count)")
-                MetricTile(title: "Auto-safe", value: ByteFormat.string(model.totalBytes(for: .autoSafe)))
-                MetricTile(title: "Needs review", value: ByteFormat.string(model.totalReviewBytes))
-                MetricTile(title: "Plan reclaim", value: ByteFormat.string(model.plan?.expectedImmediateReclaim ?? 0))
-            }
-
-            HStack(spacing: 16) {
-                MetricTile(title: "Last scan", value: model.lastScanDate?.formatted(date: .omitted, time: .shortened) ?? "Never")
-                MetricTile(title: "Automation", value: model.launchAgentInstalled ? "Plist installed" : "Off")
-                MetricTile(title: "Protected", value: ByteFormat.string(model.totalBytes(for: .neverTouch) + model.totalBytes(for: .preserveByDefault)))
-                MetricTile(title: "Audit receipts", value: "\(model.recentReceipts.count)")
-                MetricTile(title: "Snapshots", value: "\(model.scanSnapshots.count)")
-                MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
-                MetricTile(title: "Downloads", value: model.downloadsReview.map { ByteFormat.string($0.reviewCandidateBytes) } ?? "Not reviewed")
-                MetricTile(title: "Browser caches", value: model.browserCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
-                MetricTile(title: "Package caches", value: model.packageCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
-                MetricTile(title: "Project deps", value: model.projectDependencyReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
-                MetricTile(title: "Device backups", value: model.deviceBackupReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
-                MetricTile(title: "Xcode cache", value: model.xcodeReview.map { ByteFormat.string($0.rebuildableCacheBytes) } ?? "Not reviewed")
-                MetricTile(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
-                MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
-                MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
-                MetricTile(title: "Active handles", value: "\(model.activeFileReview?.openCount ?? 0)")
-            }
-
-            if let overview = model.overview {
-                PermissionCoverageView(report: model.permissionReport)
-                AccountingNotesView(notes: overview.accountingNotes)
-                DiskMapView(nodes: overview.mapNodes)
-                if let report = model.diskDrillDown {
-                    DiskDrillDownView(report: report)
+                if model.isWorking {
+                    ProgressView("Working")
+                        .controlSize(.large)
                 }
-                OwnerStorageView(summaries: overview.ownerSummaries)
-                GrowthHistoryView(
-                    snapshots: model.scanSnapshots,
-                    deltas: model.growthDeltas,
-                    onExport: { Task { await model.exportGrowthReport() } },
-                    onExportRedacted: { Task { await model.exportGrowthReport(pathStyle: .redacted) } }
+
+                DashboardActionStrip(
+                    model: model,
+                    onReclaim: onReclaim,
+                    navigate: navigate
                 )
-                TopOffendersView(findings: model.findings, plan: model.plan)
-            }
 
-            if let error = model.error {
-                Text(error)
-                    .foregroundStyle(.red)
-            }
+                if let error = model.error {
+                    DashboardAlert(message: error, systemImage: "exclamationmark.triangle.fill")
+                }
 
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                    MetricTile(title: "Findings", value: "\(model.findings.count)")
+                    MetricTile(title: "Auto-safe", value: ByteFormat.string(model.totalBytes(for: .autoSafe)))
+                    MetricTile(title: "Needs review", value: ByteFormat.string(model.totalReviewBytes))
+                    MetricTile(title: "Plan reclaim", value: ByteFormat.string(model.plan?.expectedImmediateReclaim ?? 0))
+                }
+
+                HStack(alignment: .top, spacing: 16) {
+                    DashboardQueuePanel(model: model, navigate: navigate)
+                        .frame(minWidth: 330)
+                    DashboardReviewLauncher(model: model, navigate: navigate)
+                        .frame(minWidth: 330)
+                }
+
+                if !topRows.isEmpty {
+                    SectionBox(title: "Largest Current Findings") {
+                        VStack(spacing: 0) {
+                            TopOffenderHeader()
+                            ForEach(topRows) { row in
+                                TopOffenderRowView(row: row, isSelectedInPlan: model.plan?.items.contains { $0.finding.id == row.finding.id && $0.selected } ?? false)
+                            }
+                        }
+                        HStack {
+                            Spacer()
+                            Button {
+                                navigate("LargeOld")
+                            } label: {
+                                Label("Open Large & Old Files", systemImage: "archivebox")
+                            }
+                        }
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 16) {
+                    TrustReadinessCardsView(report: model.trustReadinessReport)
+                    ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
+                }
+
+                if let overview = model.overview {
+                    PermissionCoverageView(report: model.permissionReport)
+                    GrowthHistoryView(
+                        snapshots: model.scanSnapshots,
+                        deltas: model.growthDeltas,
+                        onExport: { Task { await model.exportGrowthReport() } },
+                        onExportRedacted: { Task { await model.exportGrowthReport(pathStyle: .redacted) } }
+                    )
+                    OwnerStorageView(summaries: overview.ownerSummaries)
+                }
+
+                DashboardPlanPanel(model: model, onReclaim: onReclaim)
+                DashboardRecentExports(model: model)
+            }
+            .padding(24)
+            .frame(maxWidth: 1220, alignment: .leading)
+        }
+    }
+}
+
+struct DashboardHeroView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        SectionBox(title: "Disk Status") {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Text(model.diskStatus.statusLine)
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                        Text(model.diskStatus.pressure.label)
+                            .font(.headline)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .foregroundStyle(pressureColor)
+                            .background(pressureColor.opacity(0.18), in: Capsule())
+                    }
+                    Text(model.diskStatus.path)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                    Text("Last scan \(model.lastScanDate?.formatted(date: .omitted, time: .shortened) ?? "not run")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 16)
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    MetricInline(title: "Coverage", value: model.permissionReport.coverageLevel.label)
+                    MetricInline(title: "Automation", value: model.launchAgentStatus.installed ? "Report-only" : "Off")
+                    MetricInline(title: "Audit", value: auditSummary)
+                }
+                .frame(minWidth: 190, alignment: .trailing)
+            }
+        }
+    }
+
+    private var auditSummary: String {
+        guard let summary = model.auditStoreSummary else { return "Not loaded" }
+        return "\(summary.totalKnownFileCount) files"
+    }
+
+    private var pressureColor: Color {
+        switch model.diskStatus.pressure {
+        case .healthy: .green
+        case .warning: .orange
+        case .critical: .red
+        case .unknown: .secondary
+        }
+    }
+}
+
+struct DashboardActionStrip: View {
+    let model: DashboardModel
+    let onReclaim: () -> Void
+    let navigate: (String) -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            DashboardActionButton("Scan", systemImage: "magnifyingglass", prominent: true, disabled: model.isWorking) {
+                Task { await model.scan() }
+            }
+            DashboardActionButton("Plan", systemImage: "checklist", disabled: model.findings.isEmpty || model.isWorking) {
+                Task { await model.buildPlan() }
+            }
+            DashboardActionButton("Dry Run", systemImage: "play.circle", disabled: (model.plan == nil && model.findings.isEmpty) || model.isWorking) {
+                Task { await model.runDryRun() }
+            }
+            DashboardActionButton("Review Queues", systemImage: "tray.full", disabled: model.findings.isEmpty) {
+                navigate("Queues")
+            }
+            DashboardActionButton("Export", systemImage: "square.and.arrow.up", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {
+                Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
+            }
+            DashboardActionButton("Reclaim", systemImage: "trash", role: .destructive, disabled: !model.canReclaimSelected) {
+                onReclaim()
+            }
+        }
+    }
+}
+
+struct DashboardActionButton: View {
+    let title: String
+    let systemImage: String
+    let role: ButtonRole?
+    let prominent: Bool
+    let disabled: Bool
+    let action: () -> Void
+
+    init(
+        _ title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        prominent: Bool = false,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.role = role
+        self.prominent = prominent
+        self.disabled = disabled
+        self.action = action
+    }
+
+    var body: some View {
+        if prominent {
+            Button(role: role, action: action) {
+                Label(title, systemImage: systemImage)
+                    .frame(minWidth: 88)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(disabled)
+            .controlSize(.large)
+        } else {
+            Button(role: role, action: action) {
+                Label(title, systemImage: systemImage)
+                    .frame(minWidth: 88)
+            }
+            .buttonStyle(.bordered)
+            .disabled(disabled)
+            .controlSize(.large)
+        }
+    }
+}
+
+struct DashboardQueuePanel: View {
+    let model: DashboardModel
+    let navigate: (String) -> Void
+
+    var body: some View {
+        SectionBox(title: "Review Queues") {
+            VStack(spacing: 8) {
+                ForEach(model.queueSummaries.prefix(6)) { queue in
+                    Button {
+                        navigate("Queues")
+                    } label: {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(queue.title)
+                                .font(.headline)
+                            Spacer()
+                            Text("\(queue.count)")
+                                .font(.headline.monospacedDigit())
+                            Text(ByteFormat.string(queue.allocatedSize))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+                }
+            }
+        }
+    }
+}
+
+struct DashboardReviewLauncher: View {
+    let model: DashboardModel
+    let navigate: (String) -> Void
+
+    var body: some View {
+        SectionBox(title: "Quick Reviews") {
+            VStack(spacing: 8) {
+                ReviewLaunchRow(title: "Downloads", value: model.downloadsReview.map { ByteFormat.string($0.reviewCandidateBytes) } ?? "-", systemImage: "arrow.down.circle") {
+                    Task {
+                        await model.reviewDownloads()
+                        navigate("Downloads")
+                    }
+                }
+                ReviewLaunchRow(title: "Browser Caches", value: model.browserCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "-", systemImage: "globe") {
+                    Task {
+                        await model.reviewBrowserCaches()
+                        navigate("Browsers")
+                    }
+                }
+                ReviewLaunchRow(title: "Package Caches", value: model.packageCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "-", systemImage: "shippingbox") {
+                    Task {
+                        await model.reviewPackageCaches()
+                        navigate("Packages")
+                    }
+                }
+                ReviewLaunchRow(title: "Project Dependencies", value: model.projectDependencyReview.map { ByteFormat.string($0.candidateBytes) } ?? "-", systemImage: "folder") {
+                    Task {
+                        await model.reviewProjectDependencies()
+                        navigate("Projects")
+                    }
+                }
+                ReviewLaunchRow(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "-", systemImage: "trash") {
+                    Task {
+                        await model.reviewTrash()
+                        navigate("Trash")
+                    }
+                }
+            }
+            .disabled(model.isWorking)
+        }
+    }
+}
+
+struct ReviewLaunchRow: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Label(title, systemImage: systemImage)
+                    .font(.headline)
+                Spacer()
+                Text(value)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        Divider()
+    }
+}
+
+struct DashboardPlanPanel: View {
+    let model: DashboardModel
+    let onReclaim: () -> Void
+
+    var body: some View {
+        SectionBox(title: "Plan") {
             if let plan = model.plan {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        MetricTile(title: "Selected", value: "\(plan.items.filter(\.selected).count)")
+                        MetricTile(title: "Expected reclaim", value: ByteFormat.string(plan.expectedImmediateReclaim))
+                        MetricTile(title: "Dry run", value: model.canReclaimSelected ? "Clear" : "Needed")
+                        MetricTile(title: "Errors", value: "\(model.lastDryRunReceipt?.errors.count ?? 0)")
+                    }
+                    ForEach(plan.dryRunSummary.prefix(8), id: \.self) { line in
+                        Text(line)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                    }
                     HStack {
-                        Text("Dry-run plan").font(.headline)
-                        Spacer()
                         Button {
-                            Task { await model.exportPlanReport(plan) }
+                            Task { await model.runDryRun() }
                         } label: {
-                            Label("Export Plan", systemImage: "doc.plaintext")
+                            Label("Dry Run", systemImage: "play.circle")
                         }
                         Button {
                             Task { await model.exportPlanReport(plan, pathStyle: .redacted) }
                         } label: {
-                            Label("Redacted", systemImage: "eye.slash")
+                            Label("Export Redacted Plan", systemImage: "eye.slash")
                         }
-                    }
-                    HStack {
-                        Text("\(plan.items.filter(\.selected).count) selected")
-                        Text(ByteFormat.string(plan.expectedImmediateReclaim))
-                        Text(model.canReclaimSelected ? "Dry run complete" : "Dry run required")
-                        Spacer()
-                    }
-                    .foregroundStyle(.secondary)
-                    ForEach(plan.dryRunSummary.prefix(12), id: \.self) { line in
-                        Text(line).font(.system(.caption, design: .monospaced))
-                    }
-                    if let receipt = model.lastDryRunReceipt {
-                        Divider()
-                        Text("Latest dry-run receipt: \(receipt.actions.count) actions, \(receipt.errors.count) errors")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let receipt = model.lastExecutionReceipt {
-                        Text("Latest reclaim receipt: \(receipt.actions.count) actions, \(receipt.errors.count) errors")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let url = model.lastPlanReportExportURL {
-                        Text("Latest plan report: \(url.path)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                        Button(role: .destructive) {
+                            onReclaim()
+                        } label: {
+                            Label("Reclaim Selected", systemImage: "trash")
+                        }
+                        .disabled(!model.canReclaimSelected)
                     }
                 }
             } else {
-                ContentUnavailableView("No plan yet", systemImage: "checklist", description: Text("Run Plan to select only low-risk auto-safe findings."))
+                HStack {
+                    Label("No plan built", systemImage: "checklist")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        Task { await model.buildPlan() }
+                    } label: {
+                        Label("Build Plan", systemImage: "checklist")
+                    }
+                    .disabled(model.findings.isEmpty || model.isWorking)
+                }
             }
-
-            Spacer()
         }
-        .padding(24)
+    }
+}
+
+struct DashboardRecentExports: View {
+    let model: DashboardModel
+
+    var body: some View {
+        let exports = [
+            ("Evidence report", model.lastReportExportURL),
+            ("Growth report", model.lastGrowthReportExportURL),
+            ("Archive review", model.lastArchiveReviewExportURL),
+            ("Plan report", model.lastPlanReportExportURL)
+        ].compactMap { label, url in
+            url.map { (label, $0) }
+        }
+
+        if !exports.isEmpty {
+            SectionBox(title: "Recent Exports") {
+                ForEach(exports, id: \.1) { label, url in
+                    HStack {
+                        Text(label)
+                            .font(.caption.weight(.semibold))
+                        Text(url.path)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct DashboardAlert: View {
+    let message: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.orange)
+            Text(message)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct MetricInline: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+        }
+        .font(.caption)
     }
 }
 
@@ -4419,8 +4678,14 @@ struct MetricTile: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
-        .background(.quaternary.opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.separator.opacity(0.45), lineWidth: 1)
+                )
+        }
     }
 }
 
@@ -5781,8 +6046,14 @@ struct SectionBox<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .background(.quaternary.opacity(0.25))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.separator.opacity(0.45), lineWidth: 1)
+                )
+        }
     }
 }
 
