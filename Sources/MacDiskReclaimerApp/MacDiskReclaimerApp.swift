@@ -1177,204 +1177,6 @@ private extension RuleMatchSpec {
     }
 }
 
-struct AuditHistoryView: View {
-    let model: DashboardModel
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Audit History")
-                    .font(.largeTitle.bold())
-                Text("Local-only saved plans and execution receipts. Empty history is normal until a plan or dry run is saved.")
-                    .foregroundStyle(.secondary)
-
-                SectionBox(title: "Recent Plans") {
-                    if model.recentPlans.isEmpty {
-                        Text("No saved plans yet.")
-                    } else {
-                        if let url = model.lastPlanReportExportURL {
-                            Text("Latest plan report: \(url.path)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                        ForEach(model.recentPlans) { plan in
-                            HStack {
-                                Text("\(plan.createdAt.formatted()) - \(plan.items.filter(\.selected).count) selected - \(ByteFormat.string(plan.expectedImmediateReclaim))")
-                                Spacer()
-                                Button("Export") {
-                                    Task { await model.exportPlanReport(plan) }
-                                }
-                                Button("Redacted") {
-                                    Task { await model.exportPlanReport(plan, pathStyle: .redacted) }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SectionBox(title: "Recent Receipts") {
-                    if model.recentReceipts.isEmpty {
-                        Text("No receipts yet.")
-                    } else {
-                        if let url = model.lastReceiptReportExportURL {
-                            Text("Latest receipt report: \(url.path)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                        ForEach(model.recentReceipts) { receipt in
-                            HStack {
-                                Text("\(receipt.createdAt.formatted()) - \(receipt.mode) - \(receipt.actions.count) actions")
-                                Spacer()
-                                Button("Export") {
-                                    Task { await model.exportReceiptReport(receipt) }
-                                }
-                                Button("Redacted") {
-                                    Task { await model.exportReceiptReport(receipt, pathStyle: .redacted) }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SectionBox(title: "Native Tool Reports") {
-                    if model.recentNativeToolReports.isEmpty {
-                        Text("No native-tool reports yet.")
-                    } else {
-                        ForEach(model.recentNativeToolReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.receipts.count) candidate(s) - \(ByteFormat.string(report.totalBytesUnderNativeReview))")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Native Command Receipts") {
-                    if model.recentNativeToolExecutionReceipts.isEmpty {
-                        Text("No native command receipts yet.")
-                    } else {
-                        ForEach(model.recentNativeToolExecutionReceipts) { receipt in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text("\(receipt.createdAt.formatted()) - \(receipt.status) - \(receipt.command.id)")
-                                    Spacer()
-                                    Text(receipt.mode.rawValue)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Text(receipt.message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
-                }
-
-                SectionBox(title: "Container Inventory Reports") {
-                    if model.recentContainerInventoryReports.isEmpty {
-                        Text("No container inventory reports yet.")
-                    } else {
-                        ForEach(model.recentContainerInventoryReports) { report in
-                            let reclaim = report.dockerReclaimableBytes.map(ByteFormat.string) ?? "unknown reclaim"
-                            Text("\(report.createdAt.formatted()) - Docker \(report.docker.status.state.label), Colima \(report.colima.status.state.label) - \(reclaim)")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Active File Reports") {
-                    if model.recentActiveFileReviewReports.isEmpty {
-                        Text("No active-file reports yet.")
-                    } else {
-                        ForEach(model.recentActiveFileReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.openCount) open - \(report.failedCheckCount) failed - \(ByteFormat.string(report.totalBlockedBytes))")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Trash Review Reports") {
-                    if model.recentTrashReviewReports.isEmpty {
-                        Text("No Trash review reports yet.")
-                    } else {
-                        ForEach(model.recentTrashReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.itemCount) item(s) - \(ByteFormat.string(report.totalAllocatedSize))")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Downloads Review Reports") {
-                    if model.recentDownloadsReviewReports.isEmpty {
-                        Text("No Downloads review reports yet.")
-                    } else {
-                        ForEach(model.recentDownloadsReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.displayedItemCount) shown - \(ByteFormat.string(report.reviewCandidateBytes)) candidates")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Browser Cache Review Reports") {
-                    if model.recentBrowserCacheReviewReports.isEmpty {
-                        Text("No browser cache review reports yet.")
-                    } else {
-                        ForEach(model.recentBrowserCacheReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.candidateBytes)) candidates")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Package Cache Review Reports") {
-                    if model.recentPackageCacheReviewReports.isEmpty {
-                        Text("No package cache review reports yet.")
-                    } else {
-                        ForEach(model.recentPackageCacheReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.candidateBytes)) candidates")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Project Dependency Review Reports") {
-                    if model.recentProjectDependencyReviewReports.isEmpty {
-                        Text("No project dependency review reports yet.")
-                    } else {
-                        ForEach(model.recentProjectDependencyReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(report.displayedItemCount) shown - \(ByteFormat.string(report.candidateBytes)) candidates")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Device Backup Review Reports") {
-                    if model.recentDeviceBackupReviewReports.isEmpty {
-                        Text("No device backup review reports yet.")
-                    } else {
-                        ForEach(model.recentDeviceBackupReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.backupCount) backup(s) - \(ByteFormat.string(report.totalAllocatedSize))")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Xcode Review Reports") {
-                    if model.recentXcodeReviewReports.isEmpty {
-                        Text("No Xcode review reports yet.")
-                    } else {
-                        ForEach(model.recentXcodeReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.rebuildableCacheBytes)) rebuildable - \(ByteFormat.string(report.reviewRequiredBytes)) review")
-                        }
-                    }
-                }
-
-                SectionBox(title: "App Uninstall Receipts") {
-                    if model.recentAppUninstallReceipts.isEmpty {
-                        Text("No app-uninstall receipts yet.")
-                    } else {
-                        ForEach(model.recentAppUninstallReceipts) { receipt in
-                            Text("\(receipt.createdAt.formatted()) - \(receipt.mode) - \(receipt.status) - \(receipt.appDisplayName)")
-                        }
-                    }
-                }
-            }
-            .padding(24)
-        }
-    }
-}
-
 struct RecoveryCenterView: View {
     let model: DashboardModel
 
@@ -1787,325 +1589,6 @@ struct CommandOutcomeRow: View {
                     .foregroundStyle(.secondary)
             } else if let stderr = command.stderrPreview.first {
                 Text(stderr)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 3)
-    }
-}
-
-struct RemoteTargetsView: View {
-    let model: DashboardModel
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Remote Targets")
-                            .font(.largeTitle.bold())
-                        Text("Agentless, report-only SSH evidence for VPS disk cleanup decisions.")
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button {
-                        model.refreshRemoteTargets()
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(model.isWorking)
-                }
-
-                SectionBox(title: "Target") {
-                    TextField("SSH alias or host", text: Binding(
-                        get: { model.remoteTargetInput },
-                        set: { model.remoteTargetInput = $0 }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                    if !model.remoteTargets.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack {
-                                ForEach(model.remoteTargets) { target in
-                                    Button(target.input) {
-                                        model.remoteTargetInput = target.input
-                                    }
-                                    .buttonStyle(.bordered)
-                                }
-                            }
-                        }
-                    }
-                    HStack {
-                        Button {
-                            Task { await model.probeRemoteTarget() }
-                        } label: {
-                            Label("Probe", systemImage: "network")
-                        }
-                        .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
-
-                        Button {
-                            Task { await model.scanRemoteTarget() }
-                        } label: {
-                            Label("Scan", systemImage: "externaldrive")
-                        }
-                        .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
-
-                        Button {
-                            Task { await model.exportRemoteRedactedReport() }
-                        } label: {
-                            Label("Export Redacted", systemImage: "eye.slash")
-                        }
-                        .disabled(model.remoteScanReport == nil || model.isWorking)
-
-                        Button {
-                            Task { await model.exportRemoteRedactedGrowthReport() }
-                        } label: {
-                            Label("Export Growth", systemImage: "chart.line.uptrend.xyaxis")
-                        }
-                        .disabled(model.remoteGrowthReport == nil || model.isWorking)
-
-                        Button {
-                            Task { await model.exportRemoteDogfoodReportFromAudit() }
-                        } label: {
-                            Label("Dogfood Report", systemImage: "doc.text.magnifyingglass")
-                        }
-                        .disabled(model.recentRemoteScanReports.isEmpty || model.isWorking)
-                    }
-                }
-
-                if model.isWorking {
-                    ProgressView("Running read-only remote check...")
-                }
-
-                if let probe = model.remoteProbeReport {
-                    HStack(spacing: 16) {
-                        MetricTile(title: "Connection", value: probe.commands.contains { $0.exitCode == 0 } ? "Reached" : "No response")
-                        MetricTile(title: "Host key", value: probe.target.knownHostsState)
-                        MetricTile(title: "OS", value: probe.osSummary ?? "Unknown")
-                        MetricTile(title: "Tools", value: "\(probe.availableTools.count)")
-                    }
-
-                    SectionBox(title: "Connection Evidence") {
-                        Text("Target: \(probe.target.alias ?? probe.target.input)")
-                        Text("Host: \(probe.target.resolvedHost ?? "unknown")")
-                        Text("User: \(probe.target.resolvedUser ?? "unknown")")
-                        Text("Home: \(probe.homeDirectory ?? "unknown")")
-                        if let sudo = probe.sudoNonInteractive {
-                            Text("Non-interactive sudo: \(sudo ? "available" : "not available")")
-                        }
-                    }
-                }
-
-                if let report = model.remoteScanReport {
-                    HStack(spacing: 16) {
-                        MetricTile(title: "Disk pressure", value: remotePressureLabel(report.diskFilesystems))
-                        MetricTile(title: "Inode pressure", value: remotePressureLabel(report.inodeFilesystems))
-                        MetricTile(title: "Findings", value: "\(report.findings.count)")
-                        MetricTile(title: "Native guidance", value: "\(report.nativeGuidance.count)")
-                    }
-
-                    SectionBox(title: "Review Queues") {
-                        let grouped = Dictionary(grouping: report.findings, by: \.recommendedNextAction)
-                        ForEach(grouped.keys.sorted { $0.label < $1.label }, id: \.self) { action in
-                            let rows = grouped[action] ?? []
-                            HStack {
-                                Text(action.label)
-                                    .frame(width: 150, alignment: .leading)
-                                Text("\(rows.count) item(s)")
-                                    .frame(width: 90, alignment: .leading)
-                                Text(ByteFormat.string(rows.compactMap(\.allocatedBytes).reduce(0, +)))
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                            }
-                        }
-                    }
-
-                    SectionBox(title: "Top Remote Findings") {
-                        ForEach(report.findings.sorted(by: { ($0.allocatedBytes ?? 0) > ($1.allocatedBytes ?? 0) }).prefix(12)) { finding in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(finding.bucket)
-                                        .font(.headline)
-                                    Spacer()
-                                    Text(finding.allocatedBytes.map(ByteFormat.string) ?? "Unknown")
-                                    Text(finding.safetyClass.label)
-                                        .font(.caption.weight(.semibold))
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(.quaternary.opacity(0.4))
-                                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                                }
-                                Text(finding.displayPath)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .textSelection(.enabled)
-                                    .foregroundStyle(.secondary)
-                                Text(finding.recommendedNextAction.label)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Divider()
-                        }
-                    }
-
-                    SectionBox(title: "Native Guidance") {
-                        if report.nativeGuidance.isEmpty {
-                            Text("No native guidance generated.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(report.nativeGuidance) { item in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.title).font(.headline)
-                                    Text(item.command)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .textSelection(.enabled)
-                                    Text(item.summary)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Divider()
-                            }
-                        }
-                    }
-
-                    if let dogfood = model.currentRemoteDogfoodReport {
-                        SectionBox(title: "Dogfood Evidence") {
-                            HStack(spacing: 16) {
-                                MetricTile(title: "Findings", value: "\(dogfood.findingCount)")
-                                MetricTile(title: "Finding bytes", value: ByteFormat.string(dogfood.totalFindingBytes))
-                                MetricTile(title: "Commands", value: "\(dogfood.commandResults.count)")
-                                MetricTile(title: "Disk pressure", value: dogfood.diskPressureSummary)
-                            }
-                            Text("Target: \(dogfood.target.alias ?? dogfood.target.input)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("Built from read-only remote evidence. It does not run cleanup or reconnect when exported from saved audit.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            ForEach(dogfood.nonClaims.prefix(5), id: \.self) { note in
-                                Text("• \(note)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    if let growth = model.remoteGrowthReport {
-                        SectionBox(title: "Saved Growth") {
-                            HStack(spacing: 16) {
-                                MetricTile(title: "Saved scans", value: "\(growth.previousFindingCount) -> \(growth.currentFindingCount)")
-                                MetricTile(title: "Finding bytes", value: remoteSignedBytes(growth.deltaAllocatedBytes))
-                                MetricTile(title: "Buckets", value: "\(growth.bucketDeltas.count)")
-                                MetricTile(title: "Path deltas", value: "\(growth.findingDeltas.count)")
-                            }
-                            Text("Compares saved local remote scan audit records only. It does not reconnect to the host or prove current server state.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            if !growth.bucketDeltas.isEmpty {
-                                Text("Largest bucket deltas")
-                                    .font(.headline)
-                                ForEach(growth.bucketDeltas.prefix(6)) { delta in
-                                    HStack {
-                                        Text(delta.bucket)
-                                        Spacer()
-                                        Text(remoteSignedBytes(delta.deltaAllocatedBytes))
-                                            .foregroundStyle(delta.deltaAllocatedBytes >= 0 ? .orange : .secondary)
-                                    }
-                                }
-                            }
-                            if !growth.findingDeltas.isEmpty {
-                                Text("Largest path deltas")
-                                    .font(.headline)
-                                ForEach(growth.findingDeltas.prefix(6)) { delta in
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        HStack {
-                                            Text(remoteSignedBytes(delta.deltaAllocatedBytes))
-                                                .font(.caption.weight(.semibold))
-                                            Text(delta.bucket)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                            Spacer()
-                                        }
-                                        Text(delta.displayPath)
-                                            .font(.system(.caption, design: .monospaced))
-                                            .foregroundStyle(.secondary)
-                                            .textSelection(.enabled)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    SectionBox(title: "Command Receipts") {
-                        ForEach(report.commands, id: \.commandID) { command in
-                            RemoteCommandOutcomeRow(command: command)
-                        }
-                    }
-
-                    SectionBox(title: "Non-Claims") {
-                        ForEach(report.nonClaims, id: \.self) { note in
-                            Text("- \(note)")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } else {
-                    ContentUnavailableView("No remote scan yet", systemImage: "network", description: Text("Probe or scan an SSH target to collect read-only VPS storage evidence."))
-                }
-
-                if let url = model.lastRemoteReportExportURL {
-                    Text("Last remote export: \(url.path)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                if let url = model.lastRemoteGrowthReportExportURL {
-                    Text("Last remote growth export: \(url.path)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                if let url = model.lastRemoteDogfoodReportExportURL {
-                    Text("Last remote dogfood export: \(url.path)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                if let error = model.error {
-                    Text(error)
-                        .foregroundStyle(.red)
-                }
-            }
-            .padding(24)
-        }
-    }
-
-    private func remotePressureLabel(_ filesystems: [RemoteFilesystemSummary]) -> String {
-        let maxPressure = filesystems.compactMap(\.capacityPercent).max()
-        return maxPressure.map { "\($0)%" } ?? "Unknown"
-    }
-
-    private func remoteSignedBytes(_ bytes: Int64) -> String {
-        bytes > 0 ? "+\(ByteFormat.string(bytes))" : ByteFormat.string(bytes)
-    }
-}
-
-struct RemoteCommandOutcomeRow: View {
-    let command: RemoteCommandResult
-
-    var body: some View {
-        let exitText = command.exitCode.map(String.init) ?? "blocked"
-        VStack(alignment: .leading, spacing: 3) {
-            Text(command.displayCommand)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-            Text("exit \(exitText)")
-                .font(.caption)
-                .foregroundStyle(command.exitCode == 0 ? Color.secondary : Color.orange)
-            if let stderr = command.stderrPreview.first {
-                Text(stderr)
-                    .foregroundStyle(.secondary)
-            } else if let stdout = command.stdoutPreview.first {
-                Text(stdout)
                     .foregroundStyle(.secondary)
             }
         }
@@ -6513,6 +5996,9 @@ final class DashboardModel {
     var lastExecutionReceipt: ExecutionReceipt?
     var recentPlans: [ReclaimPlan] = []
     var recentReceipts: [ExecutionReceipt] = []
+    var auditStoreSummary: AuditStoreSummary?
+    var auditPrunePlan: AuditPrunePlan?
+    var auditPruneReceipt: AuditPruneReceipt?
     var recentNativeToolReports: [NativeToolReport] = []
     var recentNativeToolExecutionReceipts: [NativeToolExecutionReceipt] = []
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
@@ -7185,6 +6671,7 @@ final class DashboardModel {
 
     func loadAudit() {
         let store = AuditStore()
+        auditStoreSummary = store.summary()
         recentPlans = store.recentPlans()
         recentReceipts = store.recentReceipts()
         recentNativeToolReports = store.recentNativeToolReports()
@@ -7225,6 +6712,29 @@ final class DashboardModel {
         recentXcodeReviewReports = store.recentXcodeReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
+    }
+
+    func previewAuditPrune() {
+        let store = AuditStore()
+        let policy = AuditRetentionPolicy(olderThanDays: 90, keepRecent: 20)
+        let plan = store.prunePlan(policy: policy)
+        auditPrunePlan = plan
+        auditPruneReceipt = try? store.prune(plan: plan, dryRun: true)
+        auditStoreSummary = store.summary()
+    }
+
+    func confirmAuditPrune() {
+        guard let plan = auditPrunePlan else {
+            previewAuditPrune()
+            return
+        }
+        do {
+            auditPruneReceipt = try AuditStore().prune(plan: plan, dryRun: false)
+            auditPrunePlan = nil
+            loadAudit()
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     func loadHolding() {

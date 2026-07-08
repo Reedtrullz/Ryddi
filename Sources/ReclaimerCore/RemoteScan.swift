@@ -260,7 +260,14 @@ public enum RemoteReportBuilder {
             lines.append("| --- | --- | ---: | --- | --- |")
             for finding in report.findings.sorted(by: { ($0.allocatedBytes ?? 0) > ($1.allocatedBytes ?? 0) }) {
                 let displayPath = privacy.displayPath(finding.remotePath)
-                lines.append("| \(finding.bucket) | \(displayPath) | \(finding.allocatedBytes.map(ByteFormat.string) ?? "-") | \(finding.safetyClass.label) | \(finding.recommendedNextAction.label) |")
+                let row = [
+                    finding.bucket,
+                    displayPath,
+                    finding.allocatedBytes.map(ByteFormat.string) ?? "-",
+                    finding.safetyClass.label,
+                    finding.recommendedNextAction.label
+                ].map(MarkdownTable.cell)
+                lines.append("| \(row.joined(separator: " | ")) |")
             }
         }
         lines.append("")

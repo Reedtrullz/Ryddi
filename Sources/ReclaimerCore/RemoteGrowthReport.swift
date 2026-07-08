@@ -331,20 +331,12 @@ public enum RemoteGrowthReportBuilder {
 
     private static func table(headers: [String], rows: [[String]]) -> String {
         var lines: [String] = []
-        lines.append("| \(headers.map(markdownCell).joined(separator: " | ")) |")
+        lines.append("| \(headers.map(MarkdownTable.cell).joined(separator: " | ")) |")
         lines.append("| \(headers.map { _ in "---" }.joined(separator: " | ")) |")
         for row in rows {
-            lines.append("| \(row.map(markdownCell).joined(separator: " | ")) |")
+            lines.append("| \(row.map(MarkdownTable.cell).joined(separator: " | ")) |")
         }
         return lines.joined(separator: "\n")
-    }
-
-    private static func markdownCell(_ value: String) -> String {
-        let compact = value
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "|", with: "\\|")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return compact.isEmpty ? "-" : compact
     }
 
     private static func isoString(_ date: Date) -> String {

@@ -26,16 +26,33 @@ final class RemoteSSHCommandRunner: @unchecked Sendable {
 
     func runOutput(commandID: String, remoteCommand: String) -> (result: RemoteCommandResult, output: ToolCommandOutput?) {
         let trimmed = remoteCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let validatedTarget: String
+        do {
+            validatedTarget = try RemoteTargetInputPolicy.validate(target.input)
+        } catch {
+            return (
+                RemoteCommandResult(
+                    commandID: commandID,
+                    displayCommand: trimmed,
+                    exitCode: nil,
+                    timedOut: false,
+                    stdoutPreview: [],
+                    stderrPreview: ["\(Self.blockedCommandMessage) \(error.localizedDescription)"],
+                    redactionApplied: false
+                ),
+                nil
+            )
+        }
         if let blockedReason = Self.blockReason(for: trimmed) {
             return (
                 RemoteCommandResult(
-                commandID: commandID,
-                displayCommand: trimmed,
-                exitCode: nil,
-                timedOut: false,
-                stdoutPreview: [],
-                stderrPreview: ["\(Self.blockedCommandMessage) \(blockedReason)"],
-                redactionApplied: false
+                    commandID: commandID,
+                    displayCommand: trimmed,
+                    exitCode: nil,
+                    timedOut: false,
+                    stdoutPreview: [],
+                    stderrPreview: ["\(Self.blockedCommandMessage) \(blockedReason)"],
+                    redactionApplied: false
                 ),
                 nil
             )
@@ -49,7 +66,7 @@ final class RemoteSSHCommandRunner: @unchecked Sendable {
                 "-o", "NumberOfPasswordPrompts=0",
                 "-o", "StrictHostKeyChecking=yes",
                 "-o", "ConnectTimeout=\(connectTimeout)",
-                target.input,
+                validatedTarget,
                 trimmed
             ]
         )

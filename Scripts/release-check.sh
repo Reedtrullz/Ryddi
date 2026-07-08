@@ -13,6 +13,7 @@ scratch="$(mktemp -d "${TMPDIR:-/tmp}/ryddi-release-check.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 
 cd "$root"
+rm -f "$zip_path" "$checksum_path" "$manifest_path"
 
 if [[ "$signing_required" == "required" ]]; then
   if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
@@ -1068,6 +1069,21 @@ if grep -q "replace smoke" "$scratch/policy-replace-smoke.json"; then
   echo "policy import --replace retained a local-only rule" >&2
   exit 1
 fi
+audit_fixture="$scratch/audit-fixture"
+mkdir -p "$audit_fixture"
+printf 'old plan\n' >"$audit_fixture/plan-old.json"
+printf 'old remote scan\n' >"$audit_fixture/remote-scan-old.json"
+printf 'unknown audit note\n' >"$audit_fixture/unknown-old.json"
+touch -t 202001010101 "$audit_fixture/plan-old.json" "$audit_fixture/remote-scan-old.json" "$audit_fixture/unknown-old.json"
+RYDDI_AUDIT_ROOT="$audit_fixture" "$app/Contents/MacOS/reclaimer" audit summary --json >"$scratch/audit-summary-smoke.json"
+grep -q '"totalKnownFileCount" : 2' "$scratch/audit-summary-smoke.json"
+grep -q '"unknownFileCount" : 1' "$scratch/audit-summary-smoke.json"
+RYDDI_AUDIT_ROOT="$audit_fixture" "$app/Contents/MacOS/reclaimer" audit prune --dry-run --older-than-days 30 --keep-recent 0 --json >"$scratch/audit-prune-smoke.json"
+grep -q '"dryRun" : true' "$scratch/audit-prune-smoke.json"
+grep -q '"kind" : "plan"' "$scratch/audit-prune-smoke.json"
+grep -q '"kind" : "remote-scan"' "$scratch/audit-prune-smoke.json"
+test -f "$audit_fixture/plan-old.json"
+test -f "$audit_fixture/remote-scan-old.json"
 
 echo "==> Checking code signing state"
 signing_state="unsigned developer preview"
@@ -1094,14 +1110,23 @@ fi
 if [[ "$signing_required" == "required" ]]; then
   echo "==> Notarizing signed app"
   "$root/Scripts/notarize-app.sh" "$app"
-  notarization_state="submitted, accepted, and stapled"
+  notary_status_file="$dist/Ryddi-notary-status.json"
+  notary_submission_file="$dist/Ryddi-notary-submission.txt"
+  if [[ ! -f "$notary_status_file" ]] || ! grep -Eq '"status"[[:space:]]*:[[:space:]]*"Accepted"' "$notary_status_file"; then
+    echo "notarization did not produce an Accepted status JSON: $notary_status_file" >&2
+    exit 1
+  fi
+  notary_submission="$(cat "$notary_submission_file" 2>/dev/null || true)"
+  notarization_state="accepted and stapled"
   spctl --assess --type execute --verbose "$app"
   spctl_state="accepted"
   codesign --verify --deep --strict --verbose=2 "$app"
+else
+  notary_status_file=""
+  notary_submission=""
 fi
 
 echo "==> Creating zip artifact and checksum"
-rm -f "$zip_path" "$checksum_path" "$manifest_path"
 (
   cd "$dist"
   /usr/bin/zip -qry -X "$zip_path" "Ryddi.app"
@@ -1125,6 +1150,8 @@ Bundle build: $bundle_build
 Rules: ${rules_path#$app/}
 Signing state: $signing_state
 Notarization state: $notarization_state
+Notarization submission: ${notary_submission:-not applicable}
+Notarization status JSON: ${notary_status_file:-not applicable}
 Gatekeeper assessment: $spctl_state
 Artifact: $zip_path
 Checksum: $(cat "$checksum_path")
@@ -1168,6 +1195,7 @@ Verification performed:
 - bundled reclaimer recovery --json and recovery restore with disposable audit and holding roots
 - bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
 - bundled reclaimer policy protect/list/export/import/replace with temporary config roots
+- bundled reclaimer audit summary --json and audit prune --dry-run --json with temporary audit root
 - codesign verification when CODESIGN_IDENTITY is set
 - notarization, stapling, spctl assessment, and strict codesign verification when RYDDI_RELEASE_SIGNING=required
 - zip artifact and SHA-256 checksum generation

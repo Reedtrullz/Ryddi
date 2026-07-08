@@ -203,6 +203,14 @@ RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/rele
 
 The signed release gate must produce `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, and strict codesign proof. If credentials are missing or any check fails, do not publish the build as `v0.2.0`.
 
+If Apple notarization is still processing, the gate exits nonzero before creating the final release zip and prints a resume command. Re-run that command with the recorded submission ID:
+
+```bash
+RYDDI_NOTARY_SUBMISSION_ID=<submission-id> Scripts/notarize-app.sh dist/Ryddi.app
+```
+
+Only treat the build as notarized after `dist/Ryddi-notary-status.json` reports `Accepted`, stapling validates, Gatekeeper accepts the app, and the release manifest records that proof.
+
 ## Scope Templates And Saved Scope Sets
 
 Ryddi's presets cover broad modes. Built-in templates cover common review jobs such as weekly general cleanup, personal large-file review, app leftovers, browser caches, package caches, project dependencies, Xcode review, AI-agent storage, and developer maintenance:
@@ -567,7 +575,7 @@ This creates:
 dist/Ryddi.app
 ```
 
-Set `CODESIGN_IDENTITY` to sign locally with Hardened Runtime. Use `Scripts/notarize-app.sh dist/Ryddi.app` when Apple notarization credentials are configured.
+Set `CODESIGN_IDENTITY` to sign locally with Hardened Runtime. Use `Scripts/notarize-app.sh dist/Ryddi.app` when Apple notarization credentials are configured. The notarization helper writes `dist/Ryddi-notary-submit.json`, `dist/Ryddi-notary-status.json`, and `dist/Ryddi-notary-submission.txt`; if the wait times out, resume with `RYDDI_NOTARY_SUBMISSION_ID=<submission-id>`.
 
 For a fuller release-shaped check:
 

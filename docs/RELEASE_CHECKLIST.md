@@ -87,12 +87,15 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `RYDDI_VERSION=0.2.0` and `RYDDI_BUILD_NUMBER=2` are used by the packaging scripts.
 - [ ] `Scripts/package-app.sh` signs `dist/Ryddi.app` with Hardened Runtime.
 - [ ] `Scripts/notarize-app.sh dist/Ryddi.app` completes successfully.
+- [ ] If notarization is still `In Progress`, the script exits nonzero, prints a `RYDDI_NOTARY_SUBMISSION_ID=...` resume command, and no final `Ryddi-v0.2.0.zip` is published.
+- [ ] `dist/Ryddi-notary-status.json` records `"status": "Accepted"` before any manifest claims notarization.
+- [ ] Invalid notarization responses save `dist/Ryddi-notary-log.json` for review.
 - [ ] Notarization credentials are supplied through `NOTARY_PROFILE` or `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD`.
 - [ ] `xcrun stapler validate dist/Ryddi.app` passes.
 - [ ] `spctl --assess --type execute --verbose dist/Ryddi.app` accepts the app.
 - [ ] `codesign --verify --deep --strict --verbose=2 dist/Ryddi.app` passes.
 - [ ] `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` exist.
-- [ ] `dist/Ryddi-release-manifest.txt` records signed, notarized, stapled, Gatekeeper, strict codesign, bundle version `0.2.0`, and build `2` proof.
+- [ ] `dist/Ryddi-release-manifest.txt` records signed, accepted notarization, stapled, Gatekeeper, strict codesign, bundle version `0.2.0`, build `2`, notary submission ID, and status JSON path proof.
 - [ ] GitHub release artifact and checksum are uploaded.
 
 ## v0.2.0 Release Notes Template

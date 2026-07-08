@@ -237,10 +237,13 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
 }
 
 public enum RemoteTargetResolverError: LocalizedError {
+    case invalidTarget(String)
     case resolutionFailed(String)
 
     public var errorDescription: String? {
         switch self {
+        case .invalidTarget(let message):
+            message
         case .resolutionFailed(let message):
             message
         }
@@ -270,7 +273,12 @@ public final class RemoteTargetResolver: @unchecked Sendable {
     }
 
     public func resolve(_ input: String) throws -> RemoteTargetReference {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed: String
+        do {
+            trimmed = try RemoteTargetInputPolicy.validate(input)
+        } catch {
+            throw RemoteTargetResolverError.invalidTarget(error.localizedDescription)
+        }
         let output = runner.run(ToolCommandInvocation(executable: "/usr/bin/ssh", arguments: ["-G", trimmed]), timeout: 5)
         guard output.succeeded else {
             let message = output.stderr.trimmingCharacters(in: .whitespacesAndNewlines)

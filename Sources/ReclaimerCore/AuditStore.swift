@@ -1,6 +1,14 @@
 import Foundation
 
 public final class AuditStore: @unchecked Sendable {
+    private struct AuditFileRecord {
+        let url: URL
+        let kind: String?
+        let bytes: Int64
+        let modifiedAt: Date?
+        let isSymlink: Bool
+    }
+
     public enum RemoteAuditQueryError: Error, LocalizedError, Equatable {
         case ambiguousSavedTargetQuery(String)
 
@@ -30,6 +38,118 @@ public final class AuditStore: @unchecked Sendable {
             return URL(fileURLWithPath: override).standardizedFileURL
         }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Ryddi/Audit")
+    }
+
+    public func summary() -> AuditStoreSummary {
+        let records = auditFileRecords()
+        let knownRecords = records.filter { !$0.isSymlink && $0.kind != nil }
+        let grouped = Dictionary(grouping: knownRecords, by: { $0.kind ?? "unknown" })
+        let items = grouped.map { kind, values in
+            AuditStoreSummaryItem(
+                kind: kind,
+                fileCount: values.count,
+                totalBytes: values.reduce(0) { $0 + $1.bytes },
+                latestModifiedAt: values.compactMap(\.modifiedAt).max()
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.totalBytes == rhs.totalBytes {
+                return lhs.kind < rhs.kind
+            }
+            return lhs.totalBytes > rhs.totalBytes
+        }
+        return AuditStoreSummary(
+            rootPath: root.path,
+            totalKnownFileCount: knownRecords.count,
+            totalKnownBytes: knownRecords.reduce(0) { $0 + $1.bytes },
+            unknownFileCount: records.filter { !$0.isSymlink && $0.kind == nil }.count,
+            symlinkCount: records.filter(\.isSymlink).count,
+            items: items
+        )
+    }
+
+    public func prunePlan(policy: AuditRetentionPolicy, now: Date = Date()) -> AuditPrunePlan {
+        let records = auditFileRecords()
+        let knownRecords = records
+            .filter { !$0.isSymlink && $0.kind != nil }
+            .sorted { lhs, rhs in
+                (lhs.modifiedAt ?? .distantPast) > (rhs.modifiedAt ?? .distantPast)
+            }
+        let protectedRecent = Set(knownRecords.prefix(policy.keepRecent).map { $0.url.path })
+        let cutoff = now.addingTimeInterval(-TimeInterval(policy.olderThanDays) * 24 * 60 * 60)
+        let candidates = knownRecords.compactMap { record -> AuditPruneCandidate? in
+            guard !protectedRecent.contains(record.url.path) else { return nil }
+            guard let modifiedAt = record.modifiedAt, modifiedAt < cutoff else { return nil }
+            guard let kind = record.kind else { return nil }
+            return AuditPruneCandidate(
+                path: record.url.path,
+                kind: kind,
+                bytes: record.bytes,
+                modifiedAt: modifiedAt
+            )
+        }
+        return AuditPrunePlan(
+            id: UUID().uuidString,
+            createdAt: now,
+            rootPath: root.path,
+            policy: policy,
+            candidates: candidates,
+            skippedUnknownPaths: records.filter { !$0.isSymlink && $0.kind == nil }.map { $0.url.path }.sorted(),
+            skippedSymlinkPaths: records.filter(\.isSymlink).map { $0.url.path }.sorted()
+        )
+    }
+
+    public func prune(plan: AuditPrunePlan, dryRun: Bool = true) throws -> AuditPruneReceipt {
+        guard !dryRun else {
+            return AuditPruneReceipt(
+                id: UUID().uuidString,
+                createdAt: Date(),
+                dryRun: true,
+                planID: plan.id,
+                deletedCount: 0,
+                deletedBytes: 0,
+                errors: []
+            )
+        }
+
+        var deletedCount = 0
+        var deletedBytes: Int64 = 0
+        var errors: [String] = []
+        for candidate in plan.candidates {
+            let url = URL(fileURLWithPath: candidate.path).standardizedFileURL
+            guard url.path.hasPrefix(root.path + "/") || url.path == root.path else {
+                errors.append("skipped outside audit root: \(candidate.path)")
+                continue
+            }
+            guard knownAuditKind(for: url.lastPathComponent) != nil else {
+                errors.append("skipped unknown audit file: \(candidate.path)")
+                continue
+            }
+            let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey])
+            guard values?.isSymbolicLink != true else {
+                errors.append("skipped symlink: \(candidate.path)")
+                continue
+            }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                continue
+            }
+            do {
+                try FileManager.default.removeItem(at: url)
+                deletedCount += 1
+                deletedBytes += candidate.bytes
+            } catch {
+                errors.append("\(candidate.path): \(error.localizedDescription)")
+            }
+        }
+        return AuditPruneReceipt(
+            id: UUID().uuidString,
+            createdAt: Date(),
+            dryRun: false,
+            planID: plan.id,
+            deletedCount: deletedCount,
+            deletedBytes: deletedBytes,
+            errors: errors
+        )
     }
 
     public func save(plan: ReclaimPlan) throws -> URL {
@@ -459,6 +579,60 @@ public final class AuditStore: @unchecked Sendable {
             .prefix(limit)
             .compactMap { try? decoder.decode(AppUninstallExecutionReceipt.self, from: Data(contentsOf: $0)) }
     }
+
+    private func auditFileRecords() -> [AuditFileRecord] {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.fileSizeKey, .totalFileAllocatedSizeKey, .contentModificationDateKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return files.map { url in
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .totalFileAllocatedSizeKey, .contentModificationDateKey, .isSymbolicLinkKey])
+            let bytes = Int64(values?.fileSize ?? values?.totalFileAllocatedSize ?? 0)
+            return AuditFileRecord(
+                url: url.standardizedFileURL,
+                kind: knownAuditKind(for: url.lastPathComponent),
+                bytes: bytes,
+                modifiedAt: values?.contentModificationDate,
+                isSymlink: values?.isSymbolicLink == true
+            )
+        }
+    }
+
+    private func knownAuditKind(for filename: String) -> String? {
+        guard filename.hasSuffix(".json") else {
+            return nil
+        }
+        for (prefix, kind) in Self.knownAuditPrefixes {
+            if filename.hasPrefix(prefix) {
+                return kind
+            }
+        }
+        return nil
+    }
+
+    private static let knownAuditPrefixes: [(prefix: String, kind: String)] = [
+        ("native-tool-execution-", "native-tool-execution"),
+        ("project-dependency-review-", "project-dependency-review"),
+        ("app-uninstall-preview-", "app-uninstall-preview"),
+        ("app-uninstall-receipt-", "app-uninstall-receipt"),
+        ("browser-cache-review-", "browser-cache-review"),
+        ("package-cache-review-", "package-cache-review"),
+        ("container-inventory-", "container-inventory"),
+        ("device-backup-review-", "device-backup-review"),
+        ("downloads-review-", "downloads-review"),
+        ("remote-dogfood-", "remote-dogfood"),
+        ("active-files-", "active-files"),
+        ("trash-review-", "trash-review"),
+        ("native-tool-", "native-tool"),
+        ("remote-probe-", "remote-probe"),
+        ("remote-scan-", "remote-scan"),
+        ("xcode-review-", "xcode-review"),
+        ("receipt-", "receipt"),
+        ("plan-", "plan"),
+    ]
 
     private func localTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
         if resolvedTargetMatches(lhs, rhs) {
