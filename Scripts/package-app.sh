@@ -34,6 +34,7 @@ cli_binary="$bin_dir/reclaimer"
 agent_binary="$bin_dir/ReclaimerAgent"
 resource_bundle="$bin_dir/Ryddi_ReclaimerCore.bundle"
 legacy_resource_bundle="$bin_dir/MacDiskReclaimer_ReclaimerCore.bundle"
+selected_resource_bundle=""
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -41,9 +42,13 @@ cp "$binary" "$app/Contents/MacOS/$app_name"
 cp "$cli_binary" "$app/Contents/MacOS/reclaimer"
 cp "$agent_binary" "$app/Contents/MacOS/ReclaimerAgent"
 if [[ -d "$resource_bundle" ]]; then
-  cp -R "$resource_bundle" "$app/Contents/Resources/"
+  selected_resource_bundle="$resource_bundle"
 elif [[ -d "$legacy_resource_bundle" ]]; then
-  cp -R "$legacy_resource_bundle" "$app/Contents/Resources/"
+  selected_resource_bundle="$legacy_resource_bundle"
+fi
+if [[ -n "$selected_resource_bundle" ]]; then
+  conventional_resource_bundle="$app/Contents/Resources/$(basename "$selected_resource_bundle")"
+  cp -R "$selected_resource_bundle" "$conventional_resource_bundle"
 fi
 
 cat > "$app/Contents/Info.plist" <<PLIST

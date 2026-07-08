@@ -10,7 +10,27 @@ checksum_path="$zip_path.sha256"
 manifest_path="$dist/Ryddi-release-manifest.txt"
 signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/ryddi-release-check.XXXXXX")"
-trap 'rm -rf "$scratch"' EXIT
+hidden_build_dir=""
+
+cleanup() {
+  if [[ -n "$hidden_build_dir" && -d "$hidden_build_dir" ]]; then
+    if [[ ! -e "$root/.build" ]]; then
+      mv "$hidden_build_dir" "$root/.build"
+    else
+      echo "warning: leaving hidden build dir in place because $root/.build was recreated: $hidden_build_dir" >&2
+    fi
+  fi
+  rm -rf "$scratch"
+}
+trap cleanup EXIT
+
+hide_build_dir_for_packaged_smokes() {
+  if [[ -d "$root/.build" ]]; then
+    hidden_build_dir="$root/.build.release-check-hidden.$$"
+    rm -rf "$hidden_build_dir"
+    mv "$root/.build" "$hidden_build_dir"
+  fi
+}
 
 cd "$root"
 rm -f "$zip_path" "$checksum_path" "$manifest_path"
@@ -81,6 +101,7 @@ if [[ -z "$rules_path" ]]; then
 fi
 
 echo "==> Smoke testing bundled CLI"
+hide_build_dir_for_packaged_smokes
 receipt_fixture="$scratch/receipt-fixture/Library/Caches/Codex"
 mkdir -p "$receipt_fixture"
 printf 'fixture cache\n' >"$receipt_fixture/cache.bin"

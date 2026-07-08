@@ -44,6 +44,32 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(cache.actionKind, .deleteCache)
     }
 
+    func testRuleEngineLocatesRulesInSignedAppResourceLayout() throws {
+        let resourceRoot = tempRoot.appendingPathComponent("Ryddi.app/Contents/Resources", isDirectory: true)
+        let bundle = resourceRoot.appendingPathComponent("Ryddi_ReclaimerCore.bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let rules = bundle.appendingPathComponent("rules.json")
+        try "{}".write(to: rules, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            RuleEngine.bundledRulesURL(candidateRoots: [resourceRoot])?.standardizedFileURL,
+            rules.standardizedFileURL
+        )
+    }
+
+    func testRuleEngineLocatesRulesBesideSwiftPMExecutableLayout() throws {
+        let binaryRoot = tempRoot.appendingPathComponent(".build/arm64-apple-macosx/release", isDirectory: true)
+        let bundle = binaryRoot.appendingPathComponent("Ryddi_ReclaimerCore.bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let rules = bundle.appendingPathComponent("rules.json")
+        try "{}".write(to: rules, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            RuleEngine.bundledRulesURL(candidateRoots: [binaryRoot])?.standardizedFileURL,
+            rules.standardizedFileURL
+        )
+    }
+
     func testAgentStorageReviewSeparatesCacheHistoryAndProtectedState() throws {
         let codexCache = tempRoot.appendingPathComponent(".codex/cache/blob.bin")
         let codexSession = tempRoot.appendingPathComponent(".codex/sessions/2026/07/session.jsonl")
