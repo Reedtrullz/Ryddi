@@ -21,15 +21,27 @@ This file tracks the public screenshots and short clips needed before a polished
 
 ## Candidate Asset Paths
 
-- `docs/assets/screenshots/summary-next-safe-action.png`
-- `docs/assets/screenshots/review-queues.png`
-- `docs/assets/screenshots/package-cache-preview.png`
-- `docs/assets/screenshots/ai-agent-retention.png`
-- `docs/assets/screenshots/remote-targets-report.png`
+- `docs/assets/screenshots/summary-next-safe-action.png` - committed; generated from opt-in synthetic demo mode.
+- `docs/assets/screenshots/review-queues.png` - committed; generated from opt-in synthetic demo mode.
+- `docs/assets/screenshots/package-cache-preview.png` - committed; generated from opt-in synthetic demo mode.
+- `docs/assets/screenshots/ai-agent-retention.png` - committed; generated from opt-in synthetic demo mode.
+- `docs/assets/screenshots/remote-targets-report.png` - committed; generated from opt-in synthetic demo mode.
 - `docs/assets/screenshots/release-trust-proof.png`
+
+## Demo Capture Mode
+
+The app includes an explicit screenshot-only fixture mode for public proof assets:
+
+```bash
+open -n -F dist/Ryddi.app \
+  --env RYDDI_SCREENSHOT_DEMO=1 \
+  --env RYDDI_SCREENSHOT_SECTION=Summary
+```
+
+Supported sections are `Summary`, `Queues`, `Packages`, `Agents`, and `RemoteTargets`. The fixture uses synthetic local paths under `/Users/ryddi-demo`, a documentation-reserved remote address, redacted remote paths, and report-only/non-cleanup wording. Do not use this mode for product behavior verification beyond visual proof that the UI renders the expected trust surfaces.
 
 ## Current Non-claims
 
-- No screenshot assets are committed yet.
-- This checklist is not visual proof that the app has been smoke-tested after the latest UI changes.
+- Screenshot assets are visual proof for the synthetic fixture mode, not proof of a real local cleanup scan.
+- The release-trust proof screenshot is still pending signed/notarized `v0.2.0` output.
 - Public release copy should not imply signed/notarized trust until the typed release manifest reports `stapledAndAccepted`.

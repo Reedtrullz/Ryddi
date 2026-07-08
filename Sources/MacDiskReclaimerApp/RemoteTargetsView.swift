@@ -110,6 +110,26 @@ struct RemoteTargetsView: View {
                         MetricTile(title: "Native guidance", value: "\(report.nativeGuidance.count)")
                     }
 
+                    SectionBox(title: "Remote Safety") {
+                        let commandIssues = report.commands.filter { $0.exitCode != 0 || $0.timedOut }.count
+                        HStack(spacing: 16) {
+                            MetricTile(title: "Mode", value: "Report-only")
+                            MetricTile(title: "Cleanup", value: "None")
+                            MetricTile(title: "Command issues", value: "\(commandIssues)")
+                            MetricTile(title: "Path privacy", value: report.findings.contains { $0.displayPath.contains("redacted") } ? "Redacted" : "Full")
+                        }
+                        Text(commandIssues == 0 ? "All read-only commands returned usable evidence." : "Some read-only commands failed or were unavailable, so treat this report as partial evidence.")
+                            .font(.caption)
+                            .foregroundStyle(commandIssues == 0 ? Color.secondary : Color.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ForEach(report.nonClaims.prefix(2), id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
                     SectionBox(title: "Review Queues") {
                         let grouped = Dictionary(grouping: report.findings, by: \.recommendedNextAction)
                         ForEach(grouped.keys.sorted { $0.label < $1.label }, id: \.self) { action in

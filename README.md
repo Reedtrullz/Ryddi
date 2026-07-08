@@ -47,6 +47,8 @@ swift run --scratch-path .build reclaimer trust --json --path Tests
 
 Report safety false positives, rule-pack requests, and bugs with the GitHub issue templates. Use [SECURITY.md](SECURITY.md) for private reports involving secrets, unsafe cleanup, remote target metadata, or release-trust problems. Track public visual proof in [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
 
+Current synthetic UI proof assets are available under [docs/assets/screenshots](docs/assets/screenshots), including Summary, Review Queues, Package Cache, AI Agent Storage, and Remote Targets report-only flows.
+
 ## What It Handles
 
 - sortable top-offender overview with category, owner/app/tool, safety, age, logical size, allocated size, confidence, and conservative reclaim estimate

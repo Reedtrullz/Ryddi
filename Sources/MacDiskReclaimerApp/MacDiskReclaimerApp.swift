@@ -52,7 +52,7 @@ struct MacDiskReclaimerApp: App {
 struct DashboardView: View {
     @State private var model = DashboardModel()
     @State private var selectedFinding: Finding.ID?
-    @State private var selectedSection = "Summary"
+    @State private var selectedSection = DashboardLaunchOptions.initialSection
     @State private var showingReclaimConfirmation = false
 
     var body: some View {
@@ -226,6 +226,7 @@ struct DashboardView: View {
             model.refreshAutomation()
             model.refreshPermissions()
             model.refreshRemoteTargets()
+            model.applyScreenshotDemoIfNeeded()
         }
     }
 
@@ -301,6 +302,29 @@ struct DashboardView: View {
         }
         .buttonStyle(.plain)
         .listRowBackground(selectedSection == section ? Color.accentColor.opacity(0.16) : Color.clear)
+    }
+}
+
+enum DashboardLaunchOptions {
+    static var isScreenshotDemo: Bool {
+        ProcessInfo.processInfo.environment["RYDDI_SCREENSHOT_DEMO"] == "1"
+    }
+
+    static var initialSection: String {
+        guard isScreenshotDemo else { return "Summary" }
+        let raw = ProcessInfo.processInfo.environment["RYDDI_SCREENSHOT_SECTION"] ?? "Summary"
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "queues", "review-queues":
+            return "Queues"
+        case "packages", "package-cache", "package-caches":
+            return "Packages"
+        case "agents", "ai-agent-storage":
+            return "Agents"
+        case "remote", "remote-targets", "remotetargets":
+            return "RemoteTargets"
+        default:
+            return "Summary"
+        }
     }
 }
 

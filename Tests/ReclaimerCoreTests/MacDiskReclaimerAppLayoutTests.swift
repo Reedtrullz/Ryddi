@@ -83,6 +83,36 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testScreenshotDemoModeIsExplicitAndRedacted() throws {
+        let app = try appSource()
+        let demo = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardDemoData.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(
+            app.contains("RYDDI_SCREENSHOT_DEMO"),
+            "Screenshot proof mode must be controlled by an explicit environment flag."
+        )
+        XCTAssertTrue(
+            app.contains("RYDDI_SCREENSHOT_SECTION"),
+            "Screenshot capture should be able to open stable sections without UI automation clicks."
+        )
+        XCTAssertTrue(
+            demo.contains("/Users/ryddi-demo"),
+            "Screenshot fixture paths should be synthetic and clearly non-local."
+        )
+        XCTAssertTrue(
+            demo.contains("<path redacted>"),
+            "Remote screenshot fixture should demonstrate redacted remote paths."
+        )
+        XCTAssertFalse(
+            demo.contains("/Users/reidar"),
+            "Screenshot fixture data must not embed the local user's real home path."
+        )
+    }
+
     private func appSource() throws -> String {
         try String(
             contentsOf: repoRoot()
