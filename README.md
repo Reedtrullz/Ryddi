@@ -216,8 +216,11 @@ Scripts/release-check.sh
 For a signed `v0.2.0` release gate, provide Developer ID and notarization credentials, then run:
 
 ```bash
+Scripts/release-signing-doctor.sh
 RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh
 ```
+
+The signing doctor checks for a Developer ID Application identity and either a usable `NOTARY_PROFILE` or direct `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD` environment without printing password values. It is a preflight helper only; the release gate and manifest are still the source of truth.
 
 The signed release gate must produce `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, and strict codesign proof. If credentials are missing or any check fails, do not publish the build as `v0.2.0`.
 
@@ -604,7 +607,7 @@ This creates:
 dist/Ryddi.app
 ```
 
-Set `CODESIGN_IDENTITY` to sign locally with Hardened Runtime. Use `Scripts/notarize-app.sh dist/Ryddi.app` when Apple notarization credentials are configured. The notarization helper writes `dist/Ryddi-notary-submit.json`, `dist/Ryddi-notary-status.json`, and `dist/Ryddi-notary-submission.txt`; if the wait times out, resume with `RYDDI_NOTARY_SUBMISSION_ID=<submission-id>`.
+Set `CODESIGN_IDENTITY` to sign locally with Hardened Runtime. Run `Scripts/release-signing-doctor.sh` to check the Developer ID identity and notary credential path before the full signed gate. Use `Scripts/notarize-app.sh dist/Ryddi.app` when Apple notarization credentials are configured. The notarization helper writes `dist/Ryddi-notary-submit.json`, `dist/Ryddi-notary-status.json`, and `dist/Ryddi-notary-submission.txt`; if the wait times out, resume with `RYDDI_NOTARY_SUBMISSION_ID=<submission-id>`.
 
 For a fuller release-shaped check:
 

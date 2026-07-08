@@ -82,6 +82,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 
 ## Signed And Notarized Build
 
+- [ ] `Scripts/release-signing-doctor.sh` reports the Developer ID Application identity and notary credential path are ready without printing password values.
 - [ ] `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` exits `0`.
 - [ ] `CODESIGN_IDENTITY` is set to a Developer ID Application certificate.
 - [ ] `RYDDI_VERSION=0.2.0` and `RYDDI_BUILD_NUMBER=2` are used by the packaging scripts.
