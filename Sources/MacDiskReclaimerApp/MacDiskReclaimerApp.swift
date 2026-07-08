@@ -2717,6 +2717,8 @@ struct PackageCacheReviewView: View {
                 }
 
                 if let report = model.packageCacheReview {
+                    let lane = PackageReclaimLaneBuilder.build(from: report)
+
                     HStack(spacing: 16) {
                         MetricTile(title: "Candidates", value: ByteFormat.string(report.candidateBytes))
                         MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
@@ -2724,6 +2726,8 @@ struct PackageCacheReviewView: View {
                         MetricTile(title: "Cache roots", value: "\(report.rootSummaries.count)")
                         MetricTile(title: "Protected config", value: "\(report.protectedConfigRoots.count)")
                     }
+
+                    PackageReclaimLaneView(report: lane)
 
                     SectionBox(title: "By Package Manager") {
                         if report.managerSummaries.isEmpty {
@@ -2875,6 +2879,75 @@ struct PackageCacheReviewView: View {
                 }
             }
             .padding(24)
+        }
+    }
+}
+
+struct PackageReclaimLaneView: View {
+    let report: PackageReclaimLaneReport
+
+    var body: some View {
+        SectionBox(title: "Native Preview Lane") {
+            VStack(alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
+                    MetricTile(title: "Preview scope", value: ByteFormat.string(report.totalPreviewBytes))
+                    MetricTile(title: "Managers", value: "\(report.managerReports.count)")
+                }
+
+                if report.managerReports.isEmpty {
+                    Text("No package manager cache summaries were found.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(report.managerReports) { manager in
+                            packageManagerRow(manager)
+                            if manager.id != report.managerReports.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+
+                ForEach(report.nonClaims.prefix(2), id: \.self) { note in
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func packageManagerRow(_ manager: PackageReclaimManagerReport) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(manager.managerName)
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(ByteFormat.string(manager.cacheBytes))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Text(manager.explanation)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            commandLine(label: "Preview", command: manager.previewCommand, fallback: "Manual review")
+            commandLine(label: "Cleanup", command: manager.cleanupCommand, fallback: "No allowlisted cleanup command")
+        }
+    }
+
+    private func commandLine(label: String, command: [String], fallback: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+            Text(command.isEmpty ? fallback : command.joined(separator: " "))
+                .font(.system(.caption2, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
         }
     }
 }

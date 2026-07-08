@@ -728,6 +728,10 @@ struct ReclaimerCLI {
     }
 
     static func packages(args: [String]) throws {
+        if args.first == "lane" {
+            try packageLane(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
         let home = options.value(after: "--home")
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
@@ -751,6 +755,30 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printPackageCacheReview(report, options: options)
+        }
+    }
+
+    static func packageLane(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let home = options.value(after: "--home")
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let roots = options.values(after: "--path").map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let measurementDepth = max(0, Int(options.value(after: "--max-depth") ?? "") ?? 7)
+        let review = PackageCacheReviewScanner().review(
+            options: PackageCacheReviewOptions(
+                home: home,
+                roots: roots.isEmpty ? nil : roots,
+                limit: options.limit,
+                measurementDepth: measurementDepth,
+                includeMissingRoots: options.includeMissingScopes
+            )
+        )
+        let lane = PackageReclaimLaneBuilder.build(from: review)
+        if options.json {
+            printJSON(lane)
+        } else {
+            printPackageReclaimLane(lane)
         }
     }
 
@@ -1634,6 +1662,7 @@ struct ReclaimerCLI {
               downloads [--json] [--path DOWNLOADS_ROOT] [--limit N] [--old-days N] [--max-depth N] [--include-hidden] [--save-audit]
               browsers [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               packages [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
+              packages lane [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes]
               projects [--json] [--path PROJECT_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--search-depth N] [--max-depth N] [--include-vcs-status] [--include-policy-skipped] [--include-missing-scopes] [--save-audit]
               projects policy list [--json]
               projects policy review|preserve|skip-review PROJECT_ROOT [--reason TEXT] [--name NAME] [--json]
@@ -3308,6 +3337,47 @@ func printPackageCacheReview(_ report: PackageCacheReviewReport, options: Parsed
     for note in report.nonClaims {
         print("- \(note)")
     }
+}
+
+func printPackageReclaimLane(_ report: PackageReclaimLaneReport) {
+    print("Ryddi Package Cache preview lane")
+    print("Generated: \(report.generatedAt.formatted())")
+    print("Previewed package-cache bytes: \(ByteFormat.string(report.totalPreviewBytes))")
+
+    if report.managerReports.isEmpty {
+        print("\nNo package manager cache summaries were found.")
+    } else {
+        print("\nNative preview lanes")
+        for manager in report.managerReports {
+            print("- \(manager.managerName): \(ByteFormat.string(manager.cacheBytes))")
+            print("  \(manager.explanation)")
+            if manager.previewCommand.isEmpty {
+                print("  preview: manual review")
+            } else {
+                print("  preview: \(shellCommand(manager.previewCommand))")
+            }
+            if manager.cleanupCommand.isEmpty {
+                print("  cleanup: no allowlisted cleanup command")
+            } else {
+                print("  cleanup: \(shellCommand(manager.cleanupCommand))")
+            }
+        }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+private func shellCommand(_ command: [String]) -> String {
+    command.map { part in
+        if part.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "'\""))) == nil {
+            return part
+        }
+        return "'" + part.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+    .joined(separator: " ")
 }
 
 func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, options: ParsedOptions) {

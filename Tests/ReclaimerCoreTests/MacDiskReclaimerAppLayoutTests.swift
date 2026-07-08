@@ -57,6 +57,19 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testPackageCacheReviewShowsPreviewLane() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("PackageReclaimLaneView("),
+            "Package Cache Review should surface the native preview lane after a report is available."
+        )
+        XCTAssertTrue(
+            source.contains("PackageReclaimLaneBuilder.build"),
+            "The package preview lane should use ReclaimerCore instead of app-only command logic."
+        )
+    }
+
     private func appSource() throws -> String {
         try String(
             contentsOf: repoRoot()
