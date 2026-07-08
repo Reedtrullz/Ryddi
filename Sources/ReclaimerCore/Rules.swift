@@ -16,6 +16,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
     public let evidence: [String]
     public let conditions: [String]
     public let conditionGates: [PlanConditionKind]
+    public let gateEvidence: RuleGateEvidence
     public let recovery: String?
 
     public init(
@@ -29,6 +30,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         evidence: [String],
         conditions: [String] = [],
         conditionGates: [PlanConditionKind] = [],
+        gateEvidence: RuleGateEvidence = RuleGateEvidence(),
         recovery: String? = nil
     ) {
         self.id = id
@@ -41,6 +43,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         self.evidence = evidence
         self.conditions = conditions
         self.conditionGates = conditionGates
+        self.gateEvidence = gateEvidence
         self.recovery = recovery
     }
 
@@ -55,6 +58,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         case evidence
         case conditions
         case conditionGates
+        case gateEvidence
         case recovery
     }
 
@@ -70,6 +74,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         self.evidence = try container.decode([String].self, forKey: .evidence)
         self.conditions = try container.decodeIfPresent([String].self, forKey: .conditions) ?? []
         self.conditionGates = try container.decodeIfPresent([PlanConditionKind].self, forKey: .conditionGates) ?? []
+        self.gateEvidence = try container.decodeIfPresent(RuleGateEvidence.self, forKey: .gateEvidence) ?? RuleGateEvidence()
         self.recovery = try container.decodeIfPresent(String.self, forKey: .recovery)
     }
 }
@@ -232,6 +237,7 @@ public final class RuleEngine: @unchecked Sendable {
                     evidence: rule.evidence,
                     conditions: rule.conditions,
                     conditionGates: rule.conditionGates,
+                    gateEvidence: rule.gateEvidence,
                     recovery: rule.recovery
                 )
             )

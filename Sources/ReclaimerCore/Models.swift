@@ -129,6 +129,45 @@ public struct Evidence: Codable, Hashable, Sendable {
     }
 }
 
+public struct RuleGateEvidence: Codable, Hashable, Sendable {
+    public let minimumAgeDays: Int?
+    public let retentionPolicy: String?
+    public let retentionDays: Int?
+    public let nativeToolName: String?
+    public let nativePreviewAvailable: Bool
+
+    public init(
+        minimumAgeDays: Int? = nil,
+        retentionPolicy: String? = nil,
+        retentionDays: Int? = nil,
+        nativeToolName: String? = nil,
+        nativePreviewAvailable: Bool = false
+    ) {
+        self.minimumAgeDays = minimumAgeDays
+        self.retentionPolicy = retentionPolicy
+        self.retentionDays = retentionDays
+        self.nativeToolName = nativeToolName
+        self.nativePreviewAvailable = nativePreviewAvailable
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case minimumAgeDays
+        case retentionPolicy
+        case retentionDays
+        case nativeToolName
+        case nativePreviewAvailable
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.minimumAgeDays = try container.decodeIfPresent(Int.self, forKey: .minimumAgeDays)
+        self.retentionPolicy = try container.decodeIfPresent(String.self, forKey: .retentionPolicy)
+        self.retentionDays = try container.decodeIfPresent(Int.self, forKey: .retentionDays)
+        self.nativeToolName = try container.decodeIfPresent(String.self, forKey: .nativeToolName)
+        self.nativePreviewAvailable = try container.decodeIfPresent(Bool.self, forKey: .nativePreviewAvailable) ?? false
+    }
+}
+
 public struct RuleMatch: Codable, Hashable, Sendable {
     public let ruleID: String
     public let title: String
@@ -138,6 +177,7 @@ public struct RuleMatch: Codable, Hashable, Sendable {
     public let evidence: [String]
     public let conditions: [String]
     public let conditionGates: [PlanConditionKind]
+    public let gateEvidence: RuleGateEvidence
     public let recovery: String?
 
     public init(
@@ -149,6 +189,7 @@ public struct RuleMatch: Codable, Hashable, Sendable {
         evidence: [String],
         conditions: [String] = [],
         conditionGates: [PlanConditionKind] = [],
+        gateEvidence: RuleGateEvidence = RuleGateEvidence(),
         recovery: String? = nil
     ) {
         self.ruleID = ruleID
@@ -159,7 +200,35 @@ public struct RuleMatch: Codable, Hashable, Sendable {
         self.evidence = evidence
         self.conditions = conditions
         self.conditionGates = conditionGates
+        self.gateEvidence = gateEvidence
         self.recovery = recovery
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ruleID
+        case title
+        case category
+        case safetyClass
+        case actionKind
+        case evidence
+        case conditions
+        case conditionGates
+        case gateEvidence
+        case recovery
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.ruleID = try container.decode(String.self, forKey: .ruleID)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.category = try container.decode(String.self, forKey: .category)
+        self.safetyClass = try container.decode(SafetyClass.self, forKey: .safetyClass)
+        self.actionKind = try container.decode(ActionKind.self, forKey: .actionKind)
+        self.evidence = try container.decodeIfPresent([String].self, forKey: .evidence) ?? []
+        self.conditions = try container.decodeIfPresent([String].self, forKey: .conditions) ?? []
+        self.conditionGates = try container.decodeIfPresent([PlanConditionKind].self, forKey: .conditionGates) ?? []
+        self.gateEvidence = try container.decodeIfPresent(RuleGateEvidence.self, forKey: .gateEvidence) ?? RuleGateEvidence()
+        self.recovery = try container.decodeIfPresent(String.self, forKey: .recovery)
     }
 }
 
