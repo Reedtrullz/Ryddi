@@ -151,7 +151,7 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Path no longer exists.")
         }
 
-        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else {
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey]) else {
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Could not re-read filesystem metadata.")
         }
 
@@ -182,8 +182,104 @@ public final class ReclaimerExecutor: @unchecked Sendable {
                     message: "Current rule classification no longer matches the saved plan."
                 )
             }
+            if let gateFailure = validateCurrentGateEvidence(
+                for: item,
+                currentModificationDate: values.contentModificationDate,
+                currentClassification: classification,
+                currentIsSymbolicLink: currentIsSymbolicLink
+            ) {
+                return gateFailure
+            }
         } catch {
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Could not load rules for final safety check: \(error.localizedDescription)")
+        }
+
+        return nil
+    }
+
+    private func validateCurrentGateEvidence(
+        for item: ReclaimPlanItem,
+        currentModificationDate: Date?,
+        currentClassification: Classification,
+        currentIsSymbolicLink: Bool
+    ) -> ExecutionActionReceipt? {
+        let finding = item.finding
+        let explicitRuleGates = finding.ruleMatches.flatMap(\.conditionGates)
+        let explicitPlanConditions = item.conditions
+            .map(\.kind)
+            .filter { $0 != .manualReviewRequired }
+        let plannedGateKinds = Set(explicitRuleGates + explicitPlanConditions)
+        guard !plannedGateKinds.isEmpty else {
+            return nil
+        }
+
+        let plannedPrimaryRuleID = finding.ruleMatches.first?.ruleID
+        let currentPrimaryMatch = currentClassification.matches.first
+
+        if plannedGateKinds.contains(.finalClassificationRequired),
+           plannedPrimaryRuleID != currentPrimaryMatch?.ruleID {
+            return ExecutionActionReceipt(
+                path: finding.path,
+                action: item.proposedAction,
+                status: "skipped",
+                message: "Current rule classification no longer matches the saved plan."
+            )
+        }
+
+        if plannedGateKinds.contains(.minimumAgeRequired) {
+            guard let minimumAgeDays = currentPrimaryMatch?.gateEvidence.minimumAgeDays else {
+                return ExecutionActionReceipt(
+                    path: finding.path,
+                    action: item.proposedAction,
+                    status: "skipped",
+                    message: "Minimum age gate is missing current rule evidence."
+                )
+            }
+            guard let currentModificationDate else {
+                return ExecutionActionReceipt(
+                    path: finding.path,
+                    action: item.proposedAction,
+                    status: "skipped",
+                    message: "Minimum age gate could not be rechecked from current metadata."
+                )
+            }
+            let currentAge = Date().timeIntervalSince(currentModificationDate)
+            guard currentAge >= Double(minimumAgeDays) * 86_400 else {
+                return ExecutionActionReceipt(
+                    path: finding.path,
+                    action: item.proposedAction,
+                    status: "skipped",
+                    message: "Minimum age gate is no longer satisfied by current metadata."
+                )
+            }
+        }
+
+        if plannedGateKinds.contains(.nativeToolRequired),
+           currentPrimaryMatch?.gateEvidence.nativePreviewAvailable != true {
+            return ExecutionActionReceipt(
+                path: finding.path,
+                action: item.proposedAction,
+                status: "skipped",
+                message: "Native-tool gate is missing current preview evidence."
+            )
+        }
+
+        if plannedGateKinds.contains(.notSymbolicLink), currentIsSymbolicLink {
+            return ExecutionActionReceipt(
+                path: finding.path,
+                action: item.proposedAction,
+                status: "skipped",
+                message: "Path changed into a symbolic link after planning."
+            )
+        }
+
+        if plannedGateKinds.contains(.manualReviewRequired) || plannedGateKinds.contains(.appQuitRequired) {
+            return ExecutionActionReceipt(
+                path: finding.path,
+                action: item.proposedAction,
+                status: "skipped",
+                message: "Manual review or app-quit gate cannot be satisfied automatically during execution."
+            )
         }
 
         return nil
