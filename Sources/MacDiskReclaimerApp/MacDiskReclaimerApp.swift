@@ -329,6 +329,13 @@ struct OverviewView: View {
                     navigate: navigate
                 )
 
+                if model.permissionReport.coverageLevel != .complete {
+                    PermissionAccessBanner(
+                        report: model.permissionReport,
+                        onReviewPermissions: { navigate("Permissions") }
+                    )
+                }
+
                 if let error = model.error {
                     DashboardAlert(message: error, systemImage: "exclamationmark.triangle.fill")
                 }
@@ -374,12 +381,18 @@ struct OverviewView: View {
 
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 16) {
-                        TrustReadinessCardsView(report: model.trustReadinessReport)
+                        TrustReadinessCardsView(
+                            report: model.trustReadinessReport,
+                            onReviewPermissions: { navigate("Permissions") }
+                        )
                         ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
                     }
 
                     VStack(alignment: .leading, spacing: 16) {
-                        TrustReadinessCardsView(report: model.trustReadinessReport)
+                        TrustReadinessCardsView(
+                            report: model.trustReadinessReport,
+                            onReviewPermissions: { navigate("Permissions") }
+                        )
                         ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
                     }
                 }
@@ -557,6 +570,49 @@ struct DashboardActionButton: View {
             .buttonStyle(.bordered)
             .disabled(disabled)
             .controlSize(.large)
+        }
+    }
+}
+
+struct PermissionAccessBanner: View {
+    let report: PermissionAdvisorReport
+    let onReviewPermissions: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: "lock.shield")
+                .font(.title3)
+                .foregroundStyle(.orange)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Full Disk Access review recommended")
+                    .font(.headline)
+                Text("\(report.readableCount) of \(report.totalCount) configured scopes are readable.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                PathActions.openFullDiskAccessSettings()
+            } label: {
+                Label("Open Full Disk Access", systemImage: "lock.shield")
+            }
+            .buttonStyle(.borderedProminent)
+            Button {
+                onReviewPermissions()
+            } label: {
+                Label("Review Permissions", systemImage: "arrow.right.circle")
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.orange.opacity(0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+                )
         }
     }
 }
@@ -783,6 +839,7 @@ struct MetricInline: View {
 
 struct TrustReadinessCardsView: View {
     let report: TrustReadinessReport
+    let onReviewPermissions: () -> Void
 
     var body: some View {
         SectionBox(title: "Trust Readiness") {
@@ -799,19 +856,12 @@ struct TrustReadinessCardsView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(report.recommendedActions.prefix(5)) { action in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: symbol(for: action.severity))
-                            .foregroundStyle(color(for: action.severity))
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(action.title)
-                                .font(.caption.weight(.semibold))
-                            Text(action.detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
+                    TrustReadinessActionRow(
+                        action: action,
+                        symbol: symbol(for: action.severity),
+                        color: color(for: action.severity),
+                        onReviewPermissions: onReviewPermissions
+                    )
                 }
             }
         }
@@ -837,6 +887,46 @@ struct TrustReadinessCardsView: View {
         case .info: .blue
         case .warning: .orange
         case .blocked: .red
+        }
+    }
+}
+
+struct TrustReadinessActionRow: View {
+    let action: TrustReadinessAction
+    let symbol: String
+    let color: Color
+    let onReviewPermissions: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(action.title)
+                    .font(.caption.weight(.semibold))
+                Text(action.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if action.id == "permissions.review-full-disk-access" {
+                    HStack(spacing: 8) {
+                        Button {
+                            PathActions.openFullDiskAccessSettings()
+                        } label: {
+                            Label("Open Full Disk Access", systemImage: "lock.shield")
+                        }
+                        Button {
+                            onReviewPermissions()
+                        } label: {
+                            Label("Review Permissions", systemImage: "arrow.right.circle")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
         }
     }
 }
@@ -4802,6 +4892,11 @@ struct PermissionOnboardingView: View {
                     MetricTile(title: "Missing", value: "\(model.permissionReport.missingCount)")
                 }
 
+                PermissionAccessHelperPanel(
+                    report: model.permissionReport,
+                    onRefresh: { model.refreshPermissions() }
+                )
+
                 SectionBox(title: "Next Steps") {
                     ForEach(model.permissionReport.recommendedActions, id: \.self) { action in
                         Text(action)
@@ -4854,6 +4949,99 @@ struct PermissionOnboardingView: View {
                 }
             }
             .padding(24)
+        }
+    }
+}
+
+struct PermissionAccessHelperPanel: View {
+    let report: PermissionAdvisorReport
+    let onRefresh: () -> Void
+
+    private var unavailableScopes: [ScopeAccessSummary] {
+        report.unavailableScopes.sorted { lhs, rhs in
+            if lhs.permissionState != rhs.permissionState {
+                return lhs.permissionState.rawValue < rhs.permissionState.rawValue
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    var body: some View {
+        SectionBox(title: "Access Helper") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Button {
+                        PathActions.openFullDiskAccessSettings()
+                    } label: {
+                        Label("Open Full Disk Access", systemImage: "lock.shield")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help("Open macOS Privacy & Security settings for Full Disk Access")
+
+                    Button {
+                        PathActions.revealApplicationInFinder()
+                    } label: {
+                        Label("Reveal Ryddi", systemImage: "app.dashed")
+                    }
+                    .help("Reveal the installed app so it can be added to Full Disk Access if missing.")
+
+                    Button {
+                        PathActions.copyText(PathActions.applicationPath)
+                    } label: {
+                        Label("Copy App Path", systemImage: "doc.on.doc")
+                    }
+                    .help(PathActions.applicationPath)
+
+                    Spacer()
+
+                    Button {
+                        onRefresh()
+                    } label: {
+                        Label("Refresh Coverage", systemImage: "arrow.clockwise")
+                    }
+                    .help("Re-check which configured scopes are currently readable.")
+                }
+                .buttonStyle(.bordered)
+
+                Text("macOS requires you to grant Full Disk Access manually. Add or enable Ryddi, return here, then refresh coverage or run a fresh scan.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if unavailableScopes.isEmpty {
+                    Label("All configured scopes are readable in the current scope plan.", systemImage: "checkmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Restricted or missing scopes")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        ForEach(unavailableScopes.prefix(8)) { scope in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(scope.permissionState.rawValue)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(scope.permissionState == .denied ? .orange : .secondary)
+                                    .frame(width: 58, alignment: .leading)
+                                Text(scope.name)
+                                    .font(.caption.weight(.semibold))
+                                    .frame(width: 150, alignment: .leading)
+                                Text(scope.path)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        if unavailableScopes.count > 8 {
+                            Text("\(unavailableScopes.count - 8) more scope(s)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -6038,6 +6226,14 @@ struct AppUninstallCandidateActionButtons: View {
 }
 
 enum PathActions {
+    static var applicationPath: String {
+        #if os(macOS)
+        Bundle.main.bundleURL.path
+        #else
+        ""
+        #endif
+    }
+
     static func copyPath(_ path: String) {
         #if os(macOS)
         NSPasteboard.general.clearContents()
@@ -6055,6 +6251,12 @@ enum PathActions {
     static func revealInFinder(_ path: String) {
         #if os(macOS)
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        #endif
+    }
+
+    static func revealApplicationInFinder() {
+        #if os(macOS)
+        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
         #endif
     }
 
