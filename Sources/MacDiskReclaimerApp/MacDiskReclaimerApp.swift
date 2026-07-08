@@ -5,6 +5,24 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
+private enum RyddiWindowLayout {
+    static let minimumContentWidth: CGFloat = 1260
+    static let minimumContentHeight: CGFloat = 760
+    static let defaultContentWidth: CGFloat = 1480
+    static let defaultContentHeight: CGFloat = 940
+    static let topOffenderTableMinimumWidth: CGFloat = 1160
+}
+
+private enum DashboardResponsiveGrid {
+    static var metricColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 170, maximum: 320), spacing: 12, alignment: .top)]
+    }
+
+    static var actionColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 118, maximum: 190), spacing: 10, alignment: .leading)]
+    }
+}
+
 @main
 struct MacDiskReclaimerApp: App {
     @State private var statusModel = StatusMenuModel()
@@ -12,8 +30,13 @@ struct MacDiskReclaimerApp: App {
     var body: some Scene {
         WindowGroup("Ryddi", id: "dashboard") {
             DashboardView()
-                .frame(minWidth: 980, minHeight: 680)
+                .frame(
+                    minWidth: RyddiWindowLayout.minimumContentWidth,
+                    minHeight: RyddiWindowLayout.minimumContentHeight
+                )
         }
+        .defaultSize(width: RyddiWindowLayout.defaultContentWidth, height: RyddiWindowLayout.defaultContentHeight)
+        .windowResizability(.contentMinSize)
         MenuBarExtra {
             StatusMenuView(model: statusModel)
         } label: {
@@ -310,24 +333,30 @@ struct OverviewView: View {
                     DashboardAlert(message: error, systemImage: "exclamationmark.triangle.fill")
                 }
 
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
                     MetricTile(title: "Findings", value: "\(model.findings.count)")
                     MetricTile(title: "Auto-safe", value: ByteFormat.string(model.totalBytes(for: .autoSafe)))
                     MetricTile(title: "Needs review", value: ByteFormat.string(model.totalReviewBytes))
                     MetricTile(title: "Plan reclaim", value: ByteFormat.string(model.plan?.expectedImmediateReclaim ?? 0))
                 }
 
-                HStack(alignment: .top, spacing: 16) {
-                    DashboardQueuePanel(model: model, navigate: navigate)
-                        .frame(minWidth: 330)
-                    DashboardReviewLauncher(model: model, navigate: navigate)
-                        .frame(minWidth: 330)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        DashboardQueuePanel(model: model, navigate: navigate)
+                            .frame(minWidth: 330)
+                        DashboardReviewLauncher(model: model, navigate: navigate)
+                            .frame(minWidth: 330)
+                    }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        DashboardQueuePanel(model: model, navigate: navigate)
+                        DashboardReviewLauncher(model: model, navigate: navigate)
+                    }
                 }
 
                 if !topRows.isEmpty {
                     SectionBox(title: "Largest Current Findings") {
-                        VStack(spacing: 0) {
-                            TopOffenderHeader()
+                        TopOffenderTableScrollContainer {
                             ForEach(topRows) { row in
                                 TopOffenderRowView(row: row, isSelectedInPlan: model.plan?.items.contains { $0.finding.id == row.finding.id && $0.selected } ?? false)
                             }
@@ -343,9 +372,16 @@ struct OverviewView: View {
                     }
                 }
 
-                HStack(alignment: .top, spacing: 16) {
-                    TrustReadinessCardsView(report: model.trustReadinessReport)
-                    ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        TrustReadinessCardsView(report: model.trustReadinessReport)
+                        ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
+                    }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        TrustReadinessCardsView(report: model.trustReadinessReport)
+                        ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
+                    }
                 }
 
                 if let overview = model.overview {
@@ -373,39 +409,54 @@ struct DashboardHeroView: View {
 
     var body: some View {
         SectionBox(title: "Disk Status") {
-            HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 10) {
-                        Text(model.diskStatus.statusLine)
-                            .font(.system(size: 34, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                        Text(model.diskStatus.pressure.label)
-                            .font(.headline)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .foregroundStyle(pressureColor)
-                            .background(pressureColor.opacity(0.18), in: Capsule())
-                    }
-                    Text(model.diskStatus.path)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                    Text("Last scan \(model.lastScanDate?.formatted(date: .omitted, time: .shortened) ?? "not run")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 18) {
+                    diskSummary
+                    Spacer(minLength: 16)
+                    heroMetrics
+                        .frame(minWidth: 190, alignment: .trailing)
                 }
 
-                Spacer(minLength: 16)
-
-                VStack(alignment: .trailing, spacing: 8) {
-                    MetricInline(title: "Coverage", value: model.permissionReport.coverageLevel.label)
-                    MetricInline(title: "Automation", value: model.launchAgentStatus.installed ? "Report-only" : "Off")
-                    MetricInline(title: "Audit", value: auditSummary)
+                VStack(alignment: .leading, spacing: 14) {
+                    diskSummary
+                    heroMetrics
                 }
-                .frame(minWidth: 190, alignment: .trailing)
             }
+        }
+    }
+
+    private var diskSummary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(model.diskStatus.statusLine)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.82)
+                    .lineLimit(1)
+                Text(model.diskStatus.pressure.label)
+                    .font(.headline)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .foregroundStyle(pressureColor)
+                    .background(pressureColor.opacity(0.18), in: Capsule())
+            }
+            Text(model.diskStatus.path)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Text("Last scan \(model.lastScanDate?.formatted(date: .omitted, time: .shortened) ?? "not run")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var heroMetrics: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            MetricInline(title: "Coverage", value: model.permissionReport.coverageLevel.label)
+            MetricInline(title: "Automation", value: model.launchAgentStatus.installed ? "Report-only" : "Off")
+            MetricInline(title: "Audit", value: auditSummary)
         }
     }
 
@@ -430,25 +481,37 @@ struct DashboardActionStrip: View {
     let navigate: (String) -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            DashboardActionButton("Scan", systemImage: "magnifyingglass", prominent: true, disabled: model.isWorking) {
-                Task { await model.scan() }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                actionButtons
             }
-            DashboardActionButton("Plan", systemImage: "checklist", disabled: model.findings.isEmpty || model.isWorking) {
-                Task { await model.buildPlan() }
+
+            LazyVGrid(columns: DashboardResponsiveGrid.actionColumns, alignment: .leading, spacing: 10) {
+                actionButtons
             }
-            DashboardActionButton("Dry Run", systemImage: "play.circle", disabled: (model.plan == nil && model.findings.isEmpty) || model.isWorking) {
-                Task { await model.runDryRun() }
-            }
-            DashboardActionButton("Review Queues", systemImage: "tray.full", disabled: model.findings.isEmpty) {
-                navigate("Queues")
-            }
-            DashboardActionButton("Export", systemImage: "square.and.arrow.up", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {
-                Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
-            }
-            DashboardActionButton("Reclaim", systemImage: "trash", role: .destructive, disabled: !model.canReclaimSelected) {
-                onReclaim()
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        DashboardActionButton("Scan", systemImage: "magnifyingglass", prominent: true, disabled: model.isWorking) {
+            Task { await model.scan() }
+        }
+        DashboardActionButton("Plan", systemImage: "checklist", disabled: model.findings.isEmpty || model.isWorking) {
+            Task { await model.buildPlan() }
+        }
+        DashboardActionButton("Dry Run", systemImage: "play.circle", disabled: (model.plan == nil && model.findings.isEmpty) || model.isWorking) {
+            Task { await model.runDryRun() }
+        }
+        DashboardActionButton("Review Queues", systemImage: "tray.full", disabled: model.findings.isEmpty) {
+            navigate("Queues")
+        }
+        DashboardActionButton("Export", systemImage: "square.and.arrow.up", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {
+            Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
+        }
+        DashboardActionButton("Reclaim", systemImage: "trash", role: .destructive, disabled: !model.canReclaimSelected) {
+            onReclaim()
         }
     }
 }
@@ -723,7 +786,7 @@ struct TrustReadinessCardsView: View {
 
     var body: some View {
         SectionBox(title: "Trust Readiness") {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+            LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
                 MetricTile(title: "Disk Pressure", value: report.diskStatus.pressure.label)
                 MetricTile(title: "Scan Coverage", value: report.permissionSummary.coverageLevel.label)
                 MetricTile(title: "Safe Reclaim", value: ByteFormat.string(report.latestPlanSummary?.expectedImmediateReclaim ?? 0))
@@ -5205,8 +5268,7 @@ struct TopOffendersView: View {
                 MetricTile(title: "Allocated", value: ByteFormat.string(table.allocatedSize))
             }
 
-            VStack(spacing: 0) {
-                TopOffenderHeader()
+            TopOffenderTableScrollContainer {
                 if group == .none {
                     ForEach(displayedRows) { row in
                         TopOffenderRowView(row: row, isSelectedInPlan: selectedPlanIDs.contains(row.finding.id))
@@ -5330,8 +5392,7 @@ struct ReviewQueuesView: View {
                                 if detailReport.rows.isEmpty {
                                     ContentUnavailableView("No findings in this queue", systemImage: "checkmark.circle", description: Text("This scan did not produce matching rows."))
                                 } else {
-                                    VStack(spacing: 0) {
-                                        TopOffenderHeader(includesDetailAction: true)
+                                    TopOffenderTableScrollContainer(includesDetailAction: true) {
                                         ForEach(detailReport.rows) { row in
                                             TopOffenderRowView(
                                                 row: row,
@@ -5494,8 +5555,7 @@ struct LargeOldReviewView: View {
                 }
 
                 SectionBox(title: "Review Rows") {
-                    VStack(spacing: 0) {
-                        TopOffenderHeader()
+                    TopOffenderTableScrollContainer {
                         ForEach(report.rows) { row in
                             VStack(alignment: .leading, spacing: 4) {
                                 TopOffenderRowView(row: row.row, isSelectedInPlan: false)
@@ -5643,6 +5703,21 @@ struct ReviewSummaryList: View {
                 }
             }
             .frame(minWidth: 180)
+        }
+    }
+}
+
+struct TopOffenderTableScrollContainer<Rows: View>: View {
+    var includesDetailAction = false
+    @ViewBuilder let rows: Rows
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            VStack(spacing: 0) {
+                TopOffenderHeader(includesDetailAction: includesDetailAction)
+                rows
+            }
+            .frame(minWidth: RyddiWindowLayout.topOffenderTableMinimumWidth, alignment: .leading)
         }
     }
 }
