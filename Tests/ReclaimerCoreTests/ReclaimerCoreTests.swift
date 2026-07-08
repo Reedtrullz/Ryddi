@@ -2949,6 +2949,24 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("cannot prove macOS Full Disk Access") })
     }
 
+    func testPermissionAdvisorTreatsMissingOnlyRootsAsOptionalState() {
+        let report = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Ollama", path: "/fixture/.ollama", permissionState: .missing, message: "Path is not present."),
+                ScopeAccessSummary(name: "Docker", path: "/fixture/.docker", permissionState: .missing, message: "Path is not present.")
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.coverageLevel, .complete)
+        XCTAssertFalse(report.needsFullDiskAccessReview)
+        XCTAssertEqual(report.deniedCount, 0)
+        XCTAssertEqual(report.missingCount, 2)
+        XCTAssertFalse(report.recommendedActions.contains { $0.contains("Grant Full Disk Access") })
+        XCTAssertTrue(report.recommendedActions.contains { $0.contains("missing roots") })
+    }
+
     func testTrustReadinessRecommendsFullDiskAccessAndDryRunWhenCoverageIsDegraded() {
         let permissionReport = PermissionAdvisor.report(
             scopeSummaries: [

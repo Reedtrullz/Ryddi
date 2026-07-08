@@ -151,7 +151,7 @@ public enum TrustReadinessBuilder {
             ))
         }
 
-        if permissionSummary.coverageLevel != .complete {
+        if permissionSummary.needsFullDiskAccessReview {
             actions.append(TrustReadinessAction(
                 id: "permissions.review-full-disk-access",
                 title: "Review Full Disk Access",

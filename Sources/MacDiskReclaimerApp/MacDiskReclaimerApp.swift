@@ -329,7 +329,7 @@ struct OverviewView: View {
                     navigate: navigate
                 )
 
-                if model.permissionReport.coverageLevel != .complete {
+                if model.permissionReport.needsFullDiskAccessReview || model.permissionReport.unknownCount > 0 {
                     PermissionAccessBanner(
                         report: model.permissionReport,
                         onReviewPermissions: { navigate("Permissions") }
