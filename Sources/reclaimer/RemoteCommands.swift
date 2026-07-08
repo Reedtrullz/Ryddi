@@ -75,6 +75,9 @@ extension ReclaimerCLI {
             preset: try options.remoteScanPreset(),
             privacy: options.reportPrivacy
         )
+        if options.saveAudit, report.coverage.level == .unreachable {
+            throw CLIError.message("Remote \(mode) for \(targetInput) is unreachable; no audit record was saved. Use --output FILE to export an explicit degraded report.")
+        }
         if options.saveAudit {
             let url = try AuditStore().save(remoteScanReport: report)
             FileHandle.standardError.write(Data("saved remote scan report: \(url.path)\n".utf8))
@@ -225,9 +228,11 @@ extension ReclaimerCLI {
             }
             return (previous, current)
         }
-        let reports = store.recentRemoteScanReports(limit: 2)
+        let reports = store.recentRemoteScanReports(limit: Int.max)
+            .filter { $0.coverage.level != .unreachable }
+            .prefix(2)
         guard reports.count == 2 else {
-            throw CLIError.message("remote history requires at least two saved remote scan reports")
+            throw CLIError.message("remote history requires at least two saved reachable remote scan reports")
         }
         return (reports[1], reports[0])
     }
@@ -299,6 +304,14 @@ func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
     print("Target: \(report.target.alias ?? report.target.input)")
     print("Host: \(report.target.resolvedHost ?? "unknown")")
     print("Preset: \(report.preset.rawValue)")
+    print("Coverage: \(report.coverage.level.rawValue)")
+    print(report.coverage.explanation)
+    if !report.continuityWarnings.isEmpty {
+        print("\nTarget continuity warnings")
+        for warning in report.continuityWarnings {
+            print("- \(warning.field): \(warning.previousValue) -> \(warning.currentValue) (\(warning.severity))")
+        }
+    }
     if !report.diskFilesystems.isEmpty {
         print("\nFilesystems")
         for filesystem in report.diskFilesystems {
@@ -316,7 +329,11 @@ func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
             print("  \(finding.displayPath)")
         }
     } else {
-        print("\nNo remote findings produced.")
+        if report.coverage.level == .unreachable {
+            print("\nNo remote findings produced because the target was unreachable or all evidence commands failed.")
+        } else {
+            print("\nNo remote findings produced.")
+        }
     }
     if !report.nativeGuidance.isEmpty {
         print("\nNative guidance")

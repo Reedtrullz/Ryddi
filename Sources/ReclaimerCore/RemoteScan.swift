@@ -64,6 +64,7 @@ public final class RemoteScanBuilder: @unchecked Sendable {
             findings: findings,
             nativeGuidance: RemoteNativeGuidanceBuilder.guidance(for: findings),
             commands: results,
+            coverage: RemoteScanCoverageBuilder.build(commands: results, osSummary: nil),
             nonClaims: RemoteScanReport.defaultNonClaims
         )
     }
@@ -252,9 +253,40 @@ public enum RemoteReportBuilder {
         lines.append("- Path privacy: \(privacy.summary)")
         lines.append("")
 
+        lines.append("## Coverage")
+        lines.append("")
+        lines.append("- Level: \(report.coverage.level.rawValue)")
+        lines.append("- Explanation: \(MarkdownTable.cell(report.coverage.explanation))")
+        lines.append("- Successful commands: \(report.coverage.successfulCommandIDs.count)")
+        lines.append("- Failed commands: \(report.coverage.failedCommandIDs.count)")
+        lines.append("- Timed out commands: \(report.coverage.timedOutCommandIDs.count)")
+        lines.append("- Permission denied commands: \(report.coverage.permissionDeniedCommandIDs.count)")
+        lines.append("")
+
+        if !report.continuityWarnings.isEmpty {
+            lines.append("## Target Continuity")
+            lines.append("")
+            lines.append("| Field | Previous | Current | Severity |")
+            lines.append("| --- | --- | --- | --- |")
+            for warning in report.continuityWarnings {
+                let row = [
+                    warning.field,
+                    warning.previousValue,
+                    warning.currentValue,
+                    warning.severity
+                ].map(MarkdownTable.cell)
+                lines.append("| \(row.joined(separator: " | ")) |")
+            }
+            lines.append("")
+        }
+
         lines.append("## Findings")
         if report.findings.isEmpty {
-            lines.append("No remote findings were produced.")
+            if report.coverage.level == .unreachable {
+                lines.append("No remote findings were produced because the target was unreachable or all evidence commands failed.")
+            } else {
+                lines.append("No remote findings were produced.")
+            }
         } else {
             lines.append("| Bucket | Path | Size | Safety | Next Action |")
             lines.append("| --- | --- | ---: | --- | --- |")

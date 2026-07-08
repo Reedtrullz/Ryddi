@@ -275,11 +275,14 @@ The first remote release is report-only:
 - resolve a target with `ssh -G`;
 - probe OS, home directory, disk/inode pressure, available tools, and non-interactive sudo capability;
 - scan Linux VPS storage signals such as journald, APT cache, Docker storage, old deploy releases, large files, temp paths, and permission-denied areas;
+- label remote scan evidence as complete, partial, unreachable, or unsupported from command outcomes;
 - export redacted Markdown reports and save local audit records;
-- compare saved remote scan audit records locally with `remote history` to see bucket/path growth without reconnecting to the server;
+- compare saved reachable remote scan audit records locally with `remote history` to see bucket/path growth without reconnecting to the server;
 - recommend native commands for manual review.
 
 Ryddi does not run remote cleanup, Docker prune/reset, `rm`, `find -delete`, sudo cleanup, or unattended destructive maintenance in Remote Targets v1.
+
+If a target is unreachable, Ryddi says so explicitly. You can export a degraded report to show the failure evidence, but Ryddi does not save that scan as a normal remote audit record or use it in default growth comparisons.
 
 Remote dogfood evidence packages can be created from a live read-only scan or from saved audit records:
 

@@ -437,7 +437,7 @@ public final class AuditStore: @unchecked Sendable {
         excludingReportID excludedID: String
     ) -> RemoteScanReport? {
         recentRemoteScanReports(limit: Int.max).first {
-            $0.id != excludedID && concreteTargetMatches($0.target, target)
+            $0.id != excludedID && $0.coverage.level != .unreachable && concreteTargetMatches($0.target, target)
         }
     }
 

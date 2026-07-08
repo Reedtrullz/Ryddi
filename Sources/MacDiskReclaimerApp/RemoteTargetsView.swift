@@ -115,13 +115,26 @@ struct RemoteTargetsView: View {
                         HStack(spacing: 16) {
                             MetricTile(title: "Mode", value: "Report-only")
                             MetricTile(title: "Cleanup", value: "None")
+                            MetricTile(title: "Coverage", value: report.coverage.level.rawValue.capitalized)
                             MetricTile(title: "Command issues", value: "\(commandIssues)")
                             MetricTile(title: "Path privacy", value: report.findings.contains { $0.displayPath.contains("redacted") } ? "Redacted" : "Full")
                         }
-                        Text(commandIssues == 0 ? "All read-only commands returned usable evidence." : "Some read-only commands failed or were unavailable, so treat this report as partial evidence.")
+                        Text(report.coverage.explanation)
+                            .font(.caption)
+                            .foregroundStyle(report.coverage.level == .complete ? Color.secondary : Color.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(commandIssues == 0 ? "All read-only commands returned usable evidence." : "Some read-only commands failed or were unavailable; do not treat missing evidence as clean.")
                             .font(.caption)
                             .foregroundStyle(commandIssues == 0 ? Color.secondary : Color.orange)
                             .fixedSize(horizontal: false, vertical: true)
+                        if !report.continuityWarnings.isEmpty {
+                            ForEach(report.continuityWarnings) { warning in
+                                Text("\(warning.field.capitalized) changed: \(warning.previousValue) -> \(warning.currentValue)")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
                         ForEach(report.nonClaims.prefix(2), id: \.self) { note in
                             Text(note)
                                 .font(.caption)

@@ -133,8 +133,12 @@ public enum RemoteGrowthReportBuilder {
             "Permission, sudo, SSH identity, scan preset, and command availability changes between scans can make deltas incomplete or not directly comparable.",
             "A positive remote growth delta is a review signal, not proof that a path is trash or safe to remove."
         ]
-        if previous.target.id != current.target.id || previous.target.resolvedHost != current.target.resolvedHost {
-            nonClaims.append("The compared remote target identities differ; review target metadata before treating deltas as the same host.")
+        let continuityWarnings = RemoteTargetContinuity.warnings(previous: previous.target, current: current.target)
+        if !continuityWarnings.isEmpty {
+            let fields = continuityWarnings.map(\.field).joined(separator: ", ")
+            nonClaims.append("The compared remote target identities differ (\(fields)); review target metadata before treating deltas as the same host.")
+        } else if previous.target.id != current.target.id || previous.target.resolvedHost != current.target.resolvedHost {
+            nonClaims.append("The compared remote target labels differ; review target metadata before treating deltas as the same host.")
         }
         if privacy.pathStyle != .full || privacy.redactUserText {
             nonClaims.append("Report privacy was applied (\(privacy.summary)); saved local remote scan JSON may still contain full original paths.")
