@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a crash, broken UI, failed command, or incorrect report behavior.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Ryddi version or commit
+      placeholder: "0.2.0, developer preview, or commit SHA"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - macOS app
+        - CLI
+        - Release packaging
+        - Remote Targets
+        - Report export
+        - Automation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include crash messages, redacted logs, or screenshots when useful.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      render: shell
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "macOS version, Apple Silicon or Intel, install method, Full Disk Access status if relevant"

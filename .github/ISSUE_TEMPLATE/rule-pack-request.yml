@@ -1,0 +1,41 @@
+name: Rule pack request
+description: Suggest a new app, tool, cache, package manager, or storage bucket for Ryddi to recognize.
+title: "[Rule pack]: "
+labels: ["rules", "enhancement"]
+body:
+  - type: input
+    id: tool
+    attributes:
+      label: App, tool, or storage area
+      placeholder: "Example: Android Studio emulator cache, Poetry cache, Lightroom previews"
+    validations:
+      required: true
+  - type: dropdown
+    id: expected_safety
+    attributes:
+      label: Expected default safety
+      options:
+        - Preserve by default
+        - Review required
+        - Safe after condition
+        - Auto-safe cache
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: paths
+    attributes:
+      label: Example paths or commands
+      description: Redact usernames, customer names, hostnames, and secrets. Include native cleanup commands only if they are documented by the tool vendor.
+      placeholder: "~/Library/Caches/<tool>/..."
+      render: shell
+  - type: textarea
+    id: recovery
+    attributes:
+      label: Recovery and risk notes
+      description: What happens if this data is removed? Can the app rebuild it? Are licenses, profiles, projects, databases, or history involved?
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Link official docs or source code where possible.

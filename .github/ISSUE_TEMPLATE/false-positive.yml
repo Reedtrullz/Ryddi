@@ -1,0 +1,52 @@
+name: Safety false positive
+description: Report a file, folder, app, or bucket that Ryddi classified too aggressively.
+title: "[False positive]: "
+labels: ["safety", "false-positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for checking Ryddi's safety model. Do not paste secrets, auth tokens, private keys, customer data, or full private paths if a redacted path is enough.
+  - type: input
+    id: version
+    attributes:
+      label: Ryddi version or commit
+      description: Include the app version, CLI version, or commit SHA if known.
+      placeholder: "0.2.0, developer preview, or commit SHA"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did you see it?
+      options:
+        - App Summary or Review Queue
+        - CLI scan or overview
+        - CLI plan or dry run
+        - Dogfood/report export
+        - Remote Targets report
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: redacted_path
+    attributes:
+      label: Redacted path or bucket
+      description: Redact usernames, customer names, project names, hostnames, and secrets where possible.
+      placeholder: "~/Library/Caches/<app>/Cache_Data or <remote>/var/log/..."
+    validations:
+      required: true
+  - type: textarea
+    id: classification
+    attributes:
+      label: Current classification and expected classification
+      description: Include safety class, next action, and why the current classification seems wrong.
+      placeholder: "Ryddi said Safe Maintenance, but this is app state that should be Preserve by default."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Paste redacted CLI JSON rows, screenshots, or report snippets. Keep secrets out.
+      render: shell

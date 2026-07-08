@@ -31,6 +31,22 @@ No telemetry, path uploads, remote analysis, root helper, or Mac App Store sandb
 
 See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi should never touch automatically.
 
+## Start Here
+
+1. Build or download Ryddi, then open the Summary screen.
+2. Grant Full Disk Access only after reviewing the in-app permission guidance.
+3. Run a scan and review the Next Safe Action, Review Queues, and protected buckets.
+4. Create a dry-run plan before reclaiming anything. Use report exports when you want a shareable evidence package.
+
+For command-line dogfooding:
+
+```bash
+swift run --scratch-path .build reclaimer dogfood --preset general --path-style redacted --output /tmp/ryddi-dogfood.md
+swift run --scratch-path .build reclaimer trust --json --path Tests
+```
+
+Report safety false positives, rule-pack requests, and bugs with the GitHub issue templates. Use [SECURITY.md](SECURITY.md) for private reports involving secrets, unsafe cleanup, remote target metadata, or release-trust problems. Track public visual proof in [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
+
 ## What It Handles
 
 - sortable top-offender overview with category, owner/app/tool, safety, age, logical size, allocated size, confidence, and conservative reclaim estimate
