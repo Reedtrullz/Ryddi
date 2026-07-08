@@ -70,6 +70,19 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testAgentRetentionShowsPlanPreviewLane() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("AgentRetentionPlanPreviewView("),
+            "The AI Agent Storage retention report should show a preview plan lane, not only recommendations."
+        )
+        XCTAssertTrue(
+            source.contains("AgentRetentionPlanBuilder.build"),
+            "Agent retention planning should use ReclaimerCore plan-preview logic."
+        )
+    }
+
     private func appSource() throws -> String {
         try String(
             contentsOf: repoRoot()

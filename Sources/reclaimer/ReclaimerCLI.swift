@@ -1070,6 +1070,10 @@ struct ReclaimerCLI {
     }
 
     static func agents(args: [String]) throws {
+        if args.first == "retention-plan" {
+            try agentRetentionPlan(args: Array(args.dropFirst()))
+            return
+        }
         if args.first == "retention" {
             try agentRetention(args: Array(args.dropFirst()))
             return
@@ -1098,7 +1102,39 @@ struct ReclaimerCLI {
         }
     }
 
+    static func agentRetentionPlan(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let source = try agentStorageFindings(options: options)
+        let preparedFindings = options.prepare(source.findings)
+        let review = AgentStorageReviewBuilder.build(
+            findings: preparedFindings,
+            scopes: source.scopes,
+            limit: options.limit
+        )
+        let retention = AgentRetentionBuilder.build(
+            review: review,
+            profile: try options.agentRetentionProfile(),
+            limit: options.limit
+        )
+        let preview = AgentRetentionPlanBuilder.build(report: retention, matchingFindings: preparedFindings)
+        if options.json {
+            printJSON(preview)
+        } else {
+            printAgentRetentionPlanPreview(preview)
+        }
+    }
+
     private static func agentStorageReview(options: ParsedOptions) throws -> AgentStorageReview {
+        let source = try agentStorageFindings(options: options)
+        let report = AgentStorageReviewBuilder.build(
+            findings: options.prepare(source.findings),
+            scopes: source.scopes,
+            limit: options.limit
+        )
+        return report
+    }
+
+    private static func agentStorageFindings(options: ParsedOptions) throws -> (findings: [Finding], scopes: [ScanScope]) {
         let scopes: [ScanScope]
         if options.hasCustomScopeSelection {
             scopes = try options.scopes(includeUnavailable: options.includeMissingScopes)
@@ -1107,12 +1143,7 @@ struct ReclaimerCLI {
         }
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
-        let report = AgentStorageReviewBuilder.build(
-            findings: options.prepare(findings),
-            scopes: scopes,
-            limit: options.limit
-        )
-        return report
+        return (findings, scopes)
     }
 
     static func native(args: [String]) throws {
@@ -1683,6 +1714,8 @@ struct ReclaimerCLI {
               agents [--json] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               agents retention [--json] [--profile conservative|balanced|aggressive] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID]
+                     [--min-size BYTES] [--max-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
+              agents retention-plan [--json] [--profile conservative|balanced|aggressive] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID]
                      [--min-size BYTES] [--max-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               native [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
               native run --command-id COMMAND_ID [--dry-run|--yes] [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
@@ -3131,6 +3164,40 @@ func printAgentRetentionReport(_ report: AgentRetentionReport, options: ParsedOp
 
     print("\nNon-claims")
     for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+func printAgentRetentionPlanPreview(_ preview: AgentRetentionPlanPreview) {
+    print("Ryddi AI agent retention plan preview")
+    print("Generated: \(preview.generatedAt.formatted())")
+    print("Selected bytes: \(ByteFormat.string(preview.selectedBytes))")
+    print("Protected bytes: \(ByteFormat.string(preview.protectedBytes))")
+    print("Review bytes: \(ByteFormat.string(preview.reviewBytes))")
+    print("Plan items: \(preview.plan.items.count)")
+
+    if preview.plan.items.isEmpty {
+        print("\nNo retention-eligible agent findings entered the cleanup preview plan.")
+    } else {
+        print("\nPreview plan")
+        for item in preview.plan.items {
+            let marker = item.selected ? "selected" : "blocked"
+            print("- \(marker): \(ByteFormat.string(item.finding.allocatedSize)) \(item.finding.path)")
+            for condition in item.conditions where !condition.isSatisfied {
+                print("  blocked: \(condition.kind.label) - \(condition.message)")
+            }
+        }
+    }
+
+    if !preview.protectedReasons.isEmpty {
+        print("\nProtected/review reasons")
+        for reason in preview.protectedReasons.prefix(12) {
+            print("- \(reason)")
+        }
+    }
+
+    print("\nNon-claims")
+    for note in preview.nonClaims {
         print("- \(note)")
     }
 }

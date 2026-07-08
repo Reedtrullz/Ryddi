@@ -4083,6 +4083,8 @@ struct AgentStorageReviewView: View {
                     }
 
                     if let retentionReport = model.agentRetentionReport {
+                        let preview = AgentRetentionPlanBuilder.build(report: retentionReport, matchingFindings: model.findings)
+
                         SectionBox(title: "Retention Report") {
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack(spacing: 16) {
@@ -4095,6 +4097,7 @@ struct AgentStorageReviewView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
+                                AgentRetentionPlanPreviewView(preview: preview)
                                 if !retentionReport.summaries.isEmpty {
                                     ForEach(retentionReport.summaries) { summary in
                                         HStack {
@@ -4181,6 +4184,51 @@ struct AgentStorageItemRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+struct AgentRetentionPlanPreviewView: View {
+    let preview: AgentRetentionPlanPreview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
+                MetricTile(title: "Plan preview", value: ByteFormat.string(preview.selectedBytes))
+                MetricTile(title: "Plan items", value: "\(preview.plan.items.filter(\.selected).count)")
+                MetricTile(title: "Review/keep", value: ByteFormat.string(preview.reviewBytes))
+                MetricTile(title: "Protected", value: ByteFormat.string(preview.protectedBytes))
+            }
+
+            if preview.plan.items.isEmpty {
+                Text("No retention-eligible agent findings matched the current scan for cleanup planning.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(preview.plan.items.prefix(4), id: \.finding.id) { item in
+                    HStack {
+                        Text(item.selected ? "Selected" : "Blocked")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(item.selected ? .green : .secondary)
+                            .frame(width: 64, alignment: .leading)
+                        Text(ByteFormat.string(item.finding.allocatedSize))
+                            .font(.caption.monospacedDigit())
+                            .frame(width: 88, alignment: .leading)
+                        Text(item.finding.path)
+                            .font(.system(.caption2, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            ForEach(preview.nonClaims.prefix(2), id: \.self) { note in
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
