@@ -2,6 +2,8 @@ import XCTest
 @testable import ReclaimerCore
 
 final class ScanSessionTests: XCTestCase {
+    private let versionedScanSessionPrefix = "scan-session-v1-"
+    private let legacyScanSessionPrefix = "scan-session-"
     private var tempRoot: URL!
 
     override func setUpWithError() throws {
@@ -20,6 +22,10 @@ final class ScanSessionTests: XCTestCase {
     func testScanSessionTransitionsAdvanceThroughBaselineStages() {
         let createdAt = Date(timeIntervalSince1970: 1_000)
         let session = makeSession(createdAt: createdAt, updatedAt: createdAt)
+
+        XCTAssertEqual(session.stage, .notStarted)
+        XCTAssertNil(session.findingDigest)
+        XCTAssertNil(session.planDigest)
 
         let scanned = session.recordScan(findingDigest: "finding-v1", updatedAt: Date(timeIntervalSince1970: 1_100))
         XCTAssertEqual(scanned.stage, .scanned)
@@ -128,7 +134,29 @@ final class ScanSessionTests: XCTestCase {
         XCTAssertEqual(try store.latestScanSession()?.id, "session-newest")
 
         let savedFiles = try FileManager.default.contentsOfDirectory(at: tempRoot, includingPropertiesForKeys: nil)
-        XCTAssertEqual(savedFiles.filter { $0.lastPathComponent.hasPrefix("scan-session-") }.count, 3)
+        XCTAssertEqual(savedFiles.filter { $0.lastPathComponent.hasPrefix(versionedScanSessionPrefix) }.count, 3)
+    }
+
+    func testAuditStoreReadsLegacyUnversionedAndNewVersionedScanSessionFiles() throws {
+        let store = AuditStore(root: tempRoot)
+        let legacy = makeSession(id: "session-legacy", updatedAt: Date(timeIntervalSince1970: 1_500))
+        let current = makeSession(id: "session-current", updatedAt: Date(timeIntervalSince1970: 2_500))
+
+        try write(session: legacy, named: "\(legacyScanSessionPrefix)\(legacy.id).json")
+        try store.saveScanSession(current)
+
+        let listed = try store.listScanSessions(limit: 10)
+
+        XCTAssertEqual(listed.map(\.id), ["session-current", "session-legacy"])
+        XCTAssertEqual(try store.latestScanSession()?.id, "session-current")
+    }
+
+    func testAuditStoreScanSessionReadsAreEmptyWhenAuditRootDoesNotExist() throws {
+        let missingRoot = tempRoot.appendingPathComponent("missing-audit-root", isDirectory: true)
+        let store = AuditStore(root: missingRoot)
+
+        XCTAssertEqual(try store.listScanSessions(limit: 10), [])
+        XCTAssertNil(try store.latestScanSession())
     }
 
     private func makeSession(
@@ -168,5 +196,12 @@ final class ScanSessionTests: XCTestCase {
             ],
             userConfirmed: mode == ExecutionMode.perform.rawValue
         )
+    }
+
+    private func write(session: ScanSession, named filename: String) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(session).write(to: tempRoot.appendingPathComponent(filename), options: .atomic)
     }
 }

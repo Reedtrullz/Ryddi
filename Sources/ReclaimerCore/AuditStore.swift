@@ -1,6 +1,9 @@
 import Foundation
 
 public final class AuditStore: @unchecked Sendable {
+    private static let scanSessionPrefix = "scan-session-v1-"
+    private static let legacyScanSessionPrefix = "scan-session-"
+
     private struct AuditFileRecord {
         let url: URL
         let kind: String?
@@ -280,7 +283,7 @@ public final class AuditStore: @unchecked Sendable {
 
     public func saveScanSession(_ session: ScanSession) throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let url = root.appendingPathComponent("scan-session-\(session.id).json")
+        let url = root.appendingPathComponent("\(Self.scanSessionPrefix)\(session.id).json")
         try encoder.encode(session).write(to: url, options: .atomic)
     }
 
@@ -292,9 +295,12 @@ public final class AuditStore: @unchecked Sendable {
         guard limit > 0 else {
             return []
         }
+        guard FileManager.default.fileExists(atPath: root.path) else {
+            return []
+        }
         let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
         return try files
-            .filter { $0.lastPathComponent.hasPrefix("scan-session-") && $0.pathExtension == "json" }
+            .filter { isScanSessionFile($0.lastPathComponent) && $0.pathExtension == "json" }
             .compactMap { url -> (URL, ScanSession)? in
                 let data = try Data(contentsOf: url)
                 let session = try decoder.decode(ScanSession.self, from: data)
@@ -637,6 +643,9 @@ public final class AuditStore: @unchecked Sendable {
         guard filename.hasSuffix(".json") else {
             return nil
         }
+        if isScanSessionFile(filename) {
+            return "scan-session-v1"
+        }
         for (prefix, kind) in Self.knownAuditPrefixes {
             if filename.hasPrefix(prefix) {
                 return kind
@@ -656,7 +665,6 @@ public final class AuditStore: @unchecked Sendable {
         ("device-backup-review-", "device-backup-review"),
         ("downloads-review-", "downloads-review"),
         ("remote-dogfood-", "remote-dogfood"),
-        ("scan-session-", "scan-session"),
         ("active-files-", "active-files"),
         ("trash-review-", "trash-review"),
         ("native-tool-", "native-tool"),
@@ -666,6 +674,10 @@ public final class AuditStore: @unchecked Sendable {
         ("receipt-", "receipt"),
         ("plan-", "plan"),
     ]
+
+    private func isScanSessionFile(_ filename: String) -> Bool {
+        filename.hasPrefix(Self.scanSessionPrefix) || filename.hasPrefix(Self.legacyScanSessionPrefix)
+    }
 
     private func localTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
         if resolvedTargetMatches(lhs, rhs) {
