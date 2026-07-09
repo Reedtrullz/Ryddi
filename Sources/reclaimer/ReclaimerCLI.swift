@@ -1426,15 +1426,92 @@ struct ReclaimerCLI {
         }
     }
 
+    private struct PlanCommandEvidence {
+        let ruleEngine: RuleEngine
+        let plan: ReclaimPlan
+        let scanSession: ScanSession
+    }
+
+    private static func buildPlanCommandEvidence(options: ParsedOptions) throws -> PlanCommandEvidence {
+        let ruleEngine = try options.ruleEngine()
+        let scopePlan = try options.scopePlan()
+        let preset: ScanScopePreset
+        if let scopePlanPreset = scopePlan.preset {
+            preset = scopePlanPreset
+        } else {
+            preset = try options.scopePreset()
+        }
+        let scopes = scopePlan.scopes
+        let scanOptions = options.scanOptions(includeOpenFiles: false)
+        let openFileChecker: any OpenFileChecking = options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker()
+        let scanner = try FileScanner(ruleEngine: ruleEngine, openFileChecker: openFileChecker)
+        let findings = scanner.scan(scopes: scopes, options: scanOptions)
+        let plan = PlanBuilder(openFileChecker: openFileChecker)
+            .buildPlan(from: findings, mode: options.reviewAll ? .reviewAll : .autoSafeOnly)
+        let scanSession = ScanSessionEvidenceBuilder.scannedSession(
+            appVersion: "reclaimer-cli",
+            ruleVersion: ruleEngine.version,
+            preset: preset,
+            scopes: scopes,
+            userPathPolicy: scanOptions.userPathPolicy,
+            findings: findings
+        )
+        return PlanCommandEvidence(
+            ruleEngine: ruleEngine,
+            plan: plan,
+            scanSession: scanSession
+        )
+    }
+
+    private static func matchingSessionForAuditTransition(
+        store: AuditStore,
+        currentScanSession: ScanSession
+    ) throws -> ScanSession {
+        guard let latest = try store.latestScanSession() else {
+            return currentScanSession
+        }
+        let validated = latest.invalidatedIfBaselineChanged(
+            scopeDigest: currentScanSession.scopeDigest,
+            ruleVersion: currentScanSession.ruleVersion,
+            policyDigest: currentScanSession.policyDigest,
+            findingDigest: currentScanSession.findingDigest
+        )
+        return validated.stage == .invalidated ? currentScanSession : validated
+    }
+
+    private static func sessionForExecutionGate(
+        store: AuditStore,
+        currentScanSession: ScanSession
+    ) throws -> ScanSession {
+        guard let latest = try store.latestScanSession() else {
+            return currentScanSession
+        }
+        return latest.invalidatedIfBaselineChanged(
+            scopeDigest: currentScanSession.scopeDigest,
+            ruleVersion: currentScanSession.ruleVersion,
+            policyDigest: currentScanSession.policyDigest,
+            findingDigest: currentScanSession.findingDigest
+        )
+    }
+
+    private static func shouldRecordExecutionTransition(_ receipt: ExecutionReceipt) -> Bool {
+        receipt.mode == ExecutionMode.perform.rawValue
+            && receipt.actions.contains { $0.status == "done" }
+    }
+
     static func plan(args: [String]) throws {
         let options = ParsedOptions(args)
         try options.validateReportPrivacyOptions()
-        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
-        let builder = PlanBuilder(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let plan = builder.buildPlan(from: findings, mode: options.reviewAll ? .reviewAll : .autoSafeOnly)
+        let evidence = try buildPlanCommandEvidence(options: options)
+        let plan = evidence.plan
         if options.saveAudit {
-            let url = try AuditStore().save(plan: plan)
+            let store = AuditStore()
+            let url = try store.save(plan: plan)
+            let session = try matchingSessionForAuditTransition(
+                store: store,
+                currentScanSession: evidence.scanSession
+            )
+            try store.saveScanSession(session.recordPlan(planDigest: plan.id))
             FileHandle.standardError.write(Data("saved plan: \(url.path)\n".utf8))
         }
         if options.outputPath != nil || options.saveReport {
@@ -1531,22 +1608,46 @@ struct ReclaimerCLI {
         if options.yes && options.noLsof && !options.dryRun {
             throw CLIError.message("--no-lsof is only allowed for dry-run planning; execute --yes requires open-file checks.")
         }
-        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
-        let builder = PlanBuilder(openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let plan = builder.buildPlan(from: findings, mode: options.reviewAll ? .reviewAll : .autoSafeOnly)
+        let evidence = try buildPlanCommandEvidence(options: options)
+        let plan = evidence.plan
+        let store = AuditStore()
+        let session = if options.dryRun {
+            try matchingSessionForAuditTransition(
+                store: store,
+                currentScanSession: evidence.scanSession
+            )
+        } else {
+            try sessionForExecutionGate(
+                store: store,
+                currentScanSession: evidence.scanSession
+            )
+        }
         let receipt = ReclaimerExecutor(
             openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker(),
-            configuration: ExecutorConfiguration(userPathPolicy: options.userPathPolicy)
+            configuration: ExecutorConfiguration(
+                userPathPolicy: options.userPathPolicy,
+                currentScanSession: session
+            )
         )
             .execute(
                 plan: plan,
                 mode: options.dryRun ? .dryRun : .perform,
-                ruleVersion: try options.ruleEngine().version,
+                ruleVersion: evidence.ruleEngine.version,
                 userConfirmed: options.yes
             )
         if options.saveAudit {
-            let url = try AuditStore().save(receipt: receipt)
+            let url = try store.save(receipt: receipt)
+            if options.dryRun {
+                try store.saveScanSession(
+                    session
+                        .recordPlan(planDigest: plan.id)
+                        .recordDryRunReceipt(receipt)
+                )
+            } else if shouldRecordExecutionTransition(receipt) {
+                try store.saveScanSession(session.recordExecutionReceipt(receipt))
+            } else {
+                try store.saveScanSession(session)
+            }
             FileHandle.standardError.write(Data("saved receipt: \(url.path)\n".utf8))
         }
         if options.json {

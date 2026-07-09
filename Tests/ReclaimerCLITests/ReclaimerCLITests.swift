@@ -87,6 +87,100 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertNil(session.dryRunReceiptID)
     }
 
+    func testPlanSaveAuditRecordsPlanReadyScanSession() throws {
+        try writeCodexCacheFixture()
+
+        _ = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: scanFixtureArguments(command: "plan") + [
+                "--no-lsof",
+                "--save-audit",
+                "--json"
+            ])
+        }
+
+        let store = AuditStore(root: auditRoot)
+        let plan = try XCTUnwrap(store.recentPlans(limit: 1).first)
+        let session = try XCTUnwrap(try store.latestScanSession())
+        XCTAssertEqual(session.stage, .planReady)
+        XCTAssertEqual(session.planDigest, plan.id)
+        XCTAssertNil(session.dryRunReceiptID)
+        XCTAssertFalse(plan.items.filter(\.selected).isEmpty)
+    }
+
+    func testExecuteDryRunSaveAuditRecordsDryRunReadyScanSession() throws {
+        try writeCodexCacheFixture()
+
+        _ = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: scanFixtureArguments(command: "execute") + [
+                "--dry-run",
+                "--no-lsof",
+                "--save-audit",
+                "--json"
+            ])
+        }
+
+        let store = AuditStore(root: auditRoot)
+        let receipt = try XCTUnwrap(store.recentReceipts(limit: 1).first)
+        let session = try XCTUnwrap(try store.latestScanSession())
+        XCTAssertEqual(session.stage, .dryRunReady)
+        XCTAssertNotNil(session.planDigest)
+        XCTAssertEqual(session.dryRunReceiptID, receipt.id)
+        XCTAssertTrue(receipt.actions.contains { $0.status == "dry-run" })
+    }
+
+    func testExecuteYesWithoutDryRunSkipsAsStaleAndDoesNotDeleteFixture() throws {
+        let cache = try writeCodexCacheFixture()
+
+        let output = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: scanFixtureArguments(command: "execute") + [
+                "--yes",
+                "--save-audit",
+                "--json"
+            ])
+        }
+
+        let receipt = try JSONDecoder.ryddi.decode(ExecutionReceipt.self, from: Data(output.utf8))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
+        XCTAssertTrue(receipt.actions.contains { action in
+            action.status == "skipped"
+                && action.message.localizedCaseInsensitiveContains("stale scan session")
+        })
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("stale scan session") })
+
+        let session = try XCTUnwrap(try AuditStore(root: auditRoot).latestScanSession())
+        XCTAssertEqual(session.stage, .scanned)
+        XCTAssertNil(session.dryRunReceiptID)
+    }
+
+    func testExecuteYesAfterSavedDryRunDeletesFixtureAndRecordsExecution() throws {
+        let cache = try writeCodexCacheFixture()
+
+        _ = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: scanFixtureArguments(command: "execute") + [
+                "--dry-run",
+                "--save-audit",
+                "--json"
+            ])
+        }
+
+        let output = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: scanFixtureArguments(command: "execute") + [
+                "--yes",
+                "--save-audit",
+                "--json"
+            ])
+        }
+
+        let receipt = try JSONDecoder.ryddi.decode(ExecutionReceipt.self, from: Data(output.utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.path))
+        XCTAssertTrue(receipt.actions.contains { $0.status == "done" && $0.action == .deleteCache })
+
+        let session = try XCTUnwrap(try AuditStore(root: auditRoot).latestScanSession())
+        XCTAssertEqual(session.stage, .executed)
+        XCTAssertEqual(session.executionReceiptID, receipt.id)
+        XCTAssertNil(session.invalidationReasons.first)
+    }
+
     func testSessionExplainPrintsCurrentStateAndBlockedReasons() throws {
         let session = makeSession(
             id: "session-invalid",
@@ -175,6 +269,23 @@ final class ReclaimerCLITests: XCTestCase {
             stage: stage,
             invalidationReasons: invalidationReasons
         )
+    }
+
+    @discardableResult
+    private func writeCodexCacheFixture() throws -> URL {
+        let cache = readableScope.appendingPathComponent("Library/Caches/Codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 4_096).write(to: cache.appendingPathComponent("cache.bin"))
+        return cache
+    }
+
+    private func scanFixtureArguments(command: String) -> [String] {
+        [
+            command,
+            "--path", readableScope.path,
+            "--min-size", "1",
+            "--max-depth", "6"
+        ]
     }
 
     private func captureStandardOutput(_ body: () throws -> Void) throws -> String {
