@@ -57,7 +57,10 @@ struct DashboardView: View {
 
     var body: some View {
         NavigationSplitView {
-            sidebar
+            DashboardSidebarView(selection: Binding(
+                get: { selectedSection },
+                set: { selectSection($0) }
+            ))
         } detail: {
             switch selectedSection {
             case .features:
@@ -250,79 +253,6 @@ struct DashboardView: View {
 
     private func selectLegacySection(_ sectionID: String) {
         selectSection(DashboardSection.fromLegacyID(sectionID))
-    }
-
-    private var sidebar: some View {
-        List {
-            Section("Start") {
-                sidebarRow("Summary", systemImage: "gauge.with.dots.needle", section: "Summary")
-                sidebarRow("Review Queues", systemImage: "tray.full", section: "Queues")
-                sidebarRow("Large & Old Files", systemImage: "archivebox", section: "LargeOld")
-            }
-
-            Section("General Mac") {
-                sidebarRow("Apps & Leftovers", systemImage: "app.dashed", section: "Apps")
-                sidebarRow("Downloads", systemImage: "arrow.down.circle", section: "Downloads")
-                sidebarRow("Duplicates", systemImage: "doc.on.doc", section: "Duplicates")
-                sidebarRow("Browser Caches", systemImage: "globe", section: "Browsers")
-                sidebarRow("Device Backups", systemImage: "iphone", section: "DeviceBackups")
-                sidebarRow("Trash", systemImage: "trash", section: "Trash")
-            }
-
-            Section("Developer") {
-                sidebarRow("Package Caches", systemImage: "shippingbox", section: "Packages")
-                sidebarRow("Project Dependencies", systemImage: "folder", section: "Projects")
-                sidebarRow("Xcode", systemImage: "hammer", section: "Xcode")
-                sidebarRow("Containers", systemImage: "cube.box", section: "Containers")
-                sidebarRow("Remote Targets", systemImage: "server.rack", section: "RemoteTargets")
-                sidebarRow("AI Agent Storage", systemImage: "brain.head.profile", section: "Agents")
-            }
-
-            Section("Trust") {
-                sidebarRow("Permissions", systemImage: "lock.shield", section: "Permissions")
-                sidebarRow("Active Handles", systemImage: "waveform.path.ecg", section: "Active")
-                sidebarRow("Scope Sets", systemImage: "scope", section: "Scopes")
-                sidebarRow("Protections", systemImage: "hand.raised", section: "Policy")
-                sidebarRow("Audit History", systemImage: "clock.arrow.circlepath", section: "Audit")
-                sidebarRow("Recovery Center", systemImage: "arrow.uturn.backward.circle", section: "Recovery")
-                sidebarRow("Holding Area", systemImage: "tray", section: "Holding")
-                sidebarRow("Automation", systemImage: "calendar.badge.clock", section: "Automation")
-                sidebarRow("Rule Catalog", systemImage: "list.bullet.rectangle", section: "Rules")
-                sidebarRow("Feature Matrix", systemImage: "square.grid.2x2", section: "Features")
-            }
-
-            Section("Review Queues") {
-                ForEach(model.queueSummaries) { queue in
-                    DisclosureGroup("\(queue.title) (\(queue.count), \(ByteFormat.string(queue.allocatedSize)))") {
-                        Text(queue.guidance)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        ForEach(model.findings(in: queue.queueID)) { finding in
-                            FindingRow(finding: finding)
-                                .tag(finding.id)
-                                .onTapGesture {
-                                    selectedFinding = finding.id
-                                    selectedSectionID = DashboardSection.finding.rawValue
-                                }
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle("Ryddi")
-        .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
-    }
-
-    private func sidebarRow(_ title: String, systemImage: String, section: String) -> some View {
-        Button {
-            selectLegacySection(section)
-        } label: {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .foregroundStyle(selectedSection == DashboardSection.fromLegacyID(section) ? Color.accentColor : Color.primary)
-        }
-        .buttonStyle(.plain)
-        .listRowBackground(selectedSection == DashboardSection.fromLegacyID(section) ? Color.accentColor.opacity(0.16) : Color.clear)
     }
 }
 

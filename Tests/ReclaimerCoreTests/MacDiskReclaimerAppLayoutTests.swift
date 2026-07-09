@@ -31,6 +31,23 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testDashboardSidebarUsesNativeSelectionAndKeepsDetailsOutOfSourceList() throws {
+        let source = try appSource()
+        let sidebar = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardSidebarView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(sidebar.contains("struct DashboardSidebarView: View"))
+        XCTAssertTrue(sidebar.contains("List(selection:"))
+        XCTAssertTrue(sidebar.contains(".listStyle(.sidebar)"))
+        XCTAssertTrue(sidebar.contains(".tag(section)"))
+        XCTAssertFalse(sidebar.contains("DisclosureGroup"))
+        XCTAssertFalse(sidebar.contains("FindingRow("))
+        XCTAssertFalse(source.contains("private func sidebarRow("))
+    }
+
     func testOverviewHasResponsiveSmallWindowContainment() throws {
         let source = try appSource()
 
