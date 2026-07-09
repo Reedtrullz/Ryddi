@@ -14,6 +14,13 @@ final class PackageAppScriptTests: XCTestCase {
         )
     }
 
+    func testPackageAppDefaultsToCurrentReleaseVersion() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/package-app.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("bundle_version=\"${RYDDI_VERSION:-0.3.0}\""))
+        XCTAssertTrue(script.contains("bundle_build=\"${RYDDI_BUILD_NUMBER:-3}\""))
+    }
+
     func testReleaseCheckHidesBuildDirectoryForPackagedCliSmokes() throws {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 
@@ -21,6 +28,15 @@ final class PackageAppScriptTests: XCTestCase {
             script.contains("hide_build_dir_for_packaged_smokes"),
             "release-check must hide .build before packaged CLI smokes so Bundle.module build-path fallback cannot mask packaging bugs."
         )
+    }
+
+    func testReleaseCheckDefaultsSignedArtifactsToCurrentRelease() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("release_version=\"${RYDDI_VERSION:-0.3.0}\""))
+        XCTAssertTrue(script.contains("release_build=\"${RYDDI_BUILD_NUMBER:-3}\""))
+        XCTAssertTrue(script.contains("artifact_basename=\"Ryddi-v$release_version\""))
+        XCTAssertTrue(script.contains("artifact_basename=\"Ryddi-developer-preview\""))
     }
 
     private func repoRoot() -> URL {

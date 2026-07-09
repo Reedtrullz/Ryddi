@@ -4,11 +4,19 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dist="$root/dist"
 app="$dist/Ryddi.app"
-artifact_basename="${RYDDI_ARTIFACT_BASENAME:-Ryddi-developer-preview}"
+signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
+release_version="${RYDDI_VERSION:-0.3.0}"
+release_build="${RYDDI_BUILD_NUMBER:-3}"
+if [[ -n "${RYDDI_ARTIFACT_BASENAME:-}" ]]; then
+  artifact_basename="$RYDDI_ARTIFACT_BASENAME"
+elif [[ "$signing_required" == "required" ]]; then
+  artifact_basename="Ryddi-v$release_version"
+else
+  artifact_basename="Ryddi-developer-preview"
+fi
 zip_path="$dist/$artifact_basename.zip"
 checksum_path="$zip_path.sha256"
 manifest_path="$dist/Ryddi-release-manifest.txt"
-signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/ryddi-release-check.XXXXXX")"
 hidden_build_dir=""
 
@@ -89,8 +97,13 @@ if [[ "$bundle_id" != "com.reidar.ryddi" ]]; then
   exit 1
 fi
 
-if [[ "$signing_required" == "required" && "$bundle_version" != "${RYDDI_VERSION:-0.2.0}" ]]; then
+if [[ "$signing_required" == "required" && "$bundle_version" != "$release_version" ]]; then
   echo "unexpected release CFBundleShortVersionString: $bundle_version" >&2
+  exit 1
+fi
+
+if [[ "$signing_required" == "required" && "$bundle_build" != "$release_build" ]]; then
+  echo "unexpected release CFBundleVersion: $bundle_build" >&2
   exit 1
 fi
 
@@ -782,9 +795,9 @@ grep -q '"estimatedImmediateReclaim"' "$scratch/overview-smoke.json"
 grep -q '"group" : "safety"' "$scratch/overview-smoke.json"
 cat >"$scratch/release-trust-fixture.txt" <<'TRUST'
 manifest_schema=ryddi.release-trust.v1
-version=0.2.0
-build=2
-artifact=Ryddi-v0.2.0.zip
+version=0.3.0
+build=3
+artifact=Ryddi-v0.3.0.zip
 sha256=fixture-sha
 source_commit=fixture-commit
 codesign_verified=true

@@ -24,9 +24,9 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
     func testAcceptedStapledGatekeeperManifestIsReleaseReady() throws {
         let manifest = """
         manifest_schema=ryddi.release-trust.v1
-        version=0.2.0
-        build=2
-        artifact=Ryddi-v0.2.0.zip
+        version=0.3.0
+        build=3
+        artifact=Ryddi-v0.3.0.zip
         sha256=abc123
         source_commit=96c0d50
         codesign_verified=true
@@ -39,9 +39,9 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
         let evidence = ReleaseTrustEvidenceParser.parseManifest(text: manifest, path: "/tmp/Ryddi-release-manifest.txt")
 
         XCTAssertEqual(evidence.state, .stapledAndAccepted)
-        XCTAssertEqual(evidence.version, "0.2.0")
-        XCTAssertEqual(evidence.buildNumber, "2")
-        XCTAssertEqual(evidence.artifactName, "Ryddi-v0.2.0.zip")
+        XCTAssertEqual(evidence.version, "0.3.0")
+        XCTAssertEqual(evidence.buildNumber, "3")
+        XCTAssertEqual(evidence.artifactName, "Ryddi-v0.3.0.zip")
         XCTAssertEqual(evidence.artifactSHA256, "abc123")
         XCTAssertEqual(evidence.sourceCommit, "96c0d50")
         XCTAssertTrue(evidence.codesignVerified)

@@ -100,20 +100,19 @@ Known limits:
 - Xcode Review does not delete, move, Trash, prune, purge, reset simulators, or modify Xcode files
 ```
 
-## v0.2.0 Trust Release Notes Draft
+## v0.3.0 Trust Release Notes Draft
 
 ```markdown
-## Ryddi v0.2.0
+## Ryddi v0.3.0
 
-First signed trust release, published only after `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` passes.
+Trust-to-action polish release, published only after `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 Scripts/release-check.sh` passes.
 
-- Developer ID signed, notarized, stapled, Gatekeeper assessed, strict codesign verified, and shipped with SHA-256 plus typed release manifest proof
+- Developer ID signed, notarized, stapled, Gatekeeper assessed, strict codesign verified, and shipped as `Ryddi-v0.3.0.zip` with SHA-256 plus typed release manifest proof
 - Trust readiness cockpit, `reclaimer trust --json`, and `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt`
 - Redacted dogfood reports with explicit no-cleanup, no-permission-grant, and no-exact-APFS-reclaim non-claims
-- Typed plan-condition gates so display copy cannot accidentally grant cleanup authority
-- Recursive open-handle checks and final-state execution revalidation
-- Report-only automation status with exact LaunchAgent scope/report evidence
-- General cleaner next-action guidance for safe maintenance, quit-first, native-tool, Finder review, archive, protect, and do-not-touch paths
+- Trust-to-action app surfaces for Summary, Review Queues, Package Cache, AI Agent Storage, and Remote Targets evidence
+- Report-only remote target evidence, history, dogfood reports, and issue-package exports
+- Signed workflow, release checklist, and docs aligned to bundle version `0.3.0`, build `3`
 
-Do not publish as `v0.2.0` if signing or notarization credentials are absent or any release gate fails.
+Do not publish as `v0.3.0` if signing or notarization credentials are absent or any release gate fails.
 ```

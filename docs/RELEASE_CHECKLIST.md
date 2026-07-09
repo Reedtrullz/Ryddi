@@ -1,6 +1,6 @@
 # Ryddi Release Checklist
 
-This project is intended for direct macOS distribution outside the Mac App Store. A public release must be explicit about whether it is an unsigned developer preview or a signed/notarized build. `v0.2.0` is the first trust release and must not be published unless the signed gate passes.
+This project is intended for direct macOS distribution outside the Mac App Store. A public release must be explicit about whether it is an unsigned developer preview or a signed/notarized build. `v0.3.0` is the current trust-release target and must not be published unless the signed gate passes. `v0.2.0` remains historical release documentation only.
 
 ## Developer Preview
 
@@ -84,46 +84,45 @@ This project is intended for direct macOS distribution outside the Mac App Store
 ## Signed And Notarized Build
 
 - [ ] `Scripts/release-signing-doctor.sh` reports the Developer ID Application identity and notary credential path are ready without printing password values.
-- [ ] `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` exits `0`.
+- [ ] `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 Scripts/release-check.sh` exits `0`.
 - [ ] `CODESIGN_IDENTITY` is set to a Developer ID Application certificate.
-- [ ] `RYDDI_VERSION=0.2.0` and `RYDDI_BUILD_NUMBER=2` are used by the packaging scripts.
+- [ ] `RYDDI_VERSION=0.3.0` and `RYDDI_BUILD_NUMBER=3` are used by the packaging scripts.
 - [ ] `Scripts/package-app.sh` signs `dist/Ryddi.app` with Hardened Runtime.
 - [ ] `Scripts/notarize-app.sh dist/Ryddi.app` completes successfully.
-- [ ] If notarization is still `In Progress`, the script exits nonzero, prints a `RYDDI_NOTARY_SUBMISSION_ID=...` resume command, and no final `Ryddi-v0.2.0.zip` is published.
+- [ ] If notarization is still `In Progress`, the script exits nonzero, prints a `RYDDI_NOTARY_SUBMISSION_ID=...` resume command, and no final `Ryddi-v0.3.0.zip` is published.
 - [ ] `dist/Ryddi-notary-status.json` records `"status": "Accepted"` before any manifest claims notarization.
 - [ ] Invalid notarization responses save `dist/Ryddi-notary-log.json` for review.
 - [ ] Notarization credentials are supplied through `NOTARY_PROFILE` or `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD`.
 - [ ] `xcrun stapler validate dist/Ryddi.app` passes.
 - [ ] `spctl --assess --type execute --verbose dist/Ryddi.app` accepts the app.
 - [ ] `codesign --verify --deep --strict --verbose=2 dist/Ryddi.app` passes.
-- [ ] `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` exist.
-- [ ] `dist/Ryddi-release-manifest.txt` records signed, accepted notarization, stapled, Gatekeeper, strict codesign, bundle version `0.2.0`, build `2`, notary submission ID, and status JSON path proof.
+- [ ] `dist/Ryddi-v0.3.0.zip`, `dist/Ryddi-v0.3.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` exist.
+- [ ] `dist/Ryddi-release-manifest.txt` records signed, accepted notarization, stapled, Gatekeeper, strict codesign, bundle version `0.3.0`, build `3`, notary submission ID, and status JSON path proof.
 - [ ] `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` reports `state` as `stapledAndAccepted`.
 - [ ] The manifest contains parseable release-trust keys: `manifest_schema=ryddi.release-trust.v1`, `codesign_verified=true`, `hardened_runtime=true`, `notarization_status=Accepted`, `stapled=true`, and `gatekeeper=accepted`.
 - [ ] GitHub release artifact and checksum are uploaded.
 
-## v0.2.0 Release Notes Template
+## v0.3.0 Release Notes Template
 
 ```markdown
-## Ryddi v0.2.0
+## Ryddi v0.3.0
 
-First trust release.
+Trust-to-action polish release.
 
 - Signed and notarized outside the Mac App Store, only if the release manifest proves Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification.
-- Trust readiness cockpit in the app and `reclaimer trust --json`.
-- Dogfood report mode: `reclaimer dogfood --preset general --path-style redacted --output ryddi-dogfood.md`.
-- Typed plan-condition gates and fail-closed cleanup selection.
-- Recursive open-handle checks for directory cleanup candidates.
-- Final-state execution checks immediately before cleanup.
-- Report-only automation status and LaunchAgent proof.
-- General cleaner next-action guidance across top offenders, Downloads, Trash, Apps & Leftovers, and detail rows.
+- Release artifacts use bundle version `0.3.0`, build `3`, and `Ryddi-v0.3.0` names.
+- Trust-to-action app surfaces for Summary, Review Queues, Package Cache, AI Agent Storage, and Remote Targets evidence.
+- Report-only remote target evidence, history, dogfood reports, and issue-package exports remain non-destructive.
+- Local issue packages and redacted reports improve bug/safety review without uploading private paths.
+- Release checklist and signed workflow distinguish unsigned previews from signed/notarized releases.
 
 Non-claims:
 
-- No cleanup is performed by packaging, trust readiness, dogfood reports, or scheduled automation.
+- No cleanup is performed by packaging, release-trust checks, dogfood reports, issue packages, or scheduled automation.
 - Full Disk Access remains user controlled.
 - APFS/free-space gains are estimates, not exact promises.
-- VM/container disks, browser profiles, GarageBand/Logic assets, Codex memories, Codex sessions, credentials, and unknown app state remain protected by default.
+- Remote Targets do not run remote cleanup, Docker prune/reset, `rm`, sudo cleanup, or unattended destructive SSH maintenance.
+- VM/container disks, browser profiles, GarageBand/Logic assets, AI-agent memories, AI-agent sessions, credentials, and unknown app state remain protected by default.
 ```
 
 ## Trust And Safety Notes

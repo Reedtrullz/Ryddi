@@ -12,7 +12,7 @@ body:
     attributes:
       label: Ryddi version or commit
       description: Include the app version, CLI version, or commit SHA if known.
-      placeholder: "0.2.0, developer preview, or commit SHA"
+      placeholder: "0.3.0, developer preview, or commit SHA"
     validations:
       required: true
   - type: dropdown
