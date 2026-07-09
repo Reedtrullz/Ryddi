@@ -7817,12 +7817,13 @@ final class DashboardModel {
         defer { isWorking = false }
         do {
             let includeUserRules = includeUserRulesInScans
+            let session = currentScanSession
             let receipt = try await Task.detached {
                 let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
                 let policy = UserPathPolicyStore().load()
                 return ReclaimerExecutor(
                     openFileChecker: LsofOpenFileChecker(),
-                    configuration: ExecutorConfiguration(userPathPolicy: policy)
+                    configuration: ExecutorConfiguration(userPathPolicy: policy, currentScanSession: session)
                 )
                     .execute(
                         plan: currentPlan,

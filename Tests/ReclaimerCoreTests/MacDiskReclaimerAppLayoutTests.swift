@@ -268,6 +268,26 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testAppPerformReclaimPassesCurrentScanSessionToExecutor() throws {
+        let source = try appSource()
+        let start = try XCTUnwrap(source.range(of: "func reclaimSelected() async"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "\n    func exportEvidenceReport"))
+        let reclaimSource = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertTrue(
+            reclaimSource.contains("let session = currentScanSession"),
+            "The app perform path should capture the current ScanSession before hopping into the detached executor task."
+        )
+        XCTAssertTrue(
+            reclaimSource.contains("ExecutorConfiguration(userPathPolicy: policy, currentScanSession: session)"),
+            "The app perform path should pass the current ScanSession into ReclaimerExecutor just like dry-run does."
+        )
+        XCTAssertFalse(
+            reclaimSource.contains("ExecutorConfiguration(userPathPolicy: policy)\n"),
+            "Perform-mode reclaim must not drop the current ScanSession final gate."
+        )
+    }
+
     func testAgentRetentionShowsPlanPreviewLane() throws {
         let source = try appSource()
 
