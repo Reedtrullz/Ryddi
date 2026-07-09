@@ -349,13 +349,7 @@ struct OverviewView: View {
 
                 GuidedSummaryView(
                     model: model,
-                    report: model.guidedWorkflowReport,
-                    onReclaim: onReclaim,
-                    navigate: navigate
-                )
-
-                DashboardActionStrip(
-                    model: model,
+                    report: model.actionCenterReport,
                     onReclaim: onReclaim,
                     navigate: navigate
                 )
@@ -6832,6 +6826,84 @@ final class DashboardModel {
                 trustReadiness: trustReadinessReport
             )
         )
+    }
+
+    var actionCenterReport: ActionCenterReport {
+        ActionCenterBuilder.build(
+            input: ActionCenterInput(
+                permissionReport: permissionReport,
+                latestScanSession: actionCenterScanSession,
+                findings: findings,
+                currentPlan: plan,
+                latestExecutionReceipt: lastDryRunReceipt ?? lastExecutionReceipt,
+                reviewQueueReport: reviewQueueReport,
+                activeFileReviewReport: activeFileReview,
+                browserCacheReport: browserCacheReview,
+                packageCacheReport: packageCacheReview
+            )
+        )
+    }
+
+    var actionCenterScanSession: ScanSession? {
+        guard overview != nil || !findings.isEmpty || plan != nil || lastDryRunReceipt != nil || lastExecutionReceipt != nil else {
+            return nil
+        }
+
+        let updatedAt = lastExecutionReceipt?.createdAt
+            ?? lastDryRunReceipt?.createdAt
+            ?? plan?.createdAt
+            ?? lastScanDate
+            ?? Date()
+        let hasFindingEvidence = overview != nil || !findings.isEmpty
+
+        return ScanSession(
+            id: "app-summary-\(actionCenterSessionStage.rawValue)",
+            createdAt: lastScanDate ?? updatedAt,
+            updatedAt: updatedAt,
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "app-runtime",
+            ruleVersion: includeUserRulesInScans ? "app-runtime+user-rules" : "app-runtime",
+            preset: selectedScopePlan.preset ?? scanPreset,
+            scopeDigest: actionCenterScopeDigest,
+            policyDigest: actionCenterPolicyDigest,
+            findingDigest: hasFindingEvidence ? actionCenterFindingDigest : nil,
+            planDigest: plan?.id,
+            dryRunReceiptID: lastDryRunReceipt?.id,
+            executionReceiptID: lastExecutionReceipt?.id,
+            stage: actionCenterSessionStage
+        )
+    }
+
+    private var actionCenterSessionStage: ScanSessionStage {
+        if lastExecutionReceipt != nil {
+            return .executed
+        }
+        if lastDryRunReceipt != nil {
+            return canReclaimSelected ? .reclaimReady : .dryRunReady
+        }
+        if plan != nil {
+            return .planReady
+        }
+        return .scanned
+    }
+
+    private var actionCenterScopeDigest: String {
+        let scopes = scanScopes.isEmpty ? selectedScopePlan.scopes : scanScopes
+        return scopes.map(\.id).sorted().joined(separator: "|")
+    }
+
+    private var actionCenterPolicyDigest: String {
+        userPathPolicy.rules
+            .map { "\($0.kind.rawValue):\($0.path):\($0.includeDescendants)" }
+            .sorted()
+            .joined(separator: "|")
+    }
+
+    private var actionCenterFindingDigest: String {
+        let ids = findings.map(\.id).sorted().joined(separator: "|")
+        if ids.isEmpty {
+            return "findings-empty"
+        }
+        return ids
     }
 
     var queueSummaries: [ReviewQueueSummary] {

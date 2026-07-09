@@ -31,7 +31,7 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
-    func testSummaryUsesGuidedWorkflowPrimaryAction() throws {
+    func testSummaryUsesActionCenterReport() throws {
         let app = try appSource()
         let guided = try String(
             contentsOf: repoRoot()
@@ -41,19 +41,23 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
 
         XCTAssertTrue(
             app.contains("GuidedSummaryView("),
-            "The Summary screen should render the guided proof ladder before the row of secondary actions."
+            "The Summary screen should render the Action Center before lower-priority detail panels."
         )
         XCTAssertTrue(
-            app.contains("guidedWorkflowReport"),
-            "DashboardModel should expose the shared core workflow report instead of duplicating next-action logic in SwiftUI."
+            app.contains("actionCenterReport"),
+            "DashboardModel should expose the shared core ActionCenterReport instead of duplicating next-action logic in SwiftUI."
+        )
+        XCTAssertTrue(
+            guided.contains("ActionCenterReport"),
+            "The Summary view should consume ActionCenterReport from ReclaimerCore."
         )
         XCTAssertTrue(
             guided.contains("report.primaryAction"),
-            "The guided Summary view should present one primary action from ReclaimerCore."
+            "The Action Center Summary view should present one primary action from ReclaimerCore."
         )
         XCTAssertTrue(
-            guided.contains("performGuidedAction"),
-            "Guided action routing should be explicit so primary actions cannot silently become inert."
+            guided.contains("performActionCenterCommand"),
+            "Action Center command routing should be explicit so primary actions cannot silently become inert."
         )
     }
 
