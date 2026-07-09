@@ -23,9 +23,9 @@ Ryddi treats cleanup as evidence review:
 
 ## Current Status
 
-Ryddi is preparing the `v0.2.0` trust release. It has a shared Swift core, a CLI, and a SwiftUI app cockpit. The safest path today is scan, review, dry run, then reclaim only selected auto-safe items.
+Ryddi `v0.2.0` is the first trust release: a shared Swift core, a CLI, and a SwiftUI app cockpit distributed outside the Mac App Store as a Developer ID signed and Apple-notarized app when installed from the GitHub release assets. The safest path today is scan, review, dry run, then reclaim only selected auto-safe items.
 
-`v0.2.0` should be called a signed release only when the release manifest proves Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification. Local debug builds and unsigned preview artifacts are useful for testing, but they are not the trust release.
+The release manifest is the source of truth for signed/notarized claims. It must prove Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification before a build is treated as trusted. Local SwiftPM builds and unsigned preview artifacts are useful for testing, but they are not the trust release.
 
 No telemetry, path uploads, remote analysis, root helper, or Mac App Store sandboxing in v1.
 
@@ -216,13 +216,20 @@ Scripts/release-check.sh
 For a signed `v0.2.0` release gate, provide Developer ID and notarization credentials, then run:
 
 ```bash
-Scripts/release-signing-doctor.sh
+./Scripts/release-signing-doctor.sh
 RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh
 ```
 
-The signing doctor checks for a Developer ID Application identity and either a usable `NOTARY_PROFILE` or direct `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD` environment without printing password values. It is a preflight helper only; the release gate and manifest are still the source of truth.
+The signing doctor checks for a Developer ID Application identity and either a usable `NOTARY_PROFILE` or direct `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD` environment without printing password values. It is a preflight helper only; the release gate and manifest are still the source of truth. Shells such as fish do not search the current directory automatically, so run the script with `./Scripts/...` from the repository root.
 
 The signed release gate must produce `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, and strict codesign proof. If credentials are missing or any check fails, do not publish the build as `v0.2.0`.
+
+After downloading a release asset, verify the checksum and inspect the manifest before installing:
+
+```bash
+shasum -a 256 -c Ryddi-v0.2.0.zip.sha256
+grep -E 'source_commit|notarization_status|stapled|gatekeeper|codesign_verified' Ryddi-release-manifest.txt
+```
 
 Verify the manifest with the typed release-trust command before using signed/notarized wording:
 

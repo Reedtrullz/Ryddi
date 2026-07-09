@@ -43,5 +43,5 @@ Supported sections are `Summary`, `Queues`, `Packages`, `Agents`, and `RemoteTar
 ## Current Non-claims
 
 - Screenshot assets are visual proof for the synthetic fixture mode, not proof of a real local cleanup scan.
-- The release-trust proof screenshot is still pending signed/notarized `v0.2.0` output.
-- Public release copy should not imply signed/notarized trust until the typed release manifest reports `stapledAndAccepted`.
+- Release-trust proof is authoritative in `dist/Ryddi-release-manifest.txt` and `reclaimer release-trust`; screenshots are supporting visuals only.
+- Public release copy should not imply signed/notarized trust for a specific artifact unless the typed release manifest reports `stapledAndAccepted`.
