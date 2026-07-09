@@ -321,6 +321,8 @@ enum DashboardLaunchOptions {
             return "Queues"
         case "packages", "package-cache", "package-caches":
             return "Packages"
+        case "apps", "app-review", "apps-and-leftovers":
+            return "Apps"
         case "agents", "ai-agent-storage":
             return "Agents"
         case "remote", "remote-targets", "remotetargets":
@@ -4368,111 +4370,6 @@ struct AgentRetentionRecommendationRow: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-struct AppReviewView: View {
-    let model: DashboardModel
-    @State private var includeSystemApps = false
-    @State private var includeOrphans = true
-    @State private var showSkipped = false
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Apps & Leftovers")
-                            .font(.largeTitle.bold())
-                        Text("Review installed apps, related support files, heuristic orphan candidates, and manual uninstall previews. Related files stay review-only.")
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
-                    Button {
-                        Task { await model.reviewApps(includeSystemApps: includeSystemApps, includeOrphans: includeOrphans) }
-                    } label: {
-                        Label("Review Apps", systemImage: "app.dashed")
-                    }
-                    .disabled(model.isWorking)
-                }
-
-                HStack {
-                    Toggle("Include system apps", isOn: $includeSystemApps)
-                        .toggleStyle(.switch)
-                    Toggle("Include orphan candidates", isOn: $includeOrphans)
-                        .toggleStyle(.switch)
-                }
-
-                if let report = model.appReview {
-                    HStack(spacing: 16) {
-                        MetricTile(title: "Installed apps", value: "\(report.installedApps.count)")
-                        MetricTile(title: "Related groups", value: "\(report.installedAppGroups.count)")
-                        MetricTile(title: "Orphan groups", value: "\(report.orphanGroups.count)")
-                        MetricTile(title: "Review bytes", value: ByteFormat.string(report.reviewBytes))
-                    }
-
-                    SectionBox(title: "Review Notes") {
-                        ForEach(report.notes, id: \.self) { note in
-                            Text(note)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    if let preview = model.appUninstallPreview {
-                        AppUninstallPreviewView(preview: preview, model: model)
-                    }
-
-                    SectionBox(title: "Installed Apps With Related Files") {
-                        if report.installedAppGroups.isEmpty {
-                            Text("No installed-app related files matched the current threshold.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(report.installedAppGroups.prefix(20)) { group in
-                                AppReviewGroupView(group: group) {
-                                    Task { await model.previewAppUninstall(group: group) }
-                                }
-                            }
-                        }
-                    }
-
-                    SectionBox(title: "Orphan Candidates") {
-                        if report.orphanGroups.isEmpty {
-                            Text("No orphan candidates matched the current options.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(report.orphanGroups.prefix(20)) { group in
-                                AppReviewGroupView(group: group)
-                            }
-                        }
-                    }
-
-                    Toggle("Show skipped paths", isOn: $showSkipped)
-                        .toggleStyle(.switch)
-                    if showSkipped {
-                        SectionBox(title: "Skipped Or Excluded") {
-                            if report.skipped.isEmpty {
-                                Text("No skipped paths were reported.")
-                            } else {
-                                ForEach(report.skipped.prefix(80), id: \.self) { line in
-                                    Text(line)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .textSelection(.enabled)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    ContentUnavailableView("No app review yet", systemImage: "app.dashed", description: Text("Run an app review to inspect installed-app support files and possible leftovers."))
-                }
-
-                if let error = model.error {
-                    Text(error)
-                        .foregroundStyle(.red)
-                }
-            }
-            .padding(24)
-        }
     }
 }
 

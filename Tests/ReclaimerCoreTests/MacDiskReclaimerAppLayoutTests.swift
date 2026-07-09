@@ -188,6 +188,27 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testAppReviewUsesDecisionWorkspace() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("AppReviewWorkspace(") && source.contains("AppReviewGroupRail(") && source.contains("AppReviewDetailPanel("),
+            "Apps & Leftovers should use an app-group rail plus selected app detail workspace instead of one long inline path list."
+        )
+        XCTAssertTrue(
+            source.contains("AppReviewOptionStrip(") && source.contains("AppReviewSafetyStrip("),
+            "The Apps review should expose scan options and safety boundaries before dense file details."
+        )
+        XCTAssertTrue(
+            source.contains("Label(\"Preview Uninstall\", systemImage: \"doc.text.magnifyingglass\")"),
+            "Uninstall should remain a preview/receipt-oriented action, not a destructive-looking primary trash action."
+        )
+        XCTAssertTrue(
+            source.contains("Related files stay review-only"),
+            "The Apps review must keep app support files framed as review-only unless a separate safe flow authorizes action."
+        )
+    }
+
     func testPackageCacheReviewShowsPreviewLane() throws {
         let source = try appSource()
 
@@ -281,6 +302,10 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             "Screenshot fixture paths should be synthetic and clearly non-local."
         )
         XCTAssertTrue(
+            app.contains("case \"apps\", \"app-review\", \"apps-and-leftovers\":") && demo.contains("AppReviewReport("),
+            "Screenshot demo mode should support the Apps & Leftovers cockpit with synthetic app review data."
+        )
+        XCTAssertTrue(
             demo.contains("<path redacted>"),
             "Remote screenshot fixture should demonstrate redacted remote paths."
         )
@@ -291,11 +316,18 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
     }
 
     private func appSource() throws -> String {
-        try String(
-            contentsOf: repoRoot()
-                .appendingPathComponent("Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift"),
-            encoding: .utf8
+        let appSourceDirectory = repoRoot().appendingPathComponent("Sources/MacDiskReclaimerApp")
+        let swiftFiles = try FileManager.default.contentsOfDirectory(
+            at: appSourceDirectory,
+            includingPropertiesForKeys: nil
         )
+        .filter { $0.pathExtension == "swift" }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        return try swiftFiles.map {
+            try String(contentsOf: $0, encoding: .utf8)
+        }
+        .joined(separator: "\n")
     }
 
     private func repoRoot() -> URL {
