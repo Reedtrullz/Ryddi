@@ -172,6 +172,8 @@ extension ReclaimerCLI {
             printJSON(report.nativeGuidance)
         } else {
             printRemoteNativeGuidance(report.nativeGuidance, target: report.target)
+            print("\nManual command cards")
+            printRemoteCommandCards(report.commandCards)
         }
     }
 
@@ -342,6 +344,14 @@ func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
             print("  \(item.summary)")
         }
     }
+    if !report.commandCards.isEmpty {
+        print("\nManual command cards")
+        for card in report.commandCards {
+            print("- \(card.title) [\(card.kind.label), \(card.risk.label)]")
+            print("  \(card.displayCommand)")
+            print("  \(card.explanation)")
+        }
+    }
     print("\nRead-only commands")
     for command in report.commands.prefix(40) {
         let code = command.exitCode.map(String.init) ?? "blocked"
@@ -372,6 +382,26 @@ func printRemoteNativeGuidance(_ guidance: [RemoteNativeGuidance], target: Remot
     print("\nNon-claims")
     for note in RemoteScanReport.defaultNonClaims {
         print("- \(note)")
+    }
+}
+
+func printRemoteCommandCards(_ cards: [RemoteManualCommandCard]) {
+    if cards.isEmpty {
+        print("No remote manual command cards generated.")
+        return
+    }
+    for card in cards {
+        print("\n\(card.title)")
+        print("Kind: \(card.kind.label)")
+        print("Risk: \(card.risk.label)")
+        print("Command: \(card.displayCommand)")
+        print(card.explanation)
+        if !card.prerequisites.isEmpty {
+            print("Before running:")
+            for prerequisite in card.prerequisites {
+                print("- \(prerequisite)")
+            }
+        }
     }
 }
 

@@ -205,6 +205,57 @@ struct RemoteTargetsView: View {
                         }
                     }
 
+                    SectionBox(title: "Manual Command Cards") {
+                        if report.commandCards.isEmpty {
+                            Text("No manual command cards generated.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(report.commandCards) { card in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(alignment: .firstTextBaseline) {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(card.title)
+                                                .font(.headline)
+                                            HStack(spacing: 8) {
+                                                Text(card.kind.label)
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(.blue)
+                                                Text(card.risk.label)
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(card.risk == .preserveByDefault ? .purple : .orange)
+                                            }
+                                        }
+                                        Spacer()
+                                        Button {
+                                            PathActions.copyText(card.displayCommand)
+                                        } label: {
+                                            Label("Copy", systemImage: "doc.on.doc")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                    Text(card.displayCommand)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                        .lineLimit(2)
+                                        .truncationMode(.middle)
+                                    Text(card.explanation)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    ForEach(card.prerequisites.prefix(3), id: \.self) { prerequisite in
+                                        Text("• \(prerequisite)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Divider()
+                            }
+                            Text("Ryddi never runs these commands remotely. Copy one only after reviewing service impact.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     if let dogfood = model.currentRemoteDogfoodReport {
                         SectionBox(title: "Dogfood Evidence") {
                             HStack(spacing: 16) {

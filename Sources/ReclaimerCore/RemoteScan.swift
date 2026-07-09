@@ -314,6 +314,25 @@ public enum RemoteReportBuilder {
         }
         lines.append("")
 
+        lines.append("## Manual Command Cards")
+        if report.commandCards.isEmpty {
+            lines.append("- No manual command cards generated.")
+        } else {
+            lines.append("| Title | Kind | Risk | Command | Why |")
+            lines.append("| --- | --- | --- | --- | --- |")
+            for card in report.commandCards {
+                let row = [
+                    card.title,
+                    card.kind.label,
+                    card.risk.label,
+                    card.displayCommand,
+                    card.explanation
+                ].map(MarkdownTable.cell)
+                lines.append("| \(row.joined(separator: " | ")) |")
+            }
+        }
+        lines.append("")
+
         lines.append("## Command Receipts")
         for command in report.commands {
             lines.append("- \(command.commandID): \(command.exitCode.map(String.init) ?? "blocked") `\(command.displayCommand)`")

@@ -353,7 +353,10 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         "No cleanup was executed on the remote target.",
         "Remote scan does not grant permissions, sudo rights, or cleanup approval.",
         "Remote reclaim estimates are native-tool evidence, not exact free-space promises.",
-        "Docker volumes, databases, backups, credentials, app data, and unknown state remain preserve/review by default."
+        "Docker volumes, databases, backups, credentials, app data, and unknown state remain preserve/review by default.",
+        "Command cards are manual operator guidance only; Ryddi does not execute them remotely.",
+        "Some command cards may require sudo; Ryddi does not collect or manage sudo passwords.",
+        "Inspect service impact before changing logs, packages, containers, or deploy releases."
     ]
 
     public let id: String
@@ -364,6 +367,7 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
     public let inodeFilesystems: [RemoteFilesystemSummary]
     public let findings: [RemoteStorageFinding]
     public let nativeGuidance: [RemoteNativeGuidance]
+    public let commandCards: [RemoteManualCommandCard]
     public let commands: [RemoteCommandResult]
     public let coverage: RemoteScanCoverage
     public let continuityWarnings: [RemoteTargetContinuityWarning]
@@ -378,6 +382,7 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         case inodeFilesystems
         case findings
         case nativeGuidance
+        case commandCards
         case commands
         case coverage
         case continuityWarnings
@@ -393,6 +398,7 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         inodeFilesystems: [RemoteFilesystemSummary],
         findings: [RemoteStorageFinding],
         nativeGuidance: [RemoteNativeGuidance],
+        commandCards: [RemoteManualCommandCard]? = nil,
         commands: [RemoteCommandResult],
         coverage: RemoteScanCoverage? = nil,
         continuityWarnings: [RemoteTargetContinuityWarning] = [],
@@ -406,6 +412,7 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         self.inodeFilesystems = inodeFilesystems
         self.findings = findings
         self.nativeGuidance = nativeGuidance
+        self.commandCards = commandCards ?? RemoteCommandCardBuilder.build(for: findings)
         self.commands = commands
         self.coverage = coverage ?? RemoteScanCoverageBuilder.build(commands: commands, osSummary: nil)
         self.continuityWarnings = continuityWarnings
@@ -422,6 +429,8 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         inodeFilesystems = try container.decode([RemoteFilesystemSummary].self, forKey: .inodeFilesystems)
         findings = try container.decode([RemoteStorageFinding].self, forKey: .findings)
         nativeGuidance = try container.decode([RemoteNativeGuidance].self, forKey: .nativeGuidance)
+        commandCards = try container.decodeIfPresent([RemoteManualCommandCard].self, forKey: .commandCards)
+            ?? RemoteCommandCardBuilder.build(for: findings)
         commands = try container.decode([RemoteCommandResult].self, forKey: .commands)
         coverage = try container.decodeIfPresent(RemoteScanCoverage.self, forKey: .coverage)
             ?? RemoteScanCoverageBuilder.build(commands: commands, osSummary: nil)
