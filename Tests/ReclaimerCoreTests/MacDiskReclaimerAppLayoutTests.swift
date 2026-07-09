@@ -1,6 +1,55 @@
 import XCTest
 
 final class MacDiskReclaimerAppLayoutTests: XCTestCase {
+    func testDashboardModelIsSplitOutOfAppShellAndGroupedByResponsibility() throws {
+        let appEntry = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift"),
+            encoding: .utf8
+        )
+        let model = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel.swift"),
+            encoding: .utf8
+        )
+        let scanPlan = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+ScanPlan.swift"),
+            encoding: .utf8
+        )
+        let audit = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+AuditAndRecovery.swift"),
+            encoding: .utf8
+        )
+        let reviews = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+Reviews.swift"),
+            encoding: .utf8
+        )
+        let remote = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+Remote.swift"),
+            encoding: .utf8
+        )
+        let exports = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+Exports.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(appEntry.contains("final class DashboardModel"))
+        XCTAssertTrue(model.contains("@Observable"))
+        XCTAssertTrue(model.contains("final class DashboardModel"))
+        XCTAssertTrue(scanPlan.contains("func scan() async"))
+        XCTAssertTrue(scanPlan.contains("func reclaimSelected() async"))
+        XCTAssertTrue(audit.contains("func loadAudit()"))
+        XCTAssertTrue(audit.contains("func loadRecovery()"))
+        XCTAssertTrue(reviews.contains("func reviewApps("))
+        XCTAssertTrue(remote.contains("func probeRemoteTarget("))
+        XCTAssertTrue(exports.contains("func exportEvidenceReport("))
+    }
+
     func testDashboardNavigationUsesTypedSectionsAndSceneStorage() throws {
         let dashboardSource = try dashboardViewSource()
         let sectionSource = try String(
@@ -332,10 +381,9 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
     }
 
     func testReclaimRefreshPreservesExecutedSessionState() throws {
-        let source = try appSource()
+        let source = try dashboardModelScanPlanSource()
         let helperStart = try XCTUnwrap(source.range(of: "private func refreshScanAfterReclaimPreservingExecutionSession"))
-        let helperEnd = try XCTUnwrap(source[helperStart.lowerBound...].range(of: "\n    func exportEvidenceReport"))
-        let helperSource = String(source[helperStart.lowerBound..<helperEnd.lowerBound])
+        let helperSource = String(source[helperStart.lowerBound...])
 
         XCTAssertTrue(
             source.contains("refreshScanAfterReclaimPreservingExecutionSession"),
@@ -348,9 +396,9 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
     }
 
     func testAppPerformReclaimPassesCurrentScanSessionToExecutor() throws {
-        let source = try appSource()
+        let source = try dashboardModelScanPlanSource()
         let start = try XCTUnwrap(source.range(of: "func reclaimSelected() async"))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "\n    func exportEvidenceReport"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "\n    private func refreshScanAfterReclaimPreservingExecutionSession"))
         let reclaimSource = String(source[start.lowerBound..<end.lowerBound])
 
         XCTAssertTrue(
@@ -434,6 +482,14 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         let start = try XCTUnwrap(source.range(of: "struct DashboardView: View {"))
         let end = try XCTUnwrap(source.range(of: "\n}\n\nstruct OverviewView: View {"))
         return String(source[start.lowerBound..<end.lowerBound])
+    }
+
+    private func dashboardModelScanPlanSource() throws -> String {
+        try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+ScanPlan.swift"),
+            encoding: .utf8
+        )
     }
 
     private func repoRoot() -> URL {
