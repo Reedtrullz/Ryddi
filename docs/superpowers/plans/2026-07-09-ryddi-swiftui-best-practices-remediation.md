@@ -1838,13 +1838,15 @@ Plan complete and saved to `docs/superpowers/plans/2026-07-09-ryddi-swiftui-best
   - No temp paths were removed in this task.
 - Live smoke from the packaged preview bundle:
   - Opened `dist/Ryddi.app` and directly observed the main `Ryddi` window with the native split-view sidebar and accent selection highlight.
-  - Opened the native Settings window from the running preview via `Command-,` automation and returned to the main window.
-  - Triggered one local scan from the visible UI and observed `Last Session Scanned Developer - 10 Jul 2026 at 0:04` with `3916` findings, `4,31 GB` auto-safe, `184 GB` needs review, and `Plan reclaim Zero KB`.
+  - `Command-,` opened the native Settings window with `Scanning`, `Privacy`, and `Automation` tabs.
+  - After raising/focusing the preview, `Command-R` changed the AX tree to a `Working` busy indicator and completed as `Last Session Scanned Developer - 10 Jul 2026 at 0:16` with `3918` findings.
   - Built a plan from the visible UI and observed `Last Session Plan ready Developer - 10 Jul 2026 at 0:05` with `Plan reclaim 1,68 GB`.
-  - Ran a dry run from the visible UI and observed `Last Session Dry run ready Developer - 10 Jul 2026 at 0:06` plus `Reclaim Ready`.
+  - `Command-Option-D` changed the AX tree to `Working` and completed as `Last Session Dry run ready Developer - 10 Jul 2026 at 0:17` with `Plan reclaim 1.68 GB` and `Reclaim Ready`.
+  - A resize drag toward a smaller size clamped at the preview's minimum bounds.
+  - At that minimum size, `Review Queues` rendered `411` findings, five metric cards, six queue rows, and an accessible queue workspace in the outer vertical scroll without clipping or overlap.
+  - At that minimum size, `Apps & Leftovers` populated `117` apps, `30` related groups, and `47` orphan groups; after selecting `Vivaldi`, the selected-app review and detail table remained reachable in the same outer vertical scroll, and the table exposed its horizontal scroll container.
   - No remote execution was invoked. No destructive reclaim was invoked.
+  - The preview was quit with `Command-Q` targeted at the dist app; final process inspection showed only `/Applications/Ryddi.app/Contents/MacOS/Ryddi` still running, and the installed copy was left untouched.
 - Live smoke limitations:
-  - `Command-R` scan and `Command-Option-D` dry-run shortcut behavior were not proven by direct observation. Automation-based keypress attempts left the visible state unchanged while the on-screen Scan and Dry Run controls worked, so shortcut behavior remains unobserved and should not be claimed as verified from this task.
-  - Minimum-window usability for `Review Queues` and `Apps & Leftovers` was not re-verified in this continuation, so those layout claims remain covered by the focused test suite rather than fresh manual observation.
-  - The preview quit path was exercised conservatively. Final process inspection showed only `/Applications/Ryddi.app/Contents/MacOS/Ryddi` still running; the installed copy was left untouched, and no extra quit was sent to it.
+  - Preview trust still reflects an unsigned local developer preview only. Do not claim codesigning, hardened runtime, notarization, stapling, Gatekeeper acceptance, or release readiness from this task.
 - Final task source range before this docs evidence commit: `edd5266a1665cd5aeb38739c4374b58c7cb9baeb..d68ccfc07e511d3e202fdecdff51b5afaedab069`.
