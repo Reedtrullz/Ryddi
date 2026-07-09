@@ -163,8 +163,12 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         let source = try appSource()
 
         XCTAssertTrue(
-            source.contains("model.recordReviewSelection(queue.queueID)"),
+            source.contains("modelRecordSelection(queue.queueID)") && source.contains("onSelect: { model.recordReviewSelection($0) }"),
             "Selecting a review queue should record a typed reviewed ScanSession transition."
+        )
+        XCTAssertTrue(
+            source.contains("ReviewQueueRail(") && source.contains("ReviewQueueDecisionPanel("),
+            "Review Queues should be organized as a queue rail plus selected-queue decision workspace."
         )
         XCTAssertTrue(
             source.contains("reviewQueueNextAction"),
@@ -175,8 +179,12 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             "Review queue rows should explain why Reclaim remains blocked for that queue."
         )
         XCTAssertTrue(
-            source.contains("Text(\"Next action\")") && source.contains("Text(\"Why blocked\")"),
+            source.contains("Text(\"Next action\")") && source.contains("Label(\"Why blocked\""),
             "Review queue rows should label the next action and blocked reason explicitly."
+        )
+        XCTAssertTrue(
+            source.contains("Label(\"Plan Eligible\"") && source.contains("Label(\"Dry Run\"") && source.contains("Label(\"Export\""),
+            "The review workspace should expose preview-gated next actions without adding a destructive reclaim button."
         )
     }
 
