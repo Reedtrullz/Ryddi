@@ -381,6 +381,23 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(source.contains("AppReviewFileTableScrollContainer"))
         XCTAssertTrue(source.contains("ScrollView(.horizontal)"))
         XCTAssertFalse(source.contains(".frame(width: 360)"))
+        XCTAssertTrue(
+            source.contains(".frame(minWidth: 520, maxWidth: .infinity, alignment: .topLeading)"),
+            "The horizontal rail/detail candidate must have a minimum detail width so ViewThatFits can select the stacked fallback."
+        )
+        XCTAssertTrue(
+            source.contains("@State private var filterText = \"\""),
+            "AppReviewWorkspace must own the filter text so breakpoint changes do not reset it."
+        )
+        XCTAssertTrue(
+            source.contains("@Binding var filterText: String"),
+            "AppReviewGroupRail must receive the shared filter text through a binding."
+        )
+        XCTAssertEqual(
+            source.components(separatedBy: "filterText: $filterText").count - 1,
+            2,
+            "Both adaptive AppReviewGroupRail instances must bind to the workspace-owned filter text."
+        )
     }
 
     func testPackageCacheReviewShowsPreviewLane() throws {

@@ -31,3 +31,22 @@ Implemented from base commit `9e2a46852d55f751bce0f57971f3e4ea5e766a43`.
 ## Commit
 
 Task commit subject: `polish: adapt app review layout`.
+
+## Review Fix
+
+Addressed the complete Task 8 review findings without changing other production files:
+
+- Added `.frame(minWidth: 520, maxWidth: .infinity, alignment: .topLeading)` to the horizontal detail panel so the first `ViewThatFits` candidate becomes ineligible when the rail and detail cannot fit together.
+- Lifted `filterText` into `AppReviewWorkspace` and passed `$filterText` into both `AppReviewGroupRail` instances. `AppReviewGroupRail` now uses `@Binding`, so breakpoint changes preserve the search text.
+- Strengthened `testAppReviewWorkspaceHasAdaptiveFallbackAndTableScrollContainer` to assert the concrete detail minimum width, workspace-owned state, binding declaration, and both rail bindings.
+
+### TDD
+
+- RED: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testAppReviewWorkspaceHasAdaptiveFallbackAndTableScrollContainer` failed with 3 expected assertion failures for the missing width contract and shared filter ownership.
+- GREEN: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testAppReviewWorkspaceHasAdaptiveFallbackAndTableScrollContainer` passed: 1 test, 0 failures.
+
+### Verification
+
+- `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests`: 25 tests passed, 0 failures.
+- `swift build --scratch-path "$PWD/.build"`: passed.
+- `git diff --check`: passed.

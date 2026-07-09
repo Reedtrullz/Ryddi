@@ -218,6 +218,7 @@ struct AppReviewWorkspace: View {
     @Binding var selectedGroupID: String?
     let isWorking: Bool
     let onPreviewUninstall: (AppReviewGroup) -> Void
+    @State private var filterText = ""
 
     private var groups: [AppReviewGroup] {
         report.allReviewGroups
@@ -244,6 +245,7 @@ struct AppReviewWorkspace: View {
                     AppReviewGroupRail(
                         groups: groups,
                         selectedGroupID: activeGroupID,
+                        filterText: $filterText,
                         onSelect: { selectedGroupID = $0.id }
                     )
                     .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
@@ -254,7 +256,7 @@ struct AppReviewWorkspace: View {
                             isWorking: isWorking,
                             onPreviewUninstall: onPreviewUninstall
                         )
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .frame(minWidth: 520, maxWidth: .infinity, alignment: .topLeading)
                     }
                 }
 
@@ -262,6 +264,7 @@ struct AppReviewWorkspace: View {
                     AppReviewGroupRail(
                         groups: groups,
                         selectedGroupID: activeGroupID,
+                        filterText: $filterText,
                         onSelect: { selectedGroupID = $0.id }
                     )
 
@@ -285,8 +288,8 @@ struct AppReviewWorkspace: View {
 struct AppReviewGroupRail: View {
     let groups: [AppReviewGroup]
     let selectedGroupID: String?
+    @Binding var filterText: String
     let onSelect: (AppReviewGroup) -> Void
-    @State private var filterText = ""
 
     private var filteredGroups: [AppReviewGroup] {
         let trimmed = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
