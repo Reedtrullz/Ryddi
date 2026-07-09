@@ -1231,6 +1231,10 @@ struct ReclaimerCLI {
     }
 
     static func native(args: [String]) throws {
+        if args.first == "homebrew" {
+            try nativeHomebrew(args: Array(args.dropFirst()))
+            return
+        }
         if args.first == "run" {
             try nativeRun(args: Array(args.dropFirst()))
             return
@@ -1247,6 +1251,25 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printNativeToolReport(report, options: options)
+        }
+    }
+
+    static func nativeHomebrew(args: [String]) throws {
+        guard args.first == "cleanup" else {
+            throw CLIError.message("native homebrew requires cleanup")
+        }
+        let options = ParsedOptions(Array(args.dropFirst()))
+        let mode: SafeActionExecutionMode = options.dryRun ? .dryRun : .perform
+        let receipt = NativeActionExecutor(
+            configuration: NativeActionExecutionConfiguration(timeout: options.timeoutSeconds)
+        ).executeHomebrewCleanup(
+            mode: mode,
+            userConfirmed: options.yes
+        )
+        if options.json {
+            printJSON(receipt)
+        } else {
+            printNativeActionReceipt(receipt)
         }
     }
 
@@ -4241,6 +4264,44 @@ func printNativeToolExecutionReceipt(_ receipt: NativeToolExecutionReceipt) {
     print("\nNon-claims")
     for note in receipt.nonClaims {
         print("- \(note)")
+    }
+}
+
+func printNativeActionReceipt(_ receipt: NativeActionReceipt) {
+    print("Native action receipt \(receipt.id)")
+    print("Generated: \(receipt.createdAt.formatted())")
+    print("Kind: \(receipt.kind.rawValue)")
+    print("Mode: \(receipt.mode.rawValue)")
+    print("Command: \(receipt.commandDisplay.joined(separator: " "))")
+    if let exitCode = receipt.exitCode {
+        print("Exit code: \(exitCode)")
+    }
+    if let before = receipt.beforeDisk?.displayFreeBytes {
+        print("Before free: \(ByteFormat.string(before))")
+    }
+    if let after = receipt.afterDisk?.displayFreeBytes {
+        print("After free: \(ByteFormat.string(after))")
+    }
+    if let skippedReason = receipt.skippedReason {
+        print("Skipped: \(skippedReason)")
+    }
+    if !receipt.stdoutPreview.isEmpty {
+        print("stdout:")
+        for line in receipt.stdoutPreview {
+            print("  \(line)")
+        }
+    }
+    if !receipt.stderrPreview.isEmpty {
+        print("stderr:")
+        for line in receipt.stderrPreview {
+            print("  \(line)")
+        }
+    }
+    if !receipt.nonClaims.isEmpty {
+        print("\nNon-claims")
+        for note in receipt.nonClaims {
+            print("- \(note)")
+        }
     }
 }
 
