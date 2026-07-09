@@ -70,6 +70,7 @@ extension ReclaimerCLI {
         guard let targetInput = remoteTargetArgument(args) else {
             throw CLIError.message("remote \(mode) requires TARGET")
         }
+        let store = AuditStore()
         let target = try RemoteTargetResolver().resolve(targetInput)
         let report = RemoteScanBuilder(target: target, timeout: options.timeoutSeconds).scan(
             preset: try options.remoteScanPreset(),
@@ -79,11 +80,15 @@ extension ReclaimerCLI {
             throw CLIError.message("Remote \(mode) for \(targetInput) is unreachable; no audit record was saved. Use --output FILE to export an explicit degraded report.")
         }
         if options.saveAudit {
-            let url = try AuditStore().save(remoteScanReport: report)
+            let url = try store.save(remoteScanReport: report)
             FileHandle.standardError.write(Data("saved remote scan report: \(url.path)\n".utf8))
         }
         if let output = options.outputPath {
-            let markdown = RemoteReportBuilder.build(report: report, privacy: options.reportPrivacy).markdown
+            let markdown = RemoteReportBuilder.build(
+                report: report,
+                privacy: options.reportPrivacy,
+                includeCommandCards: options.includeCommandCards
+            ).markdown
             let url = URL(fileURLWithPath: output).standardizedFileURL
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try markdown.write(to: url, atomically: true, encoding: .utf8)
@@ -92,7 +97,13 @@ extension ReclaimerCLI {
         if options.json {
             printJSON(report)
         } else if options.outputPath == nil {
-            printRemoteScanReport(report, title: mode == "plan" ? "Remote Report-Only Plan" : "Remote Scan Report")
+            let previous = store.latestPreviousRemoteScanReport(forConcreteTarget: report.target, excludingReportID: report.id)
+            let growthSummary = RemoteGrowthSummaryBuilder.build(previous: previous, current: report)
+            printRemoteScanReport(
+                report,
+                title: mode == "plan" ? "Remote Report-Only Plan" : "Remote Scan Report",
+                growthSummary: growthSummary
+            )
         }
     }
 
@@ -300,7 +311,7 @@ func printRemoteProbeReport(_ report: RemoteProbeReport) {
     }
 }
 
-func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
+func printRemoteScanReport(_ report: RemoteScanReport, title: String, growthSummary: RemoteGrowthSummary? = nil) {
     print("\(title) \(report.id)")
     print("Generated: \(report.createdAt.formatted())")
     print("Target: \(report.target.alias ?? report.target.input)")
@@ -353,10 +364,27 @@ func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
     }
     if !report.commandCards.isEmpty {
         print("\nManual command cards")
-        for card in report.commandCards {
-            print("- \(card.title) [\(card.kind.label), \(card.risk.label)]")
-            print("  \(card.displayCommand)")
-            print("  \(card.explanation)")
+        let grouped = Dictionary(grouping: report.commandCards, by: remoteCommandCardGroup)
+        for group in grouped.keys.sorted() {
+            print("\(group)")
+            for card in grouped[group] ?? [] {
+                print("- \(card.title) [\(card.kind.label), \(card.risk.label)]")
+                print("  \(card.displayCommand)")
+                print("  \(card.explanation)")
+            }
+        }
+    }
+    if let growthSummary {
+        print("\nSaved bucket changes")
+        if let reason = growthSummary.unavailableReason {
+            print(reason)
+        } else if growthSummary.changedBuckets.isEmpty {
+            print("No saved bucket changes compared with the latest comparable scan.")
+        } else {
+            print("\(pad("Delta", 12)) \(pad("Current", 12)) \(pad("Previous", 12)) Bucket")
+            for bucket in growthSummary.changedBuckets.prefix(8) {
+                print("\(pad(bucket.deltaBytes.map(signedBytes) ?? "-", 12)) \(pad(bucket.currentBytes.map(ByteFormat.string) ?? "-", 12)) \(pad(bucket.previousBytes.map(ByteFormat.string) ?? "-", 12)) \(bucket.bucket)")
+            }
         }
     }
     print("\nRead-only commands")
@@ -410,6 +438,23 @@ func printRemoteCommandCards(_ cards: [RemoteManualCommandCard]) {
             }
         }
     }
+}
+
+func remoteCommandCardGroup(_ card: RemoteManualCommandCard) -> String {
+    let command = card.displayCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+    if command.hasPrefix("sudo journalctl") || command.hasPrefix("journalctl") {
+        return "journald"
+    }
+    if command.hasPrefix("sudo apt-get") || command.hasPrefix("apt-get") {
+        return "apt"
+    }
+    if command.hasPrefix("docker") {
+        return "docker"
+    }
+    if command.hasPrefix("find ") || command.hasPrefix("ls ") {
+        return "deploy releases"
+    }
+    return "manual"
 }
 
 func printRemoteScanHistory(_ reports: [RemoteScanReport]) {

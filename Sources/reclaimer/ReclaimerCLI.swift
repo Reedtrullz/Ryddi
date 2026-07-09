@@ -1843,7 +1843,7 @@ struct ReclaimerCLI {
               remote targets list [--json]
               remote probe TARGET [--json] [--timeout SECONDS] [--save-audit]
               remote scan TARGET [--preset vps-general] [--json] [--timeout SECONDS]
-                    [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
+                    [--path-style full|home-relative|redacted] [--output PATH] [--save-audit] [--include-command-cards|--no-command-cards]
               remote dogfood TARGET [--json] [--timeout SECONDS]
                     [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
               remote dogfood --from-audit TARGET [--json]
@@ -1922,6 +1922,7 @@ struct ParsedOptions {
     var showExcluded: Bool { args.contains("--show-excluded") }
     var includeSystemApps: Bool { args.contains("--include-system-apps") }
     var includeOrphans: Bool { !args.contains("--no-orphans") }
+    var includeCommandCards: Bool { !args.contains("--no-command-cards") }
     var ignoreUserPolicy: Bool { args.contains("--ignore-user-policy") }
     var includeUserRules: Bool { args.contains("--include-user-rules") }
     var replacePolicy: Bool { args.contains("--replace") }

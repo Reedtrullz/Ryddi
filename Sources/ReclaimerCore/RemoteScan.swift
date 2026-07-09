@@ -241,7 +241,11 @@ public enum RemoteNativeGuidanceBuilder {
 }
 
 public enum RemoteReportBuilder {
-    public static func build(report: RemoteScanReport, privacy: ReportPrivacyOptions = .default) -> RemoteMarkdownReport {
+    public static func build(
+        report: RemoteScanReport,
+        privacy: ReportPrivacyOptions = .default,
+        includeCommandCards: Bool = true
+    ) -> RemoteMarkdownReport {
         var lines: [String] = []
         lines.append("# Ryddi Remote Target Report")
         lines.append("")
@@ -327,24 +331,26 @@ public enum RemoteReportBuilder {
         }
         lines.append("")
 
-        lines.append("## Manual Command Cards")
-        if report.commandCards.isEmpty {
-            lines.append("- No manual command cards generated.")
-        } else {
-            lines.append("| Title | Kind | Risk | Command | Why |")
-            lines.append("| --- | --- | --- | --- | --- |")
-            for card in report.commandCards {
-                let row = [
-                    card.title,
-                    card.kind.label,
-                    card.risk.label,
-                    card.displayCommand,
-                    card.explanation
-                ].map(MarkdownTable.cell)
-                lines.append("| \(row.joined(separator: " | ")) |")
+        if includeCommandCards {
+            lines.append("## Manual Command Cards")
+            if report.commandCards.isEmpty {
+                lines.append("- No manual command cards generated.")
+            } else {
+                lines.append("| Title | Kind | Risk | Command | Why |")
+                lines.append("| --- | --- | --- | --- | --- |")
+                for card in report.commandCards {
+                    let row = [
+                        card.title,
+                        card.kind.label,
+                        card.risk.label,
+                        card.displayCommand,
+                        card.explanation
+                    ].map(MarkdownTable.cell)
+                    lines.append("| \(row.joined(separator: " | ")) |")
+                }
             }
+            lines.append("")
         }
-        lines.append("")
 
         lines.append("## Command Receipts")
         for command in report.commands {

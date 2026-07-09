@@ -101,6 +101,24 @@ final class RemoteCommandCardTests: XCTestCase {
         XCTAssertTrue(markdown.contains("Line one \\| line two line three"))
     }
 
+    func testRemoteReportBuilderCanOmitCommandCards() throws {
+        let report = RemoteScanReport(
+            preset: .vpsGeneral,
+            target: RemoteTargetReference(input: "prod-vps"),
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [finding(bucket: "Docker images", path: "docker://images")],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        let markdown = RemoteReportBuilder.build(report: report, includeCommandCards: false).markdown
+
+        XCTAssertFalse(markdown.contains("## Manual Command Cards"))
+        XCTAssertFalse(markdown.contains("docker system prune"))
+    }
+
     private func finding(
         bucket: String,
         path: String,
