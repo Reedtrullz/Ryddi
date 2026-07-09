@@ -4217,7 +4217,10 @@ final class ReclaimerCoreTests: XCTestCase {
             selector: AppUninstallSelector(appPath: app.path),
             generatedAt: Date(timeIntervalSince1970: 0)
         )
-        let receipt = AppUninstallExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = AppUninstallExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: AppUninstallExecutorConfiguration(allowedAppRoots: [appRoot])
+        )
             .execute(preview: preview, mode: .dryRun, userConfirmed: false)
 
         XCTAssertEqual(receipt.status, "dry-run")
@@ -4253,7 +4256,10 @@ final class ReclaimerCoreTests: XCTestCase {
             selector: AppUninstallSelector(appPath: app.path),
             generatedAt: Date(timeIntervalSince1970: 0)
         )
-        let receipt = AppUninstallExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = AppUninstallExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: AppUninstallExecutorConfiguration(allowedAppRoots: [appRoot])
+        )
             .execute(preview: preview, mode: .perform, userConfirmed: true)
 
         XCTAssertEqual(preview.bundleCandidate.disposition, .protectedAppBlocked)
@@ -4284,7 +4290,10 @@ final class ReclaimerCoreTests: XCTestCase {
             selector: AppUninstallSelector(appPath: app.path),
             generatedAt: Date(timeIntervalSince1970: 0)
         )
-        let receipt = AppUninstallExecutor(openFileChecker: StaticOpenFileChecker(openPaths: [app.path]))
+        let receipt = AppUninstallExecutor(
+            openFileChecker: StaticOpenFileChecker(openPaths: [app.path]),
+            configuration: AppUninstallExecutorConfiguration(allowedAppRoots: [appRoot])
+        )
             .execute(preview: preview, mode: .perform, userConfirmed: true)
 
         XCTAssertEqual(receipt.status, "skipped")

@@ -8011,9 +8011,10 @@ final class DashboardModel {
         do {
             let receipt = await Task.detached {
                 let policy = UserPathPolicyStore().load()
+                let allowedRoots = AppReviewOptions().appRoots
                 return AppUninstallExecutor(
                     openFileChecker: LsofOpenFileChecker(),
-                    configuration: AppUninstallExecutorConfiguration(userPathPolicy: policy)
+                    configuration: AppUninstallExecutorConfiguration(userPathPolicy: policy, allowedAppRoots: allowedRoots)
                 )
                     .execute(preview: preview, mode: .dryRun, userConfirmed: false)
             }.value
@@ -8037,9 +8038,10 @@ final class DashboardModel {
         do {
             let receipt = await Task.detached {
                 let policy = UserPathPolicyStore().load()
+                let allowedRoots = AppReviewOptions().appRoots
                 return AppUninstallExecutor(
                     openFileChecker: LsofOpenFileChecker(),
-                    configuration: AppUninstallExecutorConfiguration(userPathPolicy: policy)
+                    configuration: AppUninstallExecutorConfiguration(userPathPolicy: policy, allowedAppRoots: allowedRoots)
                 )
                     .execute(preview: preview, mode: .perform, userConfirmed: true)
             }.value

@@ -1129,11 +1129,15 @@ struct ReclaimerCLI {
         if options.yes && options.noLsof && !options.dryRun {
             throw CLIError.message("--no-lsof is only allowed for app uninstall dry runs; apps uninstall --yes requires open-file checks.")
         }
-        let report = try AppReviewScanner().scan(options: options.appReviewOptions)
+        let appReviewOptions = options.appReviewOptions
+        let report = try AppReviewScanner().scan(options: appReviewOptions)
         let preview = try AppUninstallPreviewBuilder.build(report: report, selector: options.appUninstallSelector)
         let receipt = AppUninstallExecutor(
             openFileChecker: options.noLsof && options.dryRun ? NoOpenFilesChecker() : LsofOpenFileChecker(),
-            configuration: AppUninstallExecutorConfiguration(userPathPolicy: options.userPathPolicy)
+            configuration: AppUninstallExecutorConfiguration(
+                userPathPolicy: options.userPathPolicy,
+                allowedAppRoots: appReviewOptions.appRoots
+            )
         )
             .execute(
                 preview: preview,

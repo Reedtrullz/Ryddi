@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 public struct AppUninstallSelector: Codable, Hashable, Sendable {
     public let appPath: String?
@@ -383,24 +386,63 @@ public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sen
 
 public struct AppUninstallExecutorConfiguration: Sendable {
     public let userPathPolicy: UserPathPolicy
+    public let allowedAppRoots: [URL]
 
-    public init(userPathPolicy: UserPathPolicy = .empty) {
+    public init(
+        userPathPolicy: UserPathPolicy = .empty,
+        allowedAppRoots: [URL] = [
+            URL(fileURLWithPath: "/Applications"),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+        ]
+    ) {
         self.userPathPolicy = userPathPolicy
+        self.allowedAppRoots = allowedAppRoots.map(\.standardizedFileURL)
+    }
+}
+
+public protocol RunningApplicationChecking: Sendable {
+    func isAppRunning(bundleIdentifier: String?, executableName: String?, displayName: String) -> Bool
+}
+
+public struct SystemRunningApplicationChecker: RunningApplicationChecking {
+    public init() {}
+
+    public func isAppRunning(bundleIdentifier: String?, executableName: String?, displayName: String) -> Bool {
+        #if canImport(AppKit)
+        if let bundleIdentifier, !bundleIdentifier.isEmpty,
+           !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty {
+            return true
+        }
+        let executable = executableName?.lowercased()
+        let display = displayName.lowercased()
+        return NSWorkspace.shared.runningApplications.contains { application in
+            let localized = application.localizedName?.lowercased()
+            if let executable, localized == executable {
+                return true
+            }
+            return localized == display
+        }
+        #else
+        return false
+        #endif
     }
 }
 
 public final class AppUninstallExecutor: @unchecked Sendable {
     private let fileManager: FileManager
     private let openFileChecker: OpenFileChecking
+    private let runningApplicationChecker: RunningApplicationChecking
     private let configuration: AppUninstallExecutorConfiguration
 
     public init(
         fileManager: FileManager = .default,
         openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
+        runningApplicationChecker: RunningApplicationChecking = SystemRunningApplicationChecker(),
         configuration: AppUninstallExecutorConfiguration = AppUninstallExecutorConfiguration()
     ) {
         self.fileManager = fileManager
         self.openFileChecker = openFileChecker
+        self.runningApplicationChecker = runningApplicationChecker
         self.configuration = configuration
     }
 
@@ -430,6 +472,9 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         guard url.pathExtension.lowercased() == "app" else {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Only .app bundles can use app uninstall Trash execution.")
         }
+        guard isInAllowedAppRoot(url) else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle is outside the allowed app roots for Trash execution.")
+        }
         guard fileManager.fileExists(atPath: url.path) else {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle no longer exists.")
         }
@@ -438,6 +483,13 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         }
         if let protection = AppUninstallProtection.reason(for: current) {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: protection)
+        }
+        if runningApplicationChecker.isAppRunning(
+            bundleIdentifier: current.bundleIdentifier,
+            executableName: current.executableName,
+            displayName: current.displayName
+        ) {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App appears to be running; quit it before moving the bundle to Trash.")
         }
         guard !isSymbolicLink(url) else {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle path changed into a symbolic link.")
@@ -546,6 +598,14 @@ public final class AppUninstallExecutor: @unchecked Sendable {
 
     private func isSymbolicLink(_ url: URL) -> Bool {
         (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
+    private func isInAllowedAppRoot(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return configuration.allowedAppRoots.contains { root in
+            let rootPath = root.standardizedFileURL.path
+            return path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")
+        }
     }
 }
 
