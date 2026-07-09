@@ -39,6 +39,33 @@ final class RedactionMatrixTests: XCTestCase {
         XCTAssertTrue(packageText.contains("<path redacted>"))
     }
 
+    func testRemotePrivacyRedactorRedactsSSHIdentityPathsOutsideCurrentHome() {
+        let target = RemoteTargetReference(
+            input: "prod-racknerd",
+            alias: "prod-racknerd",
+            resolvedUser: "deploy",
+            resolvedHost: "Racknerd.internal",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let redactor = RemotePrivacyRedactor(
+            privacy: ReportPrivacyOptions(
+                pathStyle: .redacted,
+                redactUserText: true,
+                homeDirectory: URL(fileURLWithPath: "/Users/runner")
+            ),
+            target: target
+        )
+
+        let output = redactor.text("IdentityFile /Users/reidar/.ssh/id_ed25519 for Racknerd.internal")
+
+        XCTAssertFalse(output.contains("/Users/reidar"), output)
+        XCTAssertFalse(output.contains("IdentityFile"), output)
+        XCTAssertFalse(output.contains("Racknerd"), output)
+        XCTAssertTrue(output.contains("<local path redacted>"), output)
+    }
+
     private func sensitiveRemoteScanReport() -> RemoteScanReport {
         let target = RemoteTargetReference(
             input: "prod-racknerd",

@@ -50,6 +50,7 @@ public struct RemotePrivacyRedactor: Sendable {
     public func text(_ text: String, knownPaths: [String] = []) -> String {
         var output = privacy.displayText(text, knownPaths: knownPaths + sensitiveValues)
         guard redactsUserText else { return output }
+        output = Self.redactSensitiveLocalPaths(in: output)
         for value in sensitiveValues.sorted(by: { $0.count > $1.count }) {
             guard value.count >= 3 else { continue }
             output = output.replacingOccurrences(of: value, with: "<redacted>")
@@ -71,6 +72,26 @@ public struct RemotePrivacyRedactor: Sendable {
             prerequisites: card.prerequisites.map { text($0) },
             nonClaims: card.nonClaims
         )
+    }
+
+    private static func redactSensitiveLocalPaths(in text: String) -> String {
+        var output = text
+        let patterns = [
+            #"(?i)\bIdentityFile\s+\S+"#,
+            #"/Users/[^\s'"`|;]+"#,
+            #"~/\.ssh/[^\s'"`|;]+"#
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(output.startIndex..<output.endIndex, in: output)
+            output = regex.stringByReplacingMatches(
+                in: output,
+                options: [],
+                range: range,
+                withTemplate: "<local path redacted>"
+            )
+        }
+        return output
     }
 
     private static func expandedSensitiveValues(_ values: [String]) -> [String] {
