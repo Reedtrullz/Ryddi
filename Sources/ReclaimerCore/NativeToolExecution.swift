@@ -197,26 +197,6 @@ public final class NativeToolExecutor: @unchecked Sendable {
             )
         }
 
-        if let actionCommand = Self.nativeActionCommand(for: command, invocation: invocation),
-           let reason = NativeActionAllowlist.validate(actionCommand).blockedReason {
-            return NativeToolExecutionReceipt(
-                ruleVersion: ruleVersion,
-                mode: mode,
-                status: "blocked",
-                findingPath: receipt.findingPath,
-                category: receipt.category,
-                command: command,
-                invocation: invocation,
-                beforeFreeBytes: before,
-                afterFreeBytes: before,
-                output: nil,
-                userConfirmed: userConfirmed,
-                message: reason,
-                errors: [reason],
-                nonClaims: Self.nonClaims
-            )
-        }
-
         guard mode == .perform else {
             return NativeToolExecutionReceipt(
                 ruleVersion: ruleVersion,
@@ -231,6 +211,45 @@ public final class NativeToolExecutor: @unchecked Sendable {
                 output: nil,
                 userConfirmed: false,
                 message: "Dry run only; Ryddi would execute exactly: \(invocation.displayCommand)",
+                nonClaims: Self.nonClaims
+            )
+        }
+
+        guard let actionCommand = Self.nativeActionCommand(for: command, invocation: invocation) else {
+            let error = "Native command perform is only available for explicitly allowlisted commands; this command remains guidance-only."
+            return NativeToolExecutionReceipt(
+                ruleVersion: ruleVersion,
+                mode: mode,
+                status: "blocked",
+                findingPath: receipt.findingPath,
+                category: receipt.category,
+                command: command,
+                invocation: invocation,
+                beforeFreeBytes: before,
+                afterFreeBytes: before,
+                output: nil,
+                userConfirmed: userConfirmed,
+                message: error,
+                errors: [error],
+                nonClaims: Self.nonClaims
+            )
+        }
+
+        if let reason = NativeActionAllowlist.validate(actionCommand).blockedReason {
+            return NativeToolExecutionReceipt(
+                ruleVersion: ruleVersion,
+                mode: mode,
+                status: "blocked",
+                findingPath: receipt.findingPath,
+                category: receipt.category,
+                command: command,
+                invocation: invocation,
+                beforeFreeBytes: before,
+                afterFreeBytes: before,
+                output: nil,
+                userConfirmed: userConfirmed,
+                message: reason,
+                errors: [reason],
                 nonClaims: Self.nonClaims
             )
         }

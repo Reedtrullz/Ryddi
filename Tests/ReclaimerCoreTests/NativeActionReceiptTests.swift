@@ -83,6 +83,60 @@ final class NativeActionReceiptTests: XCTestCase {
         XCTAssertNil(receipt.afterDisk)
         XCTAssertTrue(receipt.nonClaims.contains { $0.localizedCaseInsensitiveContains("APFS free space") })
     }
+
+    func testNativeToolExecutionReceiptReportRedactsAndEscapesMarkdown() throws {
+        let receipt = NativeToolExecutionReceipt(
+            id: "native-receipt-pipe",
+            createdAt: Date(timeIntervalSince1970: 10),
+            ruleVersion: "rules-v1",
+            mode: .dryRun,
+            status: "dry-run",
+            findingPath: "/Users/reidar/Library/Caches/Homebrew",
+            category: "Developer | cache",
+            command: NativeToolCommand(
+                id: "brew.preview",
+                command: "brew cleanup -n",
+                purpose: "Preview | Homebrew\ncleanup.",
+                risk: .inspect,
+                requiresReview: false,
+                expectedEffect: "Shows what Homebrew would remove.",
+                workingDirectory: "/Users/reidar/Library/Caches/Homebrew",
+                context: "local | native"
+            ),
+            invocation: ToolCommandInvocation(executable: "brew", arguments: ["cleanup", "-n"]),
+            beforeFreeBytes: 1_000,
+            afterFreeBytes: 1_000,
+            output: ToolCommandSnapshot(output: ToolCommandOutput(
+                invocation: ToolCommandInvocation(executable: "brew", arguments: ["cleanup", "-n"]),
+                exitCode: 0,
+                stdout: "Would remove /Users/reidar/Library/Caches/Homebrew/bottle|one\n",
+                stderr: ""
+            )),
+            userConfirmed: false,
+            message: "Dry run only for /Users/reidar/Library/Caches/Homebrew",
+            errors: [],
+            nonClaims: NativeToolExecutor.nonClaims
+        )
+
+        let report = NativeToolExecutionReceiptReportBuilder.build(
+            receipt: receipt,
+            privacy: ReportPrivacyOptions(
+                pathStyle: .redacted,
+                homeDirectory: URL(fileURLWithPath: "/Users/reidar")
+            ),
+            now: Date(timeIntervalSince1970: 20)
+        )
+
+        XCTAssertEqual(report.receiptID, receipt.id)
+        XCTAssertEqual(report.commandID, "brew.preview")
+        XCTAssertEqual(report.status, "dry-run")
+        XCTAssertFalse(report.markdown.contains("/Users/reidar/Library/Caches/Homebrew"))
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertTrue(report.markdown.contains("Developer \\| cache"))
+        XCTAssertTrue(report.markdown.contains("Preview \\| Homebrew cleanup."))
+        XCTAssertTrue(report.markdown.contains("does not execute cleanup"))
+        XCTAssertTrue(report.markdown.contains("do not authorize generic file deletion"))
+    }
 }
 
 private final class RecordingNativeActionReceiptRunner: ToolCommandRunning, @unchecked Sendable {

@@ -73,6 +73,7 @@ public struct ActionCenterInput: Sendable {
     public let activeFileReviewReport: ActiveFileReviewReport?
     public let browserCacheReport: BrowserCacheReviewReport?
     public let packageCacheReport: PackageCacheReviewReport?
+    public let latestNativeToolExecutionReceipt: NativeToolExecutionReceipt?
     public let sessionHistoryWarnings: [AuditStoreScanSessionWarning]
     public let generatedAt: Date
 
@@ -86,6 +87,7 @@ public struct ActionCenterInput: Sendable {
         activeFileReviewReport: ActiveFileReviewReport? = nil,
         browserCacheReport: BrowserCacheReviewReport? = nil,
         packageCacheReport: PackageCacheReviewReport? = nil,
+        latestNativeToolExecutionReceipt: NativeToolExecutionReceipt? = nil,
         sessionHistoryWarnings: [AuditStoreScanSessionWarning] = [],
         generatedAt: Date = Date()
     ) {
@@ -98,6 +100,7 @@ public struct ActionCenterInput: Sendable {
         self.activeFileReviewReport = activeFileReviewReport
         self.browserCacheReport = browserCacheReport
         self.packageCacheReport = packageCacheReport
+        self.latestNativeToolExecutionReceipt = latestNativeToolExecutionReceipt
         self.sessionHistoryWarnings = sessionHistoryWarnings
         self.generatedAt = generatedAt
     }
@@ -123,6 +126,9 @@ public enum ActionCenterBuilder {
             activeFileReport: input.activeFileReviewReport,
             browserCacheReport: input.browserCacheReport
         ))
+        if let action = nativeToolReceiptAction(from: input.latestNativeToolExecutionReceipt) {
+            actions.append(action)
+        }
         actions.append(contentsOf: nativeToolActions(from: input.packageCacheReport))
         if let action = planAction(
             plan: input.currentPlan,
@@ -247,6 +253,47 @@ public enum ActionCenterBuilder {
             ))
         }
         return actions
+    }
+
+    private static func nativeToolReceiptAction(from receipt: NativeToolExecutionReceipt?) -> ActionCenterAction? {
+        guard let receipt else {
+            return nil
+        }
+        let title: String
+        let reason: String
+        let priority: Int
+        switch receipt.status {
+        case "dry-run":
+            title = "Review Native Preview"
+            reason = "Saved preview for \(receipt.command.id); review the receipt before running any native cleanup."
+            priority = 790
+        case "blocked":
+            title = "Review Blocked Native Command"
+            reason = receipt.message
+            priority = 785
+        case "failed":
+            title = "Review Failed Native Command"
+            reason = receipt.message
+            priority = 785
+        case "done":
+            title = "Review Native Result"
+            reason = "Native command completed; review the receipt and APFS free-space notes before treating reclaim as exact."
+            priority = 500
+        default:
+            title = "Review Native Receipt"
+            reason = receipt.message
+            priority = 700
+        }
+        return ActionCenterAction(
+            id: "native-tool-receipt.\(receipt.id)",
+            kind: .useNativeTool,
+            title: title,
+            reason: reason,
+            priority: priority,
+            count: 1,
+            isDestructive: false,
+            sourceIDs: [receipt.id, receipt.command.id]
+        )
     }
 
     private static func nativeToolActions(from report: PackageCacheReviewReport?) -> [ActionCenterAction] {

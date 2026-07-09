@@ -74,6 +74,32 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testAppSummaryPassesNativeReceiptsToActionCenter() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("recentNativeToolExecutionReceipts.first"),
+            "DashboardModel Summary should pass the latest saved native command receipt into ActionCenterInput."
+        )
+        XCTAssertTrue(
+            source.contains("latestNativeToolExecutionReceipt:"),
+            "Action Center wiring should treat native command receipts as first-class saved evidence."
+        )
+    }
+
+    func testAuditHistoryShowsNativeReceiptEvidenceFields() throws {
+        let source = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/AuditHistoryView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("receipt.command.command"))
+        XCTAssertTrue(source.contains("receipt.findingPath"))
+        XCTAssertTrue(source.contains("receipt.command.risk.label"))
+        XCTAssertTrue(source.contains("receipt.nonClaims.first"))
+    }
+
     func testScanSessionAppScanPersistsDurableSessionRecord() throws {
         let source = try appSource()
 

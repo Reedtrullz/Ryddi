@@ -244,6 +244,97 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertTrue(output.contains("Non-claims"))
     }
 
+    func testNativeReceiptsListAndExportSavedDryRunReceipt() throws {
+        try writeHomebrewCacheFixture()
+
+        _ = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: [
+                "native",
+                "run",
+                "--command-id", "brew.preview",
+                "--dry-run",
+                "--save-audit",
+                "--json"
+            ] + nativeFixtureOptions())
+        }
+
+        let listOutput = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: ["native", "receipts", "list", "--json"])
+        }
+        let receipts = try JSONDecoder.ryddi.decode([NativeToolExecutionReceipt].self, from: Data(listOutput.utf8))
+        let receipt = try XCTUnwrap(receipts.first)
+        XCTAssertEqual(receipt.command.id, "brew.preview")
+        XCTAssertEqual(receipt.mode, .dryRun)
+        XCTAssertEqual(receipt.status, "dry-run")
+
+        let exportOutput = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: [
+                "native", "receipts", "export",
+                "--id", String(receipt.id.prefix(8)),
+                "--path-style", "redacted",
+                "--json"
+            ])
+        }
+        let report = try JSONDecoder.ryddi.decode(NativeToolExecutionReceiptReport.self, from: Data(exportOutput.utf8))
+        XCTAssertEqual(report.receiptID, receipt.id)
+        XCTAssertEqual(report.commandID, "brew.preview")
+        XCTAssertFalse(report.markdown.contains(readableScope.path))
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("does not execute cleanup") })
+    }
+
+    func testNativeRunYesRequiresSavedDryRunReceipt() throws {
+        try writeHomebrewCacheFixture()
+
+        XCTAssertThrowsError(try ReclaimerCLI.run(arguments: [
+            "native",
+            "run",
+            "--command-id", "brew.preview",
+            "--yes",
+            "--json"
+        ] + nativeFixtureOptions())) { error in
+            XCTAssertTrue(error.localizedDescription.contains("requires a saved dry-run receipt"), String(describing: error))
+        }
+    }
+
+    func testActionsJSONIncludesSavedNativeReceiptReviewAction() throws {
+        let receipt = NativeToolExecutionReceipt(
+            id: "native-receipt-cli-v1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            ruleVersion: "rules-v1",
+            mode: .dryRun,
+            status: "dry-run",
+            findingPath: readableScope.appendingPathComponent("Library/Caches/Homebrew").path,
+            category: "Developer cache",
+            command: NativeToolCommand(
+                id: "brew.preview",
+                command: "brew cleanup -n",
+                purpose: "Preview Homebrew cleanup.",
+                risk: .inspect,
+                requiresReview: false,
+                expectedEffect: "Shows what Homebrew would remove."
+            ),
+            invocation: ToolCommandInvocation(executable: "brew", arguments: ["cleanup", "-n"]),
+            beforeFreeBytes: 100,
+            afterFreeBytes: 100,
+            output: nil,
+            userConfirmed: false,
+            message: "Fixture native preview.",
+            nonClaims: NativeToolExecutor.nonClaims
+        )
+        _ = try AuditStore(root: auditRoot).save(nativeToolExecutionReceipt: receipt)
+
+        let output = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: ["actions", "--json", "--path", readableScope.path])
+        }
+
+        let report = try JSONDecoder.ryddi.decode(ActionCenterReport.self, from: Data(output.utf8))
+        let nativeAction = try XCTUnwrap(report.actions.first { $0.id == "native-tool-receipt.\(receipt.id)" })
+        XCTAssertEqual(nativeAction.title, "Review Native Preview")
+        XCTAssertFalse(nativeAction.isDestructive)
+        XCTAssertTrue(nativeAction.sourceIDs.contains("brew.preview"))
+    }
+
     private func makeSession(
         id: String,
         updatedAt: Date,
@@ -279,12 +370,29 @@ final class ReclaimerCLITests: XCTestCase {
         return cache
     }
 
+    @discardableResult
+    private func writeHomebrewCacheFixture() throws -> URL {
+        let cache = readableScope.appendingPathComponent("Library/Caches/Homebrew", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data(repeating: 9, count: 4_096).write(to: cache.appendingPathComponent("bottle.tar.gz"))
+        return cache
+    }
+
     private func scanFixtureArguments(command: String) -> [String] {
         [
             command,
             "--path", readableScope.path,
             "--min-size", "1",
             "--max-depth", "6"
+        ]
+    }
+
+    private func nativeFixtureOptions() -> [String] {
+        [
+            "--path", readableScope.path,
+            "--min-size", "1",
+            "--max-depth", "6",
+            "--no-lsof"
         ]
     }
 

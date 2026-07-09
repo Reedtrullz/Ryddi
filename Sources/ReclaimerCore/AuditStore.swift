@@ -414,7 +414,10 @@ public final class AuditStore: @unchecked Sendable {
             return []
         }
         return files
-            .filter { $0.lastPathComponent.hasPrefix("native-tool-") }
+            .filter {
+                $0.lastPathComponent.hasPrefix("native-tool-")
+                    && !$0.lastPathComponent.hasPrefix("native-tool-execution-")
+            }
             .sorted { lhs, rhs in
                 let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
@@ -422,6 +425,13 @@ public final class AuditStore: @unchecked Sendable {
             }
             .prefix(limit)
             .compactMap { try? decoder.decode(NativeToolReport.self, from: Data(contentsOf: $0)) }
+    }
+
+    public func nativeToolReport(id: String) -> NativeToolReport? {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return recentNativeToolReports(limit: 500)
+            .first { $0.id == trimmed || $0.id.hasPrefix(trimmed) }
     }
 
     public func recentNativeToolExecutionReceipts(limit: Int = 20) -> [NativeToolExecutionReceipt] {
@@ -437,6 +447,13 @@ public final class AuditStore: @unchecked Sendable {
             }
             .prefix(limit)
             .compactMap { try? decoder.decode(NativeToolExecutionReceipt.self, from: Data(contentsOf: $0)) }
+    }
+
+    public func nativeToolExecutionReceipt(id: String) -> NativeToolExecutionReceipt? {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return recentNativeToolExecutionReceipts(limit: 500)
+            .first { $0.id == trimmed || $0.id.hasPrefix(trimmed) }
     }
 
     public func recentContainerInventoryReports(limit: Int = 20) -> [ContainerInventoryReport] {

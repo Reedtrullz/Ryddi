@@ -99,7 +99,7 @@ Current synthetic UI proof assets are available under [docs/assets/screenshots](
 - Browser cache versus browser profile separation
 - Stale temp/scratch review
 - App-managed holding area for reversible quarantine moves
-- Local audit history for plans, execution receipts, native reports, container reports, active-file reports, and review reports
+- Local audit history for plans, execution receipts, native reports, native command receipts, container reports, active-file reports, and review reports
 
 ## Safety Model
 
@@ -323,7 +323,13 @@ swift run --scratch-path .build reclaimer permissions --json --path ~/Library
 swift run --scratch-path .build reclaimer permissions guide --output ryddi-permissions-guide.md
 ```
 
-The permission advisor reports readable, denied, missing, and unknown scopes; recommends when to review Full Disk Access; and keeps explicit non-claims because path readability is not cleanup permission. The walkthrough adds first-run steps, a settings URL, rescan/report-only commands, affected scopes, and a local Markdown export. It does not grant macOS permissions or prove that Full Disk Access is enabled.
+The permission advisor reports readable, denied, missing, and unknown scopes; recommends when to review Full Disk Access; and keeps explicit non-claims because path readability is not cleanup permission. The walkthrough adds first-run steps, a settings URL, rescan/report-only commands, affected scopes, and a local Markdown export. It does not grant macOS permissions or prove that Full Disk Access is enabled. macOS privacy approval is tied to the exact app bundle, so after granting access you may need to quit and reopen the installed app before coverage changes.
+
+## Native Command Receipts
+
+Native-tool findings stay review-first. `reclaimer native` builds local command guidance for Docker, Colima, Homebrew, and package-manager storage without executing those commands. `reclaimer native run --command-id ... --dry-run --save-audit` records a saved native command receipt; `reclaimer native run --yes` requires a matching saved dry-run receipt first and then remains limited to explicitly allowlisted native commands. Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside the allowlist, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
+
+Saved native command receipts can be retrieved with `reclaimer native receipts list` and exported with `reclaimer native receipts export --path-style redacted --output RECEIPT.md`. Exporting a receipt summarizes local evidence only; it does not rerun the native command or prove exact APFS reclaim.
 
 ## Disk Drilldown
 

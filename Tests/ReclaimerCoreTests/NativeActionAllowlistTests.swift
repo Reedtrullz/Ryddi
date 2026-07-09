@@ -79,6 +79,43 @@ final class NativeActionAllowlistTests: XCTestCase {
         XCTAssertTrue(executionReceipt.errors.contains("shell execution is not allowed"))
         XCTAssertTrue(runner.invocations.isEmpty)
     }
+
+    func testNativeExecutorBlocksNonHomebrewReclaimCommandsEvenWhenConfirmed() {
+        let command = NativeToolCommand(
+            id: "npm.clean",
+            command: "npm cache clean --force",
+            purpose: "Clear npm cache.",
+            risk: .reclaim,
+            requiresReview: true,
+            expectedEffect: "Drops npm's shared cache."
+        )
+        let receipt = NativeToolReceipt(
+            findingPath: "/Users/reidar/.npm",
+            displayName: "npm cache",
+            category: "Package cache",
+            allocatedSize: 123,
+            safetyClass: .safeAfterCondition,
+            actionKind: .nativeToolCommand,
+            status: "native-tool",
+            message: "npm cleanup",
+            commands: [command],
+            nonClaims: []
+        )
+        let runner = RecordingNativeActionRunner()
+        let executor = NativeToolExecutor(runner: runner)
+
+        let executionReceipt = executor.execute(
+            selection: NativeToolCommandSelection(receipt: receipt, command: command),
+            mode: .perform,
+            ruleVersion: "test",
+            userConfirmed: true
+        )
+
+        XCTAssertEqual(executionReceipt.status, "blocked")
+        XCTAssertTrue(executionReceipt.message.localizedCaseInsensitiveContains("explicitly allowlisted"))
+        XCTAssertTrue(executionReceipt.errors.contains { $0.localizedCaseInsensitiveContains("guidance-only") })
+        XCTAssertTrue(runner.invocations.isEmpty)
+    }
 }
 
 private final class RecordingNativeActionRunner: ToolCommandRunning, @unchecked Sendable {

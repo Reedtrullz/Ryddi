@@ -46,6 +46,46 @@ public struct ExecutionReceiptReport: Codable, Hashable, Identifiable, Sendable 
     }
 }
 
+public struct NativeToolExecutionReceiptReport: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let createdAt: Date
+    public let title: String
+    public let markdown: String
+    public let receiptID: String
+    public let commandID: String
+    public let mode: NativeToolExecutionMode
+    public let status: String
+    public let userConfirmed: Bool
+    public let freeSpaceDeltaBytes: Int64?
+    public let nonClaims: [String]
+
+    public init(
+        id: String = UUID().uuidString,
+        createdAt: Date = Date(),
+        title: String,
+        markdown: String,
+        receiptID: String,
+        commandID: String,
+        mode: NativeToolExecutionMode,
+        status: String,
+        userConfirmed: Bool,
+        freeSpaceDeltaBytes: Int64?,
+        nonClaims: [String]
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.title = title
+        self.markdown = markdown
+        self.receiptID = receiptID
+        self.commandID = commandID
+        self.mode = mode
+        self.status = status
+        self.userConfirmed = userConfirmed
+        self.freeSpaceDeltaBytes = freeSpaceDeltaBytes
+        self.nonClaims = nonClaims
+    }
+}
+
 public enum ExecutionReceiptReportBuilder {
     public static func build(
         title: String = "Ryddi Receipt Report",
@@ -204,6 +244,168 @@ public enum ExecutionReceiptReportBuilder {
             .replacingOccurrences(of: "|", with: "\\|")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return compact.isEmpty ? "-" : compact
+    }
+
+    private static func isoString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+}
+
+public enum NativeToolExecutionReceiptReportBuilder {
+    public static func build(
+        title: String = "Ryddi Native Command Receipt Report",
+        receipt: NativeToolExecutionReceipt,
+        privacy: ReportPrivacyOptions = .default,
+        now: Date = Date()
+    ) -> NativeToolExecutionReceiptReport {
+        var nonClaims = receipt.nonClaims
+        nonClaims.insert("This report summarizes a saved native command receipt; it does not execute cleanup.", at: 0)
+        nonClaims.append("Native command receipts do not authorize generic file deletion, VM disk deletion, remote cleanup, or unattended maintenance.")
+        if privacy.pathStyle != .full || privacy.redactUserText {
+            nonClaims.append("Report privacy was applied (\(privacy.summary)); saved local receipts may still contain full original paths and command context.")
+        }
+
+        let id = UUID().uuidString
+        let delta = receipt.beforeFreeBytes.flatMap { before in
+            receipt.afterFreeBytes.map { $0 - before }
+        }
+        let markdown = markdown(
+            id: id,
+            title: title,
+            createdAt: now,
+            receipt: receipt,
+            freeSpaceDelta: delta,
+            privacy: privacy,
+            nonClaims: nonClaims
+        )
+        return NativeToolExecutionReceiptReport(
+            id: id,
+            createdAt: now,
+            title: title,
+            markdown: markdown,
+            receiptID: receipt.id,
+            commandID: receipt.command.id,
+            mode: receipt.mode,
+            status: receipt.status,
+            userConfirmed: receipt.userConfirmed,
+            freeSpaceDeltaBytes: delta,
+            nonClaims: nonClaims
+        )
+    }
+
+    private static func markdown(
+        id: String,
+        title: String,
+        createdAt: Date,
+        receipt: NativeToolExecutionReceipt,
+        freeSpaceDelta: Int64?,
+        privacy: ReportPrivacyOptions,
+        nonClaims: [String]
+    ) -> String {
+        var lines: [String] = []
+        let knownPaths = [receipt.findingPath]
+        lines.append("# \(title)")
+        lines.append("")
+        lines.append("- Report id: `\(id)`")
+        lines.append("- Generated: \(isoString(createdAt))")
+        lines.append("- Receipt id: `\(receipt.id)`")
+        lines.append("- Receipt created: \(isoString(receipt.createdAt))")
+        lines.append("")
+
+        lines.append("## Summary")
+        var rows = [
+            ["Mode", receipt.mode.rawValue],
+            ["Status", receipt.status],
+            ["Rule version", receipt.ruleVersion],
+            ["User confirmed", receipt.userConfirmed ? "yes" : "no"],
+            ["Finding path", privacy.displayPath(receipt.findingPath)],
+            ["Category", receipt.category],
+            ["Command id", receipt.command.id],
+            ["Risk", receipt.command.risk.label],
+            ["Message", privacy.displayText(receipt.message, knownPaths: knownPaths)]
+        ]
+        if let before = receipt.beforeFreeBytes {
+            rows.append(["Before free", ByteFormat.string(before)])
+        }
+        if let after = receipt.afterFreeBytes {
+            rows.append(["After free", ByteFormat.string(after)])
+        }
+        if let freeSpaceDelta {
+            rows.append(["Free-space delta", ByteFormat.string(freeSpaceDelta)])
+        }
+        lines.append(table(headers: ["Metric", "Value"], rows: rows))
+        lines.append("")
+
+        lines.append("## Command")
+        lines.append(table(
+            headers: ["Command id", "Command", "Purpose", "Expected effect", "Working directory", "Context"],
+            rows: [[
+                receipt.command.id,
+                privacy.displayText(receipt.command.command, knownPaths: knownPaths),
+                privacy.displayText(receipt.command.purpose, knownPaths: knownPaths),
+                privacy.displayText(receipt.command.expectedEffect, knownPaths: knownPaths),
+                privacy.displayUserText(receipt.command.workingDirectory),
+                privacy.displayUserText(receipt.command.context)
+            ]]
+        ))
+        lines.append("")
+
+        if let output = receipt.output {
+            lines.append("## Command Output")
+            var outputRows = [
+                ["Status", output.status],
+                ["Timed out", output.timedOut ? "yes" : "no"]
+            ]
+            if let exitCode = output.exitCode {
+                outputRows.append(["Exit code", "\(exitCode)"])
+            }
+            if let launchError = output.launchError {
+                outputRows.append(["Launch error", privacy.displayText(launchError, knownPaths: knownPaths)])
+            }
+            lines.append(table(headers: ["Metric", "Value"], rows: outputRows))
+            if !output.stdoutPreview.isEmpty {
+                lines.append("")
+                lines.append("### stdout")
+                for line in output.stdoutPreview {
+                    lines.append("- \(privacy.displayText(line, knownPaths: knownPaths))")
+                }
+            }
+            if !output.stderrPreview.isEmpty {
+                lines.append("")
+                lines.append("### stderr")
+                for line in output.stderrPreview {
+                    lines.append("- \(privacy.displayText(line, knownPaths: knownPaths))")
+                }
+            }
+            lines.append("")
+        }
+
+        if !receipt.errors.isEmpty {
+            lines.append("## Errors")
+            for error in receipt.errors {
+                lines.append("- \(privacy.displayText(error, knownPaths: knownPaths))")
+            }
+            lines.append("")
+        }
+
+        lines.append("## Explicit Non-Claims")
+        for nonClaim in nonClaims {
+            lines.append("- \(nonClaim)")
+        }
+        lines.append("")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func table(headers: [String], rows: [[String]]) -> String {
+        var lines: [String] = []
+        lines.append("| \(headers.map(MarkdownTable.cell).joined(separator: " | ")) |")
+        lines.append("| \(headers.map { _ in "---" }.joined(separator: " | ")) |")
+        for row in rows {
+            lines.append("| \(row.map(MarkdownTable.cell).joined(separator: " | ")) |")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private static func isoString(_ date: Date) -> String {

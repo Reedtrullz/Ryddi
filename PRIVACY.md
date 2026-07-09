@@ -44,7 +44,7 @@ Project Dependencies Review reads local filesystem metadata from configured proj
 
 AI-agent storage review reads local filesystem metadata from common Codex, Claude, Cursor, Windsurf, and Ollama roots, or from explicit paths you provide. Results can include local paths, owner hints, rule IDs, bucket names, and evidence strings. Ryddi does not upload this report, inspect prompt contents for remote analysis, or automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
 
-Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Ryddi does not upload these reports and does not execute the native commands automatically.
+Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Native command execution receipts can include one selected command ID, command text, finding path, category, user-confirmation state, before/after free-space snapshots, bounded stdout/stderr previews, errors, and non-claims. Ryddi does not upload these reports. Native perform mode requires explicit confirmation and a matching saved dry-run receipt first, and remains limited to explicitly allowlisted commands; Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside the allowlist, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
 
 Container inventory can run read-only Docker and Colima inspection commands. The resulting local reports can include Docker image names, container names, volume names, context endpoints, Colima profile names, command exit states, and short command-output previews. Ryddi does not upload this inventory and does not run prune, delete, stop, reset, or raw VM-disk commands.
 
@@ -68,7 +68,7 @@ Issue package export writes a small local diagnostics folder with `manifest.json
 
 Plan report export reads a proposed reclaim plan to write local Markdown. Plan reports can include selected action paths, blocked or review-only paths, safety buckets, condition messages, and reclaim estimates. Ryddi does not upload plan reports or execute cleanup while creating them.
 
-Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Ryddi does not upload receipt reports or rerun cleanup while creating them.
+Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Native command receipt export reads saved native command receipts and can include one command, command context, bounded output previews, errors, path privacy transforms, and native non-claims. Ryddi does not upload receipt reports or rerun cleanup/native tools while creating them.
 
 Recovery Center reads local holding-area metadata and saved execution receipts to show what Ryddi can restore directly and what needs Trash, native-tool, backup, or manual review. Recovery output can include original paths, held paths, receipt IDs, action statuses, and guidance. Ryddi can restore only app-held items; it does not upload recovery data or silently recover/delete receipt-only items.
 
@@ -90,10 +90,12 @@ Ryddi can write:
 - saved Markdown evidence reports;
 - saved Markdown reclaim plan reports;
 - saved Markdown receipt reports;
+- saved Markdown native command receipt reports;
 - saved Markdown growth reports;
 - saved Markdown dogfood reports when you choose an output path;
 - saved issue package folders when you choose an output directory;
 - saved native-tool preview reports;
+- saved native command execution receipts;
 - saved container inventory reports;
 - saved remote probe, scan, and local growth-history audit records;
 - saved remote Markdown evidence and growth reports when you choose an output path or export from the app;

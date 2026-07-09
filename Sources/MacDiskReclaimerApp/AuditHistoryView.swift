@@ -129,6 +129,74 @@ struct AuditHistoryView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
+                                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                                    GridRow {
+                                        Text("Command")
+                                            .foregroundStyle(.secondary)
+                                        Text(receipt.command.command)
+                                            .font(.caption.monospaced())
+                                            .textSelection(.enabled)
+                                    }
+                                    GridRow {
+                                        Text("Path")
+                                            .foregroundStyle(.secondary)
+                                        Text(receipt.findingPath)
+                                            .font(.caption.monospaced())
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .textSelection(.enabled)
+                                    }
+                                    GridRow {
+                                        Text("Risk")
+                                            .foregroundStyle(.secondary)
+                                        Text(receipt.command.risk.label)
+                                    }
+                                    if let before = receipt.beforeFreeBytes {
+                                        GridRow {
+                                            Text("Before")
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(before))
+                                                .monospacedDigit()
+                                        }
+                                    }
+                                    if let after = receipt.afterFreeBytes {
+                                        GridRow {
+                                            Text("After")
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(after))
+                                                .monospacedDigit()
+                                        }
+                                    }
+                                }
+                                .font(.caption)
+                                if let output = receipt.output {
+                                    if !output.stdoutPreview.isEmpty {
+                                        Text("stdout: \(output.stdoutPreview.prefix(3).joined(separator: " | "))")
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                            .textSelection(.enabled)
+                                    }
+                                    if !output.stderrPreview.isEmpty {
+                                        Text("stderr: \(output.stderrPreview.prefix(3).joined(separator: " | "))")
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                                if !receipt.errors.isEmpty {
+                                    Text("Errors: \(receipt.errors.joined(separator: " | "))")
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                if let note = receipt.nonClaims.first {
+                                    Text("Non-claim: \(note)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                         }
                     }

@@ -184,6 +184,7 @@ struct ReclaimerCLI {
             activeFileReviewReport: store.recentActiveFileReviewReports(limit: 1).first,
             browserCacheReport: store.recentBrowserCacheReviewReports(limit: 1).first,
             packageCacheReport: store.recentPackageCacheReviewReports(limit: 1).first,
+            latestNativeToolExecutionReceipt: store.recentNativeToolExecutionReceipts(limit: 1).first,
             sessionHistoryWarnings: scanSessions.warnings
         ))
         if options.json {
@@ -1245,6 +1246,10 @@ struct ReclaimerCLI {
             try nativeRun(args: Array(args.dropFirst()))
             return
         }
+        if args.first == "receipts" {
+            try nativeReceipts(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: try options.scopes(), options: options.scanOptions(includeOpenFiles: false))
@@ -1295,6 +1300,11 @@ struct ReclaimerCLI {
         ) else {
             throw CLIError.message("No native-tool command matched --command-id \(commandID). Run `reclaimer native` to inspect available command ids.")
         }
+        if !options.dryRun {
+            guard savedNativeDryRunExists(for: selection, in: AuditStore()) else {
+                throw CLIError.message("native run --yes requires a saved dry-run receipt for the same native command and finding. Run `reclaimer native run --command-id \(commandID) --dry-run --save-audit` first.")
+            }
+        }
         let receipt = NativeToolExecutor(
             configuration: NativeToolExecutionConfiguration(timeout: options.timeoutSeconds)
         ).execute(
@@ -1311,6 +1321,64 @@ struct ReclaimerCLI {
             printJSON(receipt)
         } else {
             printNativeToolExecutionReceipt(receipt)
+        }
+    }
+
+    private static func savedNativeDryRunExists(
+        for selection: NativeToolCommandSelection,
+        in store: AuditStore
+    ) -> Bool {
+        store.recentNativeToolExecutionReceipts(limit: 500).contains { receipt in
+            receipt.mode == .dryRun
+                && receipt.status == "dry-run"
+                && receipt.errors.isEmpty
+                && receipt.command.id == selection.command.id
+                && URL(fileURLWithPath: receipt.findingPath).standardizedFileURL.path
+                    == URL(fileURLWithPath: selection.receipt.findingPath).standardizedFileURL.path
+        }
+    }
+
+    static func nativeReceipts(args: [String]) throws {
+        let subcommand = args.first ?? "list"
+        let options = ParsedOptions(Array(args.dropFirst()))
+        try options.validateReportPrivacyOptions()
+        let store = AuditStore()
+        switch subcommand {
+        case "list":
+            let receipts = store.recentNativeToolExecutionReceipts(limit: options.limit)
+            if options.json {
+                printJSON(receipts)
+            } else {
+                printNativeToolExecutionReceipts(receipts)
+            }
+        case "export":
+            let receipt = options.receiptID.flatMap { store.nativeToolExecutionReceipt(id: $0) }
+                ?? store.recentNativeToolExecutionReceipts(limit: 1).first
+            guard let receipt else {
+                throw CLIError.message("No saved native command receipt found. Run `reclaimer native run --command-id COMMAND_ID --dry-run --save-audit` first, or pass --id for an existing receipt.")
+            }
+            let report = NativeToolExecutionReceiptReportBuilder.build(
+                title: options.nativeReceiptReportTitle,
+                receipt: receipt,
+                privacy: options.reportPrivacy
+            )
+            if let output = options.outputPath {
+                let url = URL(fileURLWithPath: output).standardizedFileURL
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                FileHandle.standardError.write(Data("wrote native command receipt report: \(url.path)\n".utf8))
+            }
+            if options.saveReport {
+                let url = try ReportStore().save(nativeToolExecutionReceiptReport: report)
+                FileHandle.standardError.write(Data("saved native command receipt report: \(url.path)\n".utf8))
+            }
+            if options.json {
+                printJSON(report)
+            } else if options.outputPath == nil {
+                print(report.markdown)
+            }
+        default:
+            throw CLIError.message("Unknown native receipts subcommand: \(subcommand)")
         }
     }
 
@@ -1940,6 +2008,9 @@ struct ReclaimerCLI {
               native [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
               native run --command-id COMMAND_ID [--dry-run|--yes] [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
                      [--finding-path PATH] [--timeout SECONDS] [--save-audit] [--include-user-rules]
+              native receipts list [--json] [--limit N]
+              native receipts export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
+                     [--path-style full|home-relative|redacted] [--redact-user-text]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
               remote targets list [--json]
               remote probe TARGET [--json] [--timeout SECONDS] [--save-audit]
@@ -2048,6 +2119,7 @@ struct ParsedOptions {
     var reportTitle: String { value(after: "--title") ?? "Ryddi Evidence Report" }
     var planReportTitle: String { value(after: "--title") ?? "Ryddi Plan Report" }
     var receiptReportTitle: String { value(after: "--title") ?? "Ryddi Receipt Report" }
+    var nativeReceiptReportTitle: String { value(after: "--title") ?? "Ryddi Native Command Receipt Report" }
     var growthReportTitle: String { value(after: "--title") ?? "Ryddi Growth Report" }
     var appUninstallPreviewTitle: String { value(after: "--title") ?? "Ryddi App Uninstall Preview" }
     var archiveReviewTitle: String { value(after: "--title") ?? "Ryddi Archive Candidate Review" }
@@ -4382,6 +4454,24 @@ func printNativeToolExecutionReceipt(_ receipt: NativeToolExecutionReceipt) {
     print("\nNon-claims")
     for note in receipt.nonClaims {
         print("- \(note)")
+    }
+}
+
+func printNativeToolExecutionReceipts(_ receipts: [NativeToolExecutionReceipt]) {
+    if receipts.isEmpty {
+        print("No saved native command receipts.")
+        return
+    }
+    print("\(pad("Created", 22)) \(pad("Mode", 8)) \(pad("Status", 10)) \(pad("Command", 22)) \(pad("Confirmed", 10)) ID")
+    for receipt in receipts {
+        print(
+            "\(pad(receipt.createdAt.formatted(date: .numeric, time: .shortened), 22)) "
+            + "\(pad(receipt.mode.rawValue, 8)) "
+            + "\(pad(receipt.status, 10)) "
+            + "\(pad(receipt.command.id, 22)) "
+            + "\(pad(receipt.userConfirmed ? "yes" : "no", 10)) "
+            + receipt.id
+        )
     }
 }
 

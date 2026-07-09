@@ -6936,6 +6936,7 @@ final class DashboardModel {
                 activeFileReviewReport: activeFileReview,
                 browserCacheReport: browserCacheReview,
                 packageCacheReport: packageCacheReview,
+                latestNativeToolExecutionReceipt: recentNativeToolExecutionReceipts.first,
                 sessionHistoryWarnings: scanSessionHistory.warnings
             )
         )

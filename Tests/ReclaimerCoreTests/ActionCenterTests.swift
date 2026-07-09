@@ -189,6 +189,37 @@ final class ActionCenterTests: XCTestCase {
         XCTAssertTrue(primary.sourceIDs.contains(PackageCacheManager.homebrew.rawValue))
     }
 
+    func testSavedNativeDryRunReceiptCreatesReviewNativePreviewAction() throws {
+        let receipt = NativeToolExecutionReceipt.fixture(status: "dry-run", mode: .dryRun)
+
+        let report = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(stage: .scanned, findingDigest: "findings-v1"),
+            latestNativeToolExecutionReceipt: receipt
+        ))
+
+        let nativeAction = try XCTUnwrap(report.actions.first { $0.id == "native-tool-receipt.\(receipt.id)" })
+        XCTAssertEqual(nativeAction.kind, .useNativeTool)
+        XCTAssertEqual(nativeAction.title, "Review Native Preview")
+        XCTAssertFalse(nativeAction.isDestructive)
+        XCTAssertEqual(nativeAction.count, 1)
+        XCTAssertTrue(nativeAction.sourceIDs.contains(receipt.id))
+        XCTAssertTrue(nativeAction.sourceIDs.contains(receipt.command.id))
+    }
+
+    func testSavedNativeFailureReceiptStaysNonDestructive() throws {
+        let receipt = NativeToolExecutionReceipt.fixture(status: "failed", mode: .perform)
+
+        let report = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(stage: .scanned, findingDigest: "findings-v1"),
+            latestNativeToolExecutionReceipt: receipt
+        ))
+
+        let nativeAction = try XCTUnwrap(report.actions.first { $0.id == "native-tool-receipt.\(receipt.id)" })
+        XCTAssertEqual(nativeAction.title, "Review Failed Native Command")
+        XCTAssertFalse(nativeAction.isDestructive)
+        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+    }
+
     func testActionsSortByPriorityThenEstimatedBytesThenCount() throws {
         let packageReport = PackageCacheReviewReport.fixture(
             managerSummaries: [
@@ -290,6 +321,7 @@ private extension ActionCenterInput {
         activeFileReviewReport: ActiveFileReviewReport? = nil,
         browserCacheReport: BrowserCacheReviewReport? = nil,
         packageCacheReport: PackageCacheReviewReport? = nil,
+        latestNativeToolExecutionReceipt: NativeToolExecutionReceipt? = nil,
         sessionHistoryWarnings: [AuditStoreScanSessionWarning] = []
     ) -> ActionCenterInput {
         ActionCenterInput(
@@ -302,8 +334,43 @@ private extension ActionCenterInput {
             activeFileReviewReport: activeFileReviewReport,
             browserCacheReport: browserCacheReport,
             packageCacheReport: packageCacheReport,
+            latestNativeToolExecutionReceipt: latestNativeToolExecutionReceipt,
             sessionHistoryWarnings: sessionHistoryWarnings,
             generatedAt: Date(timeIntervalSince1970: 10)
+        )
+    }
+}
+
+private extension NativeToolExecutionReceipt {
+    static func fixture(
+        id: String = "native-receipt-v1",
+        status: String,
+        mode: NativeToolExecutionMode
+    ) -> NativeToolExecutionReceipt {
+        NativeToolExecutionReceipt(
+            id: id,
+            createdAt: Date(timeIntervalSince1970: 10),
+            ruleVersion: "rules-v1",
+            mode: mode,
+            status: status,
+            findingPath: "/Users/example/Library/Caches/Homebrew",
+            category: "Developer cache",
+            command: NativeToolCommand(
+                id: "brew.preview",
+                command: "brew cleanup -n",
+                purpose: "Preview Homebrew cleanup.",
+                risk: .inspect,
+                requiresReview: false,
+                expectedEffect: "Shows what Homebrew would remove."
+            ),
+            invocation: ToolCommandInvocation(executable: "brew", arguments: ["cleanup", "-n"]),
+            beforeFreeBytes: 100,
+            afterFreeBytes: 100,
+            output: nil,
+            userConfirmed: mode == .perform,
+            message: "Fixture native receipt",
+            errors: status == "failed" ? ["Fixture failure"] : [],
+            nonClaims: NativeToolExecutor.nonClaims
         )
     }
 }

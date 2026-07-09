@@ -135,7 +135,7 @@ Non-claims:
 - [ ] Release notes say duplicate review uses local hashes and does not automatically select or delete duplicates.
 - [ ] Release notes say Apps & Leftovers related files are review-only; app uninstall execution can move only the selected app bundle to Trash after dry run, confirmation, open-file checks, user-policy checks, and final protection checks.
 - [ ] Release notes say AI Agent Storage review is report-only and does not automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
-- [ ] Release notes say native-tool reports are review-first, `native run` defaults to dry-run and executes only one selected non-destructive/non-placeholder command with explicit confirmation, and Docker/Colima destructive commands remain guidance-only.
+- [ ] Release notes say native-tool reports are review-first, `native run` defaults to dry-run, `native run --yes` requires a matching saved dry-run receipt, perform mode is limited to explicitly allowlisted commands, and Docker/Colima prune/delete/reset plus unallowlisted package-manager cache-clearing commands remain guidance-only.
 - [ ] Release notes say container inventory runs read-only inspection commands only.
 - [ ] Release notes say user protections/exclusions are local path policy, exports can contain private paths/reasons, imports do not delete files or grant permissions, and policy data is not uploaded.
 - [ ] Release notes say user rule packs are local, can contain private path fragments/app names/evidence text, are disabled by default unless explicitly included in CLI scans or app scans, cannot grant cleanup actions, and cannot downgrade bundled never-touch protections.
