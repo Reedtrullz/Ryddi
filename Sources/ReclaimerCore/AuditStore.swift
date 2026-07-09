@@ -278,6 +278,38 @@ public final class AuditStore: @unchecked Sendable {
         return url
     }
 
+    public func saveScanSession(_ session: ScanSession) throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("scan-session-\(session.id).json")
+        try encoder.encode(session).write(to: url, options: .atomic)
+    }
+
+    public func latestScanSession() throws -> ScanSession? {
+        try listScanSessions(limit: 1).first
+    }
+
+    public func listScanSessions(limit: Int) throws -> [ScanSession] {
+        guard limit > 0 else {
+            return []
+        }
+        let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+        return try files
+            .filter { $0.lastPathComponent.hasPrefix("scan-session-") && $0.pathExtension == "json" }
+            .compactMap { url -> (URL, ScanSession)? in
+                let data = try Data(contentsOf: url)
+                let session = try decoder.decode(ScanSession.self, from: data)
+                return (url, session)
+            }
+            .sorted { lhs, rhs in
+                if lhs.1.updatedAt == rhs.1.updatedAt {
+                    return lhs.0.lastPathComponent > rhs.0.lastPathComponent
+                }
+                return lhs.1.updatedAt > rhs.1.updatedAt
+            }
+            .prefix(limit)
+            .map(\.1)
+    }
+
     public func recentReceipts(limit: Int = 20) -> [ExecutionReceipt] {
         guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
             return []
@@ -624,6 +656,7 @@ public final class AuditStore: @unchecked Sendable {
         ("device-backup-review-", "device-backup-review"),
         ("downloads-review-", "downloads-review"),
         ("remote-dogfood-", "remote-dogfood"),
+        ("scan-session-", "scan-session"),
         ("active-files-", "active-files"),
         ("trash-review-", "trash-review"),
         ("native-tool-", "native-tool"),

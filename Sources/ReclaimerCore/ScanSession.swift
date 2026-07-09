@@ -31,6 +31,7 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
     public let ruleVersion: String
     public let preset: ScanScopePreset
     public let scopeDigest: String
+    public let policyDigest: String?
     public let findingDigest: String?
     public let planDigest: String?
     public let dryRunReceiptID: String?
@@ -46,6 +47,7 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
         ruleVersion: String,
         preset: ScanScopePreset,
         scopeDigest: String,
+        policyDigest: String? = nil,
         findingDigest: String? = nil,
         planDigest: String? = nil,
         dryRunReceiptID: String? = nil,
@@ -60,6 +62,7 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
         self.ruleVersion = ruleVersion
         self.preset = preset
         self.scopeDigest = scopeDigest
+        self.policyDigest = policyDigest
         self.findingDigest = findingDigest
         self.planDigest = planDigest
         self.dryRunReceiptID = dryRunReceiptID
@@ -76,6 +79,7 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
         case ruleVersion
         case preset
         case scopeDigest
+        case policyDigest
         case findingDigest
         case planDigest
         case dryRunReceiptID
@@ -93,6 +97,7 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
         self.ruleVersion = try container.decode(String.self, forKey: .ruleVersion)
         self.preset = try container.decode(ScanScopePreset.self, forKey: .preset)
         self.scopeDigest = try container.decode(String.self, forKey: .scopeDigest)
+        self.policyDigest = try container.decodeIfPresent(String.self, forKey: .policyDigest)
         self.findingDigest = try container.decodeIfPresent(String.self, forKey: .findingDigest)
         self.planDigest = try container.decodeIfPresent(String.self, forKey: .planDigest)
         self.dryRunReceiptID = try container.decodeIfPresent(String.self, forKey: .dryRunReceiptID)
@@ -111,6 +116,98 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
             self.stage = decodedStage
             self.invalidationReasons = []
         }
+    }
+
+    public func recordScan(findingDigest: String, updatedAt: Date = Date()) -> ScanSession {
+        copy(updatedAt: updatedAt, findingDigest: findingDigest, stage: .scanned, invalidationReasons: [])
+    }
+
+    public func recordReviewSelection(findingDigest: String, updatedAt: Date = Date()) -> ScanSession {
+        copy(updatedAt: updatedAt, findingDigest: findingDigest, stage: .reviewed, invalidationReasons: [])
+    }
+
+    public func recordPlan(planDigest: String, updatedAt: Date = Date()) -> ScanSession {
+        copy(updatedAt: updatedAt, planDigest: planDigest, stage: .planReady, invalidationReasons: [])
+    }
+
+    public func recordDryRunReceipt(_ receipt: ExecutionReceipt, updatedAt: Date = Date()) -> ScanSession {
+        copy(updatedAt: updatedAt, dryRunReceiptID: receipt.id, stage: .dryRunReady, invalidationReasons: [])
+    }
+
+    public func markReclaimReady(updatedAt: Date = Date()) -> ScanSession {
+        copy(updatedAt: updatedAt, stage: .reclaimReady, invalidationReasons: [])
+    }
+
+    public func recordExecutionReceipt(_ receipt: ExecutionReceipt, updatedAt: Date = Date()) -> ScanSession {
+        let nextStage: ScanSessionStage = receipt.actions.contains(where: Self.isRecoverableAction) ? .recoveryAvailable : .executed
+        return copy(updatedAt: updatedAt, executionReceiptID: receipt.id, stage: nextStage, invalidationReasons: [])
+    }
+
+    public func invalidatedIfBaselineChanged(
+        scopeDigest: String,
+        ruleVersion: String,
+        policyDigest: String?,
+        findingDigest: String?,
+        updatedAt: Date = Date()
+    ) -> ScanSession {
+        var reasons: [ScanSessionInvalidationReason] = []
+        if self.scopeDigest != scopeDigest {
+            reasons.append(.rootsChanged)
+        }
+        if self.ruleVersion != ruleVersion {
+            reasons.append(.rulesChanged)
+        }
+        if self.policyDigest != policyDigest {
+            reasons.append(.policyChanged)
+        }
+        if self.findingDigest != findingDigest {
+            reasons.append(.findingsChanged)
+        }
+        guard !reasons.isEmpty else {
+            return self
+        }
+        return copy(updatedAt: updatedAt, stage: .invalidated, invalidationReasons: reasons)
+    }
+
+    private static func isRecoverableAction(_ action: ExecutionActionReceipt) -> Bool {
+        guard action.status == "done" else {
+            return false
+        }
+        switch action.action {
+        case .trash, .quarantineHold:
+            return true
+        case .reportOnly, .deleteCache, .compress, .nativeToolCommand, .openGuidance:
+            return false
+        }
+    }
+
+    private func copy(
+        updatedAt: Date,
+        scopeDigest: String? = nil,
+        policyDigest: String?? = nil,
+        findingDigest: String?? = nil,
+        planDigest: String?? = nil,
+        dryRunReceiptID: String?? = nil,
+        executionReceiptID: String?? = nil,
+        stage: ScanSessionStage? = nil,
+        invalidationReasons: [ScanSessionInvalidationReason]? = nil
+    ) -> ScanSession {
+        ScanSession(
+            id: id,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            appVersion: appVersion,
+            ruleVersion: ruleVersion,
+            preset: preset,
+            scopeDigest: scopeDigest ?? self.scopeDigest,
+            policyDigest: policyDigest ?? self.policyDigest,
+            findingDigest: findingDigest ?? self.findingDigest,
+            planDigest: planDigest ?? self.planDigest,
+            dryRunReceiptID: dryRunReceiptID ?? self.dryRunReceiptID,
+            executionReceiptID: executionReceiptID ?? self.executionReceiptID,
+            stage: stage ?? self.stage,
+            invalidationReasons: invalidationReasons ?? self.invalidationReasons
+        )
     }
 }
 

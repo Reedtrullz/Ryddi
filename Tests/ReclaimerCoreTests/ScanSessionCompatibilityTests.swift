@@ -55,4 +55,26 @@ final class ScanSessionCompatibilityTests: XCTestCase {
 
         XCTAssertEqual(first, second)
     }
+
+    func testOldSessionWithoutPolicyDigestDecodesWithNilPolicyDigest() throws {
+        let json = """
+        {
+          "id": "session-old",
+          "createdAt": "2026-07-09T00:00:00Z",
+          "updatedAt": "2026-07-09T00:00:00Z",
+          "appVersion": "0.3.0",
+          "ruleVersion": "2026-07-08",
+          "preset": "developer",
+          "scopeDigest": "scope",
+          "findingDigest": "finding",
+          "stage": "scanned",
+          "invalidationReasons": []
+        }
+        """.data(using: .utf8)!
+
+        let session = try makeDecoder().decode(ScanSession.self, from: json)
+
+        XCTAssertNil(session.policyDigest)
+        XCTAssertEqual(session.stage, .scanned)
+    }
 }
