@@ -37,6 +37,9 @@ struct MacDiskReclaimerApp: App {
         }
         .defaultSize(width: RyddiWindowLayout.defaultContentWidth, height: RyddiWindowLayout.defaultContentHeight)
         .windowResizability(.contentMinSize)
+        .commands {
+            DashboardCommands()
+        }
         MenuBarExtra {
             StatusMenuView(model: statusModel)
         } label: {
@@ -135,6 +138,7 @@ struct DashboardView: View {
                 )
             }
         }
+        .focusedSceneValue(\.dashboardCommandActions, commandActions)
         .toolbar {
             Picker("Scan Mode", selection: Binding(
                 get: { model.scanPreset },
@@ -240,6 +244,23 @@ struct DashboardView: View {
             model.refreshRemoteTargets()
             model.applyScreenshotDemoIfNeeded()
         }
+    }
+
+    private var commandActions: DashboardCommandActions {
+        DashboardCommandActions(
+            canScan: !model.isWorking,
+            canPlan: !model.findings.isEmpty && !model.isWorking,
+            canDryRun: (model.plan != nil || !model.findings.isEmpty) && !model.isWorking,
+            canExport: model.overview != nil && !model.findings.isEmpty && !model.isWorking,
+            canReclaim: model.canReclaimSelected && selectedSection != .remoteTargets,
+            scan: { Task { await model.scan() } },
+            buildPlan: { Task { await model.buildPlan() } },
+            dryRun: { Task { await model.runDryRun() } },
+            exportReport: { Task { await model.exportEvidenceReport() } },
+            exportRedactedReport: { Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) } },
+            reclaim: { showingReclaimConfirmation = true },
+            openSection: { selectSection($0) }
+        )
     }
 
     private var selectedSection: DashboardSection {

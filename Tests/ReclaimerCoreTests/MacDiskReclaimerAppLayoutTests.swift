@@ -31,6 +31,24 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testDashboardRegistersSceneCommandsAndFocusedActions() throws {
+        let source = try appSource()
+        let commands = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardCommands.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(commands.contains("struct DashboardCommandActions"))
+        XCTAssertTrue(commands.contains("FocusedValueKey"))
+        XCTAssertTrue(commands.contains("struct DashboardCommands: Commands"))
+        XCTAssertTrue(commands.contains("CommandMenu(\"Ryddi\")"))
+        XCTAssertTrue(commands.contains("keyboardShortcut(\"r\""))
+        XCTAssertTrue(commands.contains("keyboardShortcut(\"d\", modifiers: [.command, .option])"))
+        XCTAssertTrue(source.contains(".commands {\n            DashboardCommands()\n        }"))
+        XCTAssertTrue(source.contains(".focusedSceneValue(\\.dashboardCommandActions"))
+    }
+
     func testDashboardSidebarUsesNativeSelectionAndKeepsDetailsOutOfSourceList() throws {
         let source = try appSource()
         let sidebar = try String(
