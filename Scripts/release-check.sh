@@ -40,6 +40,22 @@ hide_build_dir_for_packaged_smokes() {
   fi
 }
 
+assert_public_manifest_has_no_local_paths() {
+  local manifest="$1"
+  if [[ -n "${HOME:-}" ]] && grep -F "$HOME" "$manifest" >/dev/null 2>&1; then
+    echo "release manifest leaks HOME path: $HOME" >&2
+    exit 1
+  fi
+  if [[ -n "$root" ]] && grep -F "$root" "$manifest" >/dev/null 2>&1; then
+    echo "release manifest leaks repository path: $root" >&2
+    exit 1
+  fi
+  if grep -Eq '/Users/[^[:space:]]+' "$manifest"; then
+    echo "release manifest leaks a /Users absolute path" >&2
+    exit 1
+  fi
+}
+
 cd "$root"
 rm -f "$zip_path" "$checksum_path" "$manifest_path"
 
@@ -569,6 +585,53 @@ grep -q '"command" : "brew cleanup -n"' "$scratch/native-run-dry-run.json"
 grep -q "Dry run only" "$scratch/native-run-dry-run.json"
 grep -q "only one explicitly selected native-tool command" "$scratch/native-run-dry-run.json"
 find "$scratch/audit" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
+fake_brew_bin="$scratch/fake-brew-bin"
+mkdir -p "$fake_brew_bin"
+cat >"$fake_brew_bin/brew" <<'BREW'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "cleanup" && "${2:-}" == "--dry-run" && $# -eq 2 ]]; then
+  printf 'Would remove Homebrew cache fixture\n'
+  exit 0
+fi
+if [[ "${1:-}" == "cleanup" && $# -eq 1 ]]; then
+  printf 'Removed Homebrew cache fixture\n'
+  exit 0
+fi
+printf 'unsupported fake brew command: %s\n' "$*" >&2
+exit 64
+BREW
+chmod +x "$fake_brew_bin/brew"
+homebrew_gate_error="requires a saved native dry-run receipt"
+if PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-no-homebrew-preview" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --yes --json \
+  --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
+  --timeout 5 >"$scratch/native-homebrew-no-preview.json" 2>"$scratch/native-homebrew-no-preview.err"; then
+  echo "native homebrew cleanup --yes unexpectedly succeeded without preview evidence" >&2
+  exit 1
+fi
+if ! grep -q "requires a saved Homebrew dry-run receipt" "$scratch/native-homebrew-no-preview.err"; then
+  echo "expected --yes without preview to fail because it $homebrew_gate_error" >&2
+  cat "$scratch/native-homebrew-no-preview.err" >&2
+  exit 1
+fi
+PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --dry-run --save-audit --json \
+  --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
+  --timeout 5 >"$scratch/native-homebrew-dry-run.json"
+grep -q '"mode" : "dryRun"' "$scratch/native-homebrew-dry-run.json"
+grep -q "Would remove Homebrew cache fixture" "$scratch/native-homebrew-dry-run.json"
+find "$scratch/audit-homebrew" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
+RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native receipts list --json >"$scratch/native-receipts-list.json"
+grep -q '"id" : "brew.preview"' "$scratch/native-receipts-list.json"
+RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native receipts export \
+  --path-style redacted \
+  --output "$scratch/native-receipt-report.md" >"$scratch/native-receipt-export.txt"
+grep -q "Ryddi Native Command Receipt Report" "$scratch/native-receipt-report.md"
+grep -q "Homebrew dry run completed" "$scratch/native-receipt-report.md"
+PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --yes --save-audit --json \
+  --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
+  --timeout 5 >"$scratch/native-homebrew-perform.json"
+grep -q '"mode" : "perform"' "$scratch/native-homebrew-perform.json"
+grep -q "Removed Homebrew cache fixture" "$scratch/native-homebrew-perform.json"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" trash --json \
   --path "$trash_fixture" \
   --limit 20 \
@@ -1203,6 +1266,10 @@ commit="unknown"
 if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   commit="$(git -C "$root" rev-parse HEAD)"
 fi
+notary_status_manifest="not applicable"
+if [[ -n "$notary_status_file" ]]; then
+  notary_status_manifest="dist/$(basename "$notary_status_file")"
+fi
 
 cat >"$manifest_path" <<MANIFEST
 manifest_schema=ryddi.release-trust.v1
@@ -1220,7 +1287,7 @@ gatekeeper=$gatekeeper_status
 Ryddi release check
 Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 Commit: $commit
-Bundle: $app
+Bundle: dist/Ryddi.app
 Bundle name: $bundle_name
 Bundle id: $bundle_id
 Bundle version: $bundle_version
@@ -1229,13 +1296,13 @@ Rules: ${rules_path#$app/}
 Signing state: $signing_state
 Notarization state: $notarization_state
 Notarization submission: ${notary_submission:-not applicable}
-Notarization status JSON: ${notary_status_file:-not applicable}
+Notarization status JSON: $notary_status_manifest
 Gatekeeper assessment: $spctl_state
-Artifact: $zip_path
-Checksum: $(cat "$checksum_path")
+Artifact: dist/$(basename "$zip_path")
+Checksum: $artifact_sha  dist/$(basename "$zip_path")
 
 Verification performed:
-- swift test --scratch-path "$root/.build"
+- swift test --scratch-path .build
 - Scripts/package-app.sh
 - bundle executable/resource checks
 - bundled reclaimer status --json
@@ -1244,6 +1311,7 @@ Verification performed:
 - bundled reclaimer agents --json on disposable Codex/Claude/Cursor/Ollama fixture
 - bundled reclaimer agents retention --json on disposable Codex/Claude/Cursor/Ollama fixture
 - bundled reclaimer native --json and native run --dry-run --json on disposable Homebrew fixture
+- bundled reclaimer native homebrew cleanup --dry-run/--yes receipt-gate smoke on disposable Homebrew fixture
 - bundled reclaimer trash --json on disposable Trash fixture, with audit save and no emptying
 - bundled reclaimer downloads --json on disposable Downloads fixture, with audit save and no file moves/deletes
 - bundled reclaimer browsers --json on disposable browser cache/profile fixture, with audit save and no profile/cache mutation
@@ -1285,6 +1353,7 @@ Non-claims:
 - Packaging does not grant Full Disk Access.
 - Packaging does not execute cleanup, install a LaunchAgent, or verify real disk reclaim.
 MANIFEST
+assert_public_manifest_has_no_local_paths "$manifest_path"
 
 echo "==> Release check complete"
 echo "$zip_path"

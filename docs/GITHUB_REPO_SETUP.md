@@ -70,7 +70,7 @@ Initial MVP:
 - SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, Large & Old Files, detail view, Downloads Review, Browser Cache Review, Package Cache Review, Project Dependencies Review, Xcode Review, Device Backups Review, Apps & Leftovers, app uninstall preview/execution receipts, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - AI-agent storage buckets and retention profiles that separate reclaimable cache, old-history compression review, protected state, quit-first data, and manual review
-- Native-tool command preview and execution receipts for selected non-destructive/non-placeholder cleanup commands, with Docker/Colima destructive commands kept guidance-only
+- Native-tool command preview and execution receipts for explicitly allowlisted, preview-gated cleanup commands, with Docker/Colima destructive commands kept guidance-only
 - Report-only Downloads Review for old downloads, installers, archives, app bundles, Finder workflow buckets, row actions, and local audit history
 - Report-only Browser Cache Review for cache roots, protected profile roots, advisory browser runtime status, quit-first guidance, and local audit history
 - Report-only Package Cache Review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native cleanup guidance, and local audit history

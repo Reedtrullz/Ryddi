@@ -72,6 +72,14 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             source.contains("sessionHistoryWarnings:") && source.contains(".warnings"),
             "DashboardModel actionCenterReport should pass scan-session history warnings into ActionCenterInput."
         )
+        XCTAssertTrue(
+            source.contains("latestScanSession: actionCenterScanSession,"),
+            "The Summary should pass only the app's current loaded scan session as current evidence, so first-run users still get a primary Scan action."
+        )
+        XCTAssertFalse(
+            source.contains("latestScanSession: actionCenterScanSession ?? scanSessionHistory.sessions.first"),
+            "Saved audit history should provide warnings only; it must not suppress the primary Scan action when no scan is loaded in the app."
+        )
     }
 
     func testAppSummaryPassesNativeReceiptsToActionCenter() throws {
@@ -182,6 +190,52 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(
             source.contains("PackageReclaimLaneBuilder.build"),
             "The package preview lane should use ReclaimerCore instead of app-only command logic."
+        )
+        XCTAssertTrue(
+            source.contains("Open Use Native Tool Review"),
+            "The package preview lane should point users toward receipt-producing native dry-run review, not stop at command text."
+        )
+    }
+
+    func testLargeOldReviewContentIsVerticallyScrollable() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("LargeOldReviewScrollContainer"),
+            "Large & Old review can show many rows and should use a named vertical scroll container instead of clipping actions at compact heights."
+        )
+    }
+
+    func testDryRunOwnsBusyStateThroughAutoPlan() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("buildPlanWithoutChangingWorkingState"),
+            "runDryRun() should use an internal plan builder helper so auto-planning does not clear isWorking before execution finishes."
+        )
+        XCTAssertTrue(
+            source.contains("if plan == nil {\n                await buildPlanWithoutChangingWorkingState()"),
+            "runDryRun() should not call public buildPlan(), which toggles isWorking independently."
+        )
+        XCTAssertFalse(
+            source.contains("if plan == nil {\n                await buildPlan()\n            }"),
+            "Auto dry-run must not re-enable controls by calling buildPlan() inside runDryRun()."
+        )
+    }
+
+    func testReclaimRefreshPreservesExecutedSessionState() throws {
+        let source = try appSource()
+        let helperStart = try XCTUnwrap(source.range(of: "private func refreshScanAfterReclaimPreservingExecutionSession"))
+        let helperEnd = try XCTUnwrap(source[helperStart.lowerBound...].range(of: "\n    func exportEvidenceReport"))
+        let helperSource = String(source[helperStart.lowerBound..<helperEnd.lowerBound])
+
+        XCTAssertTrue(
+            source.contains("refreshScanAfterReclaimPreservingExecutionSession"),
+            "Post-reclaim refresh should not overwrite the executed session state shown by Summary."
+        )
+        XCTAssertFalse(
+            helperSource.contains("recordScanSession"),
+            "A successful reclaim should not replace the executed session with a plain scanned session immediately after receipt recording."
         )
     }
 

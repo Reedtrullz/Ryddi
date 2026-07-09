@@ -79,7 +79,10 @@ struct DashboardView: View {
             } else if selectedSection == "Browsers" {
                 BrowserCacheReviewView(model: model)
             } else if selectedSection == "Packages" {
-                PackageCacheReviewView(model: model)
+                PackageCacheReviewView(model: model) { section in
+                    selectedFinding = nil
+                    selectedSection = section
+                }
             } else if selectedSection == "Projects" {
                 ProjectDependencyReviewView(model: model)
             } else if selectedSection == "DeviceBackups" {
@@ -2745,6 +2748,7 @@ struct BrowserCacheReviewView: View {
 
 struct PackageCacheReviewView: View {
     let model: DashboardModel
+    let navigate: (String) -> Void
 
     var body: some View {
         ScrollView {
@@ -2777,7 +2781,10 @@ struct PackageCacheReviewView: View {
                         MetricTile(title: "Protected config", value: "\(report.protectedConfigRoots.count)")
                     }
 
-                    PackageReclaimLaneView(report: lane)
+                    PackageReclaimLaneView(report: lane) {
+                        model.recordReviewSelection(.useNativeTool)
+                        navigate("Queues")
+                    }
 
                     SectionBox(title: "By Package Manager") {
                         if report.managerSummaries.isEmpty {
@@ -2935,6 +2942,7 @@ struct PackageCacheReviewView: View {
 
 struct PackageReclaimLaneView: View {
     let report: PackageReclaimLaneReport
+    let onOpenNativeReview: () -> Void
 
     var body: some View {
         SectionBox(title: "Native Preview Lane") {
@@ -2964,6 +2972,14 @@ struct PackageReclaimLaneView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                Button {
+                    onOpenNativeReview()
+                } label: {
+                    Label("Open Use Native Tool Review", systemImage: "arrow.right.circle")
+                }
+                .buttonStyle(.bordered)
+                .help("Open the review queue where native dry-run receipts can be created from individual findings.")
             }
         }
     }
@@ -6002,94 +6018,104 @@ struct LargeOldReviewView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Large & Old Files")
-                    .font(.largeTitle.bold())
-                Spacer()
-                Picker("Mode", selection: $mode) {
-                    ForEach(LargeOldReviewMode.allCases) { option in
-                        Text(option.label).tag(option)
+        LargeOldReviewScrollContainer {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    Text("Large & Old Files")
+                        .font(.largeTitle.bold())
+                    Spacer()
+                    Picker("Mode", selection: $mode) {
+                        ForEach(LargeOldReviewMode.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 280)
-                Picker("Sort", selection: $sort) {
-                    Text("Allocated").tag(TopOffenderSort.allocated)
-                    Text("Logical").tag(TopOffenderSort.logical)
-                    Text("Age").tag(TopOffenderSort.age)
-                    Text("Category").tag(TopOffenderSort.category)
-                    Text("Owner").tag(TopOffenderSort.owner)
-                    Text("Safety").tag(TopOffenderSort.safety)
-                }
-                .pickerStyle(.menu)
-            }
-
-            HStack(spacing: 12) {
-                MetricTile(title: "Items", value: "\(report.totalCount)")
-                MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
-                MetricTile(title: "Large", value: "\(report.largeCount)")
-                MetricTile(title: "Old", value: "\(report.oldCount)")
-                MetricTile(title: "Protected", value: ByteFormat.string(report.protectedBytes))
-            }
-
-            if model.findings.isEmpty {
-                ContentUnavailableView("No scan yet", systemImage: "doc.text.magnifyingglass", description: Text("Run Scan to build a large and old file review."))
-            } else if report.rows.isEmpty {
-                ContentUnavailableView("No large or old review rows", systemImage: "checkmark.circle", description: Text("No current findings matched the selected review mode."))
-            } else {
-                HStack(alignment: .top, spacing: 14) {
-                    ReviewSummaryList(title: "Signals", summaries: report.kindSummaries)
-                    ReviewSummaryList(title: "Categories", summaries: Array(report.categorySummaries.prefix(6)))
-                    ReviewSummaryList(title: "Safety", summaries: report.safetySummaries)
+                    .pickerStyle(.segmented)
+                    .frame(width: 280)
+                    Picker("Sort", selection: $sort) {
+                        Text("Allocated").tag(TopOffenderSort.allocated)
+                        Text("Logical").tag(TopOffenderSort.logical)
+                        Text("Age").tag(TopOffenderSort.age)
+                        Text("Category").tag(TopOffenderSort.category)
+                        Text("Owner").tag(TopOffenderSort.owner)
+                        Text("Safety").tag(TopOffenderSort.safety)
+                    }
+                    .pickerStyle(.menu)
                 }
 
-                ArchiveCandidatePanel(
-                    report: archiveReport,
-                    onExport: { Task { await model.exportArchiveReview(mode: mode, sort: sort) } },
-                    onExportRedacted: { Task { await model.exportArchiveReview(mode: mode, sort: sort, pathStyle: .redacted) } }
-                )
-
-                if let url = model.lastArchiveReviewExportURL {
-                    Text("Latest archive review: \(url.path)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                HStack(spacing: 12) {
+                    MetricTile(title: "Items", value: "\(report.totalCount)")
+                    MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
+                    MetricTile(title: "Large", value: "\(report.largeCount)")
+                    MetricTile(title: "Old", value: "\(report.oldCount)")
+                    MetricTile(title: "Protected", value: ByteFormat.string(report.protectedBytes))
                 }
 
-                SectionBox(title: "Review Rows") {
-                    TopOffenderTableScrollContainer {
-                        ForEach(report.rows) { row in
-                            VStack(alignment: .leading, spacing: 4) {
-                                TopOffenderRowView(row: row.row, isSelectedInPlan: false)
-                                Text(row.reviewReason)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.leading, 10)
+                if model.findings.isEmpty {
+                    ContentUnavailableView("No scan yet", systemImage: "doc.text.magnifyingglass", description: Text("Run Scan to build a large and old file review."))
+                } else if report.rows.isEmpty {
+                    ContentUnavailableView("No large or old review rows", systemImage: "checkmark.circle", description: Text("No current findings matched the selected review mode."))
+                } else {
+                    HStack(alignment: .top, spacing: 14) {
+                        ReviewSummaryList(title: "Signals", summaries: report.kindSummaries)
+                        ReviewSummaryList(title: "Categories", summaries: Array(report.categorySummaries.prefix(6)))
+                        ReviewSummaryList(title: "Safety", summaries: report.safetySummaries)
+                    }
+
+                    ArchiveCandidatePanel(
+                        report: archiveReport,
+                        onExport: { Task { await model.exportArchiveReview(mode: mode, sort: sort) } },
+                        onExportRedacted: { Task { await model.exportArchiveReview(mode: mode, sort: sort, pathStyle: .redacted) } }
+                    )
+
+                    if let url = model.lastArchiveReviewExportURL {
+                        Text("Latest archive review: \(url.path)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+
+                    SectionBox(title: "Review Rows") {
+                        TopOffenderTableScrollContainer {
+                            ForEach(report.rows) { row in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    TopOffenderRowView(row: row.row, isSelectedInPlan: false)
+                                    Text(row.reviewReason)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.leading, 10)
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            SectionBox(title: "Non-Claims") {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(report.nonClaims, id: \.self) { note in
-                        Text(note)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                SectionBox(title: "Non-Claims") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(report.nonClaims, id: \.self) { note in
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-            }
 
-            if let error = model.error {
-                Text(error)
-                    .foregroundStyle(.red)
+                if let error = model.error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
             }
-
-            Spacer()
+            .padding(24)
         }
-        .padding(24)
+    }
+}
+
+struct LargeOldReviewScrollContainer<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ScrollView {
+            content()
+        }
     }
 }
 
@@ -7004,7 +7030,7 @@ final class DashboardModel {
         return ActionCenterBuilder.build(
             input: ActionCenterInput(
                 permissionReport: permissionReport,
-                latestScanSession: actionCenterScanSession ?? scanSessionHistory.sessions.first,
+                latestScanSession: actionCenterScanSession,
                 findings: findings,
                 currentPlan: plan,
                 latestExecutionReceipt: lastDryRunReceipt ?? lastExecutionReceipt,
@@ -7366,6 +7392,10 @@ final class DashboardModel {
     func buildPlan() async {
         isWorking = true
         defer { isWorking = false }
+        await buildPlanWithoutChangingWorkingState()
+    }
+
+    private func buildPlanWithoutChangingWorkingState() async {
         let currentFindings = findings
         let builtPlan = await Task.detached {
             let builder = PlanBuilder(openFileChecker: LsofOpenFileChecker())
@@ -7383,7 +7413,7 @@ final class DashboardModel {
         defer { isWorking = false }
         do {
             if plan == nil {
-                await buildPlan()
+                await buildPlanWithoutChangingWorkingState()
             }
             guard let plan else { return }
             let includeUserRules = includeUserRulesInScans
@@ -7445,39 +7475,42 @@ final class DashboardModel {
             loadHolding()
             loadRecovery()
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
-            let scopePlan = selectedScopePlan
-            let refreshedIncludeUserRules = includeUserRulesInScans
-            let refreshed = try await Task.detached {
-                let scopes = scopePlan.scopes
-                let policy = UserPathPolicyStore().load()
-                let scanner = try FileScanner(
-                    ruleEngine: try RuleEngine.bundled(includingUserRules: refreshedIncludeUserRules),
-                    openFileChecker: NoOpenFilesChecker()
-                )
-                let findings = scanner.scan(
-                    scopes: scopes,
-                    options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
-                )
-                let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
-                let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
-                return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
-            }.value
-            lastScannedScopeLabel = refreshed.0
-            scanScopes = refreshed.1
-            findings = refreshed.2
-            overview = refreshed.3
-            diskDrillDown = refreshed.4
-            userPathPolicy = refreshed.5
-            permissionReport = refreshed.6
-            _ = try ScanHistoryStore().save(overview: refreshed.3)
-            loadHistory()
-            plan = nil
-            lastDryRunReceipt = nil
-            lastScanDate = Date()
-            try recordScanSession(updatedAt: lastScanDate ?? Date())
+            try await refreshScanAfterReclaimPreservingExecutionSession()
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    private func refreshScanAfterReclaimPreservingExecutionSession() async throws {
+        let scopePlan = selectedScopePlan
+        let refreshedIncludeUserRules = includeUserRulesInScans
+        let refreshed = try await Task.detached {
+            let scopes = scopePlan.scopes
+            let policy = UserPathPolicyStore().load()
+            let scanner = try FileScanner(
+                ruleEngine: try RuleEngine.bundled(includingUserRules: refreshedIncludeUserRules),
+                openFileChecker: NoOpenFilesChecker()
+            )
+            let findings = scanner.scan(
+                scopes: scopes,
+                options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
+            )
+            let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
+            let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
+            return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
+        }.value
+        lastScannedScopeLabel = refreshed.0
+        scanScopes = refreshed.1
+        findings = refreshed.2
+        overview = refreshed.3
+        diskDrillDown = refreshed.4
+        userPathPolicy = refreshed.5
+        permissionReport = refreshed.6
+        _ = try ScanHistoryStore().save(overview: refreshed.3)
+        loadHistory()
+        plan = nil
+        lastDryRunReceipt = nil
+        lastScanDate = Date()
     }
 
     func exportEvidenceReport(pathStyle: ReportPathStyle = .full, redactUserText: Bool = false) async {

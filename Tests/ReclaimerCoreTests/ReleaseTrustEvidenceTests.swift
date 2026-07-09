@@ -128,6 +128,38 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
         XCTAssertTrue(script.contains("gatekeeper=$gatekeeper_status"))
     }
 
+    func testReleaseCheckManifestAvoidsLocalAbsolutePaths() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
+
+        XCTAssertTrue(
+            script.contains("assert_public_manifest_has_no_local_paths"),
+            "release-check should fail if the public manifest leaks local build paths."
+        )
+        XCTAssertTrue(script.contains("Bundle: dist/Ryddi.app"))
+        XCTAssertTrue(script.contains("Artifact: dist/$(basename \"$zip_path\")"))
+        XCTAssertTrue(script.contains("Checksum: $artifact_sha  dist/$(basename \"$zip_path\")"))
+        XCTAssertTrue(script.contains("- swift test --scratch-path .build"))
+        XCTAssertFalse(script.contains("Bundle: $app"))
+        XCTAssertFalse(script.contains("Artifact: $zip_path"))
+        XCTAssertFalse(script.contains("$(cat \"$checksum_path\")"))
+        XCTAssertFalse(script.contains("- swift test --scratch-path \"$root/.build\""))
+    }
+
+    func testReleaseCheckSmokesActualHomebrewReceiptGate() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("fake-brew-bin"))
+        XCTAssertTrue(script.contains("native homebrew cleanup --dry-run --save-audit"))
+        XCTAssertTrue(script.contains("native receipts list --json"))
+        XCTAssertTrue(script.contains("native receipts export"))
+        XCTAssertTrue(script.contains("native homebrew cleanup --yes"))
+        XCTAssertTrue(script.contains("requires a saved native dry-run receipt"))
+        XCTAssertTrue(
+            script.contains("bundled reclaimer native homebrew cleanup --dry-run/--yes receipt-gate smoke"),
+            "The public manifest should record the stronger Homebrew preview/perform gate proof."
+        )
+    }
+
     private func repoRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

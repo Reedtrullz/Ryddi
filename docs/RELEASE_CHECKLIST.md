@@ -103,7 +103,7 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `dist/Ryddi-release-manifest.txt` records signed, accepted notarization, stapled, Gatekeeper, strict codesign, bundle version `0.3.0`, build `3`, notary submission ID, and status JSON path proof.
 - [ ] `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` reports `state` as `stapledAndAccepted`.
 - [ ] The manifest contains parseable release-trust keys: `manifest_schema=ryddi.release-trust.v1`, `codesign_verified=true`, `hardened_runtime=true`, `notarization_status=Accepted`, `stapled=true`, and `gatekeeper=accepted`.
-- [ ] GitHub release artifact and checksum are uploaded.
+- [ ] GitHub release artifact, checksum, and release manifest are uploaded.
 
 ## v0.3.0 Release Notes Template
 
@@ -115,7 +115,7 @@ Trust-to-action polish release.
 - Signed and notarized outside the Mac App Store, only if the release manifest proves Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification.
 - Release artifacts use bundle version `0.3.0`, build `3`, and `Ryddi-v0.3.0` names.
 - Trust-to-action app surfaces for Summary, Review Queues, Package Cache, AI Agent Storage, and Remote Targets evidence.
-- Report-only remote target evidence, history, dogfood reports, and issue-package exports remain non-destructive.
+- Report-only remote target evidence, history, dogfood reports, and issue-package exports remain read-only and perform no cleanup.
 - Local issue packages and redacted reports improve bug/safety review without uploading private paths.
 - Release checklist and signed workflow distinguish unsigned previews from signed/notarized releases.
 
