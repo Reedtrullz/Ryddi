@@ -197,6 +197,26 @@ public final class NativeToolExecutor: @unchecked Sendable {
             )
         }
 
+        if let actionCommand = Self.nativeActionCommand(for: command, invocation: invocation),
+           let reason = NativeActionAllowlist.validate(actionCommand).blockedReason {
+            return NativeToolExecutionReceipt(
+                ruleVersion: ruleVersion,
+                mode: mode,
+                status: "blocked",
+                findingPath: receipt.findingPath,
+                category: receipt.category,
+                command: command,
+                invocation: invocation,
+                beforeFreeBytes: before,
+                afterFreeBytes: before,
+                output: nil,
+                userConfirmed: userConfirmed,
+                message: reason,
+                errors: [reason],
+                nonClaims: Self.nonClaims
+            )
+        }
+
         guard mode == .perform else {
             return NativeToolExecutionReceipt(
                 ruleVersion: ruleVersion,
@@ -267,6 +287,20 @@ public final class NativeToolExecutor: @unchecked Sendable {
         guard let executable = parts.first else { return nil }
         let arguments = parts.dropFirst().map(expandTilde)
         return ToolCommandInvocation(executable: expandTilde(executable), arguments: Array(arguments))
+    }
+
+    private static func nativeActionCommand(
+        for command: NativeToolCommand,
+        invocation: ToolCommandInvocation
+    ) -> NativeActionCommand? {
+        if command.id.hasPrefix("brew.") {
+            return NativeActionCommand(
+                kind: .homebrewCleanup,
+                executable: invocation.executable,
+                arguments: invocation.arguments
+            )
+        }
+        return nil
     }
 
     private static func commandParts(_ command: String) -> [String] {
