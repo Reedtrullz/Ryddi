@@ -5,6 +5,24 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
+private enum RyddiWindowLayout {
+    static let minimumContentWidth: CGFloat = 1260
+    static let minimumContentHeight: CGFloat = 760
+    static let defaultContentWidth: CGFloat = 1480
+    static let defaultContentHeight: CGFloat = 940
+    static let topOffenderTableMinimumWidth: CGFloat = 1160
+}
+
+enum DashboardResponsiveGrid {
+    static var metricColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 170, maximum: 320), spacing: 12, alignment: .top)]
+    }
+
+    static var actionColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 118, maximum: 190), spacing: 10, alignment: .leading)]
+    }
+}
+
 @main
 struct MacDiskReclaimerApp: App {
     @State private var statusModel = StatusMenuModel()
@@ -12,8 +30,13 @@ struct MacDiskReclaimerApp: App {
     var body: some Scene {
         WindowGroup("Ryddi", id: "dashboard") {
             DashboardView()
-                .frame(minWidth: 980, minHeight: 680)
+                .frame(
+                    minWidth: RyddiWindowLayout.minimumContentWidth,
+                    minHeight: RyddiWindowLayout.minimumContentHeight
+                )
         }
+        .defaultSize(width: RyddiWindowLayout.defaultContentWidth, height: RyddiWindowLayout.defaultContentHeight)
+        .windowResizability(.contentMinSize)
         MenuBarExtra {
             StatusMenuView(model: statusModel)
         } label: {
@@ -29,7 +52,7 @@ struct MacDiskReclaimerApp: App {
 struct DashboardView: View {
     @State private var model = DashboardModel()
     @State private var selectedFinding: Finding.ID?
-    @State private var selectedSection = "Summary"
+    @State private var selectedSection = DashboardLaunchOptions.initialSection
     @State private var showingReclaimConfirmation = false
 
     var body: some View {
@@ -67,6 +90,8 @@ struct DashboardView: View {
                 TrashReviewView(model: model)
             } else if selectedSection == "Containers" {
                 ContainerInventoryView(model: model)
+            } else if selectedSection == "RemoteTargets" {
+                RemoteTargetsView(model: model)
             } else if selectedSection == "Agents" {
                 AgentStorageReviewView(model: model)
             } else if selectedSection == "Permissions" {
@@ -88,7 +113,14 @@ struct DashboardView: View {
             } else if let finding = model.findings.first(where: { $0.id == selectedFinding }) {
                 FindingDetailView(model: model, finding: finding, planItem: model.planItem(for: finding.id))
             } else {
-                OverviewView(model: model)
+                OverviewView(
+                    model: model,
+                    onReclaim: { showingReclaimConfirmation = true },
+                    navigate: { section in
+                        selectedFinding = nil
+                        selectedSection = section
+                    }
+                )
             }
         }
         .toolbar {
@@ -102,6 +134,7 @@ struct DashboardView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 320)
+
             Picker("Saved Scope", selection: Binding(
                 get: { model.selectedSavedScopeSetID ?? "" },
                 set: { model.setSavedScopeSet($0.isEmpty ? nil : $0) }
@@ -114,58 +147,66 @@ struct DashboardView: View {
             .pickerStyle(.menu)
             .frame(width: 190)
             .disabled(model.savedScopeSets.isEmpty)
-            Picker("Template", selection: Binding(
-                get: { model.selectedScopeTemplateID ?? "" },
-                set: { model.setScopeTemplate($0.isEmpty ? nil : $0) }
-            )) {
-                Text("No template").tag("")
-                ForEach(model.scopeTemplates) { template in
-                    Text(template.name).tag(template.id)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(width: 210)
-            Toggle(isOn: Binding(
-                get: { model.includeUserRulesInScans },
-                set: { model.setIncludeUserRulesInScans($0) }
-            )) {
-                Label("User Rules", systemImage: "slider.horizontal.3")
-            }
-            .toggleStyle(.button)
+
             Button {
                 Task { await model.scan() }
             } label: {
                 Label("Scan", systemImage: "magnifyingglass")
             }
+            .disabled(model.isWorking)
+
             Button {
                 Task { await model.buildPlan() }
             } label: {
                 Label("Plan", systemImage: "checklist")
             }
-            Button {
-                Task { await model.runDryRun() }
+            .disabled(model.findings.isEmpty || model.isWorking)
+
+            Menu {
+                Picker("Template", selection: Binding(
+                    get: { model.selectedScopeTemplateID ?? "" },
+                    set: { model.setScopeTemplate($0.isEmpty ? nil : $0) }
+                )) {
+                    Text("No template").tag("")
+                    ForEach(model.scopeTemplates) { template in
+                        Text(template.name).tag(template.id)
+                    }
+                }
+                Toggle(isOn: Binding(
+                    get: { model.includeUserRulesInScans },
+                    set: { model.setIncludeUserRulesInScans($0) }
+                )) {
+                    Label("Include User Rules", systemImage: "slider.horizontal.3")
+                }
+                Divider()
+                Button {
+                    Task { await model.runDryRun() }
+                } label: {
+                    Label("Dry Run", systemImage: "play.circle")
+                }
+                .disabled(model.plan == nil && model.findings.isEmpty)
+                Button {
+                    Task { await model.exportEvidenceReport() }
+                } label: {
+                    Label("Export Report", systemImage: "square.and.arrow.up")
+                }
+                .disabled(model.overview == nil || model.findings.isEmpty)
+                Button {
+                    Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
+                } label: {
+                    Label("Export Redacted", systemImage: "eye.slash")
+                }
+                .disabled(model.overview == nil || model.findings.isEmpty)
+                Divider()
+                Button(role: .destructive) {
+                    showingReclaimConfirmation = true
+                } label: {
+                    Label("Reclaim", systemImage: "trash")
+                }
+                .disabled(!model.canReclaimSelected || selectedSection == "RemoteTargets")
             } label: {
-                Label("Dry Run", systemImage: "play.circle")
+                Label("More", systemImage: "ellipsis.circle")
             }
-            .disabled(model.plan == nil && model.findings.isEmpty)
-            Button {
-                Task { await model.exportEvidenceReport() }
-            } label: {
-                Label("Export Report", systemImage: "square.and.arrow.up")
-            }
-            .disabled(model.overview == nil || model.findings.isEmpty)
-            Button {
-                Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
-            } label: {
-                Label("Export Redacted", systemImage: "eye.slash")
-            }
-            .disabled(model.overview == nil || model.findings.isEmpty)
-            Button(role: .destructive) {
-                showingReclaimConfirmation = true
-            } label: {
-                Label("Reclaim", systemImage: "trash")
-            }
-            .disabled(!model.canReclaimSelected)
         }
         .confirmationDialog("Reclaim selected auto-safe items?", isPresented: $showingReclaimConfirmation) {
             Button("Reclaim Selected", role: .destructive) {
@@ -176,9 +217,6 @@ struct DashboardView: View {
             Text(model.reclaimConfirmationMessage)
         }
         .onAppear {
-            if model.findings.isEmpty {
-                Task { await model.scan() }
-            }
             model.loadSavedScopeSets()
             model.loadAudit()
             model.loadHolding()
@@ -187,109 +225,50 @@ struct DashboardView: View {
             model.loadUserPolicy()
             model.refreshAutomation()
             model.refreshPermissions()
+            model.refreshRemoteTargets()
+            model.applyScreenshotDemoIfNeeded()
         }
     }
 
     private var sidebar: some View {
-        List(selection: $selectedFinding) {
-            Section("Overview") {
-                Button("Summary") {
-                    selectedFinding = nil
-                    selectedSection = "Summary"
-                }
-                Button("Feature Matrix") {
-                    selectedFinding = nil
-                    selectedSection = "Features"
-                }
-                Button("Rule Catalog") {
-                    selectedFinding = nil
-                    selectedSection = "Rules"
-                }
-                Button("Apps & Leftovers") {
-                    selectedFinding = nil
-                    selectedSection = "Apps"
-                }
-                Button("Review Queues") {
-                    selectedFinding = nil
-                    selectedSection = "Queues"
-                }
-                Button("Large & Old Files") {
-                    selectedFinding = nil
-                    selectedSection = "LargeOld"
-                }
-                Button("Duplicate Review") {
-                    selectedFinding = nil
-                    selectedSection = "Duplicates"
-                }
-                Button("Downloads Review") {
-                    selectedFinding = nil
-                    selectedSection = "Downloads"
-                }
-                Button("Browser Caches") {
-                    selectedFinding = nil
-                    selectedSection = "Browsers"
-                }
-                Button("Package Caches") {
-                    selectedFinding = nil
-                    selectedSection = "Packages"
-                }
-                Button("Project Dependencies") {
-                    selectedFinding = nil
-                    selectedSection = "Projects"
-                }
-                Button("Device Backups") {
-                    selectedFinding = nil
-                    selectedSection = "DeviceBackups"
-                }
-                Button("Xcode Review") {
-                    selectedFinding = nil
-                    selectedSection = "Xcode"
-                }
-                Button("Trash Review") {
-                    selectedFinding = nil
-                    selectedSection = "Trash"
-                }
-                Button("Container Inventory") {
-                    selectedFinding = nil
-                    selectedSection = "Containers"
-                }
-                Button("AI Agent Storage") {
-                    selectedFinding = nil
-                    selectedSection = "Agents"
-                }
-                Button("Permissions") {
-                    selectedFinding = nil
-                    selectedSection = "Permissions"
-                }
-                Button("Active Handles") {
-                    selectedFinding = nil
-                    selectedSection = "Active"
-                }
-                Button("Scope Sets") {
-                    selectedFinding = nil
-                    selectedSection = "Scopes"
-                }
-                Button("Protections & Exclusions") {
-                    selectedFinding = nil
-                    selectedSection = "Policy"
-                }
-                Button("Audit History") {
-                    selectedFinding = nil
-                    selectedSection = "Audit"
-                }
-                Button("Recovery Center") {
-                    selectedFinding = nil
-                    selectedSection = "Recovery"
-                }
-                Button("Holding Area") {
-                    selectedFinding = nil
-                    selectedSection = "Holding"
-                }
-                Button("Automation") {
-                    selectedFinding = nil
-                    selectedSection = "Automation"
-                }
+        List {
+            Section("Start") {
+                sidebarRow("Summary", systemImage: "gauge.with.dots.needle", section: "Summary")
+                sidebarRow("Review Queues", systemImage: "tray.full", section: "Queues")
+                sidebarRow("Large & Old Files", systemImage: "archivebox", section: "LargeOld")
             }
+
+            Section("General Mac") {
+                sidebarRow("Apps & Leftovers", systemImage: "app.dashed", section: "Apps")
+                sidebarRow("Downloads", systemImage: "arrow.down.circle", section: "Downloads")
+                sidebarRow("Duplicates", systemImage: "doc.on.doc", section: "Duplicates")
+                sidebarRow("Browser Caches", systemImage: "globe", section: "Browsers")
+                sidebarRow("Device Backups", systemImage: "iphone", section: "DeviceBackups")
+                sidebarRow("Trash", systemImage: "trash", section: "Trash")
+            }
+
+            Section("Developer") {
+                sidebarRow("Package Caches", systemImage: "shippingbox", section: "Packages")
+                sidebarRow("Project Dependencies", systemImage: "folder", section: "Projects")
+                sidebarRow("Xcode", systemImage: "hammer", section: "Xcode")
+                sidebarRow("Containers", systemImage: "cube.box", section: "Containers")
+                sidebarRow("Remote Targets", systemImage: "server.rack", section: "RemoteTargets")
+                sidebarRow("AI Agent Storage", systemImage: "brain.head.profile", section: "Agents")
+            }
+
+            Section("Trust") {
+                sidebarRow("Permissions", systemImage: "lock.shield", section: "Permissions")
+                sidebarRow("Active Handles", systemImage: "waveform.path.ecg", section: "Active")
+                sidebarRow("Scope Sets", systemImage: "scope", section: "Scopes")
+                sidebarRow("Protections", systemImage: "hand.raised", section: "Policy")
+                sidebarRow("Audit History", systemImage: "clock.arrow.circlepath", section: "Audit")
+                sidebarRow("Recovery Center", systemImage: "arrow.uturn.backward.circle", section: "Recovery")
+                sidebarRow("Holding Area", systemImage: "tray", section: "Holding")
+                sidebarRow("Automation", systemImage: "calendar.badge.clock", section: "Automation")
+                sidebarRow("Rule Catalog", systemImage: "list.bullet.rectangle", section: "Rules")
+                sidebarRow("Feature Matrix", systemImage: "square.grid.2x2", section: "Features")
+            }
+
             Section("Review Queues") {
                 ForEach(model.queueSummaries) { queue in
                     DisclosureGroup("\(queue.title) (\(queue.count), \(ByteFormat.string(queue.allocatedSize)))") {
@@ -309,155 +288,593 @@ struct DashboardView: View {
             }
         }
         .navigationTitle("Ryddi")
+        .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
+    }
+
+    private func sidebarRow(_ title: String, systemImage: String, section: String) -> some View {
+        Button {
+            selectedFinding = nil
+            selectedSection = section
+        } label: {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(selectedSection == section ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(selectedSection == section ? Color.accentColor.opacity(0.16) : Color.clear)
+    }
+}
+
+enum DashboardLaunchOptions {
+    static var isScreenshotDemo: Bool {
+        ProcessInfo.processInfo.environment["RYDDI_SCREENSHOT_DEMO"] == "1"
+    }
+
+    static var initialSection: String {
+        guard isScreenshotDemo else { return "Summary" }
+        let raw = ProcessInfo.processInfo.environment["RYDDI_SCREENSHOT_SECTION"] ?? "Summary"
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "queues", "review-queues":
+            return "Queues"
+        case "packages", "package-cache", "package-caches":
+            return "Packages"
+        case "agents", "ai-agent-storage":
+            return "Agents"
+        case "remote", "remote-targets", "remotetargets":
+            return "RemoteTargets"
+        default:
+            return "Summary"
+        }
     }
 }
 
 struct OverviewView: View {
     let model: DashboardModel
+    let onReclaim: () -> Void
+    let navigate: (String) -> Void
+
+    private var topRows: [TopOffenderRow] {
+        Array(FindingAnalytics.topOffenderTable(findings: model.findings, sort: .allocated, group: .none, limit: 8).rows)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Evidence-first reclaim")
-                .font(.largeTitle.bold())
-            Text("Ryddi is a general Mac disk reclaim assistant with a developer and AI-agent cleanup pack being perfected first.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                DashboardHeroView(model: model)
 
-            if model.isWorking {
-                ProgressView("Working...")
-            }
-
-            TrustReadinessCardsView(report: model.trustReadinessReport)
-
-            ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
-
-            if let url = model.lastReportExportURL {
-                Text("Latest report: \(url.path)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-            if let url = model.lastGrowthReportExportURL {
-                Text("Latest growth report: \(url.path)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-            if let url = model.lastArchiveReviewExportURL {
-                Text("Latest archive review: \(url.path)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            HStack(spacing: 16) {
-                MetricTile(title: "Findings", value: "\(model.findings.count)")
-                MetricTile(title: "Auto-safe", value: ByteFormat.string(model.totalBytes(for: .autoSafe)))
-                MetricTile(title: "Needs review", value: ByteFormat.string(model.totalReviewBytes))
-                MetricTile(title: "Plan reclaim", value: ByteFormat.string(model.plan?.expectedImmediateReclaim ?? 0))
-            }
-
-            HStack(spacing: 16) {
-                MetricTile(title: "Last scan", value: model.lastScanDate?.formatted(date: .omitted, time: .shortened) ?? "Never")
-                MetricTile(title: "Automation", value: model.launchAgentInstalled ? "Plist installed" : "Off")
-                MetricTile(title: "Protected", value: ByteFormat.string(model.totalBytes(for: .neverTouch) + model.totalBytes(for: .preserveByDefault)))
-                MetricTile(title: "Audit receipts", value: "\(model.recentReceipts.count)")
-                MetricTile(title: "Snapshots", value: "\(model.scanSnapshots.count)")
-                MetricTile(title: "Duplicate groups", value: "\(model.duplicateReview?.groups.count ?? 0)")
-                MetricTile(title: "Downloads", value: model.downloadsReview.map { ByteFormat.string($0.reviewCandidateBytes) } ?? "Not reviewed")
-                MetricTile(title: "Browser caches", value: model.browserCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
-                MetricTile(title: "Package caches", value: model.packageCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
-                MetricTile(title: "Project deps", value: model.projectDependencyReview.map { ByteFormat.string($0.candidateBytes) } ?? "Not reviewed")
-                MetricTile(title: "Device backups", value: model.deviceBackupReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
-                MetricTile(title: "Xcode cache", value: model.xcodeReview.map { ByteFormat.string($0.rebuildableCacheBytes) } ?? "Not reviewed")
-                MetricTile(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "Not reviewed")
-                MetricTile(title: "App leftovers", value: "\(model.appReview?.orphanGroups.count ?? 0)")
-                MetricTile(title: "Container reports", value: "\(model.recentContainerInventoryReports.count)")
-                MetricTile(title: "Active handles", value: "\(model.activeFileReview?.openCount ?? 0)")
-            }
-
-            if let overview = model.overview {
-                PermissionCoverageView(report: model.permissionReport)
-                AccountingNotesView(notes: overview.accountingNotes)
-                DiskMapView(nodes: overview.mapNodes)
-                if let report = model.diskDrillDown {
-                    DiskDrillDownView(report: report)
+                if model.isWorking {
+                    ProgressView("Working")
+                        .controlSize(.large)
                 }
-                OwnerStorageView(summaries: overview.ownerSummaries)
-                GrowthHistoryView(
-                    snapshots: model.scanSnapshots,
-                    deltas: model.growthDeltas,
-                    onExport: { Task { await model.exportGrowthReport() } },
-                    onExportRedacted: { Task { await model.exportGrowthReport(pathStyle: .redacted) } }
+
+                GuidedSummaryView(
+                    model: model,
+                    report: model.guidedWorkflowReport,
+                    onReclaim: onReclaim,
+                    navigate: navigate
                 )
-                TopOffendersView(findings: model.findings, plan: model.plan)
+
+                DashboardActionStrip(
+                    model: model,
+                    onReclaim: onReclaim,
+                    navigate: navigate
+                )
+
+                if model.permissionReport.needsFullDiskAccessReview || model.permissionReport.unknownCount > 0 {
+                    PermissionAccessBanner(
+                        report: model.permissionReport,
+                        onReviewPermissions: { navigate("Permissions") }
+                    )
+                }
+
+                if let error = model.error {
+                    DashboardAlert(message: error, systemImage: "exclamationmark.triangle.fill")
+                }
+
+                LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
+                    MetricTile(title: "Findings", value: "\(model.findings.count)")
+                    MetricTile(title: "Auto-safe", value: ByteFormat.string(model.totalBytes(for: .autoSafe)))
+                    MetricTile(title: "Needs review", value: ByteFormat.string(model.totalReviewBytes))
+                    MetricTile(title: "Plan reclaim", value: ByteFormat.string(model.plan?.expectedImmediateReclaim ?? 0))
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        DashboardQueuePanel(model: model, navigate: navigate)
+                            .frame(minWidth: 330)
+                        DashboardReviewLauncher(model: model, navigate: navigate)
+                            .frame(minWidth: 330)
+                    }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        DashboardQueuePanel(model: model, navigate: navigate)
+                        DashboardReviewLauncher(model: model, navigate: navigate)
+                    }
+                }
+
+                if !topRows.isEmpty {
+                    SectionBox(title: "Largest Current Findings") {
+                        TopOffenderTableScrollContainer {
+                            ForEach(topRows) { row in
+                                TopOffenderRowView(row: row, isSelectedInPlan: model.plan?.items.contains { $0.finding.id == row.finding.id && $0.selected } ?? false)
+                            }
+                        }
+                        HStack {
+                            Spacer()
+                            Button {
+                                navigate("LargeOld")
+                            } label: {
+                                Label("Open Large & Old Files", systemImage: "archivebox")
+                            }
+                        }
+                    }
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        TrustReadinessCardsView(
+                            report: model.trustReadinessReport,
+                            onReviewPermissions: { navigate("Permissions") }
+                        )
+                        ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
+                    }
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        TrustReadinessCardsView(
+                            report: model.trustReadinessReport,
+                            onReviewPermissions: { navigate("Permissions") }
+                        )
+                        ScanScopePreviewView(plan: model.selectedScopePlan, lastScannedLabel: model.lastScannedScopeLabel)
+                    }
+                }
+
+                if let overview = model.overview {
+                    PermissionCoverageView(report: model.permissionReport)
+                    GrowthHistoryView(
+                        snapshots: model.scanSnapshots,
+                        deltas: model.growthDeltas,
+                        onExport: { Task { await model.exportGrowthReport() } },
+                        onExportRedacted: { Task { await model.exportGrowthReport(pathStyle: .redacted) } }
+                    )
+                    OwnerStorageView(summaries: overview.ownerSummaries)
+                }
+
+                DashboardPlanPanel(model: model, onReclaim: onReclaim)
+                DashboardRecentExports(model: model)
+            }
+            .padding(24)
+            .frame(maxWidth: 1220, alignment: .leading)
+        }
+    }
+}
+
+struct DashboardHeroView: View {
+    let model: DashboardModel
+
+    var body: some View {
+        SectionBox(title: "Disk Status") {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 18) {
+                    diskSummary
+                    Spacer(minLength: 16)
+                    heroMetrics
+                        .frame(minWidth: 190, alignment: .trailing)
+                }
+
+                VStack(alignment: .leading, spacing: 14) {
+                    diskSummary
+                    heroMetrics
+                }
+            }
+        }
+    }
+
+    private var diskSummary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(model.diskStatus.statusLine)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.82)
+                    .lineLimit(1)
+                Text(model.diskStatus.pressure.label)
+                    .font(.headline)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .foregroundStyle(pressureColor)
+                    .background(pressureColor.opacity(0.18), in: Capsule())
+            }
+            Text(model.diskStatus.path)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Text("Last scan \(model.lastScanDate?.formatted(date: .omitted, time: .shortened) ?? "not run")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var heroMetrics: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            MetricInline(title: "Coverage", value: model.permissionReport.coverageLevel.label)
+            MetricInline(title: "Automation", value: model.launchAgentStatus.installed ? "Report-only" : "Off")
+            MetricInline(title: "Audit", value: auditSummary)
+        }
+    }
+
+    private var auditSummary: String {
+        guard let summary = model.auditStoreSummary else { return "Not loaded" }
+        return "\(summary.totalKnownFileCount) files"
+    }
+
+    private var pressureColor: Color {
+        switch model.diskStatus.pressure {
+        case .healthy: .green
+        case .warning: .orange
+        case .critical: .red
+        case .unknown: .secondary
+        }
+    }
+}
+
+struct DashboardActionStrip: View {
+    let model: DashboardModel
+    let onReclaim: () -> Void
+    let navigate: (String) -> Void
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                actionButtons
             }
 
-            if let error = model.error {
-                Text(error)
-                    .foregroundStyle(.red)
+            LazyVGrid(columns: DashboardResponsiveGrid.actionColumns, alignment: .leading, spacing: 10) {
+                actionButtons
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 
+    @ViewBuilder
+    private var actionButtons: some View {
+        DashboardActionButton("Scan", systemImage: "magnifyingglass", prominent: true, disabled: model.isWorking) {
+            Task { await model.scan() }
+        }
+        DashboardActionButton("Plan", systemImage: "checklist", disabled: model.findings.isEmpty || model.isWorking) {
+            Task { await model.buildPlan() }
+        }
+        DashboardActionButton("Dry Run", systemImage: "play.circle", disabled: (model.plan == nil && model.findings.isEmpty) || model.isWorking) {
+            Task { await model.runDryRun() }
+        }
+        DashboardActionButton("Review Queues", systemImage: "tray.full", disabled: model.findings.isEmpty) {
+            navigate("Queues")
+        }
+        DashboardActionButton("Export", systemImage: "square.and.arrow.up", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {
+            Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
+        }
+        DashboardActionButton("Reclaim", systemImage: "trash", role: .destructive, disabled: !model.canReclaimSelected) {
+            onReclaim()
+        }
+    }
+}
+
+struct DashboardActionButton: View {
+    let title: String
+    let systemImage: String
+    let role: ButtonRole?
+    let prominent: Bool
+    let disabled: Bool
+    let action: () -> Void
+
+    init(
+        _ title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        prominent: Bool = false,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.role = role
+        self.prominent = prominent
+        self.disabled = disabled
+        self.action = action
+    }
+
+    var body: some View {
+        if prominent {
+            Button(role: role, action: action) {
+                Label(title, systemImage: systemImage)
+                    .frame(minWidth: 88)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(disabled)
+            .controlSize(.large)
+        } else {
+            Button(role: role, action: action) {
+                Label(title, systemImage: systemImage)
+                    .frame(minWidth: 88)
+            }
+            .buttonStyle(.bordered)
+            .disabled(disabled)
+            .controlSize(.large)
+        }
+    }
+}
+
+struct PermissionAccessBanner: View {
+    let report: PermissionAdvisorReport
+    let onReviewPermissions: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: "lock.shield")
+                .font(.title3)
+                .foregroundStyle(.orange)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Full Disk Access review recommended")
+                    .font(.headline)
+                Text("\(report.readableCount) of \(report.totalCount) configured scopes are readable.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                PathActions.openFullDiskAccessSettings()
+            } label: {
+                Label("Open Full Disk Access", systemImage: "lock.shield")
+            }
+            .buttonStyle(.borderedProminent)
+            Button {
+                onReviewPermissions()
+            } label: {
+                Label("Review Permissions", systemImage: "arrow.right.circle")
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.orange.opacity(0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+                )
+        }
+    }
+}
+
+struct DashboardQueuePanel: View {
+    let model: DashboardModel
+    let navigate: (String) -> Void
+
+    var body: some View {
+        SectionBox(title: "Review Queues") {
+            VStack(spacing: 8) {
+                ForEach(model.queueSummaries.prefix(6)) { queue in
+                    Button {
+                        navigate("Queues")
+                    } label: {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(queue.title)
+                                .font(.headline)
+                            Spacer()
+                            Text("\(queue.count)")
+                                .font(.headline.monospacedDigit())
+                            Text(ByteFormat.string(queue.allocatedSize))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+                }
+            }
+        }
+    }
+}
+
+struct DashboardReviewLauncher: View {
+    let model: DashboardModel
+    let navigate: (String) -> Void
+
+    var body: some View {
+        SectionBox(title: "Quick Reviews") {
+            VStack(spacing: 8) {
+                ReviewLaunchRow(title: "Downloads", value: model.downloadsReview.map { ByteFormat.string($0.reviewCandidateBytes) } ?? "-", systemImage: "arrow.down.circle") {
+                    Task {
+                        await model.reviewDownloads()
+                        navigate("Downloads")
+                    }
+                }
+                ReviewLaunchRow(title: "Browser Caches", value: model.browserCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "-", systemImage: "globe") {
+                    Task {
+                        await model.reviewBrowserCaches()
+                        navigate("Browsers")
+                    }
+                }
+                ReviewLaunchRow(title: "Package Caches", value: model.packageCacheReview.map { ByteFormat.string($0.candidateBytes) } ?? "-", systemImage: "shippingbox") {
+                    Task {
+                        await model.reviewPackageCaches()
+                        navigate("Packages")
+                    }
+                }
+                ReviewLaunchRow(title: "Project Dependencies", value: model.projectDependencyReview.map { ByteFormat.string($0.candidateBytes) } ?? "-", systemImage: "folder") {
+                    Task {
+                        await model.reviewProjectDependencies()
+                        navigate("Projects")
+                    }
+                }
+                ReviewLaunchRow(title: "Trash", value: model.trashReview.map { ByteFormat.string($0.totalAllocatedSize) } ?? "-", systemImage: "trash") {
+                    Task {
+                        await model.reviewTrash()
+                        navigate("Trash")
+                    }
+                }
+            }
+            .disabled(model.isWorking)
+        }
+    }
+}
+
+struct ReviewLaunchRow: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Label(title, systemImage: systemImage)
+                    .font(.headline)
+                Spacer()
+                Text(value)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        Divider()
+    }
+}
+
+struct DashboardPlanPanel: View {
+    let model: DashboardModel
+    let onReclaim: () -> Void
+
+    var body: some View {
+        SectionBox(title: "Plan") {
             if let plan = model.plan {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        MetricTile(title: "Selected", value: "\(plan.items.filter(\.selected).count)")
+                        MetricTile(title: "Expected reclaim", value: ByteFormat.string(plan.expectedImmediateReclaim))
+                        MetricTile(title: "Dry run", value: model.canReclaimSelected ? "Clear" : "Needed")
+                        MetricTile(title: "Errors", value: "\(model.lastDryRunReceipt?.errors.count ?? 0)")
+                    }
+                    ForEach(plan.dryRunSummary.prefix(8), id: \.self) { line in
+                        Text(line)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                    }
                     HStack {
-                        Text("Dry-run plan").font(.headline)
-                        Spacer()
                         Button {
-                            Task { await model.exportPlanReport(plan) }
+                            Task { await model.runDryRun() }
                         } label: {
-                            Label("Export Plan", systemImage: "doc.plaintext")
+                            Label("Dry Run", systemImage: "play.circle")
                         }
                         Button {
                             Task { await model.exportPlanReport(plan, pathStyle: .redacted) }
                         } label: {
-                            Label("Redacted", systemImage: "eye.slash")
+                            Label("Export Redacted Plan", systemImage: "eye.slash")
                         }
-                    }
-                    HStack {
-                        Text("\(plan.items.filter(\.selected).count) selected")
-                        Text(ByteFormat.string(plan.expectedImmediateReclaim))
-                        Text(model.canReclaimSelected ? "Dry run complete" : "Dry run required")
-                        Spacer()
-                    }
-                    .foregroundStyle(.secondary)
-                    ForEach(plan.dryRunSummary.prefix(12), id: \.self) { line in
-                        Text(line).font(.system(.caption, design: .monospaced))
-                    }
-                    if let receipt = model.lastDryRunReceipt {
-                        Divider()
-                        Text("Latest dry-run receipt: \(receipt.actions.count) actions, \(receipt.errors.count) errors")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let receipt = model.lastExecutionReceipt {
-                        Text("Latest reclaim receipt: \(receipt.actions.count) actions, \(receipt.errors.count) errors")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let url = model.lastPlanReportExportURL {
-                        Text("Latest plan report: \(url.path)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                        Button(role: .destructive) {
+                            onReclaim()
+                        } label: {
+                            Label("Reclaim Selected", systemImage: "trash")
+                        }
+                        .disabled(!model.canReclaimSelected)
                     }
                 }
             } else {
-                ContentUnavailableView("No plan yet", systemImage: "checklist", description: Text("Run Plan to select only low-risk auto-safe findings."))
+                HStack {
+                    Label("No plan built", systemImage: "checklist")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        Task { await model.buildPlan() }
+                    } label: {
+                        Label("Build Plan", systemImage: "checklist")
+                    }
+                    .disabled(model.findings.isEmpty || model.isWorking)
+                }
             }
-
-            Spacer()
         }
-        .padding(24)
+    }
+}
+
+struct DashboardRecentExports: View {
+    let model: DashboardModel
+
+    var body: some View {
+        let exports = [
+            ("Evidence report", model.lastReportExportURL),
+            ("Growth report", model.lastGrowthReportExportURL),
+            ("Archive review", model.lastArchiveReviewExportURL),
+            ("Plan report", model.lastPlanReportExportURL)
+        ].compactMap { label, url in
+            url.map { (label, $0) }
+        }
+
+        if !exports.isEmpty {
+            SectionBox(title: "Recent Exports") {
+                ForEach(exports, id: \.1) { label, url in
+                    HStack {
+                        Text(label)
+                            .font(.caption.weight(.semibold))
+                        Text(url.path)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct DashboardAlert: View {
+    let message: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.orange)
+            Text(message)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct MetricInline: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+        }
+        .font(.caption)
     }
 }
 
 struct TrustReadinessCardsView: View {
     let report: TrustReadinessReport
+    let onReviewPermissions: () -> Void
 
     var body: some View {
         SectionBox(title: "Trust Readiness") {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+            LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
                 MetricTile(title: "Disk Pressure", value: report.diskStatus.pressure.label)
                 MetricTile(title: "Scan Coverage", value: report.permissionSummary.coverageLevel.label)
                 MetricTile(title: "Safe Reclaim", value: ByteFormat.string(report.latestPlanSummary?.expectedImmediateReclaim ?? 0))
@@ -465,24 +882,17 @@ struct TrustReadinessCardsView: View {
                 MetricTile(title: "Quit First", value: countActions(.quitAppFirst))
                 MetricTile(title: "Native Tool", value: countActions(.useNativeTool))
                 MetricTile(title: "Valuable History", value: countActions(.protectByDefault))
-                MetricTile(title: "Release Trust", value: report.signingState.localizedCaseInsensitiveContains("notarized") ? "Notarized" : "Verify")
+                MetricTile(title: "Release Trust", value: report.releaseTrustEvidence.state.label)
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(report.recommendedActions.prefix(5)) { action in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: symbol(for: action.severity))
-                            .foregroundStyle(color(for: action.severity))
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(action.title)
-                                .font(.caption.weight(.semibold))
-                            Text(action.detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
+                    TrustReadinessActionRow(
+                        action: action,
+                        symbol: symbol(for: action.severity),
+                        color: color(for: action.severity),
+                        onReviewPermissions: onReviewPermissions
+                    )
                 }
             }
         }
@@ -508,6 +918,46 @@ struct TrustReadinessCardsView: View {
         case .info: .blue
         case .warning: .orange
         case .blocked: .red
+        }
+    }
+}
+
+struct TrustReadinessActionRow: View {
+    let action: TrustReadinessAction
+    let symbol: String
+    let color: Color
+    let onReviewPermissions: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(action.title)
+                    .font(.caption.weight(.semibold))
+                Text(action.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if action.id == "permissions.review-full-disk-access" {
+                    HStack(spacing: 8) {
+                        Button {
+                            PathActions.openFullDiskAccessSettings()
+                        } label: {
+                            Label("Open Full Disk Access", systemImage: "lock.shield")
+                        }
+                        Button {
+                            onReviewPermissions()
+                        } label: {
+                            Label("Review Permissions", systemImage: "arrow.right.circle")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
         }
     }
 }
@@ -1167,204 +1617,6 @@ private extension RuleMatchSpec {
         hints += basenameAny.map { "basename: \($0)" }
         hints += pathExtensionAny.map { "extension: \($0)" }
         return hints.isEmpty ? "none" : hints.sorted().joined(separator: ", ")
-    }
-}
-
-struct AuditHistoryView: View {
-    let model: DashboardModel
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Audit History")
-                    .font(.largeTitle.bold())
-                Text("Local-only saved plans and execution receipts. Empty history is normal until a plan or dry run is saved.")
-                    .foregroundStyle(.secondary)
-
-                SectionBox(title: "Recent Plans") {
-                    if model.recentPlans.isEmpty {
-                        Text("No saved plans yet.")
-                    } else {
-                        if let url = model.lastPlanReportExportURL {
-                            Text("Latest plan report: \(url.path)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                        ForEach(model.recentPlans) { plan in
-                            HStack {
-                                Text("\(plan.createdAt.formatted()) - \(plan.items.filter(\.selected).count) selected - \(ByteFormat.string(plan.expectedImmediateReclaim))")
-                                Spacer()
-                                Button("Export") {
-                                    Task { await model.exportPlanReport(plan) }
-                                }
-                                Button("Redacted") {
-                                    Task { await model.exportPlanReport(plan, pathStyle: .redacted) }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SectionBox(title: "Recent Receipts") {
-                    if model.recentReceipts.isEmpty {
-                        Text("No receipts yet.")
-                    } else {
-                        if let url = model.lastReceiptReportExportURL {
-                            Text("Latest receipt report: \(url.path)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                        ForEach(model.recentReceipts) { receipt in
-                            HStack {
-                                Text("\(receipt.createdAt.formatted()) - \(receipt.mode) - \(receipt.actions.count) actions")
-                                Spacer()
-                                Button("Export") {
-                                    Task { await model.exportReceiptReport(receipt) }
-                                }
-                                Button("Redacted") {
-                                    Task { await model.exportReceiptReport(receipt, pathStyle: .redacted) }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SectionBox(title: "Native Tool Reports") {
-                    if model.recentNativeToolReports.isEmpty {
-                        Text("No native-tool reports yet.")
-                    } else {
-                        ForEach(model.recentNativeToolReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.receipts.count) candidate(s) - \(ByteFormat.string(report.totalBytesUnderNativeReview))")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Native Command Receipts") {
-                    if model.recentNativeToolExecutionReceipts.isEmpty {
-                        Text("No native command receipts yet.")
-                    } else {
-                        ForEach(model.recentNativeToolExecutionReceipts) { receipt in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text("\(receipt.createdAt.formatted()) - \(receipt.status) - \(receipt.command.id)")
-                                    Spacer()
-                                    Text(receipt.mode.rawValue)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Text(receipt.message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
-                }
-
-                SectionBox(title: "Container Inventory Reports") {
-                    if model.recentContainerInventoryReports.isEmpty {
-                        Text("No container inventory reports yet.")
-                    } else {
-                        ForEach(model.recentContainerInventoryReports) { report in
-                            let reclaim = report.dockerReclaimableBytes.map(ByteFormat.string) ?? "unknown reclaim"
-                            Text("\(report.createdAt.formatted()) - Docker \(report.docker.status.state.label), Colima \(report.colima.status.state.label) - \(reclaim)")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Active File Reports") {
-                    if model.recentActiveFileReviewReports.isEmpty {
-                        Text("No active-file reports yet.")
-                    } else {
-                        ForEach(model.recentActiveFileReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.openCount) open - \(report.failedCheckCount) failed - \(ByteFormat.string(report.totalBlockedBytes))")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Trash Review Reports") {
-                    if model.recentTrashReviewReports.isEmpty {
-                        Text("No Trash review reports yet.")
-                    } else {
-                        ForEach(model.recentTrashReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.itemCount) item(s) - \(ByteFormat.string(report.totalAllocatedSize))")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Downloads Review Reports") {
-                    if model.recentDownloadsReviewReports.isEmpty {
-                        Text("No Downloads review reports yet.")
-                    } else {
-                        ForEach(model.recentDownloadsReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.displayedItemCount) shown - \(ByteFormat.string(report.reviewCandidateBytes)) candidates")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Browser Cache Review Reports") {
-                    if model.recentBrowserCacheReviewReports.isEmpty {
-                        Text("No browser cache review reports yet.")
-                    } else {
-                        ForEach(model.recentBrowserCacheReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.candidateBytes)) candidates")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Package Cache Review Reports") {
-                    if model.recentPackageCacheReviewReports.isEmpty {
-                        Text("No package cache review reports yet.")
-                    } else {
-                        ForEach(model.recentPackageCacheReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.candidateBytes)) candidates")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Project Dependency Review Reports") {
-                    if model.recentProjectDependencyReviewReports.isEmpty {
-                        Text("No project dependency review reports yet.")
-                    } else {
-                        ForEach(model.recentProjectDependencyReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(report.displayedItemCount) shown - \(ByteFormat.string(report.candidateBytes)) candidates")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Device Backup Review Reports") {
-                    if model.recentDeviceBackupReviewReports.isEmpty {
-                        Text("No device backup review reports yet.")
-                    } else {
-                        ForEach(model.recentDeviceBackupReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.permissionState.rawValue) - \(report.backupCount) backup(s) - \(ByteFormat.string(report.totalAllocatedSize))")
-                        }
-                    }
-                }
-
-                SectionBox(title: "Xcode Review Reports") {
-                    if model.recentXcodeReviewReports.isEmpty {
-                        Text("No Xcode review reports yet.")
-                    } else {
-                        ForEach(model.recentXcodeReviewReports) { report in
-                            Text("\(report.createdAt.formatted()) - \(report.rootSummaries.count) root(s) - \(ByteFormat.string(report.rebuildableCacheBytes)) rebuildable - \(ByteFormat.string(report.reviewRequiredBytes)) review")
-                        }
-                    }
-                }
-
-                SectionBox(title: "App Uninstall Receipts") {
-                    if model.recentAppUninstallReceipts.isEmpty {
-                        Text("No app-uninstall receipts yet.")
-                    } else {
-                        ForEach(model.recentAppUninstallReceipts) { receipt in
-                            Text("\(receipt.createdAt.formatted()) - \(receipt.mode) - \(receipt.status) - \(receipt.appDisplayName)")
-                        }
-                    }
-                }
-            }
-            .padding(24)
-        }
     }
 }
 
@@ -2489,6 +2741,8 @@ struct PackageCacheReviewView: View {
                 }
 
                 if let report = model.packageCacheReview {
+                    let lane = PackageReclaimLaneBuilder.build(from: report)
+
                     HStack(spacing: 16) {
                         MetricTile(title: "Candidates", value: ByteFormat.string(report.candidateBytes))
                         MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
@@ -2496,6 +2750,8 @@ struct PackageCacheReviewView: View {
                         MetricTile(title: "Cache roots", value: "\(report.rootSummaries.count)")
                         MetricTile(title: "Protected config", value: "\(report.protectedConfigRoots.count)")
                     }
+
+                    PackageReclaimLaneView(report: lane)
 
                     SectionBox(title: "By Package Manager") {
                         if report.managerSummaries.isEmpty {
@@ -2647,6 +2903,75 @@ struct PackageCacheReviewView: View {
                 }
             }
             .padding(24)
+        }
+    }
+}
+
+struct PackageReclaimLaneView: View {
+    let report: PackageReclaimLaneReport
+
+    var body: some View {
+        SectionBox(title: "Native Preview Lane") {
+            VStack(alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
+                    MetricTile(title: "Preview scope", value: ByteFormat.string(report.totalPreviewBytes))
+                    MetricTile(title: "Managers", value: "\(report.managerReports.count)")
+                }
+
+                if report.managerReports.isEmpty {
+                    Text("No package manager cache summaries were found.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(report.managerReports) { manager in
+                            packageManagerRow(manager)
+                            if manager.id != report.managerReports.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+
+                ForEach(report.nonClaims.prefix(2), id: \.self) { note in
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func packageManagerRow(_ manager: PackageReclaimManagerReport) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(manager.managerName)
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(ByteFormat.string(manager.cacheBytes))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Text(manager.explanation)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            commandLine(label: "Preview", command: manager.previewCommand, fallback: "Manual review")
+            commandLine(label: "Cleanup", command: manager.cleanupCommand, fallback: "No allowlisted cleanup command")
+        }
+    }
+
+    private func commandLine(label: String, command: [String], fallback: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+            Text(command.isEmpty ? fallback : command.joined(separator: " "))
+                .font(.system(.caption2, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
         }
     }
 }
@@ -3782,6 +4107,8 @@ struct AgentStorageReviewView: View {
                     }
 
                     if let retentionReport = model.agentRetentionReport {
+                        let preview = AgentRetentionPlanBuilder.build(report: retentionReport, matchingFindings: model.findings)
+
                         SectionBox(title: "Retention Report") {
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack(spacing: 16) {
@@ -3794,6 +4121,7 @@ struct AgentStorageReviewView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
+                                AgentRetentionPlanPreviewView(preview: preview)
                                 if !retentionReport.summaries.isEmpty {
                                     ForEach(retentionReport.summaries) { summary in
                                         HStack {
@@ -3880,6 +4208,51 @@ struct AgentStorageItemRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+struct AgentRetentionPlanPreviewView: View {
+    let preview: AgentRetentionPlanPreview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
+                MetricTile(title: "Plan preview", value: ByteFormat.string(preview.selectedBytes))
+                MetricTile(title: "Plan items", value: "\(preview.plan.items.filter(\.selected).count)")
+                MetricTile(title: "Review/keep", value: ByteFormat.string(preview.reviewBytes))
+                MetricTile(title: "Protected", value: ByteFormat.string(preview.protectedBytes))
+            }
+
+            if preview.plan.items.isEmpty {
+                Text("No retention-eligible agent findings matched the current scan for cleanup planning.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(preview.plan.items.prefix(4), id: \.finding.id) { item in
+                    HStack {
+                        Text(item.selected ? "Selected" : "Blocked")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(item.selected ? .green : .secondary)
+                            .frame(width: 64, alignment: .leading)
+                        Text(ByteFormat.string(item.finding.allocatedSize))
+                            .font(.caption.monospacedDigit())
+                            .frame(width: 88, alignment: .leading)
+                        Text(item.finding.path)
+                            .font(.system(.caption2, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            ForEach(preview.nonClaims.prefix(2), id: \.self) { note in
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
@@ -4610,8 +4983,14 @@ struct MetricTile: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
-        .background(.quaternary.opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.separator.opacity(0.45), lineWidth: 1)
+                )
+        }
     }
 }
 
@@ -4665,6 +5044,11 @@ struct PermissionOnboardingView: View {
                     MetricTile(title: "Missing", value: "\(model.permissionReport.missingCount)")
                 }
 
+                PermissionAccessHelperPanel(
+                    report: model.permissionReport,
+                    onRefresh: { model.refreshPermissions() }
+                )
+
                 SectionBox(title: "Next Steps") {
                     ForEach(model.permissionReport.recommendedActions, id: \.self) { action in
                         Text(action)
@@ -4717,6 +5101,99 @@ struct PermissionOnboardingView: View {
                 }
             }
             .padding(24)
+        }
+    }
+}
+
+struct PermissionAccessHelperPanel: View {
+    let report: PermissionAdvisorReport
+    let onRefresh: () -> Void
+
+    private var unavailableScopes: [ScopeAccessSummary] {
+        report.unavailableScopes.sorted { lhs, rhs in
+            if lhs.permissionState != rhs.permissionState {
+                return lhs.permissionState.rawValue < rhs.permissionState.rawValue
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    var body: some View {
+        SectionBox(title: "Access Helper") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Button {
+                        PathActions.openFullDiskAccessSettings()
+                    } label: {
+                        Label("Open Full Disk Access", systemImage: "lock.shield")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help("Open macOS Privacy & Security settings for Full Disk Access")
+
+                    Button {
+                        PathActions.revealApplicationInFinder()
+                    } label: {
+                        Label("Reveal Ryddi", systemImage: "app.dashed")
+                    }
+                    .help("Reveal the installed app so it can be added to Full Disk Access if missing.")
+
+                    Button {
+                        PathActions.copyText(PathActions.applicationPath)
+                    } label: {
+                        Label("Copy App Path", systemImage: "doc.on.doc")
+                    }
+                    .help(PathActions.applicationPath)
+
+                    Spacer()
+
+                    Button {
+                        onRefresh()
+                    } label: {
+                        Label("Refresh Coverage", systemImage: "arrow.clockwise")
+                    }
+                    .help("Re-check which configured scopes are currently readable.")
+                }
+                .buttonStyle(.bordered)
+
+                Text("macOS requires you to grant Full Disk Access manually. Add or enable Ryddi, return here, then refresh coverage or run a fresh scan.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if unavailableScopes.isEmpty {
+                    Label("All configured scopes are readable in the current scope plan.", systemImage: "checkmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Restricted or missing scopes")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        ForEach(unavailableScopes.prefix(8)) { scope in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(scope.permissionState.rawValue)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(scope.permissionState == .denied ? .orange : .secondary)
+                                    .frame(width: 58, alignment: .leading)
+                                Text(scope.name)
+                                    .font(.caption.weight(.semibold))
+                                    .frame(width: 150, alignment: .leading)
+                                Text(scope.path)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        if unavailableScopes.count > 8 {
+                            Text("\(unavailableScopes.count - 8) more scope(s)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -5131,8 +5608,7 @@ struct TopOffendersView: View {
                 MetricTile(title: "Allocated", value: ByteFormat.string(table.allocatedSize))
             }
 
-            VStack(spacing: 0) {
-                TopOffenderHeader()
+            TopOffenderTableScrollContainer {
                 if group == .none {
                     ForEach(displayedRows) { row in
                         TopOffenderRowView(row: row, isSelectedInPlan: selectedPlanIDs.contains(row.finding.id))
@@ -5256,8 +5732,7 @@ struct ReviewQueuesView: View {
                                 if detailReport.rows.isEmpty {
                                     ContentUnavailableView("No findings in this queue", systemImage: "checkmark.circle", description: Text("This scan did not produce matching rows."))
                                 } else {
-                                    VStack(spacing: 0) {
-                                        TopOffenderHeader(includesDetailAction: true)
+                                    TopOffenderTableScrollContainer(includesDetailAction: true) {
                                         ForEach(detailReport.rows) { row in
                                             TopOffenderRowView(
                                                 row: row,
@@ -5420,8 +5895,7 @@ struct LargeOldReviewView: View {
                 }
 
                 SectionBox(title: "Review Rows") {
-                    VStack(spacing: 0) {
-                        TopOffenderHeader()
+                    TopOffenderTableScrollContainer {
                         ForEach(report.rows) { row in
                             VStack(alignment: .leading, spacing: 4) {
                                 TopOffenderRowView(row: row.row, isSelectedInPlan: false)
@@ -5569,6 +6043,21 @@ struct ReviewSummaryList: View {
                 }
             }
             .frame(minWidth: 180)
+        }
+    }
+}
+
+struct TopOffenderTableScrollContainer<Rows: View>: View {
+    var includesDetailAction = false
+    @ViewBuilder let rows: Rows
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            VStack(spacing: 0) {
+                TopOffenderHeader(includesDetailAction: includesDetailAction)
+                rows
+            }
+            .frame(minWidth: RyddiWindowLayout.topOffenderTableMinimumWidth, alignment: .leading)
         }
     }
 }
@@ -5889,6 +6378,14 @@ struct AppUninstallCandidateActionButtons: View {
 }
 
 enum PathActions {
+    static var applicationPath: String {
+        #if os(macOS)
+        Bundle.main.bundleURL.path
+        #else
+        ""
+        #endif
+    }
+
     static func copyPath(_ path: String) {
         #if os(macOS)
         NSPasteboard.general.clearContents()
@@ -5906,6 +6403,12 @@ enum PathActions {
     static func revealInFinder(_ path: String) {
         #if os(macOS)
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        #endif
+    }
+
+    static func revealApplicationInFinder() {
+        #if os(macOS)
+        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
         #endif
     }
 
@@ -5972,8 +6475,14 @@ struct SectionBox<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .background(.quaternary.opacity(0.25))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.separator.opacity(0.45), lineWidth: 1)
+                )
+        }
     }
 }
 
@@ -6187,9 +6696,15 @@ final class DashboardModel {
     var lastExecutionReceipt: ExecutionReceipt?
     var recentPlans: [ReclaimPlan] = []
     var recentReceipts: [ExecutionReceipt] = []
+    var auditStoreSummary: AuditStoreSummary?
+    var auditPrunePlan: AuditPrunePlan?
+    var auditPruneReceipt: AuditPruneReceipt?
     var recentNativeToolReports: [NativeToolReport] = []
     var recentNativeToolExecutionReceipts: [NativeToolExecutionReceipt] = []
     var recentContainerInventoryReports: [ContainerInventoryReport] = []
+    var recentRemoteProbeReports: [RemoteProbeReport] = []
+    var recentRemoteScanReports: [RemoteScanReport] = []
+    var recentRemoteDogfoodReports: [RemoteDogfoodReport] = []
     var recentActiveFileReviewReports: [ActiveFileReviewReport] = []
     var recentTrashReviewReports: [TrashReviewReport] = []
     var recentDownloadsReviewReports: [DownloadsReviewReport] = []
@@ -6209,6 +6724,17 @@ final class DashboardModel {
     var agentStorageReview: AgentStorageReview?
     var agentRetentionReport: AgentRetentionReport?
     var containerInventory: ContainerInventoryReport?
+    var remoteTargets: [RemoteTargetReference] = []
+    var remoteTargetInput = ""
+    var remoteProbeReport: RemoteProbeReport?
+    var remoteScanReport: RemoteScanReport?
+    var remoteGrowthReport: RemoteGrowthReport?
+    var remoteDogfoodReport: RemoteDogfoodReport?
+    var currentRemoteDogfoodReport: RemoteDogfoodReport? {
+        guard let dogfood = remoteDogfoodReport else { return nil }
+        guard let scan = remoteScanReport else { return dogfood }
+        return dogfood.target.id == scan.target.id ? dogfood : nil
+    }
     var activeFileReview: ActiveFileReviewReport?
     var trashReview: TrashReviewReport?
     var downloadsReview: DownloadsReviewReport?
@@ -6223,6 +6749,9 @@ final class DashboardModel {
     var lastReceiptReportExportURL: URL?
     var lastGrowthReportExportURL: URL?
     var lastArchiveReviewExportURL: URL?
+    var lastRemoteReportExportURL: URL?
+    var lastRemoteGrowthReportExportURL: URL?
+    var lastRemoteDogfoodReportExportURL: URL?
     var lastPolicyExportURL: URL?
     var lastScopeSetExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
@@ -6287,7 +6816,21 @@ final class DashboardModel {
             latestPlan: plan ?? recentPlans.first,
             latestReceipt: lastExecutionReceipt ?? lastDryRunReceipt ?? recentReceipts.first,
             automationInstalled: launchAgentStatus.installed,
-            signingState: "App runtime; verify signed and notarized releases with the manifest"
+            signingState: "App runtime; verify signed and notarized releases with the manifest",
+            releaseTrustEvidence: ReleaseTrustEvidenceLoader.load()
+        )
+    }
+
+    var guidedWorkflowReport: GuidedWorkflowReport {
+        GuidedWorkflowBuilder.build(
+            input: GuidedWorkflowInput(
+                diskStatus: diskStatus,
+                permissionSummary: permissionReport,
+                findings: findings,
+                latestPlan: plan ?? recentPlans.first,
+                latestReceipt: lastExecutionReceipt ?? lastDryRunReceipt ?? recentReceipts.first,
+                trustReadiness: trustReadinessReport
+            )
         )
     }
 
@@ -6842,11 +7385,37 @@ final class DashboardModel {
 
     func loadAudit() {
         let store = AuditStore()
+        auditStoreSummary = store.summary()
         recentPlans = store.recentPlans()
         recentReceipts = store.recentReceipts()
         recentNativeToolReports = store.recentNativeToolReports()
         recentNativeToolExecutionReceipts = store.recentNativeToolExecutionReceipts()
         recentContainerInventoryReports = store.recentContainerInventoryReports()
+        recentRemoteProbeReports = store.recentRemoteProbeReports()
+        recentRemoteScanReports = store.recentRemoteScanReports()
+        recentRemoteDogfoodReports = store.recentRemoteDogfoodReports()
+        if remoteProbeReport == nil {
+            remoteProbeReport = recentRemoteProbeReports.first
+        }
+        if remoteScanReport == nil {
+            remoteScanReport = recentRemoteScanReports.first
+        }
+        syncRemoteDogfoodReport()
+        if
+            let currentRemoteScan = recentRemoteScanReports.first,
+            let previousRemoteScan = store.latestPreviousRemoteScanReport(
+                forConcreteTarget: currentRemoteScan.target,
+                excludingReportID: currentRemoteScan.id
+            )
+        {
+            remoteGrowthReport = RemoteGrowthReportBuilder.build(
+                previous: previousRemoteScan,
+                current: currentRemoteScan,
+                limit: 10
+            )
+        } else {
+            remoteGrowthReport = nil
+        }
         recentActiveFileReviewReports = store.recentActiveFileReviewReports()
         recentTrashReviewReports = store.recentTrashReviewReports()
         recentDownloadsReviewReports = store.recentDownloadsReviewReports()
@@ -6857,6 +7426,29 @@ final class DashboardModel {
         recentXcodeReviewReports = store.recentXcodeReviewReports()
         recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
+    }
+
+    func previewAuditPrune() {
+        let store = AuditStore()
+        let policy = AuditRetentionPolicy(olderThanDays: 90, keepRecent: 20)
+        let plan = store.prunePlan(policy: policy)
+        auditPrunePlan = plan
+        auditPruneReceipt = try? store.prune(plan: plan, dryRun: true)
+        auditStoreSummary = store.summary()
+    }
+
+    func confirmAuditPrune() {
+        guard let plan = auditPrunePlan else {
+            previewAuditPrune()
+            return
+        }
+        do {
+            auditPruneReceipt = try AuditStore().prune(plan: plan, dryRun: false)
+            auditPrunePlan = nil
+            loadAudit()
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     func loadHolding() {
@@ -7284,6 +7876,164 @@ final class DashboardModel {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    func refreshRemoteTargets() {
+        remoteTargets = RemoteTargetResolver().targets()
+        if remoteTargetInput.isEmpty, let first = remoteTargets.first {
+            remoteTargetInput = first.input
+        }
+    }
+
+    func probeRemoteTarget() async {
+        let targetInput = remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetInput.isEmpty else {
+            error = "Enter an SSH alias or host before probing."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = try await Task.detached {
+                let target = try RemoteTargetResolver().resolve(targetInput)
+                return RemoteProbeBuilder(target: target).probe()
+            }.value
+            remoteProbeReport = report
+            _ = try AuditStore().save(remoteProbeReport: report)
+            loadAudit()
+            error = report.commands.contains { $0.exitCode == 0 } ? nil : "Remote probe did not reach the target with read-only SSH commands."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func scanRemoteTarget() async {
+        let targetInput = remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetInput.isEmpty else {
+            error = "Enter an SSH alias or host before scanning."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = try await Task.detached {
+                let target = try RemoteTargetResolver().resolve(targetInput)
+                return RemoteScanBuilder(target: target).scan(preset: .vpsGeneral)
+            }.value
+            remoteScanReport = report
+            syncRemoteDogfoodReport()
+            _ = try AuditStore().save(remoteScanReport: report)
+            loadAudit()
+            error = report.commands.contains { $0.exitCode == 0 } ? nil : "Remote scan did not reach the target with read-only SSH commands."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportRemoteRedactedReport() async {
+        guard let report = remoteScanReport else {
+            error = "Run a remote scan before exporting a remote report."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let url = try await Task.detached {
+                let privacy = ReportPrivacyOptions(pathStyle: .redacted)
+                let markdown = RemoteReportBuilder.build(report: report, privacy: privacy).markdown
+                let root = ReportStore.defaultRoot()
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                let url = root.appendingPathComponent("remote-report-\(report.id).md")
+                try markdown.write(to: url, atomically: true, encoding: .utf8)
+                return url
+            }.value
+            lastRemoteReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportRemoteRedactedGrowthReport() async {
+        let store = AuditStore()
+        guard
+            let current = recentRemoteScanReports.first,
+            let previous = store.latestPreviousRemoteScanReport(forConcreteTarget: current.target, excludingReportID: current.id),
+            remoteGrowthReport != nil
+        else {
+            error = "Remote growth export needs at least two saved remote scans."
+            return
+        }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let url = try await Task.detached {
+                let privacy = ReportPrivacyOptions(pathStyle: .redacted)
+                let redacted = RemoteGrowthReportBuilder.build(
+                    previous: previous,
+                    current: current,
+                    limit: 25,
+                    privacy: privacy
+                )
+                let root = ReportStore.defaultRoot()
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                let url = root.appendingPathComponent("remote-growth-\(current.id).md")
+                try redacted.markdown.write(to: url, atomically: true, encoding: .utf8)
+                return url
+            }.value
+            lastRemoteGrowthReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func exportRemoteDogfoodReportFromAudit() async {
+        guard let scan = recentRemoteScanReports.first else {
+            error = "Remote dogfood export needs at least one saved remote scan."
+            return
+        }
+        let store = AuditStore()
+        let probe = store.latestRemoteProbeReport(forConcreteTarget: scan.target)
+        let previous = store.latestPreviousRemoteScanReport(forConcreteTarget: scan.target, excludingReportID: scan.id)
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let report = RemoteDogfoodReportBuilder.build(
+                probe: probe,
+                scan: scan,
+                growth: previous.map {
+                    RemoteGrowthReportBuilder.build(
+                        previous: $0,
+                        current: scan,
+                        privacy: ReportPrivacyOptions(pathStyle: .redacted)
+                    )
+                },
+                privacy: ReportPrivacyOptions(pathStyle: .redacted)
+            )
+            let url = try await Task.detached {
+                let root = ReportStore.defaultRoot()
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                let url = root.appendingPathComponent("remote-dogfood-\(report.id).md")
+                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                return url
+            }.value
+            remoteDogfoodReport = report
+            lastRemoteDogfoodReportExportURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func syncRemoteDogfoodReport() {
+        guard let scan = remoteScanReport else {
+            if remoteDogfoodReport == nil {
+                remoteDogfoodReport = recentRemoteDogfoodReports.first
+            }
+            return
+        }
+        remoteDogfoodReport = AuditStore().latestRemoteDogfoodReport(forConcreteTarget: scan.target)
     }
 
     func restoreHeldItem(_ item: HeldItem) {

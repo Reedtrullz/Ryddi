@@ -10,9 +10,49 @@ checksum_path="$zip_path.sha256"
 manifest_path="$dist/Ryddi-release-manifest.txt"
 signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/ryddi-release-check.XXXXXX")"
-trap 'rm -rf "$scratch"' EXIT
+hidden_build_dir=""
+
+cleanup() {
+  if [[ -n "$hidden_build_dir" && -d "$hidden_build_dir" ]]; then
+    if [[ ! -e "$root/.build" ]]; then
+      mv "$hidden_build_dir" "$root/.build"
+    else
+      echo "warning: leaving hidden build dir in place because $root/.build was recreated: $hidden_build_dir" >&2
+    fi
+  fi
+  rm -rf "$scratch"
+}
+trap cleanup EXIT
+
+hide_build_dir_for_packaged_smokes() {
+  if [[ -d "$root/.build" ]]; then
+    hidden_build_dir="$root/.build.release-check-hidden.$$"
+    rm -rf "$hidden_build_dir"
+    mv "$root/.build" "$hidden_build_dir"
+  fi
+}
 
 cd "$root"
+rm -f "$zip_path" "$checksum_path" "$manifest_path"
+
+if [[ "$signing_required" == "required" ]]; then
+  if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
+    echo "RYDDI_RELEASE_SIGNING=required but CODESIGN_IDENTITY is not set." >&2
+    exit 1
+  fi
+  identity_line="$(security find-identity -v -p codesigning 2>/dev/null | grep -F "$CODESIGN_IDENTITY" || true)"
+  if ! grep -q "Developer ID Application" <<<"$identity_line"; then
+    echo "RYDDI_RELEASE_SIGNING=required requires a Developer ID Application identity." >&2
+    echo "Current CODESIGN_IDENTITY did not resolve to a Developer ID Application certificate." >&2
+    exit 1
+  fi
+  if [[ -z "${NOTARY_PROFILE:-}" ]]; then
+    if [[ -z "${APPLE_ID:-}" || -z "${APPLE_TEAM_ID:-}" || -z "${APPLE_APP_PASSWORD:-}" ]]; then
+      echo "RYDDI_RELEASE_SIGNING=required requires NOTARY_PROFILE or APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_PASSWORD." >&2
+      exit 1
+    fi
+  fi
+fi
 
 echo "==> Running Swift tests"
 swift test --scratch-path "$root/.build"
@@ -61,6 +101,7 @@ if [[ -z "$rules_path" ]]; then
 fi
 
 echo "==> Smoke testing bundled CLI"
+hide_build_dir_for_packaged_smokes
 receipt_fixture="$scratch/receipt-fixture/Library/Caches/Codex"
 mkdir -p "$receipt_fixture"
 printf 'fixture cache\n' >"$receipt_fixture/cache.bin"
@@ -738,6 +779,21 @@ grep -q '"ownerSummaries"' "$scratch/overview-smoke.json"
 grep -q '"topOffenderTable"' "$scratch/overview-smoke.json"
 grep -q '"estimatedImmediateReclaim"' "$scratch/overview-smoke.json"
 grep -q '"group" : "safety"' "$scratch/overview-smoke.json"
+cat >"$scratch/release-trust-fixture.txt" <<'TRUST'
+manifest_schema=ryddi.release-trust.v1
+version=0.2.0
+build=2
+artifact=Ryddi-v0.2.0.zip
+sha256=fixture-sha
+source_commit=fixture-commit
+codesign_verified=true
+hardened_runtime=true
+notarization_status=Accepted
+stapled=true
+gatekeeper=accepted
+TRUST
+"$app/Contents/MacOS/reclaimer" release-trust --json --manifest "$scratch/release-trust-fixture.txt" >"$scratch/release-trust-smoke.json"
+grep -q '"state" : "stapledAndAccepted"' "$scratch/release-trust-smoke.json"
 "$app/Contents/MacOS/reclaimer" trust --json --path "$root/Tests" --limit 5 >"$scratch/trust-smoke.json"
 grep -q '"recommendedActions"' "$scratch/trust-smoke.json"
 grep -q '"nonClaims"' "$scratch/trust-smoke.json"
@@ -881,6 +937,119 @@ grep -q "# Ryddi Growth Report" "$scratch/growth-report.md"
 grep -q "Largest Category Deltas" "$scratch/growth-report.md"
 grep -q "does not prove exact current disk state" "$scratch/growth-report.md"
 grep -q "<path redacted>" "$scratch/growth-report.md"
+mkdir -p "$scratch/audit"
+cat >"$scratch/audit/remote-scan-previous.json" <<'JSON'
+{
+  "id": "previous-remote",
+  "createdAt": "2026-07-07T18:00:00Z",
+  "preset": "vps-general",
+  "target": {
+    "id": "prod-vps",
+    "input": "prod-vps",
+    "alias": "prod-vps",
+    "resolvedUser": "deploy",
+    "resolvedHost": "203.0.113.10",
+    "resolvedPort": 22,
+    "knownHostsState": "known",
+    "fingerprint": "ssh-ed25519:fixture"
+  },
+  "diskFilesystems": [],
+  "inodeFilesystems": [],
+  "findings": [
+    {
+      "id": "Remote storage:/home/deploy/private-client/cache",
+      "remotePath": "/home/deploy/private-client/cache",
+      "displayPath": "/home/deploy/private-client/cache",
+      "bucket": "Remote storage",
+      "allocatedBytes": 100,
+      "safetyClass": "reviewRequired",
+      "actionKind": "openGuidance",
+      "evidence": [{"kind": "remote.fixture", "message": "Previous fixture evidence."}],
+      "recommendedNextAction": "reviewInFinder"
+    },
+    {
+      "id": "Journald logs:/var/log/journal",
+      "remotePath": "/var/log/journal",
+      "displayPath": "/var/log/journal",
+      "bucket": "Journald logs",
+      "allocatedBytes": 20,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "nativeToolCommand",
+      "evidence": [{"kind": "remote.fixture", "message": "Previous fixture evidence."}],
+      "recommendedNextAction": "useNativeTool"
+    }
+  ],
+  "nativeGuidance": [],
+  "commands": [],
+  "nonClaims": ["No cleanup was executed on the remote target."]
+}
+JSON
+cat >"$scratch/audit/remote-scan-current.json" <<'JSON'
+{
+  "id": "current-remote",
+  "createdAt": "2026-07-07T19:00:00Z",
+  "preset": "vps-general",
+  "target": {
+    "id": "prod-vps",
+    "input": "prod-vps",
+    "alias": "prod-vps",
+    "resolvedUser": "deploy",
+    "resolvedHost": "203.0.113.10",
+    "resolvedPort": 22,
+    "knownHostsState": "known",
+    "fingerprint": "ssh-ed25519:fixture"
+  },
+  "diskFilesystems": [],
+  "inodeFilesystems": [],
+  "findings": [
+    {
+      "id": "Remote storage:/home/deploy/private-client/cache",
+      "remotePath": "/home/deploy/private-client/cache",
+      "displayPath": "/home/deploy/private-client/cache",
+      "bucket": "Remote storage",
+      "allocatedBytes": 180,
+      "safetyClass": "reviewRequired",
+      "actionKind": "openGuidance",
+      "evidence": [{"kind": "remote.fixture", "message": "Current fixture evidence."}],
+      "recommendedNextAction": "reviewInFinder"
+    },
+    {
+      "id": "Journald logs:/var/log/journal",
+      "remotePath": "/var/log/journal",
+      "displayPath": "/var/log/journal",
+      "bucket": "Journald logs",
+      "allocatedBytes": 10,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "nativeToolCommand",
+      "evidence": [{"kind": "remote.fixture", "message": "Current fixture evidence."}],
+      "recommendedNextAction": "useNativeTool"
+    }
+  ],
+  "nativeGuidance": [],
+  "commands": [],
+  "nonClaims": ["No cleanup was executed on the remote target."]
+}
+JSON
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" remote history list --json >"$scratch/remote-history-list.json"
+grep -q '"current-remote"' "$scratch/remote-history-list.json"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" remote history diff --limit 5 --current-id current-remote --previous-id previous-remote >"$scratch/remote-history-diff.txt"
+grep -q "Remote growth diff" "$scratch/remote-history-diff.txt"
+grep -q "Remote storage" "$scratch/remote-history-diff.txt"
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" remote history report --current-id current-remote --previous-id previous-remote --path-style redacted --output "$scratch/remote-growth-report.md"
+grep -q "# Ryddi Remote Growth Report" "$scratch/remote-growth-report.md"
+grep -q "<path redacted>" "$scratch/remote-growth-report.md"
+if grep -q "private-client" "$scratch/remote-growth-report.md"; then
+  echo "remote growth report leaked redacted path component" >&2
+  exit 1
+fi
+RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" remote dogfood --from-audit prod-vps --path-style redacted --output "$scratch/remote-dogfood-report.md"
+grep -q "# Ryddi Remote Dogfood Report" "$scratch/remote-dogfood-report.md"
+grep -q "No cleanup was executed" "$scratch/remote-dogfood-report.md"
+grep -q "<path redacted>" "$scratch/remote-dogfood-report.md"
+if grep -q "private-client" "$scratch/remote-dogfood-report.md"; then
+  echo "remote dogfood report leaked redacted path component" >&2
+  exit 1
+fi
 RYDDI_REPORT_ROOT="$scratch/reports" "$app/Contents/MacOS/reclaimer" report --path "$root/Tests" --limit 5 --output "$scratch/evidence-report.md" --ignore-user-policy --path-style redacted --redact-user-text
 grep -q "# Ryddi Evidence Report" "$scratch/evidence-report.md"
 grep -q "Explicit Non-Claims" "$scratch/evidence-report.md"
@@ -936,21 +1105,48 @@ if grep -q "replace smoke" "$scratch/policy-replace-smoke.json"; then
   echo "policy import --replace retained a local-only rule" >&2
   exit 1
 fi
+audit_fixture="$scratch/audit-fixture"
+mkdir -p "$audit_fixture"
+printf 'old plan\n' >"$audit_fixture/plan-old.json"
+printf 'old remote scan\n' >"$audit_fixture/remote-scan-old.json"
+printf 'unknown audit note\n' >"$audit_fixture/unknown-old.json"
+touch -t 202001010101 "$audit_fixture/plan-old.json" "$audit_fixture/remote-scan-old.json" "$audit_fixture/unknown-old.json"
+RYDDI_AUDIT_ROOT="$audit_fixture" "$app/Contents/MacOS/reclaimer" audit summary --json >"$scratch/audit-summary-smoke.json"
+grep -q '"totalKnownFileCount" : 2' "$scratch/audit-summary-smoke.json"
+grep -q '"unknownFileCount" : 1' "$scratch/audit-summary-smoke.json"
+RYDDI_AUDIT_ROOT="$audit_fixture" "$app/Contents/MacOS/reclaimer" audit prune --dry-run --older-than-days 30 --keep-recent 0 --json >"$scratch/audit-prune-smoke.json"
+grep -q '"dryRun" : true' "$scratch/audit-prune-smoke.json"
+grep -q '"kind" : "plan"' "$scratch/audit-prune-smoke.json"
+grep -q '"kind" : "remote-scan"' "$scratch/audit-prune-smoke.json"
+test -f "$audit_fixture/plan-old.json"
+test -f "$audit_fixture/remote-scan-old.json"
 
 echo "==> Checking code signing state"
 signing_state="unsigned developer preview"
 notarization_state="not requested"
 spctl_state="not assessed"
+codesign_verified="false"
+hardened_runtime="false"
+notarization_status="not requested"
+stapled="false"
+gatekeeper_status="not assessed"
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   codesign --verify --deep --strict --verbose=2 "$app"
+  codesign_verified="true"
   signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
   if ! grep -qi "runtime" <<<"$signing_details"; then
     echo "signed app does not report Hardened Runtime in codesign details" >&2
     exit 1
   fi
+  hardened_runtime="true"
   signing_state="signed with Hardened Runtime"
 elif codesign --verify --deep --strict --verbose=2 "$app" >"$scratch/codesign-verify.txt" 2>&1; then
   signing_state="pre-signed outside this script"
+  codesign_verified="true"
+  signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
+  if grep -qi "runtime" <<<"$signing_details"; then
+    hardened_runtime="true"
+  fi
 else
   if [[ "$signing_required" == "required" ]]; then
     echo "RYDDI_RELEASE_SIGNING=required but app is unsigned." >&2
@@ -962,19 +1158,32 @@ fi
 if [[ "$signing_required" == "required" ]]; then
   echo "==> Notarizing signed app"
   "$root/Scripts/notarize-app.sh" "$app"
-  notarization_state="submitted, accepted, and stapled"
+  notary_status_file="$dist/Ryddi-notary-status.json"
+  notary_submission_file="$dist/Ryddi-notary-submission.txt"
+  if [[ ! -f "$notary_status_file" ]] || ! grep -Eq '"status"[[:space:]]*:[[:space:]]*"Accepted"' "$notary_status_file"; then
+    echo "notarization did not produce an Accepted status JSON: $notary_status_file" >&2
+    exit 1
+  fi
+  notary_submission="$(cat "$notary_submission_file" 2>/dev/null || true)"
+  notarization_state="accepted and stapled"
+  notarization_status="Accepted"
+  stapled="true"
   spctl --assess --type execute --verbose "$app"
   spctl_state="accepted"
+  gatekeeper_status="accepted"
   codesign --verify --deep --strict --verbose=2 "$app"
+else
+  notary_status_file=""
+  notary_submission=""
 fi
 
 echo "==> Creating zip artifact and checksum"
-rm -f "$zip_path" "$checksum_path" "$manifest_path"
 (
   cd "$dist"
   /usr/bin/zip -qry -X "$zip_path" "Ryddi.app"
 )
 shasum -a 256 "$zip_path" | tee "$checksum_path"
+artifact_sha="$(awk '{print $1}' "$checksum_path")"
 
 commit="unknown"
 if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -982,6 +1191,18 @@ if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 cat >"$manifest_path" <<MANIFEST
+manifest_schema=ryddi.release-trust.v1
+version=$bundle_version
+build=$bundle_build
+artifact=$(basename "$zip_path")
+sha256=$artifact_sha
+source_commit=$commit
+codesign_verified=$codesign_verified
+hardened_runtime=$hardened_runtime
+notarization_status=$notarization_status
+stapled=$stapled
+gatekeeper=$gatekeeper_status
+
 Ryddi release check
 Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 Commit: $commit
@@ -993,6 +1214,8 @@ Bundle build: $bundle_build
 Rules: ${rules_path#$app/}
 Signing state: $signing_state
 Notarization state: $notarization_state
+Notarization submission: ${notary_submission:-not applicable}
+Notarization status JSON: ${notary_status_file:-not applicable}
 Gatekeeper assessment: $spctl_state
 Artifact: $zip_path
 Checksum: $(cat "$checksum_path")
@@ -1018,6 +1241,7 @@ Verification performed:
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
+- bundled reclaimer release-trust --json against typed disposable accepted manifest proof
 - bundled reclaimer trust --json --path Tests
 - bundled reclaimer dogfood --path Tests --path-style redacted --output dogfood-smoke.md
 - bundled reclaimer explain on disposable Codex cache fixture with text and JSON explanation output
@@ -1027,6 +1251,8 @@ Verification performed:
 - bundled reclaimer drilldown --json on disposable nested fixture
 - bundled reclaimer apps uninstall-preview and apps uninstall --dry-run on a disposable app fixture, with redacted Markdown and saved JSON audit
 - bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md
+- bundled reclaimer remote history list/diff/report on disposable saved remote scan audit records, with redacted remote growth Markdown
+- bundled reclaimer remote dogfood --from-audit on disposable saved remote audit records, with redacted Markdown and no SSH connection
 - bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
 - bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy
 - bundled reclaimer plan --save-audit on disposable fixture plus redacted plans export --output saved-plan-report.md
@@ -1034,6 +1260,7 @@ Verification performed:
 - bundled reclaimer recovery --json and recovery restore with disposable audit and holding roots
 - bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
 - bundled reclaimer policy protect/list/export/import/replace with temporary config roots
+- bundled reclaimer audit summary --json and audit prune --dry-run --json with temporary audit root
 - codesign verification when CODESIGN_IDENTITY is set
 - notarization, stapling, spctl assessment, and strict codesign verification when RYDDI_RELEASE_SIGNING=required
 - zip artifact and SHA-256 checksum generation

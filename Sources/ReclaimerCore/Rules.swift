@@ -16,6 +16,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
     public let evidence: [String]
     public let conditions: [String]
     public let conditionGates: [PlanConditionKind]
+    public let gateEvidence: RuleGateEvidence
     public let recovery: String?
 
     public init(
@@ -29,6 +30,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         evidence: [String],
         conditions: [String] = [],
         conditionGates: [PlanConditionKind] = [],
+        gateEvidence: RuleGateEvidence = RuleGateEvidence(),
         recovery: String? = nil
     ) {
         self.id = id
@@ -41,6 +43,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         self.evidence = evidence
         self.conditions = conditions
         self.conditionGates = conditionGates
+        self.gateEvidence = gateEvidence
         self.recovery = recovery
     }
 
@@ -55,6 +58,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         case evidence
         case conditions
         case conditionGates
+        case gateEvidence
         case recovery
     }
 
@@ -70,6 +74,7 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
         self.evidence = try container.decode([String].self, forKey: .evidence)
         self.conditions = try container.decodeIfPresent([String].self, forKey: .conditions) ?? []
         self.conditionGates = try container.decodeIfPresent([PlanConditionKind].self, forKey: .conditionGates) ?? []
+        self.gateEvidence = try container.decodeIfPresent(RuleGateEvidence.self, forKey: .gateEvidence) ?? RuleGateEvidence()
         self.recovery = try container.decodeIfPresent(String.self, forKey: .recovery)
     }
 }
@@ -117,13 +122,85 @@ public final class RuleEngine: @unchecked Sendable {
     }
 
     public static func bundled() throws -> RuleEngine {
-        let url = Bundle.module.url(forResource: "rules", withExtension: "json")
+        let url = bundledRulesURL()
         guard let url else {
             return RuleEngine(version: "fallback-1", rules: BuiltInRules.fallback)
         }
         let data = try Data(contentsOf: url)
         let file = try JSONDecoder().decode(ReclaimerRuleFile.self, from: data)
         return RuleEngine(version: file.version, rules: file.rules)
+    }
+
+    static func bundledRulesURL(fileManager: FileManager = .default) -> URL? {
+        bundledRulesURL(candidateRoots: bundledRuleCandidateRoots(), fileManager: fileManager)
+    }
+
+    static func bundledRulesURL(candidateRoots: [URL], fileManager: FileManager = .default) -> URL? {
+        let bundleNames = ["Ryddi_ReclaimerCore.bundle", "MacDiskReclaimer_ReclaimerCore.bundle"]
+        var seen: Set<String> = []
+
+        for root in candidateRoots {
+            let standardizedRoot = root.standardizedFileURL
+            var candidates = [standardizedRoot.appendingPathComponent("rules.json")]
+            candidates.append(contentsOf: bundleNames.map {
+                standardizedRoot
+                    .appendingPathComponent($0, isDirectory: true)
+                    .appendingPathComponent("rules.json")
+            })
+
+            for candidate in candidates {
+                let path = candidate.standardizedFileURL.path
+                guard seen.insert(path).inserted else { continue }
+                var isDirectory: ObjCBool = false
+                if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue {
+                    return candidate
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func bundledRuleCandidateRoots() -> [URL] {
+        var roots: [URL] = []
+        func add(_ url: URL?) {
+            guard let url else { return }
+            roots.append(url.standardizedFileURL)
+        }
+        func addAncestorRoots(startingAt url: URL) {
+            var cursor = url.standardizedFileURL
+            for _ in 0..<8 {
+                add(cursor)
+                add(cursor.appendingPathComponent("Resources", isDirectory: true))
+                add(cursor.appendingPathComponent("Contents/Resources", isDirectory: true))
+
+                let parent = cursor.deletingLastPathComponent()
+                if parent.path == cursor.path { break }
+                cursor = parent
+            }
+        }
+
+        add(Bundle.main.resourceURL)
+        add(Bundle.main.bundleURL)
+        add(Bundle.main.bundleURL.appendingPathComponent("Contents/Resources", isDirectory: true))
+        addAncestorRoots(startingAt: Bundle.main.bundleURL)
+
+        for bundle in Bundle.allBundles {
+            add(bundle.resourceURL)
+            add(bundle.bundleURL)
+            add(bundle.bundleURL.appendingPathComponent("Contents/Resources", isDirectory: true))
+            addAncestorRoots(startingAt: bundle.bundleURL)
+        }
+
+        for argument in CommandLine.arguments where !argument.isEmpty {
+            let url = URL(fileURLWithPath: argument).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
+                addAncestorRoots(startingAt: isDirectory.boolValue ? url : url.deletingLastPathComponent())
+            }
+        }
+
+        return roots
     }
 
     public static func bundled(includingUserRules: Bool, userRuleStore: UserRulePackStore = UserRulePackStore()) throws -> RuleEngine {
@@ -160,6 +237,7 @@ public final class RuleEngine: @unchecked Sendable {
                     evidence: rule.evidence,
                     conditions: rule.conditions,
                     conditionGates: rule.conditionGates,
+                    gateEvidence: rule.gateEvidence,
                     recovery: rule.recovery
                 )
             )

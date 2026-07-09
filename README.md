@@ -23,13 +23,31 @@ Ryddi treats cleanup as evidence review:
 
 ## Current Status
 
-Ryddi is preparing the `v0.2.0` trust release. It has a shared Swift core, a CLI, and a SwiftUI app cockpit. The safest path today is scan, review, dry run, then reclaim only selected auto-safe items.
+Ryddi `v0.2.0` is the first trust release: a shared Swift core, a CLI, and a SwiftUI app cockpit distributed outside the Mac App Store as a Developer ID signed and Apple-notarized app when installed from the GitHub release assets. The safest path today is scan, review, dry run, then reclaim only selected auto-safe items.
 
-`v0.2.0` should be called a signed release only when the release manifest proves Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification. Local debug builds and unsigned preview artifacts are useful for testing, but they are not the trust release.
+The release manifest is the source of truth for signed/notarized claims. It must prove Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification before a build is treated as trusted. Local SwiftPM builds and unsigned preview artifacts are useful for testing, but they are not the trust release.
 
 No telemetry, path uploads, remote analysis, root helper, or Mac App Store sandboxing in v1.
 
 See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi should never touch automatically.
+
+## Start Here
+
+1. Build or download Ryddi, then open the Summary screen.
+2. Grant Full Disk Access only after reviewing the in-app permission guidance.
+3. Run a scan and review the Next Safe Action, Review Queues, and protected buckets.
+4. Create a dry-run plan before reclaiming anything. Use report exports when you want a shareable evidence package.
+
+For command-line dogfooding:
+
+```bash
+swift run --scratch-path .build reclaimer dogfood --preset general --path-style redacted --output /tmp/ryddi-dogfood.md
+swift run --scratch-path .build reclaimer trust --json --path Tests
+```
+
+Report safety false positives, rule-pack requests, and bugs with the GitHub issue templates. Use [SECURITY.md](SECURITY.md) for private reports involving secrets, unsafe cleanup, remote target metadata, or release-trust problems. Track public visual proof in [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
+
+Current synthetic UI proof assets are available under [docs/assets/screenshots](docs/assets/screenshots), including Summary, Review Queues, Package Cache, AI Agent Storage, and Remote Targets report-only flows.
 
 ## What It Handles
 
@@ -73,6 +91,7 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
 - read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
+- Remote Targets for agentless, report-only SSH/VPS storage evidence: target discovery from SSH config, safe probe, VPS scan, native guidance, redacted Markdown export, saved remote growth diffs, and local audit history
 - native-tool command preview and execution receipts for selected non-destructive Homebrew/package-manager cleanup commands, while Docker/Colima destructive commands remain guidance-only
 - Xcode DerivedData, module cache, archive, DeviceSupport, simulator, runtime, and developer-state review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
@@ -159,6 +178,13 @@ swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
 swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
 swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
+swift run --scratch-path .build reclaimer remote targets list
+swift run --scratch-path .build reclaimer remote probe my-vps --json --timeout 5
+swift run --scratch-path .build reclaimer remote scan my-vps --preset vps-general --path-style redacted --output ryddi-vps-report.md
+swift run --scratch-path .build reclaimer remote native my-vps
+swift run --scratch-path .build reclaimer remote history list
+swift run --scratch-path .build reclaimer remote history diff
+swift run --scratch-path .build reclaimer remote history report --path-style redacted --output ryddi-vps-growth.md
 swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
 swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch
 swift run --scratch-path .build reclaimer policy export --output ryddi-policy.json
@@ -190,10 +216,36 @@ Scripts/release-check.sh
 For a signed `v0.2.0` release gate, provide Developer ID and notarization credentials, then run:
 
 ```bash
+./Scripts/release-signing-doctor.sh
 RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh
 ```
 
+The signing doctor checks for a Developer ID Application identity and either a usable `NOTARY_PROFILE` or direct `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD` environment without printing password values. It is a preflight helper only; the release gate and manifest are still the source of truth. Shells such as fish do not search the current directory automatically, so run the script with `./Scripts/...` from the repository root.
+
 The signed release gate must produce `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, and strict codesign proof. If credentials are missing or any check fails, do not publish the build as `v0.2.0`.
+
+After downloading a release asset, verify the checksum and inspect the manifest before installing:
+
+```bash
+shasum -a 256 -c Ryddi-v0.2.0.zip.sha256
+grep -E 'source_commit|notarization_status|stapled|gatekeeper|codesign_verified' Ryddi-release-manifest.txt
+```
+
+Verify the manifest with the typed release-trust command before using signed/notarized wording:
+
+```bash
+swift run --scratch-path .build reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt
+```
+
+The trusted state is only `stapledAndAccepted`. Strings such as `not notarized` or a missing manifest stay warning states even if other prose mentions notarization.
+
+If Apple notarization is still processing, the gate exits nonzero before creating the final release zip and prints a resume command. Re-run that command with the recorded submission ID:
+
+```bash
+RYDDI_NOTARY_SUBMISSION_ID=<submission-id> Scripts/notarize-app.sh dist/Ryddi.app
+```
+
+Only treat the build as notarized after `dist/Ryddi-notary-status.json` reports `Accepted`, stapling validates, Gatekeeper accepts the app, and the release manifest records that proof.
 
 ## Scope Templates And Saved Scope Sets
 
@@ -222,6 +274,44 @@ swift run --scratch-path .build reclaimer scopes saved import ryddi-scope-sets.j
 Templates and saved scope sets store scan roots only. They do not grant cleanup permission, change safety rules, or make any path auto-cleanable. Saved scope exports can contain private local paths, so review them before sharing.
 
 ## Permission Coverage
+
+## Remote Targets
+
+Remote Targets extends the same evidence-first workflow to SSH/VPS hosts. Ryddi uses your existing SSH config and the system `ssh` client; it does not store keys, passwords, sudo credentials, or install a remote agent.
+
+The first remote release is report-only:
+
+- list non-wildcard SSH aliases from `~/.ssh/config`;
+- resolve a target with `ssh -G`;
+- probe OS, home directory, disk/inode pressure, available tools, and non-interactive sudo capability;
+- scan Linux VPS storage signals such as journald, APT cache, Docker storage, old deploy releases, large files, temp paths, and permission-denied areas;
+- label remote scan evidence as complete, partial, unreachable, or unsupported from command outcomes;
+- export redacted Markdown reports and save local audit records;
+- compare saved reachable remote scan audit records locally with `remote history` to see bucket/path growth without reconnecting to the server;
+- recommend native commands for manual review.
+
+Ryddi does not run remote cleanup, Docker prune/reset, `rm`, `find -delete`, sudo cleanup, or unattended destructive maintenance in Remote Targets v1.
+
+If a target is unreachable, Ryddi says so explicitly. You can export a degraded report to show the failure evidence, but Ryddi does not save that scan as a normal remote audit record or use it in default growth comparisons.
+
+Remote dogfood evidence packages can be created from a live read-only scan or from saved audit records:
+
+```bash
+swift run --scratch-path .build reclaimer remote dogfood my-vps --path-style redacted --output ryddi-vps-dogfood.md --save-audit
+swift run --scratch-path .build reclaimer remote dogfood --from-audit my-vps --path-style redacted --output ryddi-vps-dogfood.md
+```
+
+`--from-audit` does not reconnect to the server. It compares and packages saved local evidence only.
+
+Remote history reads saved local audit records only:
+
+```bash
+swift run --scratch-path .build reclaimer remote history list
+swift run --scratch-path .build reclaimer remote history diff --limit 10
+swift run --scratch-path .build reclaimer remote history report --path-style redacted --output ryddi-vps-growth.md
+```
+
+Remote growth reports compare saved scan-time evidence. They do not prove current server state, exact reclaim, or cleanup safety.
 
 Ryddi can summarize current scan coverage before you review cleanup candidates:
 
@@ -524,7 +614,7 @@ This creates:
 dist/Ryddi.app
 ```
 
-Set `CODESIGN_IDENTITY` to sign locally with Hardened Runtime. Use `Scripts/notarize-app.sh dist/Ryddi.app` when Apple notarization credentials are configured.
+Set `CODESIGN_IDENTITY` to sign locally with Hardened Runtime. Run `Scripts/release-signing-doctor.sh` to check the Developer ID identity and notary credential path before the full signed gate. Use `Scripts/notarize-app.sh dist/Ryddi.app` when Apple notarization credentials are configured. The notarization helper writes `dist/Ryddi-notary-submit.json`, `dist/Ryddi-notary-status.json`, and `dist/Ryddi-notary-submission.txt`; if the wait times out, resume with `RYDDI_NOTARY_SUBMISSION_ID=<submission-id>`.
 
 For a fuller release-shaped check:
 

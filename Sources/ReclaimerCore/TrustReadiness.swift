@@ -78,6 +78,7 @@ public struct TrustReadinessReport: Codable, Hashable, Sendable {
     public let latestReceiptSummary: LatestReceiptSummary?
     public let automationInstalled: Bool
     public let signingState: String
+    public let releaseTrustEvidence: ReleaseTrustEvidence
     public let nextActionCounts: [String: Int]
     public let recommendedActions: [TrustReadinessAction]
     public let nonClaims: [String]
@@ -90,6 +91,7 @@ public struct TrustReadinessReport: Codable, Hashable, Sendable {
         latestReceiptSummary: LatestReceiptSummary?,
         automationInstalled: Bool,
         signingState: String,
+        releaseTrustEvidence: ReleaseTrustEvidence = .missingManifest(path: nil),
         nextActionCounts: [String: Int] = [:],
         recommendedActions: [TrustReadinessAction],
         nonClaims: [String]
@@ -101,6 +103,7 @@ public struct TrustReadinessReport: Codable, Hashable, Sendable {
         self.latestReceiptSummary = latestReceiptSummary
         self.automationInstalled = automationInstalled
         self.signingState = signingState
+        self.releaseTrustEvidence = releaseTrustEvidence
         self.nextActionCounts = nextActionCounts
         self.recommendedActions = recommendedActions
         self.nonClaims = nonClaims
@@ -116,6 +119,7 @@ public enum TrustReadinessBuilder {
         latestReceipt: ExecutionReceipt? = nil,
         automationInstalled: Bool = false,
         signingState: String = "Unsigned local debug or source build",
+        releaseTrustEvidence: ReleaseTrustEvidence = .missingManifest(path: nil),
         now: Date = Date()
     ) -> TrustReadinessReport {
         var actions: [TrustReadinessAction] = []
@@ -151,7 +155,7 @@ public enum TrustReadinessBuilder {
             ))
         }
 
-        if permissionSummary.coverageLevel != .complete {
+        if permissionSummary.needsFullDiskAccessReview {
             actions.append(TrustReadinessAction(
                 id: "permissions.review-full-disk-access",
                 title: "Review Full Disk Access",
@@ -202,11 +206,14 @@ public enum TrustReadinessBuilder {
         ))
 
         actions.append(TrustReadinessAction(
-            id: "release.signing",
+            id: "release.trust",
             title: "Release trust",
-            detail: signingState,
-            severity: signingState.localizedCaseInsensitiveContains("notarized") ? .ready : .warning
+            detail: releaseTrustEvidence.summary,
+            severity: releaseTrustEvidence.state == .stapledAndAccepted ? .ready : .warning
         ))
+        let resolvedSigningState = releaseTrustEvidence.state == .missingManifest
+            ? signingState
+            : releaseTrustEvidence.summary
 
         return TrustReadinessReport(
             createdAt: now,
@@ -215,7 +222,8 @@ public enum TrustReadinessBuilder {
             latestPlanSummary: latestPlan.map(LatestPlanSummary.init(plan:)),
             latestReceiptSummary: latestReceipt.map(LatestReceiptSummary.init(receipt:)),
             automationInstalled: automationInstalled,
-            signingState: signingState,
+            signingState: resolvedSigningState,
+            releaseTrustEvidence: releaseTrustEvidence,
             nextActionCounts: Dictionary(grouping: findings, by: { $0.reviewNextAction.rawValue })
                 .mapValues(\.count),
             recommendedActions: actions,

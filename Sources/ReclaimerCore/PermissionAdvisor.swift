@@ -119,6 +119,9 @@ public enum PermissionAdvisor {
         if readable == 0, missing + unknown == total {
             return .blocked
         }
+        if denied == 0, unknown == 0, readable > 0 {
+            return .complete
+        }
         return .degraded
     }
 

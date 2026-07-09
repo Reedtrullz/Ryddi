@@ -44,6 +44,32 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(cache.actionKind, .deleteCache)
     }
 
+    func testRuleEngineLocatesRulesInSignedAppResourceLayout() throws {
+        let resourceRoot = tempRoot.appendingPathComponent("Ryddi.app/Contents/Resources", isDirectory: true)
+        let bundle = resourceRoot.appendingPathComponent("Ryddi_ReclaimerCore.bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let rules = bundle.appendingPathComponent("rules.json")
+        try "{}".write(to: rules, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            RuleEngine.bundledRulesURL(candidateRoots: [resourceRoot])?.standardizedFileURL,
+            rules.standardizedFileURL
+        )
+    }
+
+    func testRuleEngineLocatesRulesBesideSwiftPMExecutableLayout() throws {
+        let binaryRoot = tempRoot.appendingPathComponent(".build/arm64-apple-macosx/release", isDirectory: true)
+        let bundle = binaryRoot.appendingPathComponent("Ryddi_ReclaimerCore.bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let rules = bundle.appendingPathComponent("rules.json")
+        try "{}".write(to: rules, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            RuleEngine.bundledRulesURL(candidateRoots: [binaryRoot])?.standardizedFileURL,
+            rules.standardizedFileURL
+        )
+    }
+
     func testAgentStorageReviewSeparatesCacheHistoryAndProtectedState() throws {
         let codexCache = tempRoot.appendingPathComponent(".codex/cache/blob.bin")
         let codexSession = tempRoot.appendingPathComponent(".codex/sessions/2026/07/session.jsonl")
@@ -296,6 +322,1324 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(Set(try store.loadDocument().rules.map(\.id)), Set([first.id, second.id]))
         _ = try store.importDocument(from: secondSource, merge: false)
         XCTAssertEqual(try store.loadDocument().rules.map(\.id), [second.id])
+    }
+
+    func testRemoteTargetResolverListsNonWildcardAliasesAndResolvesSSHConfig() throws {
+        let sshRoot = tempRoot.appendingPathComponent("ssh", isDirectory: true)
+        let includeRoot = sshRoot.appendingPathComponent("conf.d", isDirectory: true)
+        try FileManager.default.createDirectory(at: includeRoot, withIntermediateDirectories: true)
+        let configURL = sshRoot.appendingPathComponent("config")
+        let includeURL = includeRoot.appendingPathComponent("extra.conf")
+        let trailingWildcardURL = includeRoot.appendingPathComponent("team-alpha")
+        let nonMatchingURL = includeRoot.appendingPathComponent("team")
+        try """
+        Include \(includeURL.path)
+        Include \(includeRoot.path)/team-*
+
+        Host prod-vps
+          HostName 203.0.113.10
+          User deploy
+          Port 2222
+
+        Host *.example.com
+          User ignored
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        Host staging-vps
+          HostName staging.example.invalid
+          User ubuntu
+        """.write(to: includeURL, atomically: true, encoding: .utf8)
+        try """
+        Host alpha-vps
+          HostName alpha.example.invalid
+        """.write(to: trailingWildcardURL, atomically: true, encoding: .utf8)
+        try """
+        Host should-not-load
+          HostName broad-match-bug.example.invalid
+        """.write(to: nonMatchingURL, atomically: true, encoding: .utf8)
+        let knownHostsURL = sshRoot.appendingPathComponent("known_hosts")
+        try "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKey\n".write(
+            to: knownHostsURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let output = fakeOutput(
+            "/usr/bin/ssh",
+            ["-G", "prod-vps"],
+            stdout: """
+            user deploy
+            hostname 203.0.113.10
+            port 2222
+            identityfile ~/.ssh/id_ed25519
+            """
+        )
+        let runner = FakeToolRunner(outputs: [output])
+        let resolver = RemoteTargetResolver(configURL: configURL, knownHostsURL: knownHostsURL, runner: runner)
+
+        let targets = resolver.targets()
+        XCTAssertEqual(targets.map(\.input), ["alpha-vps", "prod-vps", "staging-vps"])
+        XCTAssertFalse(targets.contains { $0.input.contains("*") })
+        XCTAssertFalse(targets.contains { $0.input == "should-not-load" })
+
+        let resolved = try resolver.resolve("prod-vps")
+        XCTAssertEqual(resolved.alias, "prod-vps")
+        XCTAssertEqual(resolved.resolvedUser, "deploy")
+        XCTAssertEqual(resolved.resolvedHost, "203.0.113.10")
+        XCTAssertEqual(resolved.resolvedPort, 2222)
+        XCTAssertEqual(resolved.knownHostsState, "known")
+        XCTAssertNotNil(resolved.fingerprint)
+        XCTAssertEqual(runner.commands, ["/usr/bin/ssh -G prod-vps"])
+    }
+
+    func testAuditStoreRoundTripsRemoteProbeAndScanReports() throws {
+        let store = AuditStore(root: tempRoot.appendingPathComponent("audit", isDirectory: true))
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 2222,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let command = RemoteCommandResult(
+            commandID: "probe.uname",
+            displayCommand: "uname -srm",
+            exitCode: 0,
+            timedOut: false,
+            stdoutPreview: ["Linux 6.8 x86_64"],
+            stderrPreview: [],
+            redactionApplied: false
+        )
+        let probe = RemoteProbeReport(
+            target: target,
+            osSummary: "Ubuntu 24.04 LTS",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: ["docker", "journalctl"],
+            commands: [command],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [
+                RemoteFilesystemSummary(mount: "/", filesystem: "/dev/vda1", usedBytes: 4_096, availableBytes: 8_192, capacityPercent: 34)
+            ],
+            inodeFilesystems: [],
+            findings: [
+                RemoteStorageFinding(
+                    remotePath: "/var/lib/docker/volumes",
+                    displayPath: "/var/lib/docker/volumes",
+                    bucket: "Docker volumes",
+                    allocatedBytes: 42_000,
+                    safetyClass: .preserveByDefault,
+                    actionKind: .nativeToolCommand,
+                    evidence: [Evidence(kind: "remote.docker", message: "Docker volumes can contain databases or app state.")],
+                    recommendedNextAction: .protectByDefault
+                )
+            ],
+            nativeGuidance: [
+                RemoteNativeGuidance(
+                    id: "docker.review",
+                    title: "Review Docker storage",
+                    command: "docker system df -v",
+                    risk: "review",
+                    summary: "Inspect Docker storage before any prune command."
+                )
+            ],
+            commands: [command],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+
+        XCTAssertEqual(store.recentRemoteProbeReports().first?.id, probe.id)
+        XCTAssertEqual(store.recentRemoteScanReports().first?.id, scan.id)
+        XCTAssertEqual(store.remoteScanReport(id: scan.id)?.id, scan.id)
+        XCTAssertEqual(store.recentRemoteScanReports().first?.findings.first?.safetyClass, .preserveByDefault)
+        XCTAssertTrue(store.recentRemoteScanReports().first?.nonClaims.contains { $0.contains("No cleanup was executed") } ?? false)
+    }
+
+    func testAuditStoreRoundTripsRemoteDogfoodReportsAndFindsLatestTargetEvidence() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let scan = RemoteScanReport(
+            id: "scan-1",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+        let probe = RemoteProbeReport(
+            id: "probe-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: target,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+        let dogfood = RemoteDogfoodReportBuilder.build(probe: probe, scan: scan, growth: nil)
+        _ = try store.save(remoteDogfoodReport: dogfood)
+
+        XCTAssertEqual(store.recentRemoteDogfoodReports().first?.id, dogfood.id)
+        XCTAssertEqual(store.latestRemoteScanReport(matching: target)?.id, scan.id)
+        XCTAssertEqual(store.latestRemoteProbeReport(matching: target)?.id, probe.id)
+    }
+
+    func testAuditStoreDoesNotCrossMatchUnresolvedRemoteTargets() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let unresolvedA = RemoteTargetReference(
+            input: "unresolved-a",
+            alias: "unresolved-a",
+            knownHostsState: "unknown"
+        )
+        let unresolvedB = RemoteTargetReference(
+            input: "unresolved-b",
+            alias: "unresolved-b",
+            knownHostsState: "unknown"
+        )
+
+        let probe = RemoteProbeReport(
+            id: "probe-unresolved",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: unresolvedA,
+            osSummary: "Unknown",
+            homeDirectory: "/home/unknown",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            id: "scan-unresolved",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: unresolvedA,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+
+        XCTAssertNil(store.latestRemoteProbeReport(matching: unresolvedB))
+        XCTAssertNil(store.latestRemoteScanReport(matching: unresolvedB))
+    }
+
+    func testAuditStoreMatchesResolvedTargetsByHostUserAndPortWhenIdsDiffer() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let storedTarget = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let queryTarget = RemoteTargetReference(
+            id: "different-id",
+            input: "alias-changed",
+            alias: "alias-changed",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+
+        let probe = RemoteProbeReport(
+            id: "probe-resolved",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: storedTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            id: "scan-resolved",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: storedTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+
+        XCTAssertEqual(store.latestRemoteProbeReport(matching: queryTarget)?.id, probe.id)
+        XCTAssertEqual(store.latestRemoteScanReport(matching: queryTarget)?.id, scan.id)
+    }
+
+    func testAuditStoreMatchesRemoteTargetsByIdInputAndAliasAndPrefersLatestScan() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let firstTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "alias-prod-vps",
+            resolvedUser: nil,
+            resolvedHost: nil,
+            resolvedPort: nil,
+            knownHostsState: "unknown",
+            fingerprint: nil
+        )
+        let secondTarget = RemoteTargetReference(
+            id: "target-002",
+            input: "prod-vps-2",
+            alias: "alias-prod-vps",
+            resolvedUser: nil,
+            resolvedHost: nil,
+            resolvedPort: nil,
+            knownHostsState: "unknown",
+            fingerprint: nil
+        )
+
+        let firstProbe = RemoteProbeReport(
+            id: "probe-001",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: firstTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let secondProbe = RemoteProbeReport(
+            id: "probe-002",
+            createdAt: Date(timeIntervalSince1970: 20),
+            target: secondTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let firstScan = RemoteScanReport(
+            id: "scan-001",
+            createdAt: Date(timeIntervalSince1970: 30),
+            preset: .vpsGeneral,
+            target: firstTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+        let secondScan = RemoteScanReport(
+            id: "scan-002",
+            createdAt: Date(timeIntervalSince1970: 40),
+            preset: .vpsGeneral,
+            target: secondTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: firstProbe)
+        _ = try store.save(remoteScanReport: firstScan)
+        _ = try store.save(remoteProbeReport: secondProbe)
+        _ = try store.save(remoteScanReport: secondScan)
+
+        let aliasQuery = RemoteTargetReference(input: "alias-prod-vps")
+        let idQuery = RemoteTargetReference(input: "target-001")
+
+        XCTAssertEqual(store.latestRemoteScanReport(matching: aliasQuery)?.id, secondScan.id)
+        XCTAssertEqual(store.latestRemoteProbeReport(matching: aliasQuery)?.id, secondProbe.id)
+        XCTAssertEqual(store.latestRemoteScanReport(matching: idQuery)?.id, firstScan.id)
+    }
+
+    func testAuditStoreDoesNotCrossMatchResolvedTargetsWhenAliasOrIDOverlap() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let storedTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture-a"
+        )
+        let conflictingTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.11",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture-b"
+        )
+
+        let probe = RemoteProbeReport(
+            id: "probe-identity-conflict",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: storedTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            id: "scan-identity-conflict",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: storedTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: probe)
+        _ = try store.save(remoteScanReport: scan)
+
+        XCTAssertNil(store.latestRemoteProbeReport(matching: conflictingTarget))
+        XCTAssertNil(store.latestRemoteScanReport(matching: conflictingTarget))
+        XCTAssertNil(store.latestRemoteProbeReport(forConcreteTarget: conflictingTarget))
+    }
+
+    func testAuditStoreRejectsAmbiguousSavedRemoteScanQueryAcrossConcreteTargets() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let firstTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-a",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:first"
+        )
+        let secondTarget = RemoteTargetReference(
+            id: "target-002",
+            input: "prod-b",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.11",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:second"
+        )
+
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-001",
+            createdAt: Date(timeIntervalSince1970: 10),
+            preset: .vpsGeneral,
+            target: firstTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-002",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: secondTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+
+        let query = RemoteTargetReference(input: "shared-alias")
+        XCTAssertThrowsError(try store.selectedRemoteScanReport(forAuditQuery: query)) { error in
+            XCTAssertEqual(
+                error as? AuditStore.RemoteAuditQueryError,
+                .ambiguousSavedTargetQuery("shared-alias")
+            )
+        }
+    }
+
+    func testAuditStoreRejectsAmbiguousSavedRemoteScanQueryAcrossUnresolvedTargetsButKeepsUniqueIDLookup() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let firstTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-a",
+            alias: "shared-alias",
+            knownHostsState: "unknown"
+        )
+        let secondTarget = RemoteTargetReference(
+            id: "target-002",
+            input: "prod-b",
+            alias: "shared-alias",
+            knownHostsState: "unknown"
+        )
+
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-001",
+            createdAt: Date(timeIntervalSince1970: 10),
+            preset: .vpsGeneral,
+            target: firstTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-002",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: secondTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+
+        XCTAssertThrowsError(try store.selectedRemoteScanReport(forAuditQuery: RemoteTargetReference(input: "shared-alias"))) { error in
+            XCTAssertEqual(
+                error as? AuditStore.RemoteAuditQueryError,
+                .ambiguousSavedTargetQuery("shared-alias")
+            )
+        }
+        XCTAssertEqual(
+            try store.selectedRemoteScanReport(forAuditQuery: RemoteTargetReference(input: "target-001"))?.id,
+            "scan-001"
+        )
+    }
+
+    func testAuditStoreSelectsProbeForSameConcreteTargetAsSelectedScan() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let selectedTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "shared-alias",
+            resolvedUser: nil,
+            resolvedHost: nil,
+            resolvedPort: nil,
+            knownHostsState: "unknown",
+            fingerprint: nil
+        )
+        let collidingTarget = RemoteTargetReference(
+            id: "target-002",
+            input: "prod-vps-shadow",
+            alias: "shared-alias",
+            resolvedUser: nil,
+            resolvedHost: nil,
+            resolvedPort: nil,
+            knownHostsState: "unknown",
+            fingerprint: nil
+        )
+
+        let selectedProbe = RemoteProbeReport(
+            id: "probe-selected",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: selectedTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let selectedScan = RemoteScanReport(
+            id: "scan-selected",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: selectedTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+        let newerCollidingProbe = RemoteProbeReport(
+            id: "probe-colliding",
+            createdAt: Date(timeIntervalSince1970: 30),
+            target: collidingTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+
+        _ = try store.save(remoteProbeReport: selectedProbe)
+        _ = try store.save(remoteScanReport: selectedScan)
+        _ = try store.save(remoteProbeReport: newerCollidingProbe)
+
+        let idQuery = RemoteTargetReference(input: "target-001")
+        let scan = try XCTUnwrap(store.latestRemoteScanReport(matching: idQuery))
+
+        XCTAssertEqual(scan.id, selectedScan.id)
+        XCTAssertEqual(store.latestRemoteProbeReport(forConcreteTarget: scan.target)?.id, selectedProbe.id)
+    }
+
+    func testAuditStoreSelectsConcreteProbeByResolvedIdentityInsteadOfSharedIDConflict() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let selectedTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "shared-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:selected"
+        )
+        let collidingTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps-shadow",
+            alias: "shadow-alias",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.11",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:colliding"
+        )
+
+        _ = try store.save(remoteProbeReport: RemoteProbeReport(
+            id: "probe-selected",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: selectedTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteProbeReport: RemoteProbeReport(
+            id: "probe-colliding",
+            createdAt: Date(timeIntervalSince1970: 20),
+            target: collidingTarget,
+            osSummary: "Ubuntu",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: [],
+            commands: [],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        ))
+
+        XCTAssertEqual(store.latestRemoteProbeReport(forConcreteTarget: selectedTarget)?.id, "probe-selected")
+    }
+
+    func testAuditStorePreviousRemoteScanUsesConcreteIdentityInsteadOfSharedIDConflict() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let previousCorrectTarget = RemoteTargetReference(
+            id: "older-id",
+            input: "prod-vps-old",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:correct"
+        )
+        let previousWrongTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps-shadow",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.11",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:wrong"
+        )
+        let currentTarget = RemoteTargetReference(
+            id: "target-001",
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:current"
+        )
+
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-previous-correct",
+            createdAt: Date(timeIntervalSince1970: 10),
+            preset: .vpsGeneral,
+            target: previousCorrectTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-previous-wrong",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: previousWrongTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+        _ = try store.save(remoteScanReport: RemoteScanReport(
+            id: "scan-current",
+            createdAt: Date(timeIntervalSince1970: 30),
+            preset: .vpsGeneral,
+            target: currentTarget,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        ))
+
+        XCTAssertEqual(
+            store.latestPreviousRemoteScanReport(forConcreteTarget: currentTarget, excludingReportID: "scan-current")?.id,
+            "scan-previous-correct"
+        )
+    }
+
+    func testRemoteGrowthReportComparesSavedScansAndRedactsPaths() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let previous = RemoteScanReport(
+            id: "previous-remote",
+            createdAt: Date(timeIntervalSince1970: 10),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [
+                RemoteStorageFinding(
+                    remotePath: "/home/deploy/private-client/cache",
+                    displayPath: "/home/deploy/private-client/cache",
+                    bucket: "Remote storage",
+                    allocatedBytes: 100,
+                    safetyClass: .reviewRequired,
+                    actionKind: .openGuidance,
+                    evidence: [Evidence(kind: "remote.storage", message: "Previous size.")],
+                    recommendedNextAction: .reviewInFinder
+                ),
+                RemoteStorageFinding(
+                    remotePath: "/var/log/journal",
+                    displayPath: "/var/log/journal",
+                    bucket: "Journald logs",
+                    allocatedBytes: 20,
+                    safetyClass: .safeAfterCondition,
+                    actionKind: .nativeToolCommand,
+                    evidence: [Evidence(kind: "remote.journal", message: "Previous journals.")],
+                    recommendedNextAction: .useNativeTool
+                )
+            ],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+        let current = RemoteScanReport(
+            id: "current-remote",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [
+                RemoteStorageFinding(
+                    remotePath: "/home/deploy/private-client/cache",
+                    displayPath: "/home/deploy/private-client/cache",
+                    bucket: "Remote storage",
+                    allocatedBytes: 180,
+                    safetyClass: .reviewRequired,
+                    actionKind: .openGuidance,
+                    evidence: [Evidence(kind: "remote.storage", message: "Current size.")],
+                    recommendedNextAction: .reviewInFinder
+                ),
+                RemoteStorageFinding(
+                    remotePath: "/var/log/journal",
+                    displayPath: "/var/log/journal",
+                    bucket: "Journald logs",
+                    allocatedBytes: 10,
+                    safetyClass: .safeAfterCondition,
+                    actionKind: .nativeToolCommand,
+                    evidence: [Evidence(kind: "remote.journal", message: "Current journals.")],
+                    recommendedNextAction: .useNativeTool
+                )
+            ],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        let report = RemoteGrowthReportBuilder.build(
+            previous: previous,
+            current: current,
+            limit: 10,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted, homeDirectory: URL(fileURLWithPath: "/home/deploy")),
+            now: Date(timeIntervalSince1970: 30)
+        )
+
+        XCTAssertEqual(report.previousScanID, "previous-remote")
+        XCTAssertEqual(report.currentScanID, "current-remote")
+        XCTAssertEqual(report.previousAllocatedBytes, 120)
+        XCTAssertEqual(report.currentAllocatedBytes, 190)
+        XCTAssertEqual(report.deltaAllocatedBytes, 70)
+        XCTAssertEqual(report.bucketDeltas.first { $0.bucket == "Remote storage" }?.deltaAllocatedBytes, 80)
+        XCTAssertEqual(report.findingDeltas.first { $0.remotePath == "/home/deploy/private-client/cache" }?.deltaAllocatedBytes, 80)
+        XCTAssertTrue(report.markdown.contains("# Ryddi Remote Growth Report"))
+        XCTAssertTrue(report.markdown.contains("Largest Bucket Deltas"))
+        XCTAssertTrue(report.markdown.contains("Largest Path Deltas"))
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertFalse(report.markdown.contains("/home/deploy/private-client/cache"))
+        XCTAssertFalse(report.markdown.contains("private-client"))
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("No cleanup was executed") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("saved remote scan reports") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("Report privacy was applied") })
+    }
+
+    func testRemoteDogfoodReportComposesScanGrowthAndRedactsPaths() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let probe = RemoteProbeReport(
+            id: "probe-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: target,
+            osSummary: "Ubuntu 24.04 LTS",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: ["docker", "journalctl"],
+            commands: [
+                RemoteCommandResult(
+                    commandID: "probe.uname",
+                    displayCommand: "uname -srm",
+                    exitCode: 0,
+                    timedOut: false,
+                    stdoutPreview: ["Linux 6.8.0 x86_64"],
+                    stderrPreview: [],
+                    redactionApplied: false
+                )
+            ],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            id: "scan-1",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [
+                RemoteFilesystemSummary(mount: "/", filesystem: "/dev/vda1", usedBytes: 80_000, availableBytes: 20_000, capacityPercent: 80)
+            ],
+            inodeFilesystems: [],
+            findings: [
+                RemoteStorageFinding(
+                    remotePath: "/home/deploy/private-client/cache",
+                    displayPath: "/home/deploy/private-client/cache",
+                    bucket: "Remote storage",
+                    allocatedBytes: 180,
+                    safetyClass: .reviewRequired,
+                    actionKind: .openGuidance,
+                    evidence: [Evidence(kind: "remote.fixture", message: "Fixture evidence.")],
+                    recommendedNextAction: .reviewInFinder
+                )
+            ],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+        let growth = RemoteGrowthReportBuilder.build(
+            previous: scan,
+            current: scan,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted),
+            now: Date(timeIntervalSince1970: 30)
+        )
+
+        let report = RemoteDogfoodReportBuilder.build(
+            probe: probe,
+            scan: scan,
+            growth: growth,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted),
+            now: Date(timeIntervalSince1970: 40)
+        )
+
+        let encoded = try JSONEncoder().encode(report)
+        let json = String(decoding: encoded, as: UTF8.self)
+
+        XCTAssertEqual(report.target.id, "<target redacted>")
+        XCTAssertEqual(report.target.input, "<target redacted>")
+        XCTAssertNil(report.target.alias)
+        XCTAssertNil(report.target.resolvedUser)
+        XCTAssertEqual(report.target.resolvedHost, "<host redacted>")
+        XCTAssertNil(report.target.resolvedPort)
+        XCTAssertEqual(report.target.knownHostsState, "redacted")
+        XCTAssertNil(report.target.fingerprint)
+        XCTAssertEqual(report.scanID, "scan-1")
+        XCTAssertEqual(report.probeID, "probe-1")
+        XCTAssertEqual(report.findingCount, 1)
+        XCTAssertEqual(report.totalFindingBytes, 180)
+        XCTAssertEqual(report.commandResults.count, 1)
+        XCTAssertEqual(report.commandResults.first?.commandID, "probe.uname")
+        XCTAssertEqual(report.commandResults.first?.displayCommand, "<command redacted>")
+        XCTAssertEqual(report.commandResults.first?.stdoutPreview, [])
+        XCTAssertEqual(report.commandResults.first?.stderrPreview, [])
+        XCTAssertTrue(report.commandResults.first?.redactionApplied ?? false)
+        XCTAssertTrue(report.markdown.contains("# Ryddi Remote Dogfood Report"))
+        XCTAssertTrue(report.markdown.contains("Ubuntu 24.04 LTS"))
+        XCTAssertTrue(report.markdown.contains("<path redacted>"))
+        XCTAssertTrue(report.markdown.contains("<target redacted>"))
+        XCTAssertTrue(report.markdown.contains("<host redacted>"))
+        XCTAssertFalse(report.markdown.contains("prod-vps"))
+        XCTAssertFalse(report.markdown.contains("203.0.113.10"))
+        XCTAssertFalse(report.markdown.contains("private-client"))
+        XCTAssertFalse(json.contains("prod-vps"))
+        XCTAssertFalse(json.contains("203.0.113.10"))
+        XCTAssertFalse(json.contains("uname -srm"))
+        XCTAssertFalse(json.contains("Linux 6.8.0 x86_64"))
+        XCTAssertFalse(json.contains("private-client"))
+        XCTAssertTrue(json.contains("<target redacted>"))
+        XCTAssertTrue(json.contains("<host redacted>"))
+        XCTAssertTrue(json.contains("<command redacted>"))
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("No cleanup was executed") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("read-only") })
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("does not prove current server state") })
+    }
+
+    func testRemoteDogfoodReportRedactsDiskPressureMountPaths() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let scan = RemoteScanReport(
+            id: "scan-privacy",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [
+                RemoteFilesystemSummary(mount: "/srv/private-client/uploads", filesystem: "/dev/vdb1", usedBytes: 10_000, availableBytes: 90_000, capacityPercent: 92),
+                RemoteFilesystemSummary(mount: "/", filesystem: "/dev/vda1", usedBytes: 80_000, availableBytes: 20_000, capacityPercent: 80)
+            ],
+            inodeFilesystems: [],
+            findings: [],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        let report = RemoteDogfoodReportBuilder.build(
+            probe: nil,
+            scan: scan,
+            growth: nil,
+            privacy: ReportPrivacyOptions(pathStyle: .redacted),
+            now: Date(timeIntervalSince1970: 40)
+        )
+
+        XCTAssertTrue(report.diskPressureSummary.contains("<path redacted>"))
+        XCTAssertFalse(report.diskPressureSummary.contains("/srv"))
+        XCTAssertFalse(report.diskPressureSummary.contains("private-client"))
+        XCTAssertFalse(report.diskPressureSummary.contains("uploads"))
+        XCTAssertTrue(report.markdown.contains("- Disk pressure: 92% on <path redacted>"))
+        XCTAssertFalse(report.markdown.contains("/srv"))
+        XCTAssertFalse(report.markdown.contains("private-client"))
+        XCTAssertFalse(report.markdown.contains("uploads"))
+    }
+
+    func testRemoteDogfoodReportKeepsFullDetailsWhenPrivacyIsFull() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let probe = RemoteProbeReport(
+            id: "probe-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            target: target,
+            osSummary: "Ubuntu 24.04 LTS",
+            homeDirectory: "/home/deploy",
+            sudoNonInteractive: false,
+            availableTools: ["docker", "journalctl"],
+            commands: [
+                RemoteCommandResult(
+                    commandID: "probe.uname",
+                    displayCommand: "uname -srm",
+                    exitCode: 0,
+                    timedOut: false,
+                    stdoutPreview: ["Linux 6.8.0 x86_64"],
+                    stderrPreview: [],
+                    redactionApplied: false
+                )
+            ],
+            nonClaims: RemoteProbeReport.defaultNonClaims
+        )
+        let scan = RemoteScanReport(
+            id: "scan-1",
+            createdAt: Date(timeIntervalSince1970: 20),
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [
+                RemoteFilesystemSummary(mount: "/srv/private-client/uploads", filesystem: "/dev/vdb1", usedBytes: 10_000, availableBytes: 90_000, capacityPercent: 92),
+                RemoteFilesystemSummary(mount: "/", filesystem: "/dev/vda1", usedBytes: 80_000, availableBytes: 20_000, capacityPercent: 80)
+            ],
+            inodeFilesystems: [],
+            findings: [
+                RemoteStorageFinding(
+                    remotePath: "/home/deploy/private-client/cache",
+                    displayPath: "/home/deploy/private-client/cache",
+                    bucket: "Remote storage",
+                    allocatedBytes: 180,
+                    safetyClass: .reviewRequired,
+                    actionKind: .openGuidance,
+                    evidence: [Evidence(kind: "remote.fixture", message: "Fixture evidence.")],
+                    recommendedNextAction: .reviewInFinder
+                )
+            ],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: RemoteScanReport.defaultNonClaims
+        )
+
+        let report = RemoteDogfoodReportBuilder.build(
+            probe: probe,
+            scan: scan,
+            growth: nil,
+            privacy: .default,
+            now: Date(timeIntervalSince1970: 40)
+        )
+
+        let encoded = try JSONEncoder().encode(report)
+        let json = String(decoding: encoded, as: UTF8.self)
+
+        XCTAssertEqual(report.target.id, target.id)
+        XCTAssertEqual(report.target.input, target.input)
+        XCTAssertEqual(report.target.alias, target.alias)
+        XCTAssertEqual(report.target.resolvedUser, target.resolvedUser)
+        XCTAssertEqual(report.target.resolvedHost, target.resolvedHost)
+        XCTAssertEqual(report.target.resolvedPort, target.resolvedPort)
+        XCTAssertEqual(report.target.knownHostsState, target.knownHostsState)
+        XCTAssertEqual(report.target.fingerprint, target.fingerprint)
+        XCTAssertEqual(report.commandResults.first?.displayCommand, "uname -srm")
+        XCTAssertEqual(report.commandResults.first?.stdoutPreview, ["Linux 6.8.0 x86_64"])
+        XCTAssertFalse(report.commandResults.first?.redactionApplied ?? true)
+        XCTAssertTrue(json.contains("prod-vps"))
+        XCTAssertTrue(json.contains("203.0.113.10"))
+        XCTAssertTrue(json.contains("uname -srm"))
+        XCTAssertTrue(json.contains("Linux 6.8.0 x86_64"))
+        XCTAssertTrue(report.diskPressureSummary.contains("/srv/private-client/uploads"))
+        XCTAssertTrue(report.markdown.contains("- Disk pressure: 92% on /srv/private-client/uploads"))
+    }
+
+    func testRemoteSSHRunnerBuildsSafeNonInteractiveInvocation() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 2222,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let expectedArguments = [
+            "-T",
+            "-o", "BatchMode=yes",
+            "-o", "NumberOfPasswordPrompts=0",
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", "ConnectTimeout=12",
+            "prod-vps",
+            "uname -srm"
+        ]
+        let output = fakeOutput("/usr/bin/ssh", expectedArguments, stdout: "Linux 6.8 x86_64\n")
+        let runner = FakeToolRunner(outputs: [output])
+        let ssh = RemoteSSHCommandRunner(target: target, runner: runner, timeout: 120, connectTimeout: 12)
+
+        let result = ssh.run(commandID: "probe.uname", remoteCommand: "uname -srm")
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.stdoutPreview, ["Linux 6.8 x86_64"])
+        XCTAssertEqual(runner.commands, ["/usr/bin/ssh \(expectedArguments.joined(separator: " "))"])
+        XCTAssertEqual(runner.timeouts, [60])
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("ForwardAgent"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("StrictHostKeyChecking=no"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("IdentityFile"))
+    }
+
+    func testRemoteSSHRunnerBlocksDestructiveRemoteCommandsBeforeLaunch() throws {
+        let target = RemoteTargetReference(input: "prod-vps", alias: "prod-vps")
+        let runner = FakeToolRunner(outputs: [])
+        let ssh = RemoteSSHCommandRunner(target: target, runner: runner)
+
+        for unsafeCommand in ["docker system prune", "colima reset", "rm -rf /tmp/build", "remote execute cleanup", "find /tmp -delete", "bash -c 'rm -rf /tmp/build'"] {
+            let result = ssh.run(commandID: "unsafe", remoteCommand: unsafeCommand)
+            XCTAssertNil(result.exitCode)
+            XCTAssertTrue(result.stderrPreview.contains { $0.contains("blocked") }, unsafeCommand)
+        }
+        XCTAssertTrue(runner.commands.isEmpty)
+    }
+
+    func testRemoteParsersHandleLinuxDiskJournalAptAndDockerOutput() throws {
+        let os = RemoteParsers.parseOSRelease("""
+        NAME="Ubuntu"
+        VERSION_ID="24.04"
+        PRETTY_NAME="Ubuntu 24.04.2 LTS"
+        """)
+        XCTAssertEqual(os, "Ubuntu 24.04.2 LTS")
+
+        let filesystems = RemoteParsers.parseDF("""
+        Filesystem     1024-blocks     Used Available Capacity Mounted on
+        /dev/vda1         20480000 18432000   2048000      90% /
+        tmpfs               512000        0    512000       0% /run
+        """)
+        XCTAssertEqual(filesystems.first?.mount, "/")
+        XCTAssertEqual(filesystems.first?.usedBytes, 18_432_000 * 1024)
+        XCTAssertEqual(filesystems.first?.capacityPercent, 90)
+
+        let duRows = RemoteParsers.parseDU("""
+        2048000 /var/lib/docker
+        512000 /opt/apps/releases/2025-01-01
+        """)
+        XCTAssertEqual(duRows.first?.path, "/var/lib/docker")
+        XCTAssertEqual(duRows.first?.bytes, 2_048_000 * 1024)
+
+        XCTAssertEqual(RemoteParsers.parseJournalctlDiskUsage("Archived and active journals take up 1.5G in the file system."), 1_610_612_736)
+        XCTAssertEqual(RemoteParsers.parseDockerSystemDF("""
+        TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+        Images          10        3         5GB       2GB (40%)
+        Local Volumes   4         4         20GB      0B (0%)
+        Build Cache     20        0         8GB       8GB
+        """).first { $0.type == "Build Cache" }?.reclaimableBytes, 8_000_000_000)
+    }
+
+    func testRemoteParserFixturesHandleUbuntuDockerAndDebianMinimal() throws {
+        let ubuntu = try fixtureText("remote-ubuntu-24-docker.txt")
+        XCTAssertTrue(ubuntu.contains("3.4GB"))
+        let ubuntuFilesystems = RemoteParsers.parseDF(fixtureSection("df -Pk", in: ubuntu))
+        XCTAssertEqual(ubuntuFilesystems.first?.capacityPercent, 83)
+        let ubuntuJournal = RemoteParsers.parseJournalctlDiskUsage(fixtureSection("journalctl --disk-usage", in: ubuntu))
+        XCTAssertEqual(ubuntuJournal, 805_306_368)
+
+        let debian = try fixtureText("remote-debian-minimal.txt")
+        let debianFilesystems = RemoteParsers.parseDF(fixtureSection("df -Pk", in: debian))
+        XCTAssertEqual(debianFilesystems.first?.capacityPercent, 52)
+        let debianJournal = RemoteParsers.parseJournalctlDiskUsage(fixtureSection("journalctl --disk-usage", in: debian))
+        XCTAssertEqual(debianJournal, 0)
+    }
+
+    func testRemoteProbeBuilderRunsReadOnlyProbeCommandsAndSummarizesHost() throws {
+        let target = RemoteTargetReference(input: "prod-vps", alias: "prod-vps", knownHostsState: "known")
+        let outputs = [
+            remoteSSHOutput("uname -srm", stdout: "Linux 6.8.0 x86_64\n"),
+            remoteSSHOutput("hostname", stdout: "prod-1\n"),
+            remoteSSHOutput("id -un", stdout: "deploy\n"),
+            remoteSSHOutput("printf \"$HOME\"", stdout: "/home/deploy"),
+            remoteSSHOutput("test -r /etc/os-release && sed -n '1,40p' /etc/os-release || true", stdout: "PRETTY_NAME=\"Ubuntu 24.04.2 LTS\"\n"),
+            remoteSSHOutput("df -Pk", stdout: "/dev/vda1 20480000 10240000 10240000 50% /\n"),
+            remoteSSHOutput("df -Pi", stdout: "/dev/vda1 100000 50000 50000 50% /\n"),
+            remoteSSHOutput("command -v docker journalctl apt-get sudo", stdout: "/usr/bin/docker\n/usr/bin/journalctl\n/usr/bin/apt-get\n/usr/bin/sudo\n"),
+            remoteSSHOutput("sudo -n true", exitCode: 1, stderr: "sudo: a password is required\n")
+        ]
+        let runner = FakeToolRunner(outputs: outputs)
+
+        let report = RemoteProbeBuilder(target: target, runner: runner).probe()
+
+        XCTAssertEqual(report.osSummary, "Ubuntu 24.04.2 LTS")
+        XCTAssertEqual(report.homeDirectory, "/home/deploy")
+        XCTAssertEqual(report.sudoNonInteractive, false)
+        XCTAssertEqual(report.availableTools, ["apt-get", "docker", "journalctl", "sudo"])
+        XCTAssertEqual(report.commands.count, 9)
+        XCTAssertTrue(report.nonClaims.contains { $0.contains("read-only commands") })
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("StrictHostKeyChecking=no"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("prune"))
+    }
+
+    func testRemoteScanBuilderClassifiesVPSBucketsAndReportRedactsPaths() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let outputs = [
+            remoteSSHOutput("df -Pk", stdout: """
+            Filesystem     1024-blocks     Used Available Capacity Mounted on
+            /dev/vda1         20480000 19046400   1433600      93% /
+            """),
+            remoteSSHOutput("df -Pi", stdout: """
+            Filesystem      Inodes  IUsed IFree IUse% Mounted on
+            /dev/vda1       100000  96000  4000   96% /
+            """),
+            remoteSSHOutput("du -k -d 1 /var /home /opt /srv /tmp /var/tmp /var/log /var/lib 2>/dev/null", stdout: """
+            2048000 /var/lib/docker
+            1536000 /var/lib/docker/volumes
+            512000 /opt/apps/releases/2025-01-01
+            102400 /var/log
+            4096 /tmp/build
+            131072 /srv/app/uploads
+            """, stderr: "du: cannot read directory '/var/lib/private': Permission denied\n"),
+            remoteSSHOutput("find /var /home /opt /srv -xdev -type f -size +1024M -printf '%s\\t%p\\n' 2>/dev/null | sort -nr | head -50", stdout: """
+            3221225472\t/var/backups/db.dump
+            2147483648\t/home/deploy/large.iso
+            """),
+            remoteSSHOutput("journalctl --disk-usage", stdout: "Archived and active journals take up 1.5G in the file system.\n"),
+            remoteSSHOutput("du -sk /var/cache/apt/archives 2>/dev/null", stdout: "204800 /var/cache/apt/archives\n"),
+            remoteSSHOutput("docker system df -v", stdout: """
+            TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+            Images          10        3         5GB       2GB (40%)
+            Containers      5         1         1GB       900MB (90%)
+            Local Volumes   4         4         20GB      0B (0%)
+            Build Cache     20        0         8GB       8GB
+            """),
+            remoteSSHOutput("docker ps -a --size --format '{{.ID}}\\t{{.Names}}\\t{{.Status}}\\t{{.Size}}'", stdout: "abc123\tweb\tExited (0)\t10MB\n"),
+            remoteSSHOutput("docker images --format '{{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}'", stdout: "app\told\tsha256:old\t1GB\n"),
+            remoteSSHOutput("docker volume ls --format '{{.Name}}\\t{{.Driver}}\\t{{.Scope}}'", stdout: "postgres-data\tlocal\tlocal\n")
+        ]
+        let runner = FakeToolRunner(outputs: outputs)
+        let privacy = ReportPrivacyOptions(pathStyle: .redacted, homeDirectory: URL(fileURLWithPath: "/home/deploy"))
+
+        let report = RemoteScanBuilder(target: target, runner: runner).scan(preset: .vpsGeneral, privacy: privacy)
+        let buckets = Set(report.findings.map(\.bucket))
+
+        XCTAssertTrue(buckets.contains("Disk pressure"))
+        XCTAssertTrue(buckets.contains("Inode pressure"))
+        XCTAssertTrue(buckets.contains("Journald logs"))
+        XCTAssertTrue(buckets.contains("APT cache"))
+        XCTAssertTrue(buckets.contains("Docker images"))
+        XCTAssertTrue(buckets.contains("Docker containers"))
+        XCTAssertTrue(buckets.contains("Docker build cache"))
+        XCTAssertTrue(buckets.contains("Docker volumes"))
+        XCTAssertTrue(buckets.contains("Old deploy releases"))
+        XCTAssertTrue(buckets.contains("Large backup files"))
+        XCTAssertTrue(buckets.contains("Large remote files"))
+        XCTAssertTrue(buckets.contains("Remote temp"))
+        XCTAssertTrue(buckets.contains("Permission denied"))
+        XCTAssertTrue(buckets.contains("App data"))
+        XCTAssertFalse(report.findings.contains { $0.safetyClass == .autoSafe })
+        XCTAssertEqual(report.findings.first { $0.bucket == "Docker volumes" }?.safetyClass, .preserveByDefault)
+        XCTAssertTrue(report.nativeGuidance.contains { $0.command.contains("journalctl --vacuum") })
+        XCTAssertTrue(report.nativeGuidance.contains { $0.command.contains("apt-get autoclean") })
+        XCTAssertTrue(report.nativeGuidance.contains { $0.command.contains("docker system df -v") })
+
+        let markdown = RemoteReportBuilder.build(report: report, privacy: privacy).markdown
+        XCTAssertTrue(markdown.contains("# Ryddi Remote Target Report"))
+        XCTAssertTrue(markdown.contains("<path redacted>"))
+        XCTAssertFalse(markdown.contains("/home/deploy/large.iso"))
+        XCTAssertTrue(markdown.contains("No cleanup was executed"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("prune"))
+        XCTAssertFalse(runner.commands.joined(separator: " ").contains("reset"))
+    }
+
+    func testRemoteReportBuilderRedactsCanonicalPathEvenWhenScanUsedFullPaths() throws {
+        let target = RemoteTargetReference(
+            input: "prod-vps",
+            alias: "prod-vps",
+            resolvedUser: "deploy",
+            resolvedHost: "203.0.113.10",
+            resolvedPort: 22,
+            knownHostsState: "known",
+            fingerprint: "ssh-ed25519:fixture"
+        )
+        let finding = RemoteStorageFinding(
+            remotePath: "/home/deploy/private-client/database.dump",
+            displayPath: "/home/deploy/private-client/database.dump",
+            bucket: "Large backup files",
+            allocatedBytes: 3_221_225_472,
+            safetyClass: .preserveByDefault,
+            actionKind: .reportOnly,
+            evidence: [Evidence(kind: "remote.large-file", message: "Large remote file")],
+            recommendedNextAction: .archiveCandidate
+        )
+        let report = RemoteScanReport(
+            preset: .vpsGeneral,
+            target: target,
+            diskFilesystems: [],
+            inodeFilesystems: [],
+            findings: [finding],
+            nativeGuidance: [],
+            commands: [],
+            nonClaims: ["No cleanup was executed by this report."]
+        )
+        let privacy = ReportPrivacyOptions(pathStyle: .redacted, homeDirectory: URL(fileURLWithPath: "/home/deploy"))
+
+        let markdown = RemoteReportBuilder.build(report: report, privacy: privacy).markdown
+
+        XCTAssertTrue(markdown.contains("<path redacted>"))
+        XCTAssertFalse(markdown.contains("/home/deploy/private-client/database.dump"))
+        XCTAssertFalse(markdown.contains("private-client"))
     }
 
     func testDefaultScopePresetsSeparateGeneralAndDeveloperRoots() throws {
@@ -1605,6 +2949,24 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("cannot prove macOS Full Disk Access") })
     }
 
+    func testPermissionAdvisorTreatsMissingOnlyRootsAsOptionalState() {
+        let report = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Ollama", path: "/fixture/.ollama", permissionState: .missing, message: "Path is not present."),
+                ScopeAccessSummary(name: "Docker", path: "/fixture/.docker", permissionState: .missing, message: "Path is not present.")
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.coverageLevel, .complete)
+        XCTAssertFalse(report.needsFullDiskAccessReview)
+        XCTAssertEqual(report.deniedCount, 0)
+        XCTAssertEqual(report.missingCount, 2)
+        XCTAssertFalse(report.recommendedActions.contains { $0.contains("Grant Full Disk Access") })
+        XCTAssertTrue(report.recommendedActions.contains { $0.contains("missing roots") })
+    }
+
     func testTrustReadinessRecommendsFullDiskAccessAndDryRunWhenCoverageIsDegraded() {
         let permissionReport = PermissionAdvisor.report(
             scopeSummaries: [
@@ -1683,7 +3045,7 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertTrue(report.recommendedActions.contains { $0.id == "receipt.dry-run-only" })
         XCTAssertEqual(report.latestReceiptSummary?.dryRunCount, 1)
-        XCTAssertEqual(report.recommendedActions.first { $0.id == "release.signing" }?.severity, .ready)
+        XCTAssertEqual(report.recommendedActions.first { $0.id == "release.trust" }?.severity, .warning)
     }
 
     func testPermissionWalkthroughGuidesDegradedCoverageWithoutGrantingPermission() {
@@ -4187,6 +5549,7 @@ final class ReclaimerCoreTests: XCTestCase {
         private let lock = NSLock()
         private let outputs: [String: ToolCommandOutput]
         private var recordedCommands: [String] = []
+        private var recordedTimeouts: [TimeInterval] = []
 
         init(outputs: [ToolCommandOutput]) {
             self.outputs = Dictionary(uniqueKeysWithValues: outputs.map { ($0.invocation.displayCommand, $0) })
@@ -4198,9 +5561,16 @@ final class ReclaimerCoreTests: XCTestCase {
             return recordedCommands
         }
 
+        var timeouts: [TimeInterval] {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedTimeouts
+        }
+
         func run(_ invocation: ToolCommandInvocation, timeout: TimeInterval) -> ToolCommandOutput {
             lock.lock()
             recordedCommands.append(invocation.displayCommand)
+            recordedTimeouts.append(timeout)
             lock.unlock()
             return outputs[invocation.displayCommand] ?? ToolCommandOutput(
                 invocation: invocation,
@@ -4223,6 +5593,34 @@ final class ReclaimerCoreTests: XCTestCase {
             stdout: stdout,
             stderr: stderr
         )
+    }
+
+    private func remoteSSHOutput(
+        _ remoteCommand: String,
+        target: String = "prod-vps",
+        exitCode: Int32 = 0,
+        stdout: String = "",
+        stderr: String = ""
+    ) -> ToolCommandOutput {
+        fakeOutput(
+            "/usr/bin/ssh",
+            remoteSSHArguments(target: target, command: remoteCommand),
+            exitCode: exitCode,
+            stdout: stdout,
+            stderr: stderr
+        )
+    }
+
+    private func remoteSSHArguments(target: String, command: String, connectTimeout: Int = 10) -> [String] {
+        [
+            "-T",
+            "-o", "BatchMode=yes",
+            "-o", "NumberOfPasswordPrompts=0",
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", "ConnectTimeout=\(connectTimeout)",
+            target,
+            command
+        ]
     }
 
     private func finding(
@@ -4277,6 +5675,24 @@ final class ReclaimerCoreTests: XCTestCase {
         ]
         let data = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try data.write(to: contents.appendingPathComponent("Info.plist"))
+    }
+
+    private func fixtureText(_ name: String) throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures")
+            .appendingPathComponent(name)
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func fixtureSection(_ title: String, in text: String) -> String {
+        let marker = "### \(title)"
+        guard let start = text.range(of: marker) else { return "" }
+        let rest = text[start.upperBound...]
+        if let end = rest.range(of: "\n### ") {
+            return String(rest[..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return String(rest).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func requireGit() throws {

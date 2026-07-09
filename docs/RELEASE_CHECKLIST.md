@@ -67,6 +67,8 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer recovery --json` reports app-held, dry-run, skipped, Trash, native-tool, and direct-delete recovery states without mutating files.
 - [ ] `reclaimer recovery restore HOLDING_ID --to DESTINATION` restores a disposable app-held fixture and refuses overwrite conflicts.
 - [ ] `reclaimer containers --json --timeout 2 --save-audit` emits a read-only Docker/Colima inventory, saves a local audit record, and does not execute prune/delete/stop/reset commands.
+- [ ] `reclaimer remote history list/diff/report` reads disposable saved reachable remote scan audit records, writes a redacted remote growth Markdown report, excludes unreachable scans from default comparisons, and does not connect to or mutate a server.
+- [ ] `reclaimer remote dogfood --from-audit` writes redacted Markdown from disposable saved remote audit records and does not connect to or mutate a server.
 - [ ] `reclaimer policy protect/exclude/list/remove/export/import` works with temporary `RYDDI_CONFIG_ROOT` values; protected paths are not selected for cleanup, excluded paths are absent from scan output, export writes a versioned JSON document, import merges by default, and `--replace` drops local-only rules.
 - [ ] App Visual Map, Disk Drilldown, and Growth History render without changing reclaim gates.
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
@@ -80,17 +82,23 @@ This project is intended for direct macOS distribution outside the Mac App Store
 
 ## Signed And Notarized Build
 
+- [ ] `Scripts/release-signing-doctor.sh` reports the Developer ID Application identity and notary credential path are ready without printing password values.
 - [ ] `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` exits `0`.
 - [ ] `CODESIGN_IDENTITY` is set to a Developer ID Application certificate.
 - [ ] `RYDDI_VERSION=0.2.0` and `RYDDI_BUILD_NUMBER=2` are used by the packaging scripts.
 - [ ] `Scripts/package-app.sh` signs `dist/Ryddi.app` with Hardened Runtime.
 - [ ] `Scripts/notarize-app.sh dist/Ryddi.app` completes successfully.
+- [ ] If notarization is still `In Progress`, the script exits nonzero, prints a `RYDDI_NOTARY_SUBMISSION_ID=...` resume command, and no final `Ryddi-v0.2.0.zip` is published.
+- [ ] `dist/Ryddi-notary-status.json` records `"status": "Accepted"` before any manifest claims notarization.
+- [ ] Invalid notarization responses save `dist/Ryddi-notary-log.json` for review.
 - [ ] Notarization credentials are supplied through `NOTARY_PROFILE` or `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD`.
 - [ ] `xcrun stapler validate dist/Ryddi.app` passes.
 - [ ] `spctl --assess --type execute --verbose dist/Ryddi.app` accepts the app.
 - [ ] `codesign --verify --deep --strict --verbose=2 dist/Ryddi.app` passes.
 - [ ] `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` exist.
-- [ ] `dist/Ryddi-release-manifest.txt` records signed, notarized, stapled, Gatekeeper, strict codesign, bundle version `0.2.0`, and build `2` proof.
+- [ ] `dist/Ryddi-release-manifest.txt` records signed, accepted notarization, stapled, Gatekeeper, strict codesign, bundle version `0.2.0`, build `2`, notary submission ID, and status JSON path proof.
+- [ ] `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` reports `state` as `stapledAndAccepted`.
+- [ ] The manifest contains parseable release-trust keys: `manifest_schema=ryddi.release-trust.v1`, `codesign_verified=true`, `hardened_runtime=true`, `notarization_status=Accepted`, `stapled=true`, and `gatekeeper=accepted`.
 - [ ] GitHub release artifact and checksum are uploaded.
 
 ## v0.2.0 Release Notes Template

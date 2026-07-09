@@ -84,23 +84,23 @@ public final class PlanBuilder: @unchecked Sendable {
         }
         for match in finding.ruleMatches.prefix(1) {
             for gate in match.conditionGates {
-                conditions.append(condition(for: gate, finding: finding))
+                conditions.append(condition(for: gate, finding: finding, match: match))
             }
             for condition in match.conditions {
                 let kind = inferredConditionKind(condition)
-                let satisfied = match.conditionGates.contains(kind) && isGateSatisfied(kind, finding: finding)
+                let satisfied = match.conditionGates.contains(kind) && isGateSatisfied(kind, finding: finding, match: match)
                 conditions.append(PlanCondition(kind: kind, message: condition, isSatisfied: satisfied))
             }
         }
         return conditions
     }
 
-    private func condition(for gate: PlanConditionKind, finding: Finding) -> PlanCondition {
+    private func condition(for gate: PlanConditionKind, finding: Finding, match: RuleMatch) -> PlanCondition {
         switch gate {
         case .openFileClear:
-            return PlanCondition(kind: gate, message: "Required open-file check is clear", isSatisfied: isGateSatisfied(gate, finding: finding))
+            return PlanCondition(kind: gate, message: "Required open-file check is clear", isSatisfied: isGateSatisfied(gate, finding: finding, match: match))
         case .recursiveOpenFileClear:
-            return PlanCondition(kind: gate, message: "Required recursive open-file check is clear", isSatisfied: isGateSatisfied(gate, finding: finding))
+            return PlanCondition(kind: gate, message: "Required recursive open-file check is clear", isSatisfied: isGateSatisfied(gate, finding: finding, match: match))
         case .userPolicyClear:
             return PlanCondition(kind: gate, message: "No user protection or exclusion blocks this path", isSatisfied: true)
         case .notSymbolicLink:
@@ -108,17 +108,27 @@ public final class PlanBuilder: @unchecked Sendable {
         case .manualReviewRequired:
             return PlanCondition(kind: gate, message: "Manual review required before cleanup", isSatisfied: false)
         case .nativeToolRequired:
-            return PlanCondition(kind: gate, message: "Use the native tool before cleanup", isSatisfied: false)
+            let tool = match.gateEvidence.nativeToolName ?? "native tool"
+            return PlanCondition(
+                kind: gate,
+                message: "Native preview is available through \(tool)",
+                isSatisfied: isGateSatisfied(gate, finding: finding, match: match)
+            )
         case .appQuitRequired:
             return PlanCondition(kind: gate, message: "Quit the owning app before cleanup", isSatisfied: false)
         case .minimumAgeRequired:
-            return PlanCondition(kind: gate, message: "Minimum age requirement is not machine-verified", isSatisfied: false)
+            let ageLabel = match.gateEvidence.minimumAgeDays.map { "\($0)-day" } ?? "configured"
+            return PlanCondition(
+                kind: gate,
+                message: "Minimum \(ageLabel) age requirement is machine-verified",
+                isSatisfied: isGateSatisfied(gate, finding: finding, match: match)
+            )
         case .finalClassificationRequired:
             return PlanCondition(kind: gate, message: "Final classification will be rechecked at execution", isSatisfied: true)
         }
     }
 
-    private func isGateSatisfied(_ gate: PlanConditionKind, finding: Finding) -> Bool {
+    private func isGateSatisfied(_ gate: PlanConditionKind, finding: Finding, match: RuleMatch) -> Bool {
         switch gate {
         case .openFileClear:
             guard let open = finding.openFileStatus else { return false }
@@ -130,7 +140,13 @@ public final class PlanBuilder: @unchecked Sendable {
             return true
         case .notSymbolicLink:
             return !finding.isSymbolicLink
-        case .manualReviewRequired, .nativeToolRequired, .appQuitRequired, .minimumAgeRequired:
+        case .nativeToolRequired:
+            return match.gateEvidence.nativePreviewAvailable
+        case .minimumAgeRequired:
+            guard let minimumAgeDays = match.gateEvidence.minimumAgeDays else { return false }
+            guard let modificationDate = finding.modificationDate else { return false }
+            return Date().timeIntervalSince(modificationDate) >= Double(minimumAgeDays) * 86_400
+        case .manualReviewRequired, .appQuitRequired:
             return false
         }
     }

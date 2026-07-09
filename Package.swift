@@ -35,7 +35,8 @@ let package = Package(
         ),
         .testTarget(
             name: "ReclaimerCoreTests",
-            dependencies: ["ReclaimerCore"]
+            dependencies: ["ReclaimerCore"],
+            exclude: ["Fixtures"]
         )
     ]
 )

@@ -49,9 +49,10 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review recovery | Combine app-held items and saved receipts into a recovery view that separates Ryddi-restorable items from Trash review, dry-run/skipped no-ops, native-tool guidance, and non-recoverable direct deletes. | `RecoveryCenter`, `reclaimer recovery`, app Recovery Center |
 | Prefer native cleanup | Report Docker/Colima/package-manager cleanup as native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims; execute only one selected non-destructive/non-placeholder command at a time with dry-run default and a local receipt. | `NativeToolGuidance`, `NativeToolExecutor`, `reclaimer native`, `reclaimer native run`, app native receipt preview |
 | Inventory containers | Run bounded read-only Docker/Colima inspection commands and record storage buckets, images, containers, volumes, profiles, missing/not-running states, and command outcomes. | `ContainerInventoryScanner`, `reclaimer containers`, app Container Inventory |
+| Review remote SSH/VPS targets | Use the system SSH client and existing SSH config to collect bounded, read-only disk evidence from Linux VPS targets, label scan coverage as complete/partial/unreachable/unsupported, classify storage buckets conservatively, emit native guidance, export redacted reports, compare saved reachable remote scan growth locally, and save local audit records without remote cleanup. | `RemoteTargetResolver`, `RemoteSSHCommandRunner`, `RemoteProbeBuilder`, `RemoteScanBuilder`, `RemoteScanCoverageBuilder`, `RemoteReportBuilder`, `RemoteGrowthReportBuilder`, `reclaimer remote`, app Remote Targets |
 | Automate conservatively | Scheduled jobs are report-only, can target Developer/General/All presets, built-in templates, or saved scope sets, and can be previewed before installation; unattended destructive cleanup is not enabled in v1. | `ScheduleConfiguration`, `LaunchAgentManager`, `ReclaimerAgent`, `schedule preview`, `schedule install` |
 | Keep local audit trail | Save plans, receipts, native reports, container reports, active-file reports, and general review reports under Application Support with local-only JSON. | `AuditStore`, app Audit History |
-| Package for direct distribution | Build unsigned previews for testing, or fail-closed signed release artifacts that require Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and manifest proof. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, release-preview and signed-release workflows |
+| Package for direct distribution | Build unsigned previews for testing, or fail-closed signed release artifacts that require Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and typed manifest proof. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, `reclaimer release-trust`, release-preview and signed-release workflows |
 | Stay private | No telemetry, cloud upload, or remote AI analysis. | architecture and README policy |
 
 ## MVP Feature Boundaries
@@ -67,6 +68,7 @@ Included:
 - Docker/Colima reporting and native cleanup guidance.
 - Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, plus one-command execution receipts for selected non-destructive/non-placeholder commands; no automatic native command execution.
 - Read-only Docker/Colima live inventory for native storage estimates and profile/object context.
+- Agentless Remote Targets for SSH/VPS report-only review: SSH alias discovery, safe probe, Linux VPS disk/inode evidence, journald/APT/Docker/deploy-release/large-file/temp buckets, native guidance, redacted Markdown export, saved remote growth history, local audit history, and no remote cleanup execution.
 - Local user protections and exclusions, plus user path policy JSON import/export.
 - Local user rule-pack preview/import/export for custom review/protection signals, disabled by default unless a scan passes `--include-user-rules` or the app User Rules scan toggle is on.
 - Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulator data, protected developer-state roots, Xcode/simctl guidance, audit saving, and no Xcode-state mutation.
@@ -114,6 +116,7 @@ Deferred:
 - Mac App Store sandbox packaging.
 - Automatic deletion of safe-after-condition or review-required items.
 - Automatic execution of native Docker/Colima/Homebrew/package-manager cleanup commands.
+- Remote cleanup execution, remote Docker prune/reset execution, sudo password management, remote agent installation, secrets inventory, database cleanup, and unattended destructive SSH maintenance.
 - Raw deletion or unattended execution of Docker/Colima VM disks, volumes, package stores, destructive prune/reset commands, or placeholder commands.
 - Screenshot/GIF walkthrough for Full Disk Access onboarding in release materials.
 
@@ -125,8 +128,10 @@ Deferred:
 - App Reclaim is disabled until a successful dry-run receipt exists for the current plan.
 - `reclaimer holding restore` restores a held fixture, and `holding expire` is dry-run unless `--yes` is supplied.
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
-- `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records signing state, and creates a zip/checksum/manifest.
+- `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records typed release-trust keys, and creates a zip/checksum/manifest.
 - `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` fails unless Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and manifest proof all pass.
+- `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` parses the manifest into exact states and does not treat `not notarized` as trusted.
+- `reclaimer remote dogfood --from-audit TARGET --path-style redacted --output FILE.md` packages saved remote evidence without reconnecting to a server or running cleanup.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview --sort reclaim --group safety` reports grouped top offenders with confidence, conservative immediate-reclaim estimates, permission coverage, category summaries, owner summaries, and APFS notes.
 - `reclaimer queues --path FIXTURE --limit 5 --json` reports all review queues with counts, allocated bytes, conservative reclaim estimates, sample rows, and non-claims without creating a cleanup plan.
@@ -152,7 +157,7 @@ Deferred:
 - App Rule Catalog can preview, validate, import, export, and reveal local user rule packs; app scans only include user rules when the toolbar User Rules toggle is on.
 - `reclaimer explain PATH --json --min-size 1` emits a structured explanation with what/why/risk/action/recovery/condition/next-step sections and non-claims without executing cleanup.
 - `reclaimer permissions --json --path FIXTURE` reports coverage level, readable/denied/missing counts, recommended actions, and non-claims.
-- `reclaimer trust --json --path FIXTURE` reports trust readiness, next-action counts, latest audit summary, signing state, and non-claims without executing cleanup.
+- `reclaimer trust --json --path FIXTURE` reports trust readiness, next-action counts, latest audit summary, typed release trust evidence, and non-claims without executing cleanup.
 - `reclaimer dogfood --path FIXTURE --path-style redacted --output DOGFOOD.md` writes a redacted Markdown report and includes no-cleanup, no-permission-grant, and no-exact-APFS-reclaim non-claims.
 - `reclaimer permissions guide --path FIXTURE --output GUIDE.md` writes a local Markdown first-run walkthrough with Full Disk Access steps, rescan/report-only commands, affected scopes, and non-claims.
 - `reclaimer active --path FIXTURE --json` reports cleanup candidates blocked by open handles or failed open-file checks, with process summaries when available, and does not quit processes or execute cleanup.
@@ -179,6 +184,7 @@ Deferred:
 - `reclaimer native --path FIXTURE --json` emits native-tool preview receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
 - `reclaimer native run --command-id brew.preview --path FIXTURE --dry-run --json --save-audit` creates a local native command execution receipt without executing the command.
 - `reclaimer containers --json --timeout 2` emits a read-only Docker/Colima inventory, classifies missing versus not-running tools, and never emits prune/delete/stop/reset commands.
+- `reclaimer remote history list/diff/report` reads saved reachable remote scan audit records, compares bucket/path growth, writes optional redacted Markdown, and never connects to or mutates a server.
 - `reclaimer policy protect/exclude/list/remove/export/import` writes local-only path policy, protects configured paths from cleanup selection, excludes configured paths from scan output, exports a versioned JSON document, imports by merge by default, and supports explicit `--replace`.
 - Visual map accounting does not double-count nested directory findings.
 - Owner summaries do not double-count nested directory findings and prefer explicit owner hints over category fallback.

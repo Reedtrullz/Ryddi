@@ -392,7 +392,12 @@
       },
       "evidence": ["Known temporary build/scratch prefix under /private/tmp."],
       "conditions": ["Only delete stale paths with no open handles."],
-      "conditionGates": ["openFileClear"],
+      "conditionGates": ["openFileClear", "minimumAgeRequired", "finalClassificationRequired"],
+      "gateEvidence": {
+        "minimumAgeDays": 14,
+        "retentionPolicy": "stale-build-scratch-14-day",
+        "retentionDays": 14
+      },
       "recovery": "Temporary scratch data is expected to be recreated."
     },
     {

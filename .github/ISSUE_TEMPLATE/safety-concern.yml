@@ -1,0 +1,52 @@
+name: Safety concern
+description: Report a cleanup, execution, permission, remote-target, or release-trust behavior that may be unsafe or misleading.
+title: "[Safety]: "
+labels: ["safety", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for safety boundaries: destructive actions, protected data, misleading reclaim claims, remote SSH behavior, release trust claims, or privacy concerns. Do not include secrets or private keys.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Safety area
+      options:
+        - Local cleanup execution
+        - Dry-run or plan selection
+        - Protected files or credentials
+        - Full Disk Access or permission coverage
+        - Remote SSH target evidence
+        - Release trust or notarization claims
+        - Report privacy or redaction
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Ryddi version or commit
+      placeholder: "0.2.0, developer preview, or commit SHA"
+    validations:
+      required: true
+  - type: textarea
+    id: concern
+    attributes:
+      label: What seems unsafe or misleading?
+      description: Explain what Ryddi did or claimed and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps or evidence
+      description: Include redacted commands, screenshots, report snippets, receipts, or manifests.
+      render: shell
+  - type: textarea
+    id: non_secrets
+    attributes:
+      label: Confirmation
+      description: Confirm you removed secrets, credentials, private keys, tokens, and unnecessary private paths.
+      placeholder: "I have redacted secrets and private identifiers."
+    validations:
+      required: true

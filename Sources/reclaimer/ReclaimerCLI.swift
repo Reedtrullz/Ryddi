@@ -22,6 +22,8 @@ struct ReclaimerCLI {
         switch command {
         case "status":
             try status(args: args)
+        case "release-trust":
+            try releaseTrust(args: args)
         case "trust":
             try trust(args: args)
         case "dogfood":
@@ -46,6 +48,8 @@ struct ReclaimerCLI {
             try active(args: args)
         case "history":
             try history(args: args)
+        case "audit":
+            try audit(args: args)
         case "duplicates":
             try duplicates(args: args)
         case "downloads":
@@ -70,6 +74,8 @@ struct ReclaimerCLI {
             try native(args: args)
         case "containers":
             try containers(args: args)
+        case "remote":
+            try remote(args: args)
         case "policy":
             try policy(args: args)
         case "scan":
@@ -125,6 +131,16 @@ struct ReclaimerCLI {
         }
     }
 
+    static func releaseTrust(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let evidence = ReleaseTrustEvidenceLoader.load(path: options.releaseManifestPath)
+        if options.json {
+            printJSON(evidence)
+        } else {
+            printReleaseTrustEvidence(evidence)
+        }
+    }
+
     static func trust(args: [String]) throws {
         let options = ParsedOptions(args)
         let scopes = try options.scopes(includeUnavailable: true)
@@ -139,7 +155,8 @@ struct ReclaimerCLI {
             latestPlan: store.recentPlans(limit: 1).first,
             latestReceipt: store.recentReceipts(limit: 1).first,
             automationInstalled: FileManager.default.fileExists(atPath: LaunchAgentManager().installedPath().path),
-            signingState: ProcessInfo.processInfo.environment["RYDDI_SIGNING_STATE"] ?? "CLI/source runtime; verify distributed app with release manifest"
+            signingState: ProcessInfo.processInfo.environment["RYDDI_SIGNING_STATE"] ?? "CLI/source runtime; verify distributed app with release manifest",
+            releaseTrustEvidence: ReleaseTrustEvidenceLoader.load(path: options.releaseManifestPath)
         )
         if options.json {
             printJSON(report)
@@ -724,6 +741,10 @@ struct ReclaimerCLI {
     }
 
     static func packages(args: [String]) throws {
+        if args.first == "lane" {
+            try packageLane(args: Array(args.dropFirst()))
+            return
+        }
         let options = ParsedOptions(args)
         let home = options.value(after: "--home")
             .map { URL(fileURLWithPath: $0).standardizedFileURL }
@@ -747,6 +768,30 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printPackageCacheReview(report, options: options)
+        }
+    }
+
+    static func packageLane(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let home = options.value(after: "--home")
+            .map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let roots = options.values(after: "--path").map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let measurementDepth = max(0, Int(options.value(after: "--max-depth") ?? "") ?? 7)
+        let review = PackageCacheReviewScanner().review(
+            options: PackageCacheReviewOptions(
+                home: home,
+                roots: roots.isEmpty ? nil : roots,
+                limit: options.limit,
+                measurementDepth: measurementDepth,
+                includeMissingRoots: options.includeMissingScopes
+            )
+        )
+        let lane = PackageReclaimLaneBuilder.build(from: review)
+        if options.json {
+            printJSON(lane)
+        } else {
+            printPackageReclaimLane(lane)
         }
     }
 
@@ -1038,6 +1083,10 @@ struct ReclaimerCLI {
     }
 
     static func agents(args: [String]) throws {
+        if args.first == "retention-plan" {
+            try agentRetentionPlan(args: Array(args.dropFirst()))
+            return
+        }
         if args.first == "retention" {
             try agentRetention(args: Array(args.dropFirst()))
             return
@@ -1066,7 +1115,39 @@ struct ReclaimerCLI {
         }
     }
 
+    static func agentRetentionPlan(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let source = try agentStorageFindings(options: options)
+        let preparedFindings = options.prepare(source.findings)
+        let review = AgentStorageReviewBuilder.build(
+            findings: preparedFindings,
+            scopes: source.scopes,
+            limit: options.limit
+        )
+        let retention = AgentRetentionBuilder.build(
+            review: review,
+            profile: try options.agentRetentionProfile(),
+            limit: options.limit
+        )
+        let preview = AgentRetentionPlanBuilder.build(report: retention, matchingFindings: preparedFindings)
+        if options.json {
+            printJSON(preview)
+        } else {
+            printAgentRetentionPlanPreview(preview)
+        }
+    }
+
     private static func agentStorageReview(options: ParsedOptions) throws -> AgentStorageReview {
+        let source = try agentStorageFindings(options: options)
+        let report = AgentStorageReviewBuilder.build(
+            findings: options.prepare(source.findings),
+            scopes: source.scopes,
+            limit: options.limit
+        )
+        return report
+    }
+
+    private static func agentStorageFindings(options: ParsedOptions) throws -> (findings: [Finding], scopes: [ScanScope]) {
         let scopes: [ScanScope]
         if options.hasCustomScopeSelection {
             scopes = try options.scopes(includeUnavailable: options.includeMissingScopes)
@@ -1075,12 +1156,7 @@ struct ReclaimerCLI {
         }
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
         let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
-        let report = AgentStorageReviewBuilder.build(
-            findings: options.prepare(findings),
-            scopes: scopes,
-            limit: options.limit
-        )
-        return report
+        return (findings, scopes)
     }
 
     static func native(args: [String]) throws {
@@ -1149,6 +1225,38 @@ struct ReclaimerCLI {
             printJSON(report)
         } else {
             printContainerInventoryReport(report, options: options)
+        }
+    }
+
+    static func audit(args: [String]) throws {
+        let subcommand = args.first ?? "summary"
+        let options = ParsedOptions(Array(args.dropFirst()))
+        let store = AuditStore()
+        switch subcommand {
+        case "summary":
+            let summary = store.summary()
+            if options.json {
+                printJSON(summary)
+            } else {
+                printAuditSummary(summary)
+            }
+        case "prune":
+            guard options.dryRun || options.yes else {
+                throw CLIError.message("audit prune defaults to --dry-run; pass --yes only after reviewing the dry-run plan")
+            }
+            let policy = AuditRetentionPolicy(
+                olderThanDays: options.auditOlderThanDays,
+                keepRecent: options.keepRecent
+            )
+            let plan = store.prunePlan(policy: policy)
+            let receipt = try store.prune(plan: plan, dryRun: options.dryRun)
+            if options.json {
+                printJSON(AuditPruneCommandResult(plan: plan, receipt: receipt))
+            } else {
+                printAuditPruneResult(plan: plan, receipt: receipt)
+            }
+        default:
+            throw CLIError.message("audit requires summary or prune")
         }
     }
 
@@ -1544,7 +1652,9 @@ struct ReclaimerCLI {
 
             Commands:
               status [--json] [--path PATH]
+              release-trust [--json] [--manifest PATH]
               trust [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
+                    [--manifest PATH]
               dogfood [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--output PATH]
                       [--path-style full|home-relative|redacted] [--redact-user-text]
               scopes [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
@@ -1585,6 +1695,8 @@ struct ReclaimerCLI {
               permissions [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--include-missing-scopes]
               permissions guide [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--output PATH] [--include-missing-scopes]
               active [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit] [--include-user-rules]
+              audit summary [--json]
+              audit prune [--dry-run|--yes] [--older-than-days N] [--keep-recent N] [--json]
               history record [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
@@ -1596,6 +1708,7 @@ struct ReclaimerCLI {
               downloads [--json] [--path DOWNLOADS_ROOT] [--limit N] [--old-days N] [--max-depth N] [--include-hidden] [--save-audit]
               browsers [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
               packages [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes] [--save-audit]
+              packages lane [--json] [--path CACHE_ROOT ...] [--home HOME] [--limit N] [--max-depth N] [--include-missing-scopes]
               projects [--json] [--path PROJECT_ROOT ...] [--home HOME] [--limit N] [--old-days N] [--search-depth N] [--max-depth N] [--include-vcs-status] [--include-policy-skipped] [--include-missing-scopes] [--save-audit]
               projects policy list [--json]
               projects policy review|preserve|skip-review PROJECT_ROOT [--reason TEXT] [--name NAME] [--json]
@@ -1617,10 +1730,26 @@ struct ReclaimerCLI {
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               agents retention [--json] [--profile conservative|balanced|aggressive] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID]
                      [--min-size BYTES] [--max-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
+              agents retention-plan [--json] [--profile conservative|balanced|aggressive] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID]
+                     [--min-size BYTES] [--max-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               native [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
               native run --command-id COMMAND_ID [--dry-run|--yes] [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
                      [--finding-path PATH] [--timeout SECONDS] [--save-audit] [--include-user-rules]
               containers [--json] [--limit N] [--timeout SECONDS] [--save-audit]
+              remote targets list [--json]
+              remote probe TARGET [--json] [--timeout SECONDS] [--save-audit]
+              remote scan TARGET [--preset vps-general] [--json] [--timeout SECONDS]
+                    [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
+              remote dogfood TARGET [--json] [--timeout SECONDS]
+                    [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
+              remote dogfood --from-audit TARGET [--json]
+                    [--path-style full|home-relative|redacted] [--output PATH] [--save-audit]
+              remote native TARGET [--json] [--timeout SECONDS]
+              remote plan TARGET [--preset vps-general] [--json] [--timeout SECONDS]
+              remote history [list] [--json] [--limit N]
+              remote history diff [--json] [--limit N] [--current-id ID --previous-id ID]
+              remote history report [--json] [--limit N] [--current-id ID --previous-id ID]
+                    [--path-style full|home-relative|redacted] [--output PATH]
               policy list [--json]
               policy protect PATH [--reason TEXT]
               policy exclude PATH [--reason TEXT]
@@ -1703,10 +1832,13 @@ struct ParsedOptions {
     var review: String { value(after: "--review") ?? "all" }
     var largeThreshold: Int64 { Int64(value(after: "--large-threshold") ?? "") ?? 5_000_000_000 }
     var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
+    var auditOlderThanDays: Int { max(0, Int(value(after: "--older-than-days") ?? value(after: "--old-days") ?? "") ?? 90) }
+    var keepRecent: Int { max(0, Int(value(after: "--keep-recent") ?? "") ?? 20) }
     var maxFilesToHash: Int { max(1, Int(value(after: "--max-files") ?? "") ?? 5_000) }
     var reason: String? { value(after: "--reason") }
     var summary: String? { value(after: "--summary") }
     var outputPath: String? { value(after: "--output") }
+    var releaseManifestPath: String { value(after: "--manifest") ?? "dist/Ryddi-release-manifest.txt" }
     var reportTitle: String { value(after: "--title") ?? "Ryddi Evidence Report" }
     var planReportTitle: String { value(after: "--title") ?? "Ryddi Plan Report" }
     var receiptReportTitle: String { value(after: "--title") ?? "Ryddi Receipt Report" }
@@ -1790,6 +1922,15 @@ struct ParsedOptions {
     func scopePreset() throws -> ScanScopePreset {
         guard let preset = ScanScopePreset(rawValue: presetName) else {
             let allowed = ScanScopePreset.allCases.map(\.rawValue).joined(separator: ", ")
+            throw CLIError.message("--preset must be one of: \(allowed)")
+        }
+        return preset
+    }
+
+    func remoteScanPreset() throws -> RemoteScanPreset {
+        let raw = value(after: "--preset") ?? RemoteScanPreset.vpsGeneral.rawValue
+        guard let preset = RemoteScanPreset(rawValue: raw) else {
+            let allowed = RemoteScanPreset.allCases.map(\.rawValue).joined(separator: ", ")
             throw CLIError.message("--preset must be one of: \(allowed)")
         }
         return preset
@@ -2011,6 +2152,11 @@ enum CLIError: LocalizedError {
     }
 }
 
+struct AuditPruneCommandResult: Encodable {
+    let plan: AuditPrunePlan
+    let receipt: AuditPruneReceipt
+}
+
 func printJSON<T: Encodable>(_ value: T) {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -2019,13 +2165,83 @@ func printJSON<T: Encodable>(_ value: T) {
     print(String(data: data, encoding: .utf8)!)
 }
 
+func printAuditSummary(_ summary: AuditStoreSummary) {
+    print("Ryddi audit store")
+    print("Root: \(summary.rootPath)")
+    print("Known audit files: \(summary.totalKnownFileCount) (\(ByteFormat.string(summary.totalKnownBytes)))")
+    print("Unknown files: \(summary.unknownFileCount)")
+    print("Symlinks skipped: \(summary.symlinkCount)")
+    if summary.items.isEmpty {
+        print("No known audit JSON files found.")
+        return
+    }
+    print("\nKnown audit kinds")
+    for item in summary.items {
+        let latest = item.latestModifiedAt.map { $0.formatted() } ?? "unknown"
+        print("- \(item.kind): \(item.fileCount) file(s), \(ByteFormat.string(item.totalBytes)), latest \(latest)")
+    }
+}
+
+func printAuditPruneResult(plan: AuditPrunePlan, receipt: AuditPruneReceipt) {
+    print("Ryddi audit prune \(receipt.dryRun ? "dry run" : "receipt")")
+    print("Root: \(plan.rootPath)")
+    print("Policy: older than \(plan.policy.olderThanDays) days, keep \(plan.policy.keepRecent) recent known files")
+    print("Candidates: \(plan.candidateCount) (\(ByteFormat.string(plan.candidateBytes)))")
+    print("Deleted: \(receipt.deletedCount) (\(ByteFormat.string(receipt.deletedBytes)))")
+    print("Unknown files skipped: \(plan.skippedUnknownPaths.count)")
+    print("Symlinks skipped: \(plan.skippedSymlinkPaths.count)")
+    if receipt.dryRun, !plan.candidates.isEmpty {
+        print("\nDry-run only. Re-run with --yes after reviewing the candidate list.")
+    }
+    if !plan.candidates.isEmpty {
+        print("\nCandidates")
+        for candidate in plan.candidates.prefix(20) {
+            let date = candidate.modifiedAt.map { $0.formatted() } ?? "unknown date"
+            print("- \(candidate.kind): \(ByteFormat.string(candidate.bytes)) \(date) \(candidate.path)")
+        }
+        if plan.candidates.count > 20 {
+            print("- ... \(plan.candidates.count - 20) more")
+        }
+    }
+    if !receipt.errors.isEmpty {
+        print("\nErrors")
+        for error in receipt.errors {
+            print("- \(error)")
+        }
+    }
+}
+
+func printReleaseTrustEvidence(_ evidence: ReleaseTrustEvidence) {
+    print("Ryddi release trust")
+    print("State: \(evidence.state.label)")
+    print("Summary: \(evidence.summary)")
+    print("Manifest: \(evidence.manifestPath ?? "not supplied")")
+    print("Version: \(evidence.version ?? "unknown")")
+    print("Build: \(evidence.buildNumber ?? "unknown")")
+    print("Artifact: \(evidence.artifactName ?? "unknown")")
+    print("SHA-256: \(evidence.artifactSHA256 ?? "unknown")")
+    print("Commit: \(evidence.sourceCommit ?? "unknown")")
+    print("\nGates")
+    print("- codesign verified: \(evidence.codesignVerified ? "yes" : "no")")
+    print("- Hardened Runtime: \(evidence.hardenedRuntime ? "yes" : "no")")
+    print("- notarization status: \(evidence.notarizationStatus ?? "unknown")")
+    print("- stapled: \(evidence.stapleValidated ? "yes" : "no")")
+    print("- Gatekeeper accepted: \(evidence.gatekeeperAccepted ? "yes" : "no")")
+    if !evidence.warnings.isEmpty {
+        print("\nWarnings")
+        for warning in evidence.warnings {
+            print("- \(warning)")
+        }
+    }
+}
+
 func printTrustReadiness(_ report: TrustReadinessReport) {
     print("Ryddi trust readiness")
     print("Generated: \(report.createdAt.formatted())")
     print("Disk: \(report.diskStatus.pressure.label) - \(report.diskStatus.statusLine)")
     print("Coverage: \(report.permissionSummary.coverageLevel.label), \(report.permissionSummary.readableCount)/\(report.permissionSummary.totalCount) readable")
     print("Automation: \(report.automationInstalled ? "installed" : "not installed")")
-    print("Signing: \(report.signingState)")
+    print("Release trust: \(report.releaseTrustEvidence.state.label) - \(report.releaseTrustEvidence.summary)")
     if let plan = report.latestPlanSummary {
         print("Latest plan: \(plan.selectedCount)/\(plan.itemCount) selected, \(ByteFormat.string(plan.expectedImmediateReclaim)) expected reclaim")
     } else {
@@ -2992,6 +3208,40 @@ func printAgentRetentionReport(_ report: AgentRetentionReport, options: ParsedOp
     }
 }
 
+func printAgentRetentionPlanPreview(_ preview: AgentRetentionPlanPreview) {
+    print("Ryddi AI agent retention plan preview")
+    print("Generated: \(preview.generatedAt.formatted())")
+    print("Selected bytes: \(ByteFormat.string(preview.selectedBytes))")
+    print("Protected bytes: \(ByteFormat.string(preview.protectedBytes))")
+    print("Review bytes: \(ByteFormat.string(preview.reviewBytes))")
+    print("Plan items: \(preview.plan.items.count)")
+
+    if preview.plan.items.isEmpty {
+        print("\nNo retention-eligible agent findings entered the cleanup preview plan.")
+    } else {
+        print("\nPreview plan")
+        for item in preview.plan.items {
+            let marker = item.selected ? "selected" : "blocked"
+            print("- \(marker): \(ByteFormat.string(item.finding.allocatedSize)) \(item.finding.path)")
+            for condition in item.conditions where !condition.isSatisfied {
+                print("  blocked: \(condition.kind.label) - \(condition.message)")
+            }
+        }
+    }
+
+    if !preview.protectedReasons.isEmpty {
+        print("\nProtected/review reasons")
+        for reason in preview.protectedReasons.prefix(12) {
+            print("- \(reason)")
+        }
+    }
+
+    print("\nNon-claims")
+    for note in preview.nonClaims {
+        print("- \(note)")
+    }
+}
+
 func printDownloadsReview(_ report: DownloadsReviewReport, options: ParsedOptions) {
     print("Ryddi Downloads review")
     print("Generated: \(report.createdAt.formatted())")
@@ -3194,6 +3444,47 @@ func printPackageCacheReview(_ report: PackageCacheReviewReport, options: Parsed
     for note in report.nonClaims {
         print("- \(note)")
     }
+}
+
+func printPackageReclaimLane(_ report: PackageReclaimLaneReport) {
+    print("Ryddi Package Cache preview lane")
+    print("Generated: \(report.generatedAt.formatted())")
+    print("Previewed package-cache bytes: \(ByteFormat.string(report.totalPreviewBytes))")
+
+    if report.managerReports.isEmpty {
+        print("\nNo package manager cache summaries were found.")
+    } else {
+        print("\nNative preview lanes")
+        for manager in report.managerReports {
+            print("- \(manager.managerName): \(ByteFormat.string(manager.cacheBytes))")
+            print("  \(manager.explanation)")
+            if manager.previewCommand.isEmpty {
+                print("  preview: manual review")
+            } else {
+                print("  preview: \(shellCommand(manager.previewCommand))")
+            }
+            if manager.cleanupCommand.isEmpty {
+                print("  cleanup: no allowlisted cleanup command")
+            } else {
+                print("  cleanup: \(shellCommand(manager.cleanupCommand))")
+            }
+        }
+    }
+
+    print("\nNon-claims")
+    for note in report.nonClaims {
+        print("- \(note)")
+    }
+}
+
+private func shellCommand(_ command: [String]) -> String {
+    command.map { part in
+        if part.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "'\""))) == nil {
+            return part
+        }
+        return "'" + part.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+    .joined(separator: " ")
 }
 
 func printProjectDependencyReview(_ report: ProjectDependencyReviewReport, options: ParsedOptions) {

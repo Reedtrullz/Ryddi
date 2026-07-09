@@ -48,6 +48,8 @@ Native-tool reports read scan findings and generate local command preview receip
 
 Container inventory can run read-only Docker and Colima inspection commands. The resulting local reports can include Docker image names, container names, volume names, context endpoints, Colima profile names, command exit states, and short command-output previews. Ryddi does not upload this inventory and does not run prune, delete, stop, reset, or raw VM-disk commands.
 
+Remote Targets can read your local SSH config to list non-wildcard host aliases and can use the system `ssh` client to resolve and probe a target. Remote reports can include SSH aliases, resolved user/host/port values, known-host state, host-key fingerprint snippets, remote OS summary, remote home directory, remote paths, filesystem names, Docker object names, command IDs, exit codes, short stdout/stderr previews, typed coverage levels, failed/timed-out/permission-denied command IDs, and target-continuity warnings. Saved remote growth reports compare local remote-scan audit records and can include target metadata, bucket names, remote paths or redacted path placeholders, size deltas, safety classes, and next-action labels. Remote dogfood reports can combine remote probe metadata, remote scan findings, command previews, saved growth deltas, and redacted remote paths. Redaction affects the exported Markdown report; saved local audit JSON can still contain original remote paths and host metadata. Ryddi does not store SSH private keys, passwords, passphrases, sudo passwords, tokens, or remote secrets. Remote Targets v1 does not install an agent on the server, upload remote scan results, run remote cleanup, run Docker prune/reset, run `rm`, run `find -delete`, or run sudo cleanup commands. `sudo -n true` is used only as a non-interactive capability probe.
+
 User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
 
 Project Dependencies reports can include detected package-manager names/versions, package names, accepted package.json script names, short script command previews, script-risk classes, workspace or monorepo marker names, workspace package patterns, project root paths, workspace root paths, command working directories, workspace package selectors, and local VCS status summaries. Ryddi redacts common token/password/secret flag and environment-value shapes in script previews, but reports can still reveal private project commands or names; review reports before sharing. Ryddi does not upload this information, execute scripts, run package-manager commands, or prove that workspace scripts, project scripts, or hoisted dependencies are safe to remove.
@@ -74,6 +76,8 @@ Report exports support path privacy controls. `home-relative` reports hide your 
 
 Dogfood report redaction uses the same path privacy controls. Redacted reports hide full paths in the generated Markdown, but they can still include owner names, categories, workflow labels, counts, sizes, process summaries, command labels, and other local context. Review any report before sharing it.
 
+Remote report redaction hides full remote paths in generated Markdown, but reports can still reveal host aliases, usernames, hostnames, service names, Docker object names, mount names, command labels, sizes, counts, and error text. Review remote reports before sharing them.
+
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
 ## What Ryddi Writes
@@ -88,6 +92,8 @@ Ryddi can write:
 - saved Markdown dogfood reports when you choose an output path;
 - saved native-tool preview reports;
 - saved container inventory reports;
+- saved remote probe, scan, and local growth-history audit records;
+- saved remote Markdown evidence and growth reports when you choose an output path or export from the app;
 - saved active-file review reports;
 - saved report-only review reports for Downloads, browser caches, package caches, project dependencies, Xcode storage, device backups, and Trash;
 - saved user path policy for protections and exclusions;
@@ -104,6 +110,8 @@ Uncertain user-visible data should go to Trash or the app-managed holding area. 
 ## What Ryddi Should Never Touch Automatically
 
 Ryddi should never automatically remove credentials, secrets, configs, app state databases, browser profiles, user documents, Photos or Music libraries, GarageBand or Logic assets, AI-agent memories, AI-agent sessions, model state, VM/container disks, installed app bundles, app support data, or unknown app-managed state.
+
+On remote targets, Ryddi should never automatically remove databases, backups, Docker volumes, app uploads, `/etc` config, credentials, secrets, app state, unknown server data, or anything requiring sudo cleanup.
 
 ## Telemetry
 
