@@ -184,8 +184,9 @@ printf 'web build\n' >"$project_web/dist/app.js"
 git -C "$project_web" init -q
 git -C "$project_web" config user.name "Ryddi Release Check"
 git -C "$project_web" config user.email "ryddi-release-check@example.invalid"
+git -C "$project_web" config commit.gpgsign false
 git -C "$project_web" add .gitignore package.json package-lock.json src/index.ts
-git -C "$project_web" commit -qm "fixture"
+git -C "$project_web" -c commit.gpgsign=false commit -qm "fixture"
 printf 'source should remain protected after dirty change\n' >"$project_web/src/index.ts"
 printf 'local untracked evidence\n' >"$project_web/local-note.md"
 printf '[project]\nname = "fixture"\n' >"$project_python/pyproject.toml"

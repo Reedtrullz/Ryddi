@@ -5715,8 +5715,9 @@ final class ReclaimerCoreTests: XCTestCase {
         try runGit(["init", "-q"], cwd: url)
         try runGit(["config", "user.name", "Ryddi Tests"], cwd: url)
         try runGit(["config", "user.email", "ryddi-tests@example.invalid"], cwd: url)
+        try runGit(["config", "commit.gpgsign", "false"], cwd: url)
         try runGit(["add", ".gitignore", "package.json", "package-lock.json", "src/index.ts"], cwd: url)
-        try runGit(["commit", "-qm", "fixture"], cwd: url)
+        try runGit(["-c", "commit.gpgsign=false", "commit", "-qm", "fixture"], cwd: url)
     }
 
     private func runGit(_ arguments: [String], cwd: URL) throws {
