@@ -48,6 +48,7 @@ struct RemoteTargetsView: View {
                             Label("Probe", systemImage: "network")
                         }
                         .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
+                        .accessibilityIdentifier("remote-targets.probe-button")
 
                         Button {
                             Task { await model.scanRemoteTarget() }
@@ -55,6 +56,7 @@ struct RemoteTargetsView: View {
                             Label("Scan", systemImage: "externaldrive")
                         }
                         .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
+                        .accessibilityIdentifier("remote-targets.scan-button")
 
                         Button {
                             Task { await model.exportRemoteRedactedReport() }
@@ -62,6 +64,7 @@ struct RemoteTargetsView: View {
                             Label("Export Redacted", systemImage: "eye.slash")
                         }
                         .disabled(model.remoteScanReport == nil || model.isWorking)
+                        .accessibilityIdentifier("remote-targets.export-redacted-button")
 
                         Button {
                             Task { await model.exportRemoteRedactedGrowthReport() }

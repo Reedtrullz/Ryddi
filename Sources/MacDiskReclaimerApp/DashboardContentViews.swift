@@ -219,12 +219,15 @@ struct DashboardActionStrip: View {
         DashboardActionButton("Scan", systemImage: "magnifyingglass", prominent: true, disabled: model.isWorking) {
             Task { await model.scan() }
         }
+        .accessibilityIdentifier("summary.scan-button")
         DashboardActionButton("Plan", systemImage: "checklist", disabled: model.findings.isEmpty || model.isWorking) {
             Task { await model.buildPlan() }
         }
+        .accessibilityIdentifier("summary.plan-button")
         DashboardActionButton("Dry Run", systemImage: "play.circle", disabled: (model.plan == nil && model.findings.isEmpty) || model.isWorking) {
             Task { await model.runDryRun() }
         }
+        .accessibilityIdentifier("summary.dry-run-button")
         DashboardActionButton("Review Queues", systemImage: "tray.full", disabled: model.findings.isEmpty) {
             navigate("Queues")
         }
@@ -234,6 +237,7 @@ struct DashboardActionStrip: View {
         DashboardActionButton("Reclaim", systemImage: "trash", role: .destructive, disabled: !model.canReclaimSelected) {
             onReclaim()
         }
+        .accessibilityIdentifier("summary.reclaim-button")
     }
 
     private func exportEvidenceReportUsingDefaults() {
@@ -4787,6 +4791,7 @@ struct PermissionAccessHelperPanel: View {
                     permissionButton("Open Full Disk Access", systemImage: "lock.shield", prominent: true) {
                         PathActions.openFullDiskAccessSettings()
                     }
+                    .accessibilityIdentifier("permissions.open-full-disk-access")
                     .help("Open macOS Privacy & Security settings for Full Disk Access")
 
                     permissionButton("Reveal Ryddi", systemImage: "app.dashed") {
@@ -5552,6 +5557,7 @@ struct ReviewQueueRail: View {
                     .buttonStyle(.plain)
                 }
             }
+            .accessibilityIdentifier("review-queues.list")
         }
     }
 

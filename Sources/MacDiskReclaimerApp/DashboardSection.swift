@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 enum DashboardSidebarGroup: String, CaseIterable, Identifiable {
@@ -126,6 +127,64 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
 }
 
 enum DashboardLaunchOptions {
+    static var isE2EModeRequested: Bool {
+        ProcessInfo.processInfo.environment["RYDDI_E2E_MODE"] == "1"
+    }
+
+    private static let e2eValidation: (root: URL?, error: String?) = {
+        guard isE2EModeRequested else { return (nil, nil) }
+        guard let rawRoot = ProcessInfo.processInfo.environment["RYDDI_E2E_SCOPE_ROOT"],
+              !rawRoot.isEmpty,
+              NSString(string: rawRoot).isAbsolutePath else {
+            return (nil, "RYDDI_E2E_SCOPE_ROOT must be an existing absolute temporary path.")
+        }
+
+        let requestedURL = URL(fileURLWithPath: rawRoot).standardizedFileURL
+        let requestedPath = requestedURL.path
+        let homePath = FileManager.default.homeDirectoryForCurrentUser
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        let protectedPaths: Set<String> = [
+            "/",
+            homePath,
+            "/Users",
+            "/Applications",
+            "/Library",
+            "/System"
+        ]
+        guard !protectedPaths.contains(requestedPath) else {
+            return (nil, "RYDDI_E2E_SCOPE_ROOT points at a protected path.")
+        }
+        guard (try? requestedURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else {
+            return (nil, "RYDDI_E2E_SCOPE_ROOT must not be a symbolic link.")
+        }
+
+        let resolvedURL = requestedURL.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedPath = resolvedURL.path
+        let temporaryPath = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        guard resolvedPath.hasPrefix(temporaryPath + "/") else {
+            return (nil, "RYDDI_E2E_SCOPE_ROOT must be below the current temporary directory.")
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolvedPath, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return (nil, "RYDDI_E2E_SCOPE_ROOT must be an existing directory.")
+        }
+        return (resolvedURL, nil)
+    }()
+
+    static var e2eScopeRoot: URL? {
+        e2eValidation.root
+    }
+
+    static var e2eValidationError: String? {
+        e2eValidation.error
+    }
+
     static var isScreenshotDemo: Bool {
         ProcessInfo.processInfo.environment["RYDDI_SCREENSHOT_DEMO"] == "1"
     }

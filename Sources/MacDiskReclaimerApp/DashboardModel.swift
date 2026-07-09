@@ -80,7 +80,17 @@ final class DashboardModel {
     var lastScopeSetExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
     var diskStatus: DiskStatusSnapshot = DiskStatusReader().snapshot()
-    var permissionReport: PermissionAdvisorReport = PermissionAdvisor.report(scopes: DefaultScopes.scopes(for: .developer, includeUnavailable: true))
+    var permissionReport: PermissionAdvisorReport = {
+        if DashboardLaunchOptions.isE2EModeRequested {
+            guard let root = DashboardLaunchOptions.e2eScopeRoot else {
+                return PermissionAdvisor.report(scopes: [])
+            }
+            return PermissionAdvisor.report(scopes: [
+                ScanScope(name: "E2E fixture", root: root)
+            ])
+        }
+        return PermissionAdvisor.report(scopes: DefaultScopes.scopes(for: .developer, includeUnavailable: true))
+    }()
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var isWorking = false
@@ -91,8 +101,16 @@ final class DashboardModel {
     var currentScanSession: ScanSession?
     var reviewedQueueID: ReviewQueueID?
     var hasAppliedStoredSettings = false
+    private var e2eScopeRoot: URL?
 
     var selectedScopePlan: ScanScopePlan {
+        if let e2eScopeRoot {
+            return DefaultScopes.customPlan(
+                label: "E2E fixture",
+                summary: "Disposable fixture scope supplied by the bounded app E2E launch contract.",
+                scopes: [ScanScope(name: "E2E fixture", root: e2eScopeRoot)]
+            )
+        }
         if let selectedSavedScopeSet {
             return selectedSavedScopeSet.plan
         }
@@ -133,6 +151,12 @@ final class DashboardModel {
     var selectedSavedScopeSet: SavedScopeSet? {
         guard let selectedSavedScopeSetID else { return nil }
         return savedScopeSets.first { $0.id == selectedSavedScopeSetID }
+    }
+
+    func configureE2EScope(_ root: URL) {
+        e2eScopeRoot = root.standardizedFileURL
+        selectedScopeTemplateID = nil
+        selectedSavedScopeSetID = nil
     }
 
     var reviewQueueReport: ReviewQueueReport {
@@ -395,6 +419,9 @@ final class DashboardModel {
     }
 
     func currentScopes(includeUnavailable: Bool) -> [ScanScope] {
+        if e2eScopeRoot != nil {
+            return selectedScopePlan.scopes
+        }
         if let selectedSavedScopeSet {
             return selectedSavedScopeSet.plan.scopes
         }

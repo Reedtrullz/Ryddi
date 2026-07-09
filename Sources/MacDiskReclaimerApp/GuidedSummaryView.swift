@@ -146,6 +146,7 @@ struct GuidedSummaryView: View {
             .controlSize(.large)
             .disabled(isCommandDisabled(command))
             .help(command.reason)
+            .accessibilityIdentifier("summary.primary-action")
         } else {
             Button(role: command.role) {
                 performActionCenterCommand(command)

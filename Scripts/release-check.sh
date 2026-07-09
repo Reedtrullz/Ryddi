@@ -129,6 +129,11 @@ if [[ -z "$rules_path" ]]; then
   exit 1
 fi
 
+echo "==> Running fixture-backed app E2E"
+RYDDI_E2E_APP_PATH="$app" \
+  RYDDI_E2E_REQUIRE_SCREENSHOT="${RYDDI_E2E_REQUIRE_SCREENSHOT:-0}" \
+  "$root/Scripts/app-e2e-smoke.sh"
+
 echo "==> Smoke testing bundled CLI"
 hide_build_dir_for_packaged_smokes
 receipt_fixture="$scratch/receipt-fixture/Library/Caches/Codex"
@@ -1305,6 +1310,7 @@ Verification performed:
 - swift test --scratch-path .build
 - Scripts/package-app.sh
 - bundle executable/resource checks
+- Scripts/app-e2e-smoke.sh with disposable fixture, app-window launch/screenshot attempt, scan, plan, dry run, and protected-path preservation
 - bundled reclaimer status --json
 - bundled reclaimer scopes --preset general and scopes --json --preset all
 - bundled reclaimer rules and rules --json

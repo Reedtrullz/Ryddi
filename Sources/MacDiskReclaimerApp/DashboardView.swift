@@ -190,6 +190,9 @@ struct DashboardView: View {
                 defaultScanPresetRaw: defaultScanPresetRaw,
                 includeUserRulesByDefault: includeUserRulesByDefault
             )
+            if let e2eScopeRoot = DashboardLaunchOptions.e2eScopeRoot {
+                model.configureE2EScope(e2eScopeRoot)
+            }
             model.loadSavedScopeSets()
             model.loadAudit()
             model.loadHolding()
@@ -197,9 +200,16 @@ struct DashboardView: View {
             model.loadHistory()
             model.loadUserPolicy()
             model.refreshAutomation()
-            model.refreshPermissions()
-            model.refreshRemoteTargets()
+            if !DashboardLaunchOptions.isE2EModeRequested || DashboardLaunchOptions.e2eScopeRoot != nil {
+                model.refreshPermissions()
+            }
+            if !DashboardLaunchOptions.isE2EModeRequested {
+                model.refreshRemoteTargets()
+            }
             model.applyScreenshotDemoIfNeeded()
+            if let e2eValidationError = DashboardLaunchOptions.e2eValidationError {
+                model.error = e2eValidationError
+            }
         }
     }
 
