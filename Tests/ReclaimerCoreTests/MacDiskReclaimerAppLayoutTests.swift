@@ -49,6 +49,24 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(source.contains(".focusedSceneValue(\\.dashboardCommandActions"))
     }
 
+    func testSettingsAreNativePersistedAndReachable() throws {
+        let source = try appSource()
+        let settings = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardSettingsView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(settings.contains("struct DashboardSettingsView: View"))
+        XCTAssertTrue(settings.contains("@AppStorage(RyddiAppStorageKey.defaultScanPreset)"))
+        XCTAssertTrue(settings.contains("@AppStorage(RyddiAppStorageKey.includeUserRulesByDefault)"))
+        XCTAssertTrue(settings.contains("@AppStorage(RyddiAppStorageKey.defaultReportPathStyle)"))
+        XCTAssertTrue(settings.contains("TabView"))
+        XCTAssertTrue(settings.contains("Picker(\"Default scan mode\""))
+        XCTAssertTrue(source.contains("Settings {\n            DashboardSettingsView()\n        }"))
+        XCTAssertTrue(source.contains("applyStoredSettings(defaultScanPresetRaw:"))
+    }
+
     func testDashboardSidebarUsesNativeSelectionAndKeepsDetailsOutOfSourceList() throws {
         let source = try appSource()
         let sidebar = try String(

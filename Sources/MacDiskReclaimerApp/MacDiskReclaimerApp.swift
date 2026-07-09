@@ -47,13 +47,15 @@ struct MacDiskReclaimerApp: App {
         }
         .menuBarExtraStyle(.window)
         Settings {
-            SettingsView()
+            DashboardSettingsView()
         }
     }
 }
 
 struct DashboardView: View {
     @State private var model = DashboardModel()
+    @AppStorage(RyddiAppStorageKey.defaultScanPreset) private var defaultScanPresetRaw = ScanScopePreset.developer.rawValue
+    @AppStorage(RyddiAppStorageKey.includeUserRulesByDefault) private var includeUserRulesByDefault = false
     @State private var selectedFinding: Finding.ID?
     @SceneStorage("dashboard.selectedSectionID") private var selectedSectionID = DashboardLaunchOptions.initialSectionID
     @State private var showingReclaimConfirmation = false
@@ -233,6 +235,10 @@ struct DashboardView: View {
             Text(model.reclaimConfirmationMessage)
         }
         .onAppear {
+            model.applyStoredSettings(
+                defaultScanPresetRaw: defaultScanPresetRaw,
+                includeUserRulesByDefault: includeUserRulesByDefault
+            )
             model.loadSavedScopeSets()
             model.loadAudit()
             model.loadHolding()
@@ -6982,21 +6988,6 @@ struct SectionBox<Content: View>: View {
     }
 }
 
-struct SettingsView: View {
-    var body: some View {
-        Form {
-            Section("Automation") {
-                Text("Scheduled maintenance is report-first. Preview from the CLI or install the selected scope from Automation after reviewing a dry run.")
-            }
-            Section("Privacy") {
-                Text("No paths, filenames, app lists, or cleanup history leave this Mac.")
-            }
-        }
-        .padding()
-        .frame(width: 520)
-    }
-}
-
 struct StatusMenuView: View {
     @Bindable var model: StatusMenuModel
     @Environment(\.openWindow) private var openWindow
@@ -7262,6 +7253,7 @@ final class DashboardModel {
     var error: String?
     var currentScanSession: ScanSession?
     var reviewedQueueID: ReviewQueueID?
+    var hasAppliedStoredSettings = false
 
     var selectedScopePlan: ScanScopePlan {
         if let selectedSavedScopeSet {
@@ -7546,6 +7538,17 @@ final class DashboardModel {
             return "No reclaim plan is available."
         }
         return "This will execute \(selectedPlanCount) selected auto-safe action(s), expected immediate reclaim \(ByteFormat.string(plan.expectedImmediateReclaim)). A receipt will be saved locally."
+    }
+
+    func applyStoredSettings(defaultScanPresetRaw: String, includeUserRulesByDefault: Bool) {
+        guard !hasAppliedStoredSettings else { return }
+        hasAppliedStoredSettings = true
+
+        if let defaultPreset = ScanScopePreset(rawValue: defaultScanPresetRaw) {
+            scanPreset = defaultPreset
+        }
+        includeUserRulesInScans = includeUserRulesByDefault
+        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
     }
 
     func setScanPreset(_ preset: ScanScopePreset) {
