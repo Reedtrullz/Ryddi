@@ -40,6 +40,7 @@ final class ExecutorFinalGateRevalidationTests: XCTestCase {
 
         let receipt = ReclaimerExecutor(
             openFileChecker: ExecutorClearOpenFileChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan)),
             ruleEngine: RuleEngine(version: "fixture", rules: [rule(id: "fixture.stale-cache", pathNeedle: cache.path)])
         )
         .execute(plan: plan, mode: .perform, ruleVersion: "fixture", userConfirmed: true)
@@ -65,6 +66,7 @@ final class ExecutorFinalGateRevalidationTests: XCTestCase {
 
         let receipt = ReclaimerExecutor(
             openFileChecker: ExecutorClearOpenFileChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan)),
             ruleEngine: RuleEngine(version: "fixture", rules: [rule(id: "fixture.current-rule", pathNeedle: cache.path)])
         )
         .execute(plan: plan, mode: .perform, ruleVersion: "fixture", userConfirmed: true)
@@ -103,6 +105,25 @@ final class ExecutorFinalGateRevalidationTests: XCTestCase {
         XCTAssertEqual(receipt.actions.first?.status, "skipped")
         XCTAssertTrue(receipt.actions.first?.message.localizedCaseInsensitiveContains("stale scan session") ?? false)
         XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("stale scan session") })
+    }
+
+    func testPerformWithoutCurrentScanSessionFailsClosed() throws {
+        let cache = root.appendingPathComponent("missing-session-cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data(repeating: 4, count: 16).write(to: cache.appendingPathComponent("cache.bin"))
+        let finding = finding(path: cache.path, ruleID: "fixture.missing-session", conditionGates: [])
+        let plan = selectedPlan(for: finding, conditions: [])
+
+        let receipt = ReclaimerExecutor(
+            openFileChecker: ExecutorClearOpenFileChecker(),
+            ruleEngine: RuleEngine(version: "fixture", rules: [rule(id: "fixture.missing-session", pathNeedle: cache.path)])
+        )
+        .execute(plan: plan, mode: .perform, ruleVersion: "fixture", userConfirmed: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
+        XCTAssertEqual(receipt.actions.first?.status, "skipped")
+        XCTAssertTrue(receipt.actions.first?.message.localizedCaseInsensitiveContains("missing current scan session") ?? false)
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("missing current scan session") })
     }
 
     private func finding(
@@ -152,6 +173,20 @@ final class ExecutorFinalGateRevalidationTests: XCTestCase {
                 )
             ],
             dryRunSummary: []
+        )
+    }
+
+    private func authorizedSession(for plan: ReclaimPlan) -> ScanSession {
+        ScanSession(
+            appVersion: "0.3.0",
+            ruleVersion: "fixture",
+            preset: .developer,
+            scopeDigest: "scope",
+            policyDigest: "policy",
+            findingDigest: "findings",
+            planDigest: plan.id,
+            dryRunReceiptID: "dry-run-receipt",
+            stage: .reclaimReady
         )
     }
 

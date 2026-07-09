@@ -4796,7 +4796,10 @@ final class ReclaimerCoreTests: XCTestCase {
 
         let receipt = ReclaimerExecutor(
             openFileChecker: NoOpenFilesChecker(),
-            configuration: ExecutorConfiguration(userPathPolicy: policy)
+            configuration: ExecutorConfiguration(
+                userPathPolicy: policy,
+                currentScanSession: authorizedSession(for: plan)
+            )
         )
         .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
@@ -5057,7 +5060,10 @@ final class ReclaimerCoreTests: XCTestCase {
             options: ScanOptions(minimumFindingSize: 0, maximumFindingDepth: 1, includeOpenFileStatus: false)
         )
         let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: scan, mode: .autoSafeOnly)
-        let receipt = ReclaimerExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = ReclaimerExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan))
+        )
             .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: cacheRoot.path))
@@ -5083,7 +5089,10 @@ final class ReclaimerCoreTests: XCTestCase {
             dryRunSummary: []
         )
 
-        let receipt = ReclaimerExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = ReclaimerExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan))
+        )
             .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
@@ -5115,7 +5124,10 @@ final class ReclaimerCoreTests: XCTestCase {
         try FileManager.default.removeItem(at: cache)
         try FileManager.default.createSymbolicLink(at: cache, withDestinationURL: target)
 
-        let receipt = ReclaimerExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = ReclaimerExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan))
+        )
             .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: target.appendingPathComponent("valuable.bin").path))
@@ -5160,7 +5172,8 @@ final class ReclaimerCoreTests: XCTestCase {
                         checkedPath: cache.path
                     )
                 ]
-            )
+            ),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan))
         )
         .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
@@ -5205,7 +5218,10 @@ final class ReclaimerCoreTests: XCTestCase {
 
         let receipt = ReclaimerExecutor(
             openFileChecker: NoOpenFilesChecker(),
-            configuration: ExecutorConfiguration(holdingRoot: holdRoot),
+            configuration: ExecutorConfiguration(
+                holdingRoot: holdRoot,
+                currentScanSession: authorizedSession(for: plan)
+            ),
             ruleEngine: engine
         )
         .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
@@ -5691,6 +5707,20 @@ final class ReclaimerCoreTests: XCTestCase {
             ruleMatches: matches,
             evidence: matches.flatMap { $0.evidence.map { Evidence(kind: "fixture", message: $0) } },
             openFileStatus: OpenFileStatus(isOpen: open, processSummary: open ? ["fixture"] : [])
+        )
+    }
+
+    private func authorizedSession(for plan: ReclaimPlan) -> ScanSession {
+        ScanSession(
+            appVersion: "0.3.0",
+            ruleVersion: "test",
+            preset: .developer,
+            scopeDigest: "scope",
+            policyDigest: "policy",
+            findingDigest: "findings",
+            planDigest: plan.id,
+            dryRunReceiptID: "dry-run-receipt",
+            stage: .reclaimReady
         )
     }
 

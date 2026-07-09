@@ -101,7 +101,7 @@ public final class ReclaimerExecutor: @unchecked Sendable {
 
     private func staleSessionReason(for plan: ReclaimPlan) -> String? {
         guard let session = configuration.currentScanSession else {
-            return nil
+            return "Missing current scan session: destructive perform requires current dry-run authorization."
         }
         guard [.dryRunReady, .reclaimReady].contains(session.stage) else {
             return "Stale scan session: current session stage is \(session.stage.rawValue), not dryRunReady/reclaimReady."
