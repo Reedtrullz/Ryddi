@@ -1,6 +1,23 @@
 import XCTest
 
 final class MacDiskReclaimerAppLayoutTests: XCTestCase {
+    func testDashboardNavigationUsesTypedSectionsAndSceneStorage() throws {
+        let dashboardSource = try dashboardViewSource()
+        let sectionSource = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardSection.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(sectionSource.contains("enum DashboardSection: String, CaseIterable, Identifiable, Hashable"))
+        XCTAssertTrue(sectionSource.contains("case summary = \"Summary\""))
+        XCTAssertTrue(sectionSource.contains("case remoteTargets = \"RemoteTargets\""))
+        XCTAssertTrue(sectionSource.contains("static func fromLegacyID(_ rawValue: String) -> DashboardSection"))
+        XCTAssertTrue(dashboardSource.contains("@SceneStorage(\"dashboard.selectedSectionID\")"))
+        XCTAssertFalse(dashboardSource.contains("@State private var selectedSection ="))
+        XCTAssertFalse(dashboardSource.contains("selectedSection == \""))
+    }
+
     func testDashboardWindowUsesContentMinimumResizePolicy() throws {
         let source = try appSource()
 
@@ -346,8 +363,15 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
 
         return try swiftFiles.map {
             try String(contentsOf: $0, encoding: .utf8)
-        }
+            }
         .joined(separator: "\n")
+    }
+
+    private func dashboardViewSource() throws -> String {
+        let source = try appSource()
+        let start = try XCTUnwrap(source.range(of: "struct DashboardView: View {"))
+        let end = try XCTUnwrap(source.range(of: "\n}\n\nstruct OverviewView: View {"))
+        return String(source[start.lowerBound..<end.lowerBound])
     }
 
     private func repoRoot() -> URL {

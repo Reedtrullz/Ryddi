@@ -52,77 +52,83 @@ struct MacDiskReclaimerApp: App {
 struct DashboardView: View {
     @State private var model = DashboardModel()
     @State private var selectedFinding: Finding.ID?
-    @State private var selectedSection = DashboardLaunchOptions.initialSection
+    @SceneStorage("dashboard.selectedSectionID") private var selectedSectionID = DashboardLaunchOptions.initialSectionID
     @State private var showingReclaimConfirmation = false
 
     var body: some View {
         NavigationSplitView {
             sidebar
         } detail: {
-            if selectedSection == "Features" {
+            switch selectedSection {
+            case .features:
                 CapabilityMatrixView()
-            } else if selectedSection == "Rules" {
+            case .rules:
                 RuleCatalogView()
-            } else if selectedSection == "Apps" {
+            case .apps:
                 AppReviewView(model: model)
-            } else if selectedSection == "Queues" {
+            case .queues:
                 ReviewQueuesView(model: model) { finding in
                     selectedFinding = finding.id
-                    selectedSection = "Finding"
+                    selectedSectionID = DashboardSection.finding.rawValue
                 }
-            } else if selectedSection == "LargeOld" {
+            case .largeOld:
                 LargeOldReviewView(model: model)
-            } else if selectedSection == "Duplicates" {
+            case .duplicates:
                 DuplicateReviewView(model: model)
-            } else if selectedSection == "Downloads" {
+            case .downloads:
                 DownloadsReviewView(model: model)
-            } else if selectedSection == "Browsers" {
+            case .browsers:
                 BrowserCacheReviewView(model: model)
-            } else if selectedSection == "Packages" {
+            case .packages:
                 PackageCacheReviewView(model: model) { section in
                     selectedFinding = nil
-                    selectedSection = section
+                    selectedSectionID = DashboardSection.fromLegacyID(section).rawValue
                 }
-            } else if selectedSection == "Projects" {
+            case .projects:
                 ProjectDependencyReviewView(model: model)
-            } else if selectedSection == "DeviceBackups" {
+            case .deviceBackups:
                 DeviceBackupReviewView(model: model)
-            } else if selectedSection == "Xcode" {
+            case .xcode:
                 XcodeReviewView(model: model)
-            } else if selectedSection == "Trash" {
+            case .trash:
                 TrashReviewView(model: model)
-            } else if selectedSection == "Containers" {
+            case .containers:
                 ContainerInventoryView(model: model)
-            } else if selectedSection == "RemoteTargets" {
+            case .remoteTargets:
                 RemoteTargetsView(model: model)
-            } else if selectedSection == "Agents" {
+            case .agents:
                 AgentStorageReviewView(model: model)
-            } else if selectedSection == "Permissions" {
+            case .permissions:
                 PermissionOnboardingView(model: model)
-            } else if selectedSection == "Active" {
+            case .active:
                 ActiveFileReviewView(model: model)
-            } else if selectedSection == "Scopes" {
+            case .scopes:
                 SavedScopeSetView(model: model)
-            } else if selectedSection == "Policy" {
+            case .policy:
                 UserPathPolicyView(model: model)
-            } else if selectedSection == "Audit" {
+            case .audit:
                 AuditHistoryView(model: model)
-            } else if selectedSection == "Recovery" {
+            case .recovery:
                 RecoveryCenterView(model: model)
-            } else if selectedSection == "Holding" {
+            case .holding:
                 HoldingView(model: model)
-            } else if selectedSection == "Automation" {
+            case .automation:
                 AutomationView(model: model)
-            } else if let finding = model.findings.first(where: { $0.id == selectedFinding }) {
-                FindingDetailView(model: model, finding: finding, planItem: model.planItem(for: finding.id))
-            } else {
+            case .finding:
+                if let finding = model.findings.first(where: { $0.id == selectedFinding }) {
+                    FindingDetailView(model: model, finding: finding, planItem: model.planItem(for: finding.id))
+                } else {
+                    OverviewView(
+                        model: model,
+                        onReclaim: { showingReclaimConfirmation = true },
+                        navigate: selectLegacySection
+                    )
+                }
+            case .summary:
                 OverviewView(
                     model: model,
                     onReclaim: { showingReclaimConfirmation = true },
-                    navigate: { section in
-                        selectedFinding = nil
-                        selectedSection = section
-                    }
+                    navigate: selectLegacySection
                 )
             }
         }
@@ -206,7 +212,7 @@ struct DashboardView: View {
                 } label: {
                     Label("Reclaim", systemImage: "trash")
                 }
-                .disabled(!model.canReclaimSelected || selectedSection == "RemoteTargets")
+                .disabled(!model.canReclaimSelected || selectedSection == .remoteTargets)
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
             }
@@ -231,6 +237,19 @@ struct DashboardView: View {
             model.refreshRemoteTargets()
             model.applyScreenshotDemoIfNeeded()
         }
+    }
+
+    private var selectedSection: DashboardSection {
+        DashboardSection(rawValue: selectedSectionID) ?? .summary
+    }
+
+    private func selectSection(_ section: DashboardSection) {
+        selectedFinding = nil
+        selectedSectionID = section.rawValue
+    }
+
+    private func selectLegacySection(_ sectionID: String) {
+        selectSection(DashboardSection.fromLegacyID(sectionID))
     }
 
     private var sidebar: some View {
@@ -283,7 +302,7 @@ struct DashboardView: View {
                                 .tag(finding.id)
                                 .onTapGesture {
                                     selectedFinding = finding.id
-                                    selectedSection = "Finding"
+                                    selectedSectionID = DashboardSection.finding.rawValue
                                 }
                         }
                     }
@@ -296,40 +315,14 @@ struct DashboardView: View {
 
     private func sidebarRow(_ title: String, systemImage: String, section: String) -> some View {
         Button {
-            selectedFinding = nil
-            selectedSection = section
+            selectLegacySection(section)
         } label: {
             Label(title, systemImage: systemImage)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .foregroundStyle(selectedSection == section ? Color.accentColor : Color.primary)
+                .foregroundStyle(selectedSection == DashboardSection.fromLegacyID(section) ? Color.accentColor : Color.primary)
         }
         .buttonStyle(.plain)
-        .listRowBackground(selectedSection == section ? Color.accentColor.opacity(0.16) : Color.clear)
-    }
-}
-
-enum DashboardLaunchOptions {
-    static var isScreenshotDemo: Bool {
-        ProcessInfo.processInfo.environment["RYDDI_SCREENSHOT_DEMO"] == "1"
-    }
-
-    static var initialSection: String {
-        guard isScreenshotDemo else { return "Summary" }
-        let raw = ProcessInfo.processInfo.environment["RYDDI_SCREENSHOT_SECTION"] ?? "Summary"
-        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "queues", "review-queues":
-            return "Queues"
-        case "packages", "package-cache", "package-caches":
-            return "Packages"
-        case "apps", "app-review", "apps-and-leftovers":
-            return "Apps"
-        case "agents", "ai-agent-storage":
-            return "Agents"
-        case "remote", "remote-targets", "remotetargets":
-            return "RemoteTargets"
-        default:
-            return "Summary"
-        }
+        .listRowBackground(selectedSection == DashboardSection.fromLegacyID(section) ? Color.accentColor.opacity(0.16) : Color.clear)
     }
 }
 
