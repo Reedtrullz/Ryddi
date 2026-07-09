@@ -2679,7 +2679,7 @@ func printTrustReadiness(_ report: TrustReadinessReport) {
     print("Ryddi trust readiness")
     print("Generated: \(report.createdAt.formatted())")
     print("Disk: \(report.diskStatus.pressure.label) - \(report.diskStatus.statusLine)")
-    print("Coverage: \(report.permissionSummary.coverageLevel.label), \(report.permissionSummary.readableCount)/\(report.permissionSummary.totalCount) readable")
+    print("Coverage: \(report.permissionSummary.coverageLevel.label), \(report.permissionSummary.coverageSummary)")
     print("Automation: \(report.automationInstalled ? "installed" : "not installed")")
     print("Release trust: \(report.releaseTrustEvidence.state.label) - \(report.releaseTrustEvidence.summary)")
     if let plan = report.latestPlanSummary {
@@ -3277,6 +3277,7 @@ func printPermissionAdvisorReport(_ report: PermissionAdvisorReport) {
     print("Ryddi permission advisor")
     print("Generated: \(report.createdAt.formatted())")
     print("Coverage: \(report.coverageLevel.label)")
+    print("Scope summary: \(report.coverageSummary)")
     print("Readable scopes: \(report.readableCount)/\(report.totalCount)")
     print("Denied: \(report.deniedCount)")
     print("Missing: \(report.missingCount)")
@@ -3288,10 +3289,17 @@ func printPermissionAdvisorReport(_ report: PermissionAdvisorReport) {
         print("- \(action)")
     }
 
-    if !report.unavailableScopes.isEmpty {
-        print("\nUnavailable scopes")
-        for scope in report.unavailableScopes {
+    if !report.blockingUnavailableScopes.isEmpty {
+        print("\nAccess blockers")
+        for scope in report.blockingUnavailableScopes {
             print("- \(scope.permissionState.rawValue): \(scope.name) - \(scope.path)")
+            print("  \(scope.message)")
+        }
+    }
+    if !report.optionalUnavailableScopes.isEmpty {
+        print("\nOptional missing roots")
+        for scope in report.optionalUnavailableScopes {
+            print("- \(scope.name) - \(scope.path)")
             print("  \(scope.message)")
         }
     }

@@ -174,6 +174,7 @@ public enum DogfoodReportBuilder {
         lines.append("## Permission Advisory")
         lines.append(table(headers: ["Metric", "Value"], rows: [
             ["Coverage", permissionReport.coverageLevel.label],
+            ["Scope summary", permissionReport.coverageSummary],
             ["Readable", "\(permissionReport.readableCount)/\(permissionReport.totalCount)"],
             ["Denied", "\(permissionReport.deniedCount)"],
             ["Missing", "\(permissionReport.missingCount)"]

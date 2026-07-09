@@ -173,7 +173,7 @@ public enum ActionCenterBuilder {
             id: "permissions.grant-access",
             kind: .grantAccess,
             title: "Grant Access",
-            reason: "\(report.readableCount) of \(report.totalCount) configured scopes are readable.",
+            reason: report.coverageSummary,
             priority: 1_000,
             count: unavailableCount,
             sourceIDs: ["permission-advisor"]

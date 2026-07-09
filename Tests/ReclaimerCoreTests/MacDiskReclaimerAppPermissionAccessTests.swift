@@ -37,6 +37,18 @@ final class MacDiskReclaimerAppPermissionAccessTests: XCTestCase {
             source.contains("Refresh Coverage"),
             "Users should be able to re-check permission coverage after changing macOS settings."
         )
+        XCTAssertTrue(
+            source.contains("report.coverageSummary"),
+            "Permission views should use the core summary that separates access problems from optional missing roots."
+        )
+        XCTAssertTrue(
+            source.contains("Optional missing roots"),
+            "Missing developer/tool roots should be labelled as optional instead of blended into Full Disk Access failures."
+        )
+        XCTAssertTrue(
+            source.contains("blockingUnavailableScopes"),
+            "The access helper should separate denied/unknown blockers from non-blocking missing paths."
+        )
     }
 
     private func appSource() throws -> String {

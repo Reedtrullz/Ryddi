@@ -29,7 +29,7 @@ struct GuidedSummaryView: View {
             SummaryStatusTile(
                 title: "Access",
                 value: model.permissionReport.coverageLevel.label,
-                detail: "\(model.permissionReport.readableCount) of \(model.permissionReport.totalCount) scopes readable",
+                detail: model.permissionReport.coverageSummary,
                 systemImage: "lock.shield"
             )
             SummaryStatusTile(

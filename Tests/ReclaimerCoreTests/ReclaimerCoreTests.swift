@@ -2967,6 +2967,25 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.recommendedActions.contains { $0.contains("missing roots") })
     }
 
+    func testPermissionAdvisorCoverageSummaryKeepsOptionalMissingRootsOutOfAccessWarning() {
+        let report = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Homebrew cache", path: "/fixture/Library/Caches/Homebrew", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Ollama models", path: "/fixture/.ollama", permissionState: .missing, message: "Path is not present."),
+                ScopeAccessSummary(name: "Colima", path: "/fixture/.colima", permissionState: .missing, message: "Path is not present.")
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.coverageLevel, .complete)
+        XCTAssertFalse(report.needsFullDiskAccessReview)
+        XCTAssertEqual(report.blockingUnavailableScopes.map(\.name), [])
+        XCTAssertEqual(report.optionalUnavailableScopes.map(\.name), ["Ollama models", "Colima"])
+        XCTAssertEqual(report.coverageSummary, "2 readable; 2 optional roots not present")
+        XCTAssertFalse(report.coverageSummary.localizedCaseInsensitiveContains("configured scopes are readable"))
+    }
+
     func testTrustReadinessRecommendsFullDiskAccessAndDryRunWhenCoverageIsDegraded() {
         let permissionReport = PermissionAdvisor.report(
             scopeSummaries: [
@@ -3078,7 +3097,8 @@ final class ReclaimerCoreTests: XCTestCase {
         let report = PermissionAdvisor.report(
             scopeSummaries: [
                 ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
-                ScopeAccessSummary(name: "Caches", path: "/fixture/Library/Caches", permissionState: .readable, message: "Directory is readable.")
+                ScopeAccessSummary(name: "Caches", path: "/fixture/Library/Caches", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Ollama models", path: "/fixture/.ollama", permissionState: .missing, message: "Path is not present.")
             ],
             now: Date(timeIntervalSince1970: 20)
         )
@@ -3089,7 +3109,9 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(walkthrough.steps.first { $0.id == "open-full-disk-access" }?.status, .optional)
         XCTAssertEqual(walkthrough.steps.first { $0.id == "keep-degraded-mode-visible" }?.status, .done)
         XCTAssertTrue(walkthrough.markdown.contains("Coverage: Complete"))
-        XCTAssertTrue(walkthrough.markdown.contains("Readable scopes: 2/2"))
+        XCTAssertTrue(walkthrough.markdown.contains("Scope summary: 2 readable; 1 optional root not present"))
+        XCTAssertTrue(walkthrough.markdown.contains("Readable scopes: 2/3"))
+        XCTAssertFalse(walkthrough.steps.first { $0.id == "review-coverage" }?.detail.localizedCaseInsensitiveContains("configured scopes") == true)
     }
 
     func testDuplicateReviewGroupsOnlySameContent() throws {

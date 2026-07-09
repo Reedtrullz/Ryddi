@@ -100,7 +100,7 @@ public enum GuidedWorkflowBuilder {
                 primaryAction: GuidedWorkflowAction(
                     kind: .openPermissions,
                     title: "Review Access",
-                    reason: "\(input.permissionSummary.readableCount) of \(input.permissionSummary.totalCount) configured scopes are readable."
+                    reason: input.permissionSummary.coverageSummary
                 ),
                 secondaryActions: [
                     GuidedWorkflowAction(

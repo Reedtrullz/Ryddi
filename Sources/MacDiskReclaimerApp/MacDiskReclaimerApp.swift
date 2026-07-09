@@ -604,31 +604,21 @@ struct PermissionAccessBanner: View {
     let onReviewPermissions: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: "lock.shield")
-                .font(.title3)
-                .foregroundStyle(.orange)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Full Disk Access review recommended")
-                    .font(.headline)
-                Text("\(report.readableCount) of \(report.totalCount) configured scopes are readable.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 14) {
+                bannerIcon
+                bannerCopy
+                Spacer(minLength: 12)
+                bannerButtons
             }
-            Spacer()
-            Button {
-                PathActions.openFullDiskAccessSettings()
-            } label: {
-                Label("Open Full Disk Access", systemImage: "lock.shield")
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 10) {
+                    bannerIcon
+                    bannerCopy
+                }
+                bannerButtons
             }
-            .buttonStyle(.borderedProminent)
-            Button {
-                onReviewPermissions()
-            } label: {
-                Label("Review Permissions", systemImage: "arrow.right.circle")
-            }
-            .buttonStyle(.bordered)
         }
         .padding(14)
         .background {
@@ -639,6 +629,48 @@ struct PermissionAccessBanner: View {
                         .stroke(Color.orange.opacity(0.35), lineWidth: 1)
                 )
         }
+    }
+
+    private var bannerIcon: some View {
+        Image(systemName: "lock.shield")
+            .font(.title3)
+            .foregroundStyle(.orange)
+            .frame(width: 28)
+    }
+
+    private var bannerCopy: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(report.needsFullDiskAccessReview ? "Full Disk Access review recommended" : "Permission coverage needs refresh")
+                .font(.headline)
+            Text(report.coverageSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var bannerButtons: some View {
+        LazyVGrid(columns: DashboardResponsiveGrid.actionColumns, alignment: .leading, spacing: 10) {
+            Button {
+                PathActions.openFullDiskAccessSettings()
+            } label: {
+                Label("Open Full Disk Access", systemImage: "lock.shield")
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+            }
+            .buttonStyle(.borderedProminent)
+            Button {
+                onReviewPermissions()
+            } label: {
+                Label("Review Permissions", systemImage: "arrow.right.circle")
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: 390, alignment: .leading)
     }
 }
 
@@ -5023,8 +5055,9 @@ struct PermissionCoverageView: View {
     var body: some View {
         SectionBox(title: "Permission Coverage") {
             HStack {
-                Text("\(report.readableCount) of \(report.totalCount) expected scopes readable")
+                Text(report.coverageSummary)
                     .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Text(report.coverageLevel.label)
                     .foregroundStyle(permissionColor(report.coverageLevel))
@@ -5060,11 +5093,11 @@ struct PermissionOnboardingView: View {
                 Text("Ryddi can still scan in degraded mode. This page shows what macOS currently lets it read and what evidence is missing.")
                     .foregroundStyle(.secondary)
 
-                HStack(spacing: 16) {
+                LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
                     MetricTile(title: "Coverage", value: model.permissionReport.coverageLevel.label)
-                    MetricTile(title: "Readable", value: "\(model.permissionReport.readableCount)/\(model.permissionReport.totalCount)")
+                    MetricTile(title: "Readable", value: "\(model.permissionReport.readableCount)")
                     MetricTile(title: "Denied", value: "\(model.permissionReport.deniedCount)")
-                    MetricTile(title: "Missing", value: "\(model.permissionReport.missingCount)")
+                    MetricTile(title: "Optional Missing", value: "\(model.permissionReport.missingCount)")
                 }
 
                 PermissionAccessHelperPanel(
@@ -5132,8 +5165,17 @@ struct PermissionAccessHelperPanel: View {
     let report: PermissionAdvisorReport
     let onRefresh: () -> Void
 
-    private var unavailableScopes: [ScopeAccessSummary] {
-        report.unavailableScopes.sorted { lhs, rhs in
+    private var blockingScopes: [ScopeAccessSummary] {
+        report.blockingUnavailableScopes.sorted { lhs, rhs in
+            if lhs.permissionState != rhs.permissionState {
+                return lhs.permissionState.rawValue < rhs.permissionState.rawValue
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private var optionalMissingScopes: [ScopeAccessSummary] {
+        report.optionalUnavailableScopes.sorted { lhs, rhs in
             if lhs.permissionState != rhs.permissionState {
                 return lhs.permissionState.rawValue < rhs.permissionState.rawValue
             }
@@ -5144,78 +5186,111 @@ struct PermissionAccessHelperPanel: View {
     var body: some View {
         SectionBox(title: "Access Helper") {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    Button {
+                LazyVGrid(columns: DashboardResponsiveGrid.actionColumns, alignment: .leading, spacing: 10) {
+                    permissionButton("Open Full Disk Access", systemImage: "lock.shield", prominent: true) {
                         PathActions.openFullDiskAccessSettings()
-                    } label: {
-                        Label("Open Full Disk Access", systemImage: "lock.shield")
                     }
-                    .buttonStyle(.borderedProminent)
                     .help("Open macOS Privacy & Security settings for Full Disk Access")
 
-                    Button {
+                    permissionButton("Reveal Ryddi", systemImage: "app.dashed") {
                         PathActions.revealApplicationInFinder()
-                    } label: {
-                        Label("Reveal Ryddi", systemImage: "app.dashed")
                     }
                     .help("Reveal the installed app so it can be added to Full Disk Access if missing.")
 
-                    Button {
+                    permissionButton("Copy App Path", systemImage: "doc.on.doc") {
                         PathActions.copyText(PathActions.applicationPath)
-                    } label: {
-                        Label("Copy App Path", systemImage: "doc.on.doc")
                     }
                     .help(PathActions.applicationPath)
 
-                    Spacer()
-
-                    Button {
+                    permissionButton("Refresh Coverage", systemImage: "arrow.clockwise") {
                         onRefresh()
-                    } label: {
-                        Label("Refresh Coverage", systemImage: "arrow.clockwise")
                     }
                     .help("Re-check which configured scopes are currently readable.")
                 }
-                .buttonStyle(.bordered)
 
-                Text("macOS requires you to grant Full Disk Access manually. Add or enable Ryddi, return here, then refresh coverage or run a fresh scan.")
+                Text(accessHelperCopy)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if unavailableScopes.isEmpty {
+                if blockingScopes.isEmpty && optionalMissingScopes.isEmpty {
                     Label("All configured scopes are readable in the current scope plan.", systemImage: "checkmark.circle")
                         .font(.caption)
                         .foregroundStyle(.green)
                 } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Restricted or missing scopes")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        ForEach(unavailableScopes.prefix(8)) { scope in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(scope.permissionState.rawValue)
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(scope.permissionState == .denied ? .orange : .secondary)
-                                    .frame(width: 58, alignment: .leading)
-                                Text(scope.name)
-                                    .font(.caption.weight(.semibold))
-                                    .frame(width: 150, alignment: .leading)
-                                Text(scope.path)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                        if unavailableScopes.count > 8 {
-                            Text("\(unavailableScopes.count - 8) more scope(s)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+                    if !blockingScopes.isEmpty {
+                        permissionScopeList(
+                            title: "Access blockers",
+                            scopes: blockingScopes,
+                            overflowText: "more access blocker(s)"
+                        )
+                    }
+                    if !optionalMissingScopes.isEmpty {
+                        permissionScopeList(
+                            title: "Optional missing roots",
+                            scopes: optionalMissingScopes,
+                            overflowText: "more optional missing root(s)"
+                        )
                     }
                 }
+            }
+        }
+    }
+
+    private var accessHelperCopy: String {
+        if report.needsFullDiskAccessReview {
+            return "macOS requires you to grant Full Disk Access manually. Add or enable Ryddi, return here, then refresh coverage or run a fresh scan."
+        }
+        if !blockingScopes.isEmpty {
+            return "Some configured scopes still need a fresh permission check. Refresh coverage after changing macOS settings or restart Ryddi if System Settings already lists it."
+        }
+        if !optionalMissingScopes.isEmpty {
+            return "No denied scopes are visible. Missing paths are usually optional tool or app data that has not been created on this Mac."
+        }
+        return "No denied, unknown, or missing scopes are visible for the current scope plan."
+    }
+
+    @ViewBuilder
+    private func permissionButton(_ title: String, systemImage: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
+        let button = Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity, minHeight: 34, alignment: .center)
+        }
+        if prominent {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button.buttonStyle(.bordered)
+        }
+    }
+
+    private func permissionScopeList(title: String, scopes: [ScopeAccessSummary], overflowText: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(scopes.prefix(8)) { scope in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(scope.permissionState.rawValue)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(scope.permissionState == .denied ? .orange : .secondary)
+                        .frame(width: 58, alignment: .leading)
+                    Text(scope.name)
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 150, alignment: .leading)
+                    Text(scope.path)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            }
+            if scopes.count > 8 {
+                Text("\(scopes.count - 8) \(overflowText)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
     }

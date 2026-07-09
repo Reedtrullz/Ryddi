@@ -159,7 +159,7 @@ public enum TrustReadinessBuilder {
             actions.append(TrustReadinessAction(
                 id: "permissions.review-full-disk-access",
                 title: "Review Full Disk Access",
-                detail: "\(permissionSummary.readableCount) of \(permissionSummary.totalCount) configured scopes are readable.",
+                detail: permissionSummary.coverageSummary,
                 severity: permissionSummary.coverageLevel == .blocked ? .blocked : .warning
             ))
         }

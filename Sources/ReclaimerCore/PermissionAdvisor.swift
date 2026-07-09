@@ -60,9 +60,44 @@ public struct PermissionAdvisorReport: Codable, Hashable, Sendable {
         scopeSummaries.filter { [.denied, .missing, .unknown].contains($0.permissionState) }
     }
 
+    public var blockingUnavailableScopes: [ScopeAccessSummary] {
+        scopeSummaries.filter { [.denied, .unknown].contains($0.permissionState) }
+    }
+
+    public var optionalUnavailableScopes: [ScopeAccessSummary] {
+        scopeSummaries.filter { $0.permissionState == .missing }
+    }
+
     public var needsFullDiskAccessReview: Bool {
         deniedCount > 0
     }
+
+    public var coverageSummary: String {
+        guard totalCount > 0 else {
+            return "No configured scopes"
+        }
+        if deniedCount > 0 || unknownCount > 0 {
+            var parts = ["\(readableCount) of \(totalCount) configured scopes readable"]
+            if deniedCount > 0 {
+                parts.append("\(deniedCount) \(plural("scope", deniedCount)) need access review")
+            }
+            if unknownCount > 0 {
+                parts.append("\(unknownCount) \(plural("scope", unknownCount)) need a fresh check")
+            }
+            if missingCount > 0 {
+                parts.append("\(missingCount) optional \(plural("root", missingCount)) not present")
+            }
+            return parts.joined(separator: "; ")
+        }
+        if missingCount > 0 {
+            return "\(readableCount) readable; \(missingCount) optional \(plural("root", missingCount)) not present"
+        }
+        return "All \(readableCount) configured \(plural("scope", readableCount)) readable"
+    }
+}
+
+private func plural(_ singular: String, _ count: Int) -> String {
+    count == 1 ? singular : singular + "s"
 }
 
 public enum PermissionAdvisor {
