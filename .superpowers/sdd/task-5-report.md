@@ -119,3 +119,49 @@ Executed 22 tests, with 0 failures (0 unexpected) in 0.397 seconds
 - Left explicit redacted export actions untouched so the privacy-preserving path remains opt-in and obvious in the UI.
 - Consumed the stored privacy defaults only at app-view export call sites; no `ReclaimerCore` contracts, remote boundaries, or destructive/report-only behavior changed.
 - Accepted a small duplicated helper between `DashboardView` and `ReviewQueuesView` to avoid broader file surgery before the planned Task 6 split.
+
+## Re-review Fix 2
+
+### Summary
+
+- Verified the remaining review finding: `DashboardActionStrip` still had one ordinary `Export` button hardcoded to `.redacted` plus `redactUserText: true`.
+- Strengthened `testSettingsAreNativePersistedAndReachable` so it now asserts that the ordinary `DashboardActionStrip("Export")` path calls `exportEvidenceReportUsingDefaults()`.
+- Updated `DashboardActionStrip` to read the persisted privacy defaults, convert the stored path style, and route its ordinary export action through the same default-based helper shape used by the other ordinary export surfaces.
+
+### Exact test commands
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testSettingsAreNativePersistedAndReachable
+swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests
+```
+
+### Results
+
+```text
+RED
+Build complete! (2.19s)
+Test Case '-[ReclaimerCoreTests.MacDiskReclaimerAppLayoutTests testSettingsAreNativePersistedAndReachable]' failed
+Executed 1 test, with 1 failure (0 unexpected) in 0.233 seconds
+
+GREEN
+Build complete! (14.85s)
+Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:37:45.521.
+Executed 1 test, with 0 failures (0 unexpected) in 0.039 seconds
+
+COVERING
+Build complete! (0.14s)
+Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:37:50.910.
+Executed 22 tests, with 0 failures (0 unexpected) in 0.405 seconds
+```
+
+### Files changed
+
+- `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`
+- `Tests/ReclaimerCoreTests/MacDiskReclaimerAppLayoutTests.swift`
+- `.superpowers/sdd/task-5-report.md`
+
+### Self-review
+
+- Kept the change tightly scoped to the one remaining ordinary action-strip export path the reviewer identified.
+- Preserved all explicitly labeled redacted actions as hardcoded `.redacted` plus `redactUserText: true`.
+- Reused the same persisted-default export shape already established for other ordinary evidence-report actions, without touching `ReclaimerCore` or remote/report-only boundaries.

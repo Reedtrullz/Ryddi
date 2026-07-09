@@ -72,6 +72,7 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(source.contains("await model.exportEvidenceReport(pathStyle: defaultReportPathStyle, redactUserText: redactUserTextByDefault)"))
         XCTAssertTrue(source.contains("exportReport: exportEvidenceReportUsingDefaults"))
         XCTAssertTrue(source.contains("onExport: exportEvidenceReportUsingDefaults"))
+        XCTAssertTrue(source.contains("DashboardActionButton(\"Export\", systemImage: \"square.and.arrow.up\", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {\n            exportEvidenceReportUsingDefaults()\n        }"))
         XCTAssertTrue(source.contains("await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true)"))
     }
 

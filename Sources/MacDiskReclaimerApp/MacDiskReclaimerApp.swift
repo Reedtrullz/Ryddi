@@ -484,6 +484,12 @@ struct DashboardActionStrip: View {
     let model: DashboardModel
     let onReclaim: () -> Void
     let navigate: (String) -> Void
+    @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue
+    @AppStorage(RyddiAppStorageKey.redactUserTextByDefault) private var redactUserTextByDefault = false
+
+    private var defaultReportPathStyle: ReportPathStyle {
+        ReportPathStyle(rawValue: defaultReportPathStyleRaw) ?? .homeRelative
+    }
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -513,10 +519,16 @@ struct DashboardActionStrip: View {
             navigate("Queues")
         }
         DashboardActionButton("Export", systemImage: "square.and.arrow.up", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {
-            Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
+            exportEvidenceReportUsingDefaults()
         }
         DashboardActionButton("Reclaim", systemImage: "trash", role: .destructive, disabled: !model.canReclaimSelected) {
             onReclaim()
+        }
+    }
+
+    private func exportEvidenceReportUsingDefaults() {
+        Task {
+            await model.exportEvidenceReport(pathStyle: defaultReportPathStyle, redactUserText: redactUserTextByDefault)
         }
     }
 }
