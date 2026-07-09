@@ -8,13 +8,16 @@ public enum ExecutionMode: String, Sendable {
 public struct ExecutorConfiguration: Sendable {
     public let holdingRoot: URL
     public let userPathPolicy: UserPathPolicy
+    public let currentScanSession: ScanSession?
 
     public init(
         holdingRoot: URL = ExecutorConfiguration.defaultHoldingRoot(),
-        userPathPolicy: UserPathPolicy = .empty
+        userPathPolicy: UserPathPolicy = .empty,
+        currentScanSession: ScanSession? = nil
     ) {
         self.holdingRoot = holdingRoot
         self.userPathPolicy = userPathPolicy
+        self.currentScanSession = currentScanSession
     }
 
     public static func defaultHoldingRoot() -> URL {
@@ -54,6 +57,28 @@ public final class ReclaimerExecutor: @unchecked Sendable {
         var actions: [ExecutionActionReceipt] = []
         var errors: [String] = []
 
+        if mode == .perform, let staleReason = staleSessionReason(for: plan) {
+            let skipped = plan.items
+                .filter(\.selected)
+                .map {
+                    ExecutionActionReceipt(
+                        path: $0.finding.path,
+                        action: $0.proposedAction,
+                        status: "skipped",
+                        message: staleReason
+                    )
+                }
+            return ExecutionReceipt(
+                ruleVersion: ruleVersion,
+                mode: mode.rawValue,
+                beforeFreeBytes: before,
+                afterFreeBytes: before,
+                actions: skipped,
+                userConfirmed: userConfirmed,
+                errors: [staleReason]
+            )
+        }
+
         for item in plan.items where item.selected {
             let action = execute(item: item, mode: mode, userConfirmed: userConfirmed)
             if action.status == "error" {
@@ -72,6 +97,25 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             userConfirmed: userConfirmed,
             errors: errors
         )
+    }
+
+    private func staleSessionReason(for plan: ReclaimPlan) -> String? {
+        guard let session = configuration.currentScanSession else {
+            return nil
+        }
+        guard [.dryRunReady, .reclaimReady].contains(session.stage) else {
+            return "Stale scan session: current session stage is \(session.stage.rawValue), not dryRunReady/reclaimReady."
+        }
+        guard session.invalidationReasons.isEmpty else {
+            return "Stale scan session: \(session.invalidationReasons.map(\.rawValue).joined(separator: ", "))."
+        }
+        guard session.planDigest == plan.id else {
+            return "Stale scan session: plan digest no longer matches the current plan."
+        }
+        guard session.dryRunReceiptID != nil else {
+            return "Stale scan session: no current dry-run receipt is recorded."
+        }
+        return nil
     }
 
     private func execute(item: ReclaimPlanItem, mode: ExecutionMode, userConfirmed: Bool) -> ExecutionActionReceipt {

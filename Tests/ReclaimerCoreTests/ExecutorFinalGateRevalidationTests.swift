@@ -74,6 +74,37 @@ final class ExecutorFinalGateRevalidationTests: XCTestCase {
         XCTAssertTrue(receipt.actions.first?.message.localizedCaseInsensitiveContains("classification") ?? false)
     }
 
+    func testPerformSkipsWhenScanSessionPlanDigestIsStale() throws {
+        let cache = root.appendingPathComponent("session-stale-cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data(repeating: 3, count: 16).write(to: cache.appendingPathComponent("cache.bin"))
+        let finding = finding(path: cache.path, ruleID: "fixture.stale-session", conditionGates: [])
+        let plan = selectedPlan(for: finding, conditions: [])
+        let staleSession = ScanSession(
+            appVersion: "0.3.0",
+            ruleVersion: "fixture",
+            preset: .developer,
+            scopeDigest: "scope",
+            policyDigest: "policy",
+            findingDigest: "findings",
+            planDigest: "different-plan-id",
+            dryRunReceiptID: "dry-run-receipt",
+            stage: .reclaimReady
+        )
+
+        let receipt = ReclaimerExecutor(
+            openFileChecker: ExecutorClearOpenFileChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: staleSession),
+            ruleEngine: RuleEngine(version: "fixture", rules: [rule(id: "fixture.stale-session", pathNeedle: cache.path)])
+        )
+        .execute(plan: plan, mode: .perform, ruleVersion: "fixture", userConfirmed: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
+        XCTAssertEqual(receipt.actions.first?.status, "skipped")
+        XCTAssertTrue(receipt.actions.first?.message.localizedCaseInsensitiveContains("stale scan session") ?? false)
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("stale scan session") })
+    }
+
     private func finding(
         path: String,
         ruleID: String,
