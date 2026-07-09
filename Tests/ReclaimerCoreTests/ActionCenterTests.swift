@@ -78,6 +78,60 @@ final class ActionCenterTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("apfs") })
     }
 
+    func testDryRunReceiptMustMatchCurrentSessionBeforeExecuteSafePlan() throws {
+        let plan = ReclaimPlan.fixture(expectedReclaim: 3_000)
+        let receipt = ExecutionReceipt.fixture(id: "receipt-current", mode: ExecutionMode.dryRun.rawValue, status: "dry-run", reclaimedBytes: 3_000)
+
+        let staleSessionReport = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(stage: .scanned, findingDigest: "findings-v1", planDigest: plan.id, dryRunReceiptID: receipt.id),
+            currentPlan: plan,
+            latestExecutionReceipt: receipt
+        ))
+        let receiptMismatchReport = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(stage: .dryRunReady, findingDigest: "findings-v1", planDigest: plan.id, dryRunReceiptID: "receipt-stale"),
+            currentPlan: plan,
+            latestExecutionReceipt: receipt
+        ))
+        let planMismatchReport = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(stage: .dryRunReady, findingDigest: "findings-v1", planDigest: "plan-stale", dryRunReceiptID: receipt.id),
+            currentPlan: plan,
+            latestExecutionReceipt: receipt
+        ))
+
+        XCTAssertFalse(staleSessionReport.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertFalse(receiptMismatchReport.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertFalse(planMismatchReport.actions.contains { $0.kind == .executeSafePlan })
+    }
+
+    func testMixedSelectedPlanDoesNotCreatePlanLevelExecuteSafePlan() throws {
+        let safeFinding = Finding.fixture(
+            path: "/Users/example/Library/Caches/Ryddi-safe",
+            safetyClass: .autoSafe,
+            actionKind: .trash,
+            allocatedSize: 3_000
+        )
+        let reviewFinding = Finding.fixture(
+            path: "/Users/example/Documents/large-review-item",
+            safetyClass: .reviewRequired,
+            actionKind: .openGuidance,
+            allocatedSize: 9_000
+        )
+        let plan = ReclaimPlan.fixture(items: [
+            .fixture(finding: safeFinding, selected: true, proposedAction: .trash, estimatedReclaim: 3_000),
+            .fixture(finding: reviewFinding, selected: true, proposedAction: .openGuidance, estimatedReclaim: 0)
+        ])
+        let receipt = ExecutionReceipt.fixture(id: "receipt-current", mode: ExecutionMode.dryRun.rawValue, status: "dry-run", reclaimedBytes: 3_000)
+
+        let report = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(stage: .dryRunReady, findingDigest: "findings-v1", planDigest: plan.id, dryRunReceiptID: receipt.id),
+            currentPlan: plan,
+            latestExecutionReceipt: receipt
+        ))
+
+        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertFalse(report.actions.contains { $0.isDestructive })
+    }
+
     func testActiveBrowserCacheSelectsQuitApp() throws {
         let browserReport = BrowserCacheReviewReport.fixture(
             browser: .chrome,
@@ -163,6 +217,49 @@ final class ActionCenterTests: XCTestCase {
         XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
         XCTAssertFalse(report.actions.contains { $0.isDestructive })
         XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("protected data remains review-only") })
+    }
+
+    func testDisplayAndCategoryTextAloneDoNotProtectOtherwiseSafePlan() throws {
+        let safeFinding = Finding.fixture(
+            path: "/Users/example/Library/Caches/not-codex-session-cache",
+            displayName: "Codex session transcript",
+            category: "Codex sessions",
+            safetyClass: .autoSafe,
+            actionKind: .trash,
+            allocatedSize: 4_000
+        )
+        let plan = ReclaimPlan.fixture(finding: safeFinding, selected: true, proposedAction: .trash, estimatedReclaim: 4_000)
+        let receipt = ExecutionReceipt.fixture(id: "receipt-current", mode: ExecutionMode.dryRun.rawValue, status: "dry-run", reclaimedBytes: 4_000)
+
+        let report = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(stage: .dryRunReady, findingDigest: "findings-v1", planDigest: plan.id, dryRunReceiptID: receipt.id),
+            currentPlan: plan,
+            latestExecutionReceipt: receipt
+        ))
+
+        XCTAssertTrue(report.actions.contains { $0.kind == .executeSafePlan })
+    }
+
+    func testCodexMemoriesPathRemainsNonDestructive() throws {
+        let memoryFinding = Finding.fixture(
+            path: "/Users/example/.codex/memories/rollout_summaries/session.jsonl",
+            displayName: "Fixture cache text",
+            category: "Cache",
+            safetyClass: .autoSafe,
+            actionKind: .trash,
+            allocatedSize: 4_000
+        )
+        let plan = ReclaimPlan.fixture(finding: memoryFinding, selected: true, proposedAction: .trash, estimatedReclaim: 4_000)
+        let receipt = ExecutionReceipt.fixture(id: "receipt-current", mode: ExecutionMode.dryRun.rawValue, status: "dry-run", reclaimedBytes: 4_000)
+
+        let report = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(stage: .dryRunReady, findingDigest: "findings-v1", planDigest: plan.id, dryRunReceiptID: receipt.id),
+            currentPlan: plan,
+            latestExecutionReceipt: receipt
+        ))
+
+        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertFalse(report.actions.contains { $0.isDestructive })
     }
 }
 
@@ -291,6 +388,10 @@ private extension ReclaimPlan {
         )
     }
 
+    static func fixture(items: [ReclaimPlanItem]) -> ReclaimPlan {
+        ReclaimPlan(id: "plan-v1", mode: PlanMode.autoSafeOnly.rawValue, items: items, dryRunSummary: [])
+    }
+
     static func fixture(
         finding: Finding,
         selected: Bool,
@@ -314,10 +415,27 @@ private extension ReclaimPlan {
     }
 }
 
+private extension ReclaimPlanItem {
+    static func fixture(
+        finding: Finding,
+        selected: Bool,
+        proposedAction: ActionKind,
+        estimatedReclaim: Int64
+    ) -> ReclaimPlanItem {
+        ReclaimPlanItem(
+            finding: finding,
+            selected: selected,
+            proposedAction: proposedAction,
+            conditions: [],
+            estimatedImmediateReclaim: estimatedReclaim
+        )
+    }
+}
+
 private extension ExecutionReceipt {
-    static func fixture(mode: String, status: String, reclaimedBytes: Int64) -> ExecutionReceipt {
+    static func fixture(id: String, mode: String, status: String, reclaimedBytes: Int64) -> ExecutionReceipt {
         ExecutionReceipt(
-            id: "receipt-\(mode)",
+            id: id,
             createdAt: Date(timeIntervalSince1970: 3),
             ruleVersion: "rules-v1",
             mode: mode,
@@ -334,6 +452,10 @@ private extension ExecutionReceipt {
             ],
             userConfirmed: false
         )
+    }
+
+    static func fixture(mode: String, status: String, reclaimedBytes: Int64) -> ExecutionReceipt {
+        fixture(id: "receipt-\(mode)", mode: mode, status: status, reclaimedBytes: reclaimedBytes)
     }
 }
 

@@ -104,7 +104,7 @@ public enum ActionCenterBuilder {
     public static let defaultNonClaims = [
         "Building the action center does not perform cleanup or modify files.",
         "Estimated bytes are not a promise of exact APFS free-space gain.",
-        "Protected data remains review-only unless a separate explicit, verified plan allows it."
+        "Protected data remains review-only."
     ]
 
     public static func build(input: ActionCenterInput) -> ActionCenterReport {
@@ -121,7 +121,11 @@ public enum ActionCenterBuilder {
             browserCacheReport: input.browserCacheReport
         ))
         actions.append(contentsOf: nativeToolActions(from: input.packageCacheReport))
-        if let action = planAction(plan: input.currentPlan, receipt: input.latestExecutionReceipt) {
+        if let action = planAction(
+            plan: input.currentPlan,
+            receipt: input.latestExecutionReceipt,
+            session: input.latestScanSession
+        ) {
             actions.append(action)
         }
         if let action = reviewAction(input: input) {
@@ -272,7 +276,11 @@ public enum ActionCenterBuilder {
         }
     }
 
-    private static func planAction(plan: ReclaimPlan?, receipt: ExecutionReceipt?) -> ActionCenterAction? {
+    private static func planAction(
+        plan: ReclaimPlan?,
+        receipt: ExecutionReceipt?,
+        session: ScanSession?
+    ) -> ActionCenterAction? {
         guard let plan else {
             return nil
         }
@@ -295,9 +303,15 @@ public enum ActionCenterBuilder {
         guard receipt.errors.isEmpty else {
             return nil
         }
+        guard dryRunReceiptIsCurrent(plan: plan, receipt: receipt, session: session) else {
+            return nil
+        }
 
-        let safeItems = plan.items.filter(isSafeExecutablePlanItem)
-        let safeBytes = safeItems.reduce(Int64(0)) { $0 + $1.estimatedImmediateReclaim }
+        let selectedItems = plan.items.filter(\.selected)
+        guard !selectedItems.isEmpty, selectedItems.allSatisfy(isSafeExecutablePlanItem) else {
+            return nil
+        }
+        let safeBytes = selectedItems.reduce(Int64(0)) { $0 + $1.estimatedImmediateReclaim }
         guard safeBytes > 0 else {
             return nil
         }
@@ -315,10 +329,30 @@ public enum ActionCenterBuilder {
             reason: "A clean dry-run receipt exists for selected auto-safe trash/cache items.",
             priority: 600,
             estimatedReclaimBytes: min(safeBytes, dryRunBytes),
-            count: safeItems.count,
+            count: selectedItems.count,
             isDestructive: true,
             sourceIDs: [plan.id, receipt.id]
         )
+    }
+
+    private static func dryRunReceiptIsCurrent(
+        plan: ReclaimPlan,
+        receipt: ExecutionReceipt,
+        session: ScanSession?
+    ) -> Bool {
+        guard let session else {
+            return false
+        }
+        guard [.dryRunReady, .reclaimReady].contains(session.stage) else {
+            return false
+        }
+        guard session.dryRunReceiptID == receipt.id else {
+            return false
+        }
+        guard session.planDigest == plan.id else {
+            return false
+        }
+        return true
     }
 
     private static func isSafeExecutablePlanItem(_ item: ReclaimPlanItem) -> Bool {
@@ -331,24 +365,27 @@ public enum ActionCenterBuilder {
         guard [.deleteCache, .trash].contains(item.proposedAction) else {
             return false
         }
-        guard !isProtectedCodexSession(item.finding) else {
+        guard !hasProtectedRuleEvidence(item.finding) else {
+            return false
+        }
+        guard !hasProtectedPathGuardrail(item.finding) else {
             return false
         }
         return item.conditions.allSatisfy(\.isSatisfied)
     }
 
-    private static func isProtectedCodexSession(_ finding: Finding) -> Bool {
-        let haystack = [
-            finding.scopeName,
-            finding.path,
-            finding.displayName,
-            finding.primaryCategory
-        ]
-        .joined(separator: " ")
-        .lowercased()
-        return haystack.contains(".codex/sessions")
-            || haystack.contains("codex session")
-            || haystack.contains("codex sessions")
+    private static func hasProtectedRuleEvidence(_ finding: Finding) -> Bool {
+        finding.ruleMatches.contains { match in
+            [.preserveByDefault, .neverTouch].contains(match.safetyClass)
+        }
+    }
+
+    private static func hasProtectedPathGuardrail(_ finding: Finding) -> Bool {
+        let path = URL(fileURLWithPath: finding.path).standardizedFileURL.path.lowercased()
+        return path.contains("/.codex/sessions/")
+            || path.hasSuffix("/.codex/sessions")
+            || path.contains("/.codex/memories/")
+            || path.hasSuffix("/.codex/memories")
     }
 
     private static func reviewAction(input: ActionCenterInput) -> ActionCenterAction? {
