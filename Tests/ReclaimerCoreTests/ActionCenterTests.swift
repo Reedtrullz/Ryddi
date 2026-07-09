@@ -23,6 +23,22 @@ final class ActionCenterTests: XCTestCase {
         XCTAssertFalse(primary.isDestructive)
     }
 
+    func testScanSessionHistoryWarningsAddPartialUnreadabilityNonClaim() throws {
+        let warning = AuditStoreScanSessionWarning(
+            path: "/Users/example/Library/Application Support/Ryddi/Audit/scan-session-v1-corrupt.json",
+            kind: .unreadableScanSession,
+            message: "Scan session file could not be decoded."
+        )
+
+        let report = ActionCenterBuilder.build(input: .fixture(sessionHistoryWarnings: [warning]))
+
+        XCTAssertTrue(report.nonClaims.contains { note in
+            note.localizedCaseInsensitiveContains("session history")
+                && note.localizedCaseInsensitiveContains("partially unreadable")
+                && note.contains("scan-session-v1-corrupt.json")
+        })
+    }
+
     func testFindingsWithoutPlanSelectReviewQueue() throws {
         let finding = Finding.fixture(
             path: "/Users/example/Downloads/old-installer.dmg",
@@ -273,7 +289,8 @@ private extension ActionCenterInput {
         reviewQueueReport: ReviewQueueReport? = nil,
         activeFileReviewReport: ActiveFileReviewReport? = nil,
         browserCacheReport: BrowserCacheReviewReport? = nil,
-        packageCacheReport: PackageCacheReviewReport? = nil
+        packageCacheReport: PackageCacheReviewReport? = nil,
+        sessionHistoryWarnings: [AuditStoreScanSessionWarning] = []
     ) -> ActionCenterInput {
         ActionCenterInput(
             permissionReport: permissionReport,
@@ -285,6 +302,7 @@ private extension ActionCenterInput {
             activeFileReviewReport: activeFileReviewReport,
             browserCacheReport: browserCacheReport,
             packageCacheReport: packageCacheReport,
+            sessionHistoryWarnings: sessionHistoryWarnings,
             generatedAt: Date(timeIntervalSince1970: 10)
         )
     }

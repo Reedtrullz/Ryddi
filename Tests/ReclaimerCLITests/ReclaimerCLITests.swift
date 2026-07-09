@@ -41,6 +41,21 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertEqual(session.stage, .scanned)
     }
 
+    func testSessionLatestTextPrintsNoScanSessionMessage() throws {
+        let output = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: ["session", "latest"])
+        }
+
+        XCTAssertEqual(
+            output,
+            """
+            No scan session has been recorded yet.
+            Next: run `reclaimer scan --preset developer`.
+
+            """
+        )
+    }
+
     func testSessionExplainPrintsCurrentStateAndBlockedReasons() throws {
         let session = makeSession(
             id: "session-invalid",
@@ -72,6 +87,25 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertEqual(report.primaryAction?.kind, .runScan)
         XCTAssertFalse(report.nonClaims.isEmpty)
         XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("does not perform cleanup") })
+    }
+
+    func testActionsJSONIncludesPartialScanSessionHistoryWarningWhenAuditHistoryIsUnreadable() throws {
+        try "{ this is not valid json".write(
+            to: auditRoot.appendingPathComponent("scan-session-v1-corrupt.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let output = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: ["actions", "--json", "--path", readableScope.path])
+        }
+
+        let report = try JSONDecoder.ryddi.decode(ActionCenterReport.self, from: Data(output.utf8))
+        XCTAssertTrue(report.nonClaims.contains { note in
+            note.localizedCaseInsensitiveContains("session history")
+                && note.localizedCaseInsensitiveContains("partially unreadable")
+                && note.contains("scan-session-v1-corrupt.json")
+        })
     }
 
     func testActionsPresetGeneralTextStartsWithPrimaryActionAndBlockedReasons() throws {

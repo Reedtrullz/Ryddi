@@ -1,5 +1,31 @@
 import Foundation
 
+public enum AuditStoreScanSessionWarningKind: String, Codable, Hashable, Sendable {
+    case unreadableScanSession
+}
+
+public struct AuditStoreScanSessionWarning: Codable, Hashable, Sendable {
+    public let path: String
+    public let kind: AuditStoreScanSessionWarningKind
+    public let message: String
+
+    public init(path: String, kind: AuditStoreScanSessionWarningKind, message: String) {
+        self.path = path
+        self.kind = kind
+        self.message = message
+    }
+}
+
+public struct AuditStoreScanSessionListResult: Codable, Hashable, Sendable {
+    public let sessions: [ScanSession]
+    public let warnings: [AuditStoreScanSessionWarning]
+
+    public init(sessions: [ScanSession], warnings: [AuditStoreScanSessionWarning]) {
+        self.sessions = sessions
+        self.warnings = warnings
+    }
+}
+
 public final class AuditStore: @unchecked Sendable {
     private static let scanSessionPrefix = "scan-session-v1-"
     private static let legacyScanSessionPrefix = "scan-session-"
@@ -292,20 +318,38 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func listScanSessions(limit: Int) throws -> [ScanSession] {
+        try listScanSessionsResult(limit: limit).sessions
+    }
+
+    public func listScanSessionsResult(limit: Int) throws -> AuditStoreScanSessionListResult {
         guard limit > 0 else {
-            return []
+            return AuditStoreScanSessionListResult(sessions: [], warnings: [])
         }
         guard FileManager.default.fileExists(atPath: root.path) else {
-            return []
+            return AuditStoreScanSessionListResult(sessions: [], warnings: [])
         }
         let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-        return try files
+        var decodedSessions: [(URL, ScanSession)] = []
+        var warnings: [AuditStoreScanSessionWarning] = []
+        let scanSessionFiles = files
             .filter { isScanSessionFile($0.lastPathComponent) && $0.pathExtension == "json" }
-            .compactMap { url -> (URL, ScanSession)? in
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        for url in scanSessionFiles {
+            do {
                 let data = try Data(contentsOf: url)
                 let session = try decoder.decode(ScanSession.self, from: data)
-                return (url, session)
+                decodedSessions.append((url, session))
+            } catch {
+                warnings.append(AuditStoreScanSessionWarning(
+                    path: url.standardizedFileURL.path,
+                    kind: .unreadableScanSession,
+                    message: "Scan session file could not be read: \(error.localizedDescription)"
+                ))
             }
+        }
+
+        let sessions = decodedSessions
             .sorted { lhs, rhs in
                 if lhs.1.updatedAt == rhs.1.updatedAt {
                     return lhs.0.lastPathComponent > rhs.0.lastPathComponent
@@ -314,6 +358,8 @@ public final class AuditStore: @unchecked Sendable {
             }
             .prefix(limit)
             .map(\.1)
+
+        return AuditStoreScanSessionListResult(sessions: Array(sessions), warnings: warnings)
     }
 
     public func recentReceipts(limit: Int = 20) -> [ExecutionReceipt] {

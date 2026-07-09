@@ -73,6 +73,7 @@ public struct ActionCenterInput: Sendable {
     public let activeFileReviewReport: ActiveFileReviewReport?
     public let browserCacheReport: BrowserCacheReviewReport?
     public let packageCacheReport: PackageCacheReviewReport?
+    public let sessionHistoryWarnings: [AuditStoreScanSessionWarning]
     public let generatedAt: Date
 
     public init(
@@ -85,6 +86,7 @@ public struct ActionCenterInput: Sendable {
         activeFileReviewReport: ActiveFileReviewReport? = nil,
         browserCacheReport: BrowserCacheReviewReport? = nil,
         packageCacheReport: PackageCacheReviewReport? = nil,
+        sessionHistoryWarnings: [AuditStoreScanSessionWarning] = [],
         generatedAt: Date = Date()
     ) {
         self.permissionReport = permissionReport
@@ -96,6 +98,7 @@ public struct ActionCenterInput: Sendable {
         self.activeFileReviewReport = activeFileReviewReport
         self.browserCacheReport = browserCacheReport
         self.packageCacheReport = packageCacheReport
+        self.sessionHistoryWarnings = sessionHistoryWarnings
         self.generatedAt = generatedAt
     }
 }
@@ -132,7 +135,11 @@ public enum ActionCenterBuilder {
             actions.append(action)
         }
 
-        return ActionCenterReport(generatedAt: input.generatedAt, actions: actions)
+        return ActionCenterReport(
+            generatedAt: input.generatedAt,
+            actions: actions,
+            nonClaims: nonClaims(sessionHistoryWarnings: input.sessionHistoryWarnings)
+        )
     }
 
     public static func sorted(_ actions: [ActionCenterAction]) -> [ActionCenterAction] {
@@ -424,5 +431,22 @@ public enum ActionCenterBuilder {
             return lhs.count > rhs.count
         }
         return lhs.title < rhs.title
+    }
+
+    private static func nonClaims(sessionHistoryWarnings: [AuditStoreScanSessionWarning]) -> [String] {
+        guard !sessionHistoryWarnings.isEmpty else {
+            return defaultNonClaims
+        }
+        var nonClaims = defaultNonClaims
+        let filenames = sessionHistoryWarnings
+            .map { URL(fileURLWithPath: $0.path).lastPathComponent }
+            .sorted()
+        let shown = filenames.prefix(3).joined(separator: ", ")
+        let extraCount = max(0, filenames.count - 3)
+        let suffix = extraCount > 0 ? "\(shown), and \(extraCount) more" : shown
+        nonClaims.append(
+            "Scan session history is partially unreadable; unreadable audit files were excluded from action selection (\(suffix))."
+        )
+        return nonClaims
     }
 }

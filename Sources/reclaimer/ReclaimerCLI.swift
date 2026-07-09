@@ -153,15 +153,17 @@ struct ReclaimerCLI {
     static func actions(args: [String]) throws {
         let options = ParsedOptions(args)
         let store = AuditStore()
+        let scanSessions = try store.listScanSessionsResult(limit: 1)
         let report = ActionCenterBuilder.build(input: ActionCenterInput(
             permissionReport: PermissionAdvisor.report(scopes: try options.scopes(includeUnavailable: true)),
-            latestScanSession: try store.latestScanSession(),
+            latestScanSession: scanSessions.sessions.first,
             findings: [],
             currentPlan: store.recentPlans(limit: 1).first,
             latestExecutionReceipt: store.recentReceipts(limit: 1).first,
             activeFileReviewReport: store.recentActiveFileReviewReports(limit: 1).first,
             browserCacheReport: store.recentBrowserCacheReviewReports(limit: 1).first,
-            packageCacheReport: store.recentPackageCacheReviewReports(limit: 1).first
+            packageCacheReport: store.recentPackageCacheReviewReports(limit: 1).first,
+            sessionHistoryWarnings: scanSessions.warnings
         ))
         if options.json {
             printJSON(report)

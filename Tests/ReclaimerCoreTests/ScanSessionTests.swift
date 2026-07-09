@@ -215,6 +215,56 @@ final class ScanSessionTests: XCTestCase {
         XCTAssertNil(try store.latestScanSession())
     }
 
+    func testAuditStoreScanSessionResultIsEmptyWhenNoSessionFilesExist() throws {
+        let store = AuditStore(root: tempRoot)
+
+        let result = try store.listScanSessionsResult(limit: 10)
+
+        XCTAssertEqual(result.sessions, [])
+        XCTAssertEqual(result.warnings, [])
+        XCTAssertEqual(try store.listScanSessions(limit: 10), [])
+    }
+
+    func testAuditStoreScanSessionResultReadsOneOldSessionFileWithoutWarnings() throws {
+        let store = AuditStore(root: tempRoot)
+        let legacy = makeSession(id: "session-legacy", updatedAt: Date(timeIntervalSince1970: 1_500))
+        try write(session: legacy, named: "\(legacyScanSessionPrefix)\(legacy.id).json")
+
+        let result = try store.listScanSessionsResult(limit: 10)
+
+        XCTAssertEqual(result.sessions.map(\.id), ["session-legacy"])
+        XCTAssertEqual(result.warnings, [])
+    }
+
+    func testAuditStoreScanSessionResultWarnsForOneCorruptSessionFile() throws {
+        let store = AuditStore(root: tempRoot)
+        let corruptURL = try writeCorruptScanSessionFile(named: "\(versionedScanSessionPrefix)corrupt.json")
+
+        let result = try store.listScanSessionsResult(limit: 10)
+
+        XCTAssertEqual(result.sessions, [])
+        XCTAssertEqual(result.warnings.count, 1)
+        XCTAssertEqual(result.warnings.first?.path, corruptURL.path)
+        XCTAssertEqual(result.warnings.first?.kind, .unreadableScanSession)
+        XCTAssertTrue(result.warnings.first?.message.localizedCaseInsensitiveContains("scan session") ?? false)
+        XCTAssertEqual(try store.listScanSessions(limit: 10), [])
+    }
+
+    func testAuditStoreScanSessionResultReturnsLatestValidSessionAfterCorruptFile() throws {
+        let store = AuditStore(root: tempRoot)
+        let older = makeSession(id: "session-older", updatedAt: Date(timeIntervalSince1970: 1_000))
+        let latest = makeSession(id: "session-latest", updatedAt: Date(timeIntervalSince1970: 3_000))
+        try store.saveScanSession(older)
+        _ = try writeCorruptScanSessionFile(named: "\(versionedScanSessionPrefix)corrupt.json")
+        try store.saveScanSession(latest)
+
+        let result = try store.listScanSessionsResult(limit: 1)
+
+        XCTAssertEqual(result.sessions.map(\.id), ["session-latest"])
+        XCTAssertEqual(result.warnings.map(\.kind), [.unreadableScanSession])
+        XCTAssertEqual(try store.latestScanSession()?.id, "session-latest")
+    }
+
     private func makeSession(
         id: String = "session-1",
         createdAt: Date = Date(timeIntervalSince1970: 1_000),
@@ -313,5 +363,11 @@ final class ScanSessionTests: XCTestCase {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(session).write(to: tempRoot.appendingPathComponent(filename), options: .atomic)
+    }
+
+    private func writeCorruptScanSessionFile(named filename: String) throws -> URL {
+        let url = tempRoot.appendingPathComponent(filename)
+        try "{ this is not valid json".write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 }
