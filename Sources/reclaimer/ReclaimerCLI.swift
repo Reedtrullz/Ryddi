@@ -1929,8 +1929,8 @@ struct ParsedOptions {
     var review: String { value(after: "--review") ?? "all" }
     var largeThreshold: Int64 { Int64(value(after: "--large-threshold") ?? "") ?? 5_000_000_000 }
     var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
-    var auditOlderThanDays: Int { max(0, Int(value(after: "--older-than-days") ?? value(after: "--old-days") ?? "") ?? 90) }
-    var keepRecent: Int { max(0, Int(value(after: "--keep-recent") ?? "") ?? 20) }
+    var auditOlderThanDays: Int { max(0, Int(value(after: "--older-than-days") ?? value(after: "--old-days") ?? "") ?? SafeActionPlanner.defaultAuditRetention.olderThanDays) }
+    var keepRecent: Int { max(0, Int(value(after: "--keep-recent") ?? "") ?? SafeActionPlanner.defaultAuditRetention.keepRecent) }
     var maxFilesToHash: Int { max(1, Int(value(after: "--max-files") ?? "") ?? 5_000) }
     var reason: String? { value(after: "--reason") }
     var summary: String? { value(after: "--summary") }

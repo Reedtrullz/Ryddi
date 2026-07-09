@@ -21,7 +21,7 @@ public struct AuditRetentionPolicy: Codable, Hashable, Sendable {
     public let olderThanDays: Int
     public let keepRecent: Int
 
-    public init(olderThanDays: Int = 90, keepRecent: Int = 20) {
+    public init(olderThanDays: Int = 30, keepRecent: Int = 100) {
         self.olderThanDays = max(0, olderThanDays)
         self.keepRecent = max(0, keepRecent)
     }

@@ -75,6 +75,14 @@ final class AuditStoreHygieneTests: XCTestCase {
         XCTAssertNoThrow(try FileManager.default.destinationOfSymbolicLink(atPath: symlink.path))
     }
 
+    func testAuditRetentionDefaultMatchesFirstClassActionPolicy() {
+        let policy = AuditRetentionPolicy()
+
+        XCTAssertEqual(policy.olderThanDays, 30)
+        XCTAssertEqual(policy.keepRecent, 100)
+        XCTAssertEqual(policy, SafeActionPlanner.defaultAuditRetention)
+    }
+
     private func writeFixture(_ name: String, bytes: Int, daysAgo: Int, root: URL) throws -> URL {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent(name)
