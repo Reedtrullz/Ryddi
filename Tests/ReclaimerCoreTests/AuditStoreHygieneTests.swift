@@ -55,6 +55,7 @@ final class AuditStoreHygieneTests: XCTestCase {
         XCTAssertEqual(Set(plan.candidates.map(\.path)), Set([oldPlan.path, oldScan.path]))
         XCTAssertEqual(plan.candidateCount, 2)
         XCTAssertEqual(plan.candidateBytes, 30)
+        XCTAssertTrue(plan.candidates.allSatisfy { $0.filesystemIdentity != nil })
         XCTAssertTrue(plan.skippedUnknownPaths.contains(unknown.path))
         XCTAssertTrue(plan.skippedSymlinkPaths.contains(symlink.path))
 
@@ -85,6 +86,113 @@ final class AuditStoreHygieneTests: XCTestCase {
 
         XCTAssertEqual(receipt.deletedFileIDs, ["plan-old.json"])
         XCTAssertTrue(receipt.deletedFileIDs.allSatisfy { !$0.contains("/") })
+    }
+
+    func testAuditPruneExcludesKnownLookingDirectoriesAndPackages() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let directory = root.appendingPathComponent("plan-old.json", isDirectory: true)
+        let package = root.appendingPathComponent("receipt-old.json", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        let directoryMarker = directory.appendingPathComponent("keep.txt")
+        let packageMarker = package.appendingPathComponent("keep.txt")
+        try "keep directory".write(to: directoryMarker, atomically: true, encoding: .utf8)
+        try "keep package".write(to: packageMarker, atomically: true, encoding: .utf8)
+        var packageValues = URLResourceValues()
+        packageValues.isPackage = true
+        var mutablePackage = package
+        try mutablePackage.setResourceValues(packageValues)
+        let oldDate = Date(timeIntervalSince1970: 1_000_000_000)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: directory.path)
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: package.path)
+
+        let plan = store.prunePlan(
+            policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 0),
+            now: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let receipt = try store.prune(plan: plan, dryRun: false)
+
+        XCTAssertFalse(plan.candidates.contains { $0.path == directory.path })
+        XCTAssertFalse(plan.candidates.contains { $0.path == package.path })
+        XCTAssertEqual(receipt.deletedCount, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directoryMarker.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: packageMarker.path))
+    }
+
+    func testAuditPruneSkipsRegularFileModifiedAfterPlanning() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let file = try writeFixture("plan-modified.json", bytes: 16, daysAgo: 90, root: root)
+        let plan = store.prunePlan(
+            policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 0),
+            now: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+
+        try Data(repeating: 4, count: 16).write(to: file)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_900_000_000)],
+            ofItemAtPath: file.path
+        )
+        let receipt = try store.prune(plan: plan, dryRun: false)
+
+        XCTAssertEqual(receipt.deletedCount, 0)
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("changed") }, receipt.errors.joined(separator: "\n"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testAuditPruneSkipsSameMetadataReplacementAfterPlanning() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let file = try writeFixture("receipt-replaced.json", bytes: 12, daysAgo: 90, root: root)
+        let plan = store.prunePlan(
+            policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 0),
+            now: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let candidate = try XCTUnwrap(plan.candidates.first)
+
+        try FileManager.default.removeItem(at: file)
+        try Data(repeating: 12, count: 12).write(to: file)
+        try FileManager.default.setAttributes(
+            [.modificationDate: try XCTUnwrap(candidate.modifiedAt)],
+            ofItemAtPath: file.path
+        )
+        let receipt = try store.prune(plan: plan, dryRun: false)
+
+        XCTAssertEqual(receipt.deletedCount, 0)
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("identity changed") }, receipt.errors.joined(separator: "\n"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testLegacyAuditPruneCandidateWithoutIdentityDecodesButCannotDelete() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        let file = try writeFixture("plan-legacy.json", bytes: 10, daysAgo: 90, root: root)
+        let json = """
+        {
+          "path": "\(file.path)",
+          "kind": "plan",
+          "bytes": 10,
+          "modifiedAt": null
+        }
+        """
+        let candidate = try JSONDecoder().decode(AuditPruneCandidate.self, from: Data(json.utf8))
+        let plan = AuditPrunePlan(
+            id: "legacy-plan",
+            createdAt: Date(timeIntervalSince1970: 2_000_000_000),
+            rootPath: root.path,
+            policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 0),
+            candidates: [candidate],
+            skippedUnknownPaths: [],
+            skippedSymlinkPaths: []
+        )
+
+        XCTAssertNil(candidate.filesystemIdentity)
+        let receipt = try store.prune(plan: plan, dryRun: false)
+
+        XCTAssertEqual(receipt.deletedCount, 0)
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("without filesystem identity") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
     func testAuditRetentionDefaultMatchesFirstClassActionPolicy() {

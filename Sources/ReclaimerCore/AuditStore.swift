@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public enum AuditStoreScanSessionWarningKind: String, Codable, Hashable, Sendable {
@@ -36,6 +37,16 @@ public final class AuditStore: @unchecked Sendable {
         let bytes: Int64
         let modifiedAt: Date?
         let isSymlink: Bool
+        let filesystemIdentity: FilesystemIdentity?
+
+        var isEligibleRegularFile: Bool {
+            guard let filesystemIdentity else { return false }
+            return filesystemIdentity.isRegularFile
+                && !filesystemIdentity.isDirectory
+                && !filesystemIdentity.isSymbolicLink
+                && !filesystemIdentity.isPackage
+                && !filesystemIdentity.isVolume
+        }
     }
 
     public enum RemoteAuditQueryError: Error, LocalizedError, Equatable {
@@ -71,7 +82,7 @@ public final class AuditStore: @unchecked Sendable {
 
     public func summary() -> AuditStoreSummary {
         let records = auditFileRecords()
-        let knownRecords = records.filter { !$0.isSymlink && $0.kind != nil }
+        let knownRecords = records.filter { $0.isEligibleRegularFile && $0.kind != nil }
         let grouped = Dictionary(grouping: knownRecords, by: { $0.kind ?? "unknown" })
         let items = grouped.map { kind, values in
             AuditStoreSummaryItem(
@@ -91,7 +102,7 @@ public final class AuditStore: @unchecked Sendable {
             rootPath: root.path,
             totalKnownFileCount: knownRecords.count,
             totalKnownBytes: knownRecords.reduce(0) { $0 + $1.bytes },
-            unknownFileCount: records.filter { !$0.isSymlink && $0.kind == nil }.count,
+            unknownFileCount: records.filter { $0.isEligibleRegularFile && $0.kind == nil }.count,
             symlinkCount: records.filter(\.isSymlink).count,
             items: items
         )
@@ -100,7 +111,7 @@ public final class AuditStore: @unchecked Sendable {
     public func prunePlan(policy: AuditRetentionPolicy, now: Date = Date()) -> AuditPrunePlan {
         let records = auditFileRecords()
         let knownRecords = records
-            .filter { !$0.isSymlink && $0.kind != nil }
+            .filter { $0.isEligibleRegularFile && $0.kind != nil }
             .sorted { lhs, rhs in
                 (lhs.modifiedAt ?? .distantPast) > (rhs.modifiedAt ?? .distantPast)
             }
@@ -114,7 +125,8 @@ public final class AuditStore: @unchecked Sendable {
                 path: record.url.path,
                 kind: kind,
                 bytes: record.bytes,
-                modifiedAt: modifiedAt
+                modifiedAt: modifiedAt,
+                filesystemIdentity: record.filesystemIdentity
             )
         }
         return AuditPrunePlan(
@@ -123,7 +135,7 @@ public final class AuditStore: @unchecked Sendable {
             rootPath: root.path,
             policy: policy,
             candidates: candidates,
-            skippedUnknownPaths: records.filter { !$0.isSymlink && $0.kind == nil }.map { $0.url.path }.sorted(),
+            skippedUnknownPaths: records.filter { $0.isEligibleRegularFile && $0.kind == nil }.map { $0.url.path }.sorted(),
             skippedSymlinkPaths: records.filter(\.isSymlink).map { $0.url.path }.sorted()
         )
     }
@@ -147,7 +159,7 @@ public final class AuditStore: @unchecked Sendable {
         var errors: [String] = []
         for candidate in plan.candidates {
             let url = URL(fileURLWithPath: candidate.path).standardizedFileURL
-            guard url.path.hasPrefix(root.path + "/") || url.path == root.path else {
+            guard url.path.hasPrefix(root.path + "/") else {
                 errors.append("skipped outside audit root: \(candidate.path)")
                 continue
             }
@@ -155,21 +167,48 @@ public final class AuditStore: @unchecked Sendable {
                 errors.append("skipped unknown audit file: \(candidate.path)")
                 continue
             }
-            let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey])
-            guard values?.isSymbolicLink != true else {
-                errors.append("skipped symlink: \(candidate.path)")
+            guard let plannedIdentity = candidate.filesystemIdentity else {
+                errors.append("skipped audit plan without filesystem identity: \(candidate.path)")
                 continue
             }
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                continue
-            }
+            let currentIdentity: FilesystemIdentity
             do {
-                try FileManager.default.removeItem(at: url)
+                currentIdentity = try FilesystemIdentity.capture(at: url)
+            } catch {
+                errors.append("skipped changed or unreadable audit file: \(candidate.path): \(error.localizedDescription)")
+                continue
+            }
+            guard currentIdentity.isRegularFile,
+                  !currentIdentity.isDirectory,
+                  !currentIdentity.isSymbolicLink,
+                  !currentIdentity.isPackage,
+                  !currentIdentity.isVolume else {
+                errors.append("skipped non-regular audit file: \(candidate.path)")
+                continue
+            }
+            guard currentIdentity.fileResourceIdentifier == plannedIdentity.fileResourceIdentifier,
+                  currentIdentity.volumeIdentifier == plannedIdentity.volumeIdentifier else {
+                errors.append("skipped because audit file identity changed: \(candidate.path)")
+                continue
+            }
+            guard currentIdentity.fileSize == plannedIdentity.fileSize,
+                  currentIdentity.fileSize == candidate.bytes,
+                  currentIdentity.modificationDate == plannedIdentity.modificationDate,
+                  currentIdentity.modificationDate == candidate.modifiedAt,
+                  currentIdentity.allocatedSize == plannedIdentity.allocatedSize else {
+                errors.append("skipped because audit file metadata changed: \(candidate.path)")
+                continue
+            }
+            let result = url.withUnsafeFileSystemRepresentation { path in
+                guard let path else { return Int32(-1) }
+                return unlink(path)
+            }
+            if result == 0 {
                 deletedCount += 1
                 deletedBytes += candidate.bytes
                 deletedFileIDs.append(url.lastPathComponent)
-            } catch {
-                errors.append("\(candidate.path): \(error.localizedDescription)")
+            } else {
+                errors.append("\(candidate.path): \(String(cString: strerror(errno)))")
             }
         }
         return AuditPruneReceipt(
@@ -685,22 +724,29 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     private func auditFileRecords() -> [AuditFileRecord] {
+        let keys: Set<URLResourceKey> = [
+            .contentModificationDateKey,
+            .fileSizeKey,
+            .isSymbolicLinkKey
+        ]
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: root,
-            includingPropertiesForKeys: [.fileSizeKey, .totalFileAllocatedSizeKey, .contentModificationDateKey, .isSymbolicLinkKey],
+            includingPropertiesForKeys: Array(keys),
             options: [.skipsHiddenFiles]
         ) else {
             return []
         }
         return files.map { url in
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .totalFileAllocatedSizeKey, .contentModificationDateKey, .isSymbolicLinkKey])
-            let bytes = Int64(values?.fileSize ?? values?.totalFileAllocatedSize ?? 0)
+            let values = try? url.resourceValues(forKeys: keys)
+            let filesystemIdentity = try? FilesystemIdentity.capture(at: url)
+            let bytes = filesystemIdentity?.fileSize ?? Int64(values?.fileSize ?? 0)
             return AuditFileRecord(
                 url: url.standardizedFileURL,
                 kind: knownAuditKind(for: url.lastPathComponent),
                 bytes: bytes,
-                modifiedAt: values?.contentModificationDate,
-                isSymlink: values?.isSymbolicLink == true
+                modifiedAt: filesystemIdentity?.modificationDate ?? values?.contentModificationDate,
+                isSymlink: filesystemIdentity?.isSymbolicLink == true || values?.isSymbolicLink == true,
+                filesystemIdentity: filesystemIdentity
             )
         }
     }

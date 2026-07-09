@@ -33,6 +33,21 @@ public struct AuditPruneCandidate: Codable, Hashable, Identifiable, Sendable {
     public let kind: String
     public let bytes: Int64
     public let modifiedAt: Date?
+    public let filesystemIdentity: FilesystemIdentity?
+
+    public init(
+        path: String,
+        kind: String,
+        bytes: Int64,
+        modifiedAt: Date?,
+        filesystemIdentity: FilesystemIdentity? = nil
+    ) {
+        self.path = path
+        self.kind = kind
+        self.bytes = bytes
+        self.modifiedAt = modifiedAt
+        self.filesystemIdentity = filesystemIdentity
+    }
 }
 
 public struct AuditPrunePlan: Codable, Hashable, Identifiable, Sendable {
