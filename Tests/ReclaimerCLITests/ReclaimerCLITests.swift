@@ -56,6 +56,37 @@ final class ReclaimerCLITests: XCTestCase {
         )
     }
 
+    func testScanCommandSavesScanSessionVisibleToSessionLatest() throws {
+        try "scan fixture".write(
+            to: readableScope.appendingPathComponent("scan-session-fixture.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        _ = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: [
+                "scan",
+                "--path", readableScope.path,
+                "--min-size", "1",
+                "--no-lsof",
+                "--json"
+            ])
+        }
+
+        let output = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: ["session", "latest", "--json"])
+        }
+
+        let session = try JSONDecoder.ryddi.decode(ScanSession.self, from: Data(output.utf8))
+        XCTAssertEqual(session.stage, .scanned)
+        XCTAssertEqual(session.preset, .developer)
+        XCTAssertFalse(session.scopeDigest.isEmpty)
+        XCTAssertNotNil(session.policyDigest)
+        XCTAssertNotNil(session.findingDigest)
+        XCTAssertNil(session.planDigest)
+        XCTAssertNil(session.dryRunReceiptID)
+    }
+
     func testSessionExplainPrintsCurrentStateAndBlockedReasons() throws {
         let session = makeSession(
             id: "session-invalid",

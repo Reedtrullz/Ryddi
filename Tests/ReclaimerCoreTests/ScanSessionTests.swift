@@ -265,6 +265,51 @@ final class ScanSessionTests: XCTestCase {
         XCTAssertEqual(try store.latestScanSession()?.id, "session-latest")
     }
 
+    func testScanSessionEvidenceBuilderCreatesDeterministicScannedSession() throws {
+        let scope = ScanScope(name: "Fixture", root: tempRoot)
+        let finding = Finding(
+            id: "volatile-finding-id",
+            scopeName: "Fixture",
+            path: tempRoot.appendingPathComponent("cache").path,
+            displayName: "cache",
+            logicalSize: 12,
+            allocatedSize: 16,
+            isDirectory: true,
+            safetyClass: .autoSafe,
+            actionKind: .trash,
+            ruleMatches: [],
+            evidence: []
+        )
+
+        let first = ScanSessionEvidenceBuilder.scannedSession(
+            appVersion: "0.3.0",
+            ruleVersion: "rules-v1",
+            preset: .developer,
+            scopes: [scope],
+            userPathPolicy: .empty,
+            findings: [finding],
+            createdAt: Date(timeIntervalSince1970: 10),
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let second = ScanSessionEvidenceBuilder.scannedSession(
+            appVersion: "0.3.0",
+            ruleVersion: "rules-v1",
+            preset: .developer,
+            scopes: [scope],
+            userPathPolicy: .empty,
+            findings: [finding],
+            createdAt: Date(timeIntervalSince1970: 30),
+            updatedAt: Date(timeIntervalSince1970: 40)
+        )
+
+        XCTAssertEqual(first.stage, .scanned)
+        XCTAssertEqual(first.scopeDigest, second.scopeDigest)
+        XCTAssertEqual(first.policyDigest, second.policyDigest)
+        XCTAssertEqual(first.findingDigest, second.findingDigest)
+        XCTAssertNil(first.planDigest)
+        XCTAssertNil(first.dryRunReceiptID)
+    }
+
     private func makeSession(
         id: String = "session-1",
         createdAt: Date = Date(timeIntervalSince1970: 1_000),

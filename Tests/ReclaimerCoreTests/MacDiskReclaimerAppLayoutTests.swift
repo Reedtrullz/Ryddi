@@ -61,6 +61,32 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testScanSessionAppSummaryPassesHistoryWarningsToActionCenter() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("listScanSessionsResult(limit: 1)"),
+            "DashboardModel Summary should read scan-session history with typed warnings instead of ignoring corrupt audit files."
+        )
+        XCTAssertTrue(
+            source.contains("sessionHistoryWarnings:") && source.contains(".warnings"),
+            "DashboardModel actionCenterReport should pass scan-session history warnings into ActionCenterInput."
+        )
+    }
+
+    func testScanSessionAppScanPersistsDurableSessionRecord() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("recordScanSession(updatedAt:"),
+            "DashboardModel.scan() should keep recording the typed in-memory scan session."
+        )
+        XCTAssertTrue(
+            source.contains("try AuditStore().saveScanSession(session)"),
+            "DashboardModel.scan() should persist the typed ScanSession through AuditStore.saveScanSession(_:)."
+        )
+    }
+
     func testReviewQueueRowsShowTypedSessionAwareEvidence() throws {
         let source = try appSource()
 

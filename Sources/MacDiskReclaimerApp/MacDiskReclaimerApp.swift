@@ -6896,19 +6896,25 @@ final class DashboardModel {
     }
 
     var actionCenterReport: ActionCenterReport {
-        ActionCenterBuilder.build(
+        let scanSessionHistory = actionCenterScanSessionHistory
+        return ActionCenterBuilder.build(
             input: ActionCenterInput(
                 permissionReport: permissionReport,
-                latestScanSession: actionCenterScanSession,
+                latestScanSession: actionCenterScanSession ?? scanSessionHistory.sessions.first,
                 findings: findings,
                 currentPlan: plan,
                 latestExecutionReceipt: lastDryRunReceipt ?? lastExecutionReceipt,
                 reviewQueueReport: reviewQueueReport,
                 activeFileReviewReport: activeFileReview,
                 browserCacheReport: browserCacheReview,
-                packageCacheReport: packageCacheReview
+                packageCacheReport: packageCacheReview,
+                sessionHistoryWarnings: scanSessionHistory.warnings
             )
         )
+    }
+
+    private var actionCenterScanSessionHistory: AuditStoreScanSessionListResult {
+        (try? AuditStore().listScanSessionsResult(limit: 1)) ?? AuditStoreScanSessionListResult(sessions: [], warnings: [])
     }
 
     var actionCenterScanSession: ScanSession? {
@@ -6936,7 +6942,7 @@ final class DashboardModel {
             updatedAt: updatedAt,
             appVersion: actionCenterAppVersion,
             ruleVersion: actionCenterRuleVersion,
-            preset: selectedScopePlan.preset ?? scanPreset,
+            preset: actionCenterPreset,
             scopeDigest: actionCenterScopeDigest,
             policyDigest: actionCenterPolicyDigest,
             findingDigest: hasFindingEvidence ? actionCenterFindingDigest : nil,
@@ -6964,23 +6970,39 @@ final class DashboardModel {
     }
 
     private var actionCenterScopeDigest: String {
-        let scopes = scanScopes.isEmpty ? selectedScopePlan.scopes : scanScopes
-        return scopes.map(\.id).sorted().joined(separator: "|")
+        ScanSessionEvidenceBuilder.scopeDigest(
+            appVersion: actionCenterAppVersion,
+            ruleVersion: actionCenterRuleVersion,
+            preset: actionCenterPreset,
+            scopes: actionCenterScopes,
+            userPathPolicy: userPathPolicy
+        )
     }
 
     private var actionCenterPolicyDigest: String {
-        userPathPolicy.rules
-            .map { "\($0.kind.rawValue):\($0.path):\($0.includeDescendants)" }
-            .sorted()
-            .joined(separator: "|")
+        ScanSessionEvidenceBuilder.policyDigest(
+            preset: actionCenterPreset,
+            userPathPolicy: userPathPolicy
+        )
     }
 
     private var actionCenterFindingDigest: String {
-        let ids = findings.map(\.id).sorted().joined(separator: "|")
-        if ids.isEmpty {
-            return "findings-empty"
-        }
-        return ids
+        ScanSessionEvidenceBuilder.findingDigest(
+            appVersion: actionCenterAppVersion,
+            ruleVersion: actionCenterRuleVersion,
+            preset: actionCenterPreset,
+            scopes: actionCenterScopes,
+            userPathPolicy: userPathPolicy,
+            findings: findings
+        )
+    }
+
+    private var actionCenterScopes: [ScanScope] {
+        scanScopes.isEmpty ? selectedScopePlan.scopes : scanScopes
+    }
+
+    private var actionCenterPreset: ScanScopePreset {
+        selectedScopePlan.preset ?? scanPreset
     }
 
     private var actionCenterAppVersion: String {
@@ -6998,10 +7020,12 @@ final class DashboardModel {
             .recordReviewSelection(findingDigest: actionCenterFindingDigest, updatedAt: updatedAt)
     }
 
-    private func recordScanSession(updatedAt: Date) {
+    private func recordScanSession(updatedAt: Date) throws {
         reviewedQueueID = nil
-        currentScanSession = freshScanSession(updatedAt: updatedAt)
+        let session = freshScanSession(updatedAt: updatedAt)
             .recordScan(findingDigest: actionCenterFindingDigest, updatedAt: updatedAt)
+        currentScanSession = session
+        try AuditStore().saveScanSession(session)
     }
 
     private func recordPlanSession(_ plan: ReclaimPlan, updatedAt: Date = Date()) {
@@ -7043,7 +7067,7 @@ final class DashboardModel {
             updatedAt: updatedAt,
             appVersion: actionCenterAppVersion,
             ruleVersion: actionCenterRuleVersion,
-            preset: selectedScopePlan.preset ?? scanPreset,
+            preset: actionCenterPreset,
             scopeDigest: actionCenterScopeDigest,
             policyDigest: actionCenterPolicyDigest,
             stage: .notStarted
@@ -7227,7 +7251,7 @@ final class DashboardModel {
             lastDryRunReceipt = nil
             lastExecutionReceipt = nil
             lastScanDate = Date()
-            recordScanSession(updatedAt: lastScanDate ?? Date())
+            try recordScanSession(updatedAt: lastScanDate ?? Date())
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -7344,7 +7368,7 @@ final class DashboardModel {
             plan = nil
             lastDryRunReceipt = nil
             lastScanDate = Date()
-            recordScanSession(updatedAt: lastScanDate ?? Date())
+            try recordScanSession(updatedAt: lastScanDate ?? Date())
         } catch {
             self.error = error.localizedDescription
         }

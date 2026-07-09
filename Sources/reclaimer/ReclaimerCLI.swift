@@ -111,12 +111,31 @@ struct ReclaimerCLI {
 
     static func scan(args: [String]) throws {
         let options = ParsedOptions(args)
-        let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let ruleEngine = try options.ruleEngine()
+        let scopePlan = try options.scopePlan(includeUnavailable: options.includeMissingScopes)
+        let preset: ScanScopePreset
+        if let scopePlanPreset = scopePlan.preset {
+            preset = scopePlanPreset
+        } else {
+            preset = try options.scopePreset()
+        }
+        let scopes = scopePlan.scopes
+        let scanner = try FileScanner(ruleEngine: ruleEngine, openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
+        let scanOptions = options.scanOptions(includeOpenFiles: options.includeOpenFiles)
         let findings = scanner.scan(
-            scopes: try options.scopes(includeUnavailable: options.includeMissingScopes),
-            options: options.scanOptions(includeOpenFiles: options.includeOpenFiles)
+            scopes: scopes,
+            options: scanOptions
         )
         let preparedFindings = options.prepare(findings)
+        let session = ScanSessionEvidenceBuilder.scannedSession(
+            appVersion: "reclaimer-cli",
+            ruleVersion: ruleEngine.version,
+            preset: preset,
+            scopes: scopes,
+            userPathPolicy: scanOptions.userPathPolicy,
+            findings: preparedFindings
+        )
+        try AuditStore().saveScanSession(session)
         if options.json {
             printJSON(preparedFindings)
         } else {

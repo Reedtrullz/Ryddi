@@ -340,6 +340,127 @@ public enum ScanSessionDigestBuilder {
     }
 }
 
+public enum ScanSessionEvidenceBuilder {
+    public static func scannedSession(
+        appVersion: String,
+        ruleVersion: String,
+        preset: ScanScopePreset,
+        scopes: [ScanScope],
+        userPathPolicy: UserPathPolicy,
+        findings: [Finding],
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) -> ScanSession {
+        let policy = policyDigest(preset: preset, userPathPolicy: userPathPolicy)
+        let session = ScanSession(
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            appVersion: appVersion,
+            ruleVersion: ruleVersion,
+            preset: preset,
+            scopeDigest: scopeDigest(
+                appVersion: appVersion,
+                ruleVersion: ruleVersion,
+                preset: preset,
+                scopes: scopes,
+                userPathPolicy: userPathPolicy
+            ),
+            policyDigest: policy,
+            stage: .notStarted
+        )
+        return session.recordScan(
+            findingDigest: findingDigest(
+                appVersion: appVersion,
+                ruleVersion: ruleVersion,
+                preset: preset,
+                scopes: scopes,
+                userPathPolicy: userPathPolicy,
+                findings: findings
+            ),
+            updatedAt: updatedAt
+        )
+    }
+
+    public static func scopeDigest(
+        appVersion: String,
+        ruleVersion: String,
+        preset: ScanScopePreset,
+        scopes: [ScanScope],
+        userPathPolicy: UserPathPolicy
+    ) -> String {
+        let policy = policyDigest(preset: preset, userPathPolicy: userPathPolicy)
+        return ScanSessionDigestBuilder.digest(ScanSessionDigestParts(
+            appVersion: appVersion,
+            ruleVersion: ruleVersion,
+            preset: preset,
+            roots: scopes.map { $0.root.standardizedFileURL.path },
+            userPolicyDigest: policy,
+            findingIDs: [],
+            actionKinds: [],
+            pathMetadata: [:]
+        ))
+    }
+
+    public static func policyDigest(
+        preset: ScanScopePreset,
+        userPathPolicy: UserPathPolicy
+    ) -> String {
+        let policyFingerprint = userPathPolicy.rules
+            .map { rule in
+                [
+                    rule.kind.rawValue,
+                    rule.path,
+                    rule.includeDescendants ? "descendants" : "exact",
+                    rule.reason ?? ""
+                ].joined(separator: "\u{001f}")
+            }
+            .sorted()
+            .joined(separator: "\u{001e}")
+        return ScanSessionDigestBuilder.digest(ScanSessionDigestParts(
+            appVersion: "user-path-policy",
+            ruleVersion: "v1",
+            preset: preset,
+            roots: [],
+            userPolicyDigest: policyFingerprint,
+            findingIDs: [],
+            actionKinds: [],
+            pathMetadata: [:]
+        ))
+    }
+
+    public static func findingDigest(
+        appVersion: String,
+        ruleVersion: String,
+        preset: ScanScopePreset,
+        scopes: [ScanScope],
+        userPathPolicy: UserPathPolicy,
+        findings: [Finding]
+    ) -> String {
+        let policy = policyDigest(preset: preset, userPathPolicy: userPathPolicy)
+        let metadata = findings.reduce(into: [String: String]()) { output, finding in
+            output[finding.path] = [
+                "allocated=\(finding.allocatedSize)",
+                "logical=\(finding.logicalSize)",
+                "directory=\(finding.isDirectory)",
+                "symlink=\(finding.isSymbolicLink)",
+                "safety=\(finding.safetyClass.rawValue)",
+                "action=\(finding.actionKind.rawValue)",
+                "modified=\(finding.modificationDate?.timeIntervalSince1970 ?? -1)"
+            ].joined(separator: "\u{001f}")
+        }
+        return ScanSessionDigestBuilder.digest(ScanSessionDigestParts(
+            appVersion: appVersion,
+            ruleVersion: ruleVersion,
+            preset: preset,
+            roots: scopes.map { $0.root.standardizedFileURL.path },
+            userPolicyDigest: policy,
+            findingIDs: findings.map(\.path),
+            actionKinds: findings.map(\.actionKind.rawValue),
+            pathMetadata: metadata
+        ))
+    }
+}
+
 private extension Data {
     var sha256Hex: String {
         SHA256.hash(data: self).map { String(format: "%02x", $0) }.joined()
