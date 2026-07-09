@@ -692,6 +692,18 @@ swift run --scratch-path .build reclaimer containers --json --timeout 5 --save-a
 
 This records Docker storage buckets, images, containers, volumes, contexts, Colima profiles, command exit states, and missing/not-running tool states. It does not run prune, delete, stop, reset, or raw VM-disk commands.
 
+## Fixture-Backed App E2E
+
+Run the packaged-app smoke against a disposable temporary fixture:
+
+```bash
+Scripts/app-e2e-smoke.sh
+```
+
+The smoke enforces the 50 GiB disk guard, builds a caller-bounded fixture, launches `Ryddi.app` with `RYDDI_E2E_MODE=1`, attempts a Ryddi-window-only screenshot, and runs packaged CLI scan, plan, core dry run, and app-uninstall dry run. It compares protected browser-profile, Codex-session, symlink, and app-bundle markers afterward. The fixture is under the current temporary directory, cleaned with a trap, requires no Full Disk Access, and never scans or mutates real user cache roots.
+
+Use `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` for the manual screenshot gate. See [Ryddi v0.3 Human QA](docs/QA_V0.3.md) for the required visual and VoiceOver checks.
+
 ## Repository Layout
 
 ```text
@@ -707,6 +719,7 @@ Scripts/                     Packaging and notarization helpers
 
 - [Competitive research snapshot](docs/COMPETITIVE_RESEARCH.md) - competitor lanes, expected features, and suggested Ryddi roadmap.
 - [Release checklist](docs/RELEASE_CHECKLIST.md) - developer preview versus signed/notarized release gates.
+- [Ryddi v0.3 Human QA](docs/QA_V0.3.md) - required app workflows, screenshots, small-window checks, and VoiceOver evidence.
 
 ## Non-Goals For v1
 

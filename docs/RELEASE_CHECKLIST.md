@@ -2,15 +2,20 @@
 
 This project is intended for direct macOS distribution outside the Mac App Store. A public release must be explicit about whether it is an unsigned developer preview or a signed/notarized build. `v0.3.0` is the current trust-release target and must not be published unless the signed gate passes. `v0.2.0` remains historical release documentation only.
 
+Human review follows [QA_V0.3.md](QA_V0.3.md).
+
 ## Developer Preview
 
 - [ ] `Scripts/release-check.sh` passes and produces a zip, checksum, and release manifest.
 - [ ] `swift test --scratch-path "$PWD/.build"` passes.
 - [ ] `Scripts/package-app.sh` produces `dist/Ryddi.app`.
+- [ ] `Scripts/app-e2e-smoke.sh` launches the packaged app with a disposable temporary fixture, proves scan/plan/dry-run and app-uninstall dry-run, and preserves protected browser, Codex, symlink, and app-bundle fixtures without Full Disk Access.
+- [ ] `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` captures a non-empty Ryddi-window-only screenshot on the manual QA Mac.
 - [ ] `dist/Ryddi-developer-preview.zip` exists and preserves `Ryddi.app` as its parent item.
 - [ ] `dist/Ryddi-developer-preview.zip.sha256` exists and matches the generated zip.
 - [ ] `dist/Ryddi-release-manifest.txt` records bundle id, version, rules resource path, signing state, performed verification, and non-claims.
 - [ ] App launches locally.
+- [ ] The required Summary, Permissions, Review Queue, Audit History, and Remote Targets screenshots and VoiceOver checks in `docs/QA_V0.3.md` are complete.
 - [ ] `reclaimer status --json` reports disk pressure/free-space metadata without scanning content.
 - [ ] `reclaimer scopes --preset general` shows General Mac roots and scan-scope non-claims.
 - [ ] `reclaimer scopes templates list/show/save` exposes built-in guided templates, can save a template into a temporary `RYDDI_CONFIG_ROOT`, and does not grant cleanup permission.
