@@ -239,21 +239,39 @@ struct AppReviewWorkspace: View {
             )
             .frame(maxWidth: .infinity, minHeight: 240)
         } else {
-            HStack(alignment: .top, spacing: 16) {
-                AppReviewGroupRail(
-                    groups: groups,
-                    selectedGroupID: activeGroupID,
-                    onSelect: { selectedGroupID = $0.id }
-                )
-                .frame(width: 360)
-
-                if let selectedGroup {
-                    AppReviewDetailPanel(
-                        group: selectedGroup,
-                        isWorking: isWorking,
-                        onPreviewUninstall: onPreviewUninstall
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 16) {
+                    AppReviewGroupRail(
+                        groups: groups,
+                        selectedGroupID: activeGroupID,
+                        onSelect: { selectedGroupID = $0.id }
                     )
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
+
+                    if let selectedGroup {
+                        AppReviewDetailPanel(
+                            group: selectedGroup,
+                            isWorking: isWorking,
+                            onPreviewUninstall: onPreviewUninstall
+                        )
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 16) {
+                    AppReviewGroupRail(
+                        groups: groups,
+                        selectedGroupID: activeGroupID,
+                        onSelect: { selectedGroupID = $0.id }
+                    )
+
+                    if let selectedGroup {
+                        AppReviewDetailPanel(
+                            group: selectedGroup,
+                            isWorking: isWorking,
+                            onPreviewUninstall: onPreviewUninstall
+                        )
+                    }
                 }
             }
         }
@@ -520,11 +538,24 @@ struct AppReviewDetailSummary: View {
     }
 }
 
+struct AppReviewFileTableScrollContainer<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            VStack(alignment: .leading, spacing: 0) {
+                content
+            }
+            .frame(minWidth: 720, alignment: .leading)
+        }
+    }
+}
+
 struct AppReviewFileTable: View {
     let items: [AppReviewItem]
 
     var body: some View {
-        VStack(spacing: 0) {
+        AppReviewFileTableScrollContainer {
             AppReviewFileHeader()
             ForEach(items) { item in
                 AppReviewFileRow(item: item)

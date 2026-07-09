@@ -370,6 +370,19 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testAppReviewWorkspaceHasAdaptiveFallbackAndTableScrollContainer() throws {
+        let source = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/AppReviewViews.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("ViewThatFits(in: .horizontal)"))
+        XCTAssertTrue(source.contains("AppReviewFileTableScrollContainer"))
+        XCTAssertTrue(source.contains("ScrollView(.horizontal)"))
+        XCTAssertFalse(source.contains(".frame(width: 360)"))
+    }
+
     func testPackageCacheReviewShowsPreviewLane() throws {
         let source = try appSource()
 
