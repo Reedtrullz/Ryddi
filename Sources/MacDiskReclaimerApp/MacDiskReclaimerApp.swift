@@ -2952,7 +2952,35 @@ struct PackageReclaimLaneView: View {
                 .fixedSize(horizontal: false, vertical: true)
             commandLine(label: "Preview", command: manager.previewCommand, fallback: "Manual review")
             commandLine(label: "Cleanup", command: manager.cleanupCommand, fallback: "No allowlisted cleanup command")
+            ForEach(manager.commandCards) { card in
+                packageCommandCard(card)
+            }
         }
+    }
+
+    private func packageCommandCard(_ card: PackageReclaimCommandCard) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(card.title)
+                    .font(.caption2.weight(.semibold))
+                Text(card.review == .manualReview ? "Manual review" : "Safe action")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(card.review == .manualReview ? .orange : .green)
+                Text(card.role.rawValue)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text(card.argv.joined(separator: " "))
+                .font(.system(.caption2, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Text(card.note)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 3)
     }
 
     private func commandLine(label: String, command: [String], fallback: String) -> some View {

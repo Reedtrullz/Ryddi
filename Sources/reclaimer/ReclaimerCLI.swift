@@ -3709,6 +3709,12 @@ func printPackageReclaimLane(_ report: PackageReclaimLaneReport) {
             } else {
                 print("  cleanup: \(shellCommand(manager.cleanupCommand))")
             }
+            for card in manager.commandCards {
+                let review = card.review == .manualReview ? "manual-review" : "safe-action"
+                print("  card: \(card.title) [\(card.role.rawValue), \(review), dry-run: \(card.dryRunSupport.rawValue)]")
+                print("    \(shellCommand(card.argv))")
+                print("    \(card.note)")
+            }
         }
     }
 

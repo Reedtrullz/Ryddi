@@ -51,6 +51,29 @@ final class PackageReclaimLaneTests: XCTestCase {
         XCTAssertEqual(lane.managerReports.map(\.managerName), ["unknownpkg", "Homebrew", "npm"])
         XCTAssertEqual(lane.totalPreviewBytes, 6_000)
     }
+
+    func testPackageManagerCommandCardsStayGuidanceFirst() throws {
+        let report = PackageCacheFixtures.report(
+            summaries: [
+                PackageCacheSummary(name: "npm", itemCount: 1, allocatedSize: 1_000),
+                PackageCacheSummary(name: "pnpm", itemCount: 1, allocatedSize: 2_000),
+                PackageCacheSummary(name: "yarn", itemCount: 1, allocatedSize: 3_000)
+            ]
+        )
+
+        let lane = PackageReclaimLaneBuilder.build(from: report)
+        let npm = try XCTUnwrap(lane.managerReports.first { $0.id == "npm" })
+        let pnpm = try XCTUnwrap(lane.managerReports.first { $0.id == "pnpm" })
+        let yarn = try XCTUnwrap(lane.managerReports.first { $0.id == "yarn" })
+
+        XCTAssertEqual(npm.commandCards.first { $0.id == "npm.verify" }?.argv, ["npm", "cache", "verify"])
+        XCTAssertEqual(npm.commandCards.first { $0.id == "npm.clean" }?.review, .manualReview)
+        XCTAssertEqual(pnpm.commandCards.first { $0.id == "pnpm.status" }?.argv, ["pnpm", "store", "status"])
+        XCTAssertEqual(pnpm.commandCards.first { $0.id == "pnpm.prune" }?.review, .manualReview)
+        XCTAssertEqual(yarn.commandCards.first { $0.id == "yarn.clean-dry-run" }?.argv, ["yarn", "cache", "clean", "--dry-run"])
+        XCTAssertEqual(yarn.commandCards.first { $0.id == "yarn.clean-dry-run" }?.dryRunSupport, .versionDependent)
+        XCTAssertTrue(lane.managerReports.allSatisfy(\.previewOnly))
+    }
 }
 
 private enum PackageCacheFixtures {
