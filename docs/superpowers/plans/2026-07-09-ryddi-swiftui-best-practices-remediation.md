@@ -1807,15 +1807,44 @@ Plan complete and saved to `docs/superpowers/plans/2026-07-09-ryddi-swiftui-best
 
 ## Execution Results
 
-- Disk headroom: `df -h /System/Volumes/Data` exit `0`; available space `71Gi`, so the Task 9 guardrail passed.
-- Focused layout tests: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests` exit `0`; `25` tests executed, `0` failures.
-- Full Swift tests: `swift test --scratch-path "$PWD/.build"` exit `1`; `335` tests executed, `10` failures, all in `MacDiskReclaimerAppPermissionAccessTests`.
-- Blocking regression evidence:
-  - `Tests/ReclaimerCoreTests/MacDiskReclaimerAppPermissionAccessTests.swift` reads only `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`.
-  - The failing assertions expect `onReviewPermissions`, `Open Full Disk Access`, `PermissionAccessBanner`, `PermissionAccessHelperPanel`, `Reveal Ryddi`, `Copy App Path`, `Refresh Coverage`, `report.coverageSummary`, `Optional missing roots`, and `blockingUnavailableScopes`.
-  - Those markers are present in `Sources/MacDiskReclaimerApp/DashboardContentViews.swift`, not in `MacDiskReclaimerApp.swift`, so the full suite is red and Task 9 cannot claim verified completion.
-- Build/package/release-check: not run after the full-suite regression. No fresh `dist/Ryddi.app`, zip, checksum, or release manifest was produced in this Task 9 run.
-- Preview trust state: not assessed in this run; do not claim signing, notarization, Gatekeeper acceptance, or release readiness.
-- Live smoke evidence: not run because verification stopped at the failed full-suite gate. No keyboard or settings-window claims were made from this task.
-- Temp hygiene: not run because verification stopped at the failed full-suite gate.
-- Final task commit range: `edd5266a1665cd5aeb38739c4374b58c7cb9baeb..HEAD` (empty before this Task 9 evidence note commit).
+- Disk headroom:
+  - Pre-build guard: `df -h /System/Volumes/Data` exit `0`; available space `67Gi`.
+  - Pre-release-check guard: `df -h /System/Volumes/Data` exit `0`; available space `68Gi`.
+- Test gates on current HEAD `d68ccfc07e511d3e202fdecdff51b5afaedab069`:
+  - Focused layout suite: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests` exit `0`; `25` tests executed, `0` failures.
+  - Focused permission regression suite: `MacDiskReclaimerAppPermissionAccessTests` `2/2` passed after the source-aggregation fix.
+  - Full Swift suite: fresh `Scripts/release-check.sh` run executed `swift test --scratch-path .build`; `335` tests executed, `0` failures.
+- Build/package/release-check:
+  - `swift build --scratch-path "$PWD/.build"` exit `0`.
+  - `Scripts/package-app.sh` exit `0`; produced `dist/Ryddi.app`.
+  - `Scripts/release-check.sh` exit `0`; produced:
+    - `dist/Ryddi-developer-preview.zip`
+    - `dist/Ryddi-developer-preview.zip.sha256`
+    - `dist/Ryddi-release-manifest.txt`
+  - Release manifest trust state:
+    - `artifact=Ryddi-developer-preview.zip`
+    - `sha256=3bd2788c92fa5759c792b7d669f40dc346a7689e3090d64a626f5f55a0639201`
+    - `codesign_verified=false`
+    - `hardened_runtime=false`
+    - `notarization_status=not requested`
+    - `stapled=false`
+    - `gatekeeper=not assessed`
+  - Packaging script reported `CODESIGN_IDENTITY not set; app bundle left unsigned`, so this evidence is for an unsigned local developer preview only.
+- Diff hygiene: `git diff --check` exit `0`.
+- Temp hygiene:
+  - No `/private/tmp/[Vv]ifty*` entries were present during the guarded check.
+  - `/private/tmp/ryddi-task9-full.log` was `92K`.
+  - `/private/tmp/ryddi-task9-red.log` was `8.0K`.
+  - No temp paths were removed in this task.
+- Live smoke from the packaged preview bundle:
+  - Opened `dist/Ryddi.app` and directly observed the main `Ryddi` window with the native split-view sidebar and accent selection highlight.
+  - Opened the native Settings window from the running preview via `Command-,` automation and returned to the main window.
+  - Triggered one local scan from the visible UI and observed `Last Session Scanned Developer - 10 Jul 2026 at 0:04` with `3916` findings, `4,31 GB` auto-safe, `184 GB` needs review, and `Plan reclaim Zero KB`.
+  - Built a plan from the visible UI and observed `Last Session Plan ready Developer - 10 Jul 2026 at 0:05` with `Plan reclaim 1,68 GB`.
+  - Ran a dry run from the visible UI and observed `Last Session Dry run ready Developer - 10 Jul 2026 at 0:06` plus `Reclaim Ready`.
+  - No remote execution was invoked. No destructive reclaim was invoked.
+- Live smoke limitations:
+  - `Command-R` scan and `Command-Option-D` dry-run shortcut behavior were not proven by direct observation. Automation-based keypress attempts left the visible state unchanged while the on-screen Scan and Dry Run controls worked, so shortcut behavior remains unobserved and should not be claimed as verified from this task.
+  - Minimum-window usability for `Review Queues` and `Apps & Leftovers` was not re-verified in this continuation, so those layout claims remain covered by the focused test suite rather than fresh manual observation.
+  - The preview quit path was exercised conservatively. Final process inspection showed only `/Applications/Ryddi.app/Contents/MacOS/Ryddi` still running; the installed copy was left untouched, and no extra quit was sent to it.
+- Final task source range before this docs evidence commit: `edd5266a1665cd5aeb38739c4374b58c7cb9baeb..d68ccfc07e511d3e202fdecdff51b5afaedab069`.
