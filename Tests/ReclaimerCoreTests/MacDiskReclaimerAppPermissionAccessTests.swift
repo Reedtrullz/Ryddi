@@ -52,11 +52,18 @@ final class MacDiskReclaimerAppPermissionAccessTests: XCTestCase {
     }
 
     private func appSource() throws -> String {
-        try String(
-            contentsOf: repoRoot()
-                .appendingPathComponent("Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift"),
-            encoding: .utf8
+        let appSourceDirectory = repoRoot().appendingPathComponent("Sources/MacDiskReclaimerApp")
+        let swiftFiles = try FileManager.default.contentsOfDirectory(
+            at: appSourceDirectory,
+            includingPropertiesForKeys: nil
         )
+        .filter { $0.pathExtension == "swift" }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        return try swiftFiles.map {
+            try String(contentsOf: $0, encoding: .utf8)
+        }
+        .joined(separator: "\n")
     }
 
     private func repoRoot() -> URL {
