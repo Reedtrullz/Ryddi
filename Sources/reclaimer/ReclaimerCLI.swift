@@ -80,6 +80,10 @@ struct ReclaimerCLI {
             try policy(args: args)
         case "scan":
             try scan(args: args)
+        case "session":
+            try session(args: args)
+        case "actions":
+            try actions(args: args)
         case "plan":
             try plan(args: args)
         case "plans":
@@ -117,6 +121,52 @@ struct ReclaimerCLI {
             printJSON(preparedFindings)
         } else {
             printFindings(preparedFindings, options: options)
+        }
+    }
+
+    static func session(args: [String]) throws {
+        guard let subcommand = args.first else {
+            throw CLIError.message("session requires latest or explain")
+        }
+        let options = ParsedOptions(Array(args.dropFirst()))
+        let store = AuditStore()
+        switch subcommand {
+        case "latest":
+            let session = try store.latestScanSession()
+            if options.json {
+                printJSON(session)
+            } else {
+                printLatestScanSession(session)
+            }
+        case "explain":
+            let session = try store.latestScanSession()
+            if options.json {
+                printJSON(session)
+            } else {
+                printScanSessionExplanation(session)
+            }
+        default:
+            throw CLIError.message("Unknown session subcommand: \(subcommand)")
+        }
+    }
+
+    static func actions(args: [String]) throws {
+        let options = ParsedOptions(args)
+        let store = AuditStore()
+        let report = ActionCenterBuilder.build(input: ActionCenterInput(
+            permissionReport: PermissionAdvisor.report(scopes: try options.scopes(includeUnavailable: true)),
+            latestScanSession: try store.latestScanSession(),
+            findings: [],
+            currentPlan: store.recentPlans(limit: 1).first,
+            latestExecutionReceipt: store.recentReceipts(limit: 1).first,
+            activeFileReviewReport: store.recentActiveFileReviewReports(limit: 1).first,
+            browserCacheReport: store.recentBrowserCacheReviewReports(limit: 1).first,
+            packageCacheReport: store.recentPackageCacheReviewReports(limit: 1).first
+        ))
+        if options.json {
+            printJSON(report)
+        } else {
+            printActionCenter(report)
         }
     }
 
@@ -1670,6 +1720,9 @@ struct ReclaimerCLI {
               scan [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
+              session latest [--json]
+              session explain [--json]
+              actions [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
               overview [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
                        [--sort size|logical|reclaim|age|risk|category|safety|scope|owner|action]
                        [--group none|category|safety|owner|scope|action]
@@ -2163,6 +2216,150 @@ func printJSON<T: Encodable>(_ value: T) {
     encoder.dateEncodingStrategy = .iso8601
     let data = try! encoder.encode(value)
     print(String(data: data, encoding: .utf8)!)
+}
+
+func printLatestScanSession(_ session: ScanSession?) {
+    guard let session else {
+        print("No scan session has been recorded yet.")
+        print("Next: run `reclaimer scan --preset developer`.")
+        return
+    }
+    print("Session: \(session.id)")
+    print("Stage: \(session.stage.rawValue)")
+    print("Preset: \(session.preset.rawValue)")
+    print("Updated: \(session.updatedAt.formatted(date: .numeric, time: .standard))")
+}
+
+func printScanSessionExplanation(_ session: ScanSession?) {
+    guard let session else {
+        print("No scan session has been recorded yet.")
+        print("Next: run `reclaimer scan --preset developer`.")
+        return
+    }
+
+    print("Session: \(session.id)")
+    print("Stage: \(session.stage.rawValue)")
+    print("Preset: \(session.preset.rawValue)")
+    print("Updated: \(session.updatedAt.formatted(date: .numeric, time: .standard))")
+    print("\nEvidence")
+    print("- findings: \(session.findingDigest ?? "missing")")
+    print("- plan: \(session.planDigest ?? "missing")")
+    print("- dry-run receipt: \(session.dryRunReceiptID ?? "missing")")
+    print("- execution receipt: \(session.executionReceiptID ?? "missing")")
+
+    let blockedReasons = scanSessionBlockedReasons(session)
+    if !blockedReasons.isEmpty {
+        print("\nBlocked reasons")
+        for reason in blockedReasons {
+            print("- \(reason)")
+        }
+    }
+
+    print("\nNext: \(nextScanSessionCommand(session))")
+}
+
+func printActionCenter(_ report: ActionCenterReport) {
+    guard let primary = report.primaryAction else {
+        print("Primary action: none")
+        print("Why: No current action is available from saved evidence.")
+        printActionCenterNonClaims(report.nonClaims)
+        return
+    }
+
+    print("Primary action: \(primary.title)")
+    print("Kind: \(primary.kind.rawValue)")
+    print("Why: \(primary.reason)")
+    print("Estimated reclaim: \(ByteFormat.string(primary.estimatedReclaimBytes))")
+    print("Count: \(primary.count)")
+    print("Destructive: \(primary.isDestructive ? "yes" : "no")")
+
+    let blockedReasons = actionCenterBlockedReasons(report)
+    if !blockedReasons.isEmpty {
+        print("\nBlocked reasons")
+        for reason in blockedReasons {
+            print("- \(reason)")
+        }
+    }
+
+    let secondary = report.actions.dropFirst()
+    if !secondary.isEmpty {
+        print("\nOther actions")
+        for action in secondary {
+            print("- \(action.title): \(action.reason)")
+        }
+    }
+
+    printActionCenterNonClaims(report.nonClaims)
+}
+
+func printActionCenterNonClaims(_ nonClaims: [String]) {
+    print("\nNon-claims")
+    for note in nonClaims {
+        print("- \(note)")
+    }
+}
+
+func scanSessionBlockedReasons(_ session: ScanSession) -> [String] {
+    var reasons: [String] = []
+    if !session.invalidationReasons.isEmpty {
+        reasons.append(contentsOf: session.invalidationReasons.map(\.rawValue))
+    }
+    if session.findingDigest == nil {
+        reasons.append("Finding evidence is missing.")
+    }
+    switch session.stage {
+    case .notStarted:
+        reasons.append("No scan has been recorded for this session.")
+    case .scanned:
+        reasons.append("Review queues before creating a reclaim plan.")
+    case .reviewed:
+        reasons.append("No reclaim plan has been recorded for the reviewed selection.")
+    case .planReady:
+        reasons.append("No dry-run receipt has been recorded for the current plan.")
+    case .dryRunReady:
+        if session.dryRunReceiptID == nil {
+            reasons.append("Dry-run receipt evidence is missing.")
+        }
+    case .reclaimReady:
+        break
+    case .executed:
+        reasons.append("Cleanup already executed for this session.")
+    case .recoveryAvailable:
+        reasons.append("Recovery evidence is available from a completed cleanup.")
+    case .invalidated:
+        reasons.append("The session was invalidated by newer baseline evidence.")
+    }
+    return uniquePreservingOrder(reasons)
+}
+
+func nextScanSessionCommand(_ session: ScanSession) -> String {
+    switch session.stage {
+    case .notStarted, .invalidated:
+        return "run `reclaimer scan --preset \(session.preset.rawValue)`"
+    case .scanned:
+        return "review queues, then run `reclaimer plan --preset \(session.preset.rawValue) --save-audit`"
+    case .reviewed:
+        return "run `reclaimer plan --preset \(session.preset.rawValue) --save-audit`"
+    case .planReady:
+        return "run `reclaimer execute --dry-run --preset \(session.preset.rawValue) --save-audit`"
+    case .dryRunReady, .reclaimReady:
+        return "review the dry-run receipt before running `reclaimer execute --yes --preset \(session.preset.rawValue) --save-audit`"
+    case .executed, .recoveryAvailable:
+        return "run `reclaimer recovery list` to review recovery state"
+    }
+}
+
+func actionCenterBlockedReasons(_ report: ActionCenterReport) -> [String] {
+    guard report.primaryAction?.kind != .executeSafePlan else {
+        return []
+    }
+    let reasons = report.actions.map(\.reason).filter { !$0.isEmpty }
+    return uniquePreservingOrder(reasons)
+}
+
+func uniquePreservingOrder(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    return values.filter { seen.insert($0).inserted }
 }
 
 func printAuditSummary(_ summary: AuditStoreSummary) {

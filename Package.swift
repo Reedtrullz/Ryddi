@@ -37,6 +37,10 @@ let package = Package(
             name: "ReclaimerCoreTests",
             dependencies: ["ReclaimerCore"],
             exclude: ["Fixtures"]
+        ),
+        .testTarget(
+            name: "ReclaimerCLITests",
+            dependencies: ["reclaimer", "ReclaimerCore"]
         )
     ]
 )
