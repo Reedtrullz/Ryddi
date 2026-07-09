@@ -308,6 +308,13 @@ func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
     print("Preset: \(report.preset.rawValue)")
     print("Coverage: \(report.coverage.level.rawValue)")
     print(report.coverage.explanation)
+    if !report.coverage.rows.isEmpty {
+        print("\nCoverage rows")
+        print("\(pad("Check", 28)) \(pad("Status", 9)) Detail")
+        for row in report.coverage.rows {
+            print("\(pad(row.label, 28)) \(pad(row.status.rawValue, 9)) \(row.detail)")
+        }
+    }
     if !report.continuityWarnings.isEmpty {
         print("\nTarget continuity warnings")
         for warning in report.continuityWarnings {

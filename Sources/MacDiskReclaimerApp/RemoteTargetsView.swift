@@ -123,6 +123,27 @@ struct RemoteTargetsView: View {
                             .font(.caption)
                             .foregroundStyle(report.coverage.level == .complete ? Color.secondary : Color.orange)
                             .fixedSize(horizontal: false, vertical: true)
+                        if !report.coverage.rows.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(report.coverage.rows) { row in
+                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                        Circle()
+                                            .fill(remoteCoverageStatusColor(row.status))
+                                            .frame(width: 7, height: 7)
+                                        Text(row.label)
+                                            .font(.caption.weight(.semibold))
+                                        Text(row.status.rawValue.capitalized)
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(remoteCoverageStatusColor(row.status))
+                                        Spacer(minLength: 8)
+                                        Text(row.detail)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                }
+                            }
+                        }
                         Text(commandIssues == 0 ? "All read-only commands returned usable evidence." : "Some read-only commands failed or were unavailable; do not treat missing evidence as clean.")
                             .font(.caption)
                             .foregroundStyle(commandIssues == 0 ? Color.secondary : Color.orange)
@@ -377,6 +398,19 @@ struct RemoteTargetsView: View {
 
     private func remoteSignedBytes(_ bytes: Int64) -> String {
         bytes > 0 ? "+\(ByteFormat.string(bytes))" : ByteFormat.string(bytes)
+    }
+
+    private func remoteCoverageStatusColor(_ status: RemoteCoverageRowStatus) -> Color {
+        switch status {
+        case .passed:
+            .green
+        case .warning:
+            .orange
+        case .failed:
+            .red
+        case .unknown:
+            .secondary
+        }
     }
 }
 

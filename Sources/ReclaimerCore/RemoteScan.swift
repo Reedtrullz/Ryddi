@@ -64,7 +64,7 @@ public final class RemoteScanBuilder: @unchecked Sendable {
             findings: findings,
             nativeGuidance: RemoteNativeGuidanceBuilder.guidance(for: findings),
             commands: results,
-            coverage: RemoteScanCoverageBuilder.build(commands: results, osSummary: nil),
+            coverage: RemoteScanCoverageBuilder.build(commands: results, osSummary: nil, target: target),
             nonClaims: RemoteScanReport.defaultNonClaims
         )
     }
@@ -261,6 +261,19 @@ public enum RemoteReportBuilder {
         lines.append("- Failed commands: \(report.coverage.failedCommandIDs.count)")
         lines.append("- Timed out commands: \(report.coverage.timedOutCommandIDs.count)")
         lines.append("- Permission denied commands: \(report.coverage.permissionDeniedCommandIDs.count)")
+        if !report.coverage.rows.isEmpty {
+            lines.append("")
+            lines.append("| Check | Status | Detail |")
+            lines.append("| --- | --- | --- |")
+            for row in report.coverage.rows {
+                let values = [
+                    row.label,
+                    row.status.rawValue,
+                    row.detail
+                ].map(MarkdownTable.cell)
+                lines.append("| \(values.joined(separator: " | ")) |")
+            }
+        }
         lines.append("")
 
         if !report.continuityWarnings.isEmpty {
