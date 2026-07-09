@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 @testable import ReclaimerCore
 
@@ -67,7 +68,7 @@ final class IssuePackageExportTests: XCTestCase {
         }
     }
 
-    func testIssuePackageReplaceOverwritesNonEmptyOutput() throws {
+    func testIssuePackageReplaceRejectsArbitraryNonEmptyDirectoryAndPreservesContents() throws {
         let root = tempDirectory("issue-package-audit")
         let output = tempDirectory("issue-package-output")
         defer {
@@ -77,13 +78,72 @@ final class IssuePackageExportTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try "old".write(to: output.appendingPathComponent("existing.txt"), atomically: true, encoding: .utf8)
 
+        XCTAssertThrowsError(
+            try IssuePackageExporter.export(
+                to: output,
+                store: AuditStore(root: root),
+                options: IssuePackageExportOptions(replaceExisting: true)
+            )
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("manifest.json"), error.localizedDescription)
+        }
+
+        XCTAssertEqual(
+            try String(contentsOf: output.appendingPathComponent("existing.txt"), encoding: .utf8),
+            "old"
+        )
+    }
+
+    func testIssuePackageRejectsProtectedOutputRoots() throws {
+        let root = tempDirectory("issue-package-audit")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let protectedOutputs = [
+            URL(fileURLWithPath: "/"),
+            FileManager.default.homeDirectoryForCurrentUser,
+            URL(fileURLWithPath: "/Users"),
+            URL(fileURLWithPath: "/Applications"),
+            URL(fileURLWithPath: "/Library"),
+            URL(fileURLWithPath: "/System")
+        ]
+
+        for output in protectedOutputs {
+            XCTAssertThrowsError(
+                try IssuePackageExporter.export(to: output, store: AuditStore(root: root))
+            ) { error in
+                XCTAssertTrue(error.localizedDescription.contains("protected"), "\(output.path): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func testIssuePackageReplaceOverwritesOnlyOwnedFilesWithoutReplacingDirectory() throws {
+        let root = tempDirectory("issue-package-audit")
+        let output = tempDirectory("issue-package-output")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: output)
+        }
+        _ = try IssuePackageExporter.export(
+            to: output,
+            store: AuditStore(root: root),
+            options: IssuePackageExportOptions(appVersion: "old")
+        )
+        let directoryDescriptor = open(output.path, O_RDONLY)
+        XCTAssertGreaterThanOrEqual(directoryDescriptor, 0)
+        defer { close(directoryDescriptor) }
+        var originalDirectoryStat = stat()
+        XCTAssertEqual(fstat(directoryDescriptor, &originalDirectoryStat), 0)
+
         let manifest = try IssuePackageExporter.export(
             to: output,
             store: AuditStore(root: root),
-            options: IssuePackageExportOptions(replaceExisting: true)
+            options: IssuePackageExportOptions(replaceExisting: true, appVersion: "new")
         )
+        var replacementDirectoryStat = stat()
+        XCTAssertEqual(lstat(output.path, &replacementDirectoryStat), 0)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: output.appendingPathComponent("existing.txt").path))
+        XCTAssertEqual(manifest.appVersion, "new")
+        XCTAssertEqual(originalDirectoryStat.st_dev, replacementDirectoryStat.st_dev)
+        XCTAssertEqual(originalDirectoryStat.st_ino, replacementDirectoryStat.st_ino)
         XCTAssertTrue(manifest.includedFiles.contains("manifest.json"))
     }
 

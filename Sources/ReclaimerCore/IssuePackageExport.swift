@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public enum IssuePackagePathStyle: String, Codable, Hashable, Sendable {
@@ -138,6 +139,8 @@ public struct IssuePackageExportOptions: Codable, Hashable, Sendable {
 public enum IssuePackageExportError: Error, LocalizedError, Equatable {
     case outputExistsAndIsNotDirectory(String)
     case outputDirectoryNotEmpty(String)
+    case protectedOutputDirectory(String)
+    case unsafeReplacement(String, String)
 
     public var errorDescription: String? {
         switch self {
@@ -145,11 +148,23 @@ public enum IssuePackageExportError: Error, LocalizedError, Equatable {
             "Issue package output exists and is not a directory: \(path)"
         case .outputDirectoryNotEmpty(let path):
             "Issue package output directory is not empty; pass --replace to overwrite: \(path)"
+        case .protectedOutputDirectory(let path):
+            "Issue package output is a protected path and cannot be used: \(path)"
+        case .unsafeReplacement(let path, let reason):
+            "Issue package replacement rejected at \(path): \(reason)"
         }
     }
 }
 
 public enum IssuePackageExporter {
+    private static let requiredPackageFiles: Set<String> = [
+        "local-summary.json",
+        "manifest.json",
+        "non-claims.md",
+        "report.md"
+    ]
+    private static let optionalPackageFiles: Set<String> = ["remote-summary.json"]
+
     public static let nonClaims = [
         "No cleanup was executed while creating this issue package.",
         "No secrets inventory was performed; review the package before sharing.",
@@ -201,20 +216,161 @@ public enum IssuePackageExporter {
 
     private static func prepareOutputDirectory(_ output: URL, replace: Bool) throws {
         let fileManager = FileManager.default
+        guard !isProtectedOutputDirectory(output) else {
+            throw IssuePackageExportError.protectedOutputDirectory(output.path)
+        }
+
         var isDirectory: ObjCBool = false
         if fileManager.fileExists(atPath: output.path, isDirectory: &isDirectory) {
             guard isDirectory.boolValue else {
                 throw IssuePackageExportError.outputExistsAndIsNotDirectory(output.path)
             }
-            let existing = try fileManager.contentsOfDirectory(atPath: output.path)
+            let outputValues = try output.resourceValues(forKeys: replacementResourceKeys)
+            guard outputValues.isDirectory == true,
+                  outputValues.isSymbolicLink != true,
+                  outputValues.isPackage != true,
+                  outputValues.isVolume != true else {
+                throw IssuePackageExportError.unsafeReplacement(
+                    output.path,
+                    "the output itself must be an ordinary directory, not a symlink, package, or mount point"
+                )
+            }
+            let existing = try fileManager.contentsOfDirectory(
+                at: output,
+                includingPropertiesForKeys: Array(replacementResourceKeys)
+            )
             if !existing.isEmpty {
                 guard replace else {
                     throw IssuePackageExportError.outputDirectoryNotEmpty(output.path)
                 }
-                try fileManager.removeItem(at: output)
+                let ownedFiles = try validatedOwnedFiles(in: output, entries: existing)
+                for file in ownedFiles {
+                    try validateRegularPackageFile(file, output: output)
+                    try removeRegularPackageFile(file, output: output)
+                }
             }
         }
         try fileManager.createDirectory(at: output, withIntermediateDirectories: true)
+    }
+
+    private static var replacementResourceKeys: Set<URLResourceKey> {
+        [
+            .isDirectoryKey,
+            .isPackageKey,
+            .isRegularFileKey,
+            .isSymbolicLinkKey,
+            .isVolumeKey
+        ]
+    }
+
+    private static func validatedOwnedFiles(in output: URL, entries: [URL]) throws -> [URL] {
+        let manifestURL = output.appendingPathComponent("manifest.json")
+        guard entries.contains(where: { $0.lastPathComponent == "manifest.json" }) else {
+            throw IssuePackageExportError.unsafeReplacement(
+                output.path,
+                "a valid manifest.json sentinel is required before --replace can remove package files"
+            )
+        }
+        try validateRegularPackageFile(manifestURL, output: output)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let manifest: IssuePackageManifest
+        do {
+            manifest = try decoder.decode(IssuePackageManifest.self, from: Data(contentsOf: manifestURL))
+        } catch {
+            throw IssuePackageExportError.unsafeReplacement(
+                output.path,
+                "manifest.json is not a valid Ryddi issue-package manifest"
+            )
+        }
+
+        let listedFiles = Set(manifest.includedFiles)
+        let allowedFiles = requiredPackageFiles.union(optionalPackageFiles)
+        guard listedFiles.count == manifest.includedFiles.count,
+              requiredPackageFiles.isSubset(of: listedFiles),
+              listedFiles.isSubset(of: allowedFiles) else {
+            throw IssuePackageExportError.unsafeReplacement(
+                output.path,
+                "manifest.json contains an invalid issue-package file inventory"
+            )
+        }
+
+        let existingNames = Set(entries.map(\.lastPathComponent))
+        guard existingNames == listedFiles else {
+            let unknown = existingNames.subtracting(listedFiles).sorted()
+            let detail = unknown.isEmpty
+                ? "existing package files do not match the manifest.json inventory"
+                : "unowned entries are present: \(unknown.joined(separator: ", "))"
+            throw IssuePackageExportError.unsafeReplacement(output.path, detail)
+        }
+
+        for entry in entries {
+            try validateRegularPackageFile(entry, output: output)
+        }
+        return entries.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private static func validateRegularPackageFile(_ file: URL, output: URL) throws {
+        let values: URLResourceValues
+        do {
+            values = try file.resourceValues(forKeys: replacementResourceKeys)
+        } catch {
+            throw IssuePackageExportError.unsafeReplacement(
+                output.path,
+                "could not inspect package-owned file \(file.lastPathComponent)"
+            )
+        }
+        guard values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              values.isDirectory != true,
+              values.isPackage != true,
+              values.isVolume != true else {
+            throw IssuePackageExportError.unsafeReplacement(
+                output.path,
+                "package-owned entry is not a regular file: \(file.lastPathComponent)"
+            )
+        }
+    }
+
+    private static func removeRegularPackageFile(_ file: URL, output: URL) throws {
+        let result = file.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
+            return unlink(path)
+        }
+        guard result == 0 else {
+            let message = String(cString: strerror(errno))
+            throw IssuePackageExportError.unsafeReplacement(
+                output.path,
+                "could not remove package-owned regular file \(file.lastPathComponent): \(message)"
+            )
+        }
+    }
+
+    private static func isProtectedOutputDirectory(_ output: URL) -> Bool {
+        let path = output.standardizedFileURL.path
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        let protectedExactPaths: Set<String> = [
+            "/",
+            home,
+            "/Users",
+            "/Volumes",
+            "/Network",
+            "/private",
+            "/tmp",
+            "/var",
+            "/opt",
+            "/dev",
+            "/cores"
+        ]
+        if protectedExactPaths.contains(path) {
+            return true
+        }
+
+        let protectedTrees = ["/Applications", "/Library", "/System", "/bin", "/sbin", "/usr", "/etc"]
+        return protectedTrees.contains { root in
+            path == root || path.hasPrefix(root + "/")
+        }
     }
 
     private static func reportMarkdown(
