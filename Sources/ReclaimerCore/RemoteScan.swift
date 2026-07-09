@@ -246,12 +246,17 @@ public enum RemoteReportBuilder {
         privacy: ReportPrivacyOptions = .default,
         includeCommandCards: Bool = true
     ) -> RemoteMarkdownReport {
+        let redactor = RemotePrivacyRedactor(
+            privacy: privacy,
+            target: report.target,
+            additionalSensitiveValues: report.findings.flatMap { [$0.remotePath, $0.displayPath] }
+        )
         var lines: [String] = []
         lines.append("# Ryddi Remote Target Report")
         lines.append("")
-        lines.append("- Target: \(report.target.alias ?? report.target.input)")
-        lines.append("- Host: \(report.target.resolvedHost ?? "unknown")")
-        lines.append("- User: \(report.target.resolvedUser ?? "unknown")")
+        lines.append("- Target: \(redactor.targetLabel())")
+        lines.append("- Host: \(redactor.host())")
+        lines.append("- User: \(redactor.user())")
         lines.append("- Host key: \(report.target.knownHostsState)")
         lines.append("- Preset: \(report.preset.rawValue)")
         lines.append("- Path privacy: \(privacy.summary)")
@@ -308,7 +313,7 @@ public enum RemoteReportBuilder {
             lines.append("| Bucket | Path | Size | Safety | Next Action |")
             lines.append("| --- | --- | ---: | --- | --- |")
             for finding in report.findings.sorted(by: { ($0.allocatedBytes ?? 0) > ($1.allocatedBytes ?? 0) }) {
-                let displayPath = privacy.displayPath(finding.remotePath)
+                let displayPath = redactor.path(finding.remotePath)
                 let row = [
                     finding.bucket,
                     displayPath,
@@ -326,7 +331,7 @@ public enum RemoteReportBuilder {
             lines.append("- No native guidance generated.")
         } else {
             for item in report.nativeGuidance {
-                lines.append("- \(item.title): `\(item.command)` - \(item.summary)")
+                lines.append("- \(redactor.text(item.title)): `\(redactor.text(item.command))` - \(redactor.text(item.summary))")
             }
         }
         lines.append("")
@@ -340,11 +345,11 @@ public enum RemoteReportBuilder {
                 lines.append("| --- | --- | --- | --- | --- |")
                 for card in report.commandCards {
                     let row = [
-                        card.title,
+                        redactor.text(card.title),
                         card.kind.label,
                         card.risk.label,
-                        card.displayCommand,
-                        card.explanation
+                        redactor.text(card.displayCommand),
+                        redactor.text(card.explanation)
                     ].map(MarkdownTable.cell)
                     lines.append("| \(row.joined(separator: " | ")) |")
                 }
@@ -354,7 +359,7 @@ public enum RemoteReportBuilder {
 
         lines.append("## Command Receipts")
         for command in report.commands {
-            lines.append("- \(command.commandID): \(command.exitCode.map(String.init) ?? "blocked") `\(command.displayCommand)`")
+            lines.append("- \(command.commandID): \(command.exitCode.map(String.init) ?? "blocked") `\(redactor.text(command.displayCommand))`")
         }
         lines.append("")
 

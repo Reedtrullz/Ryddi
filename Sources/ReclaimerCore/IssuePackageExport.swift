@@ -73,12 +73,19 @@ public struct IssuePackageRemoteSummary: Codable, Hashable, Sendable {
     public let totalFindingBytes: Int64
     public let topFindings: [IssuePackageRemoteFindingSummary]
     public let commandCards: [RemoteManualCommandCard]
+    public let commandPreviews: [String]
     public let nonClaims: [String]
 
     public init(scan: RemoteScanReport, privacy: ReportPrivacyOptions, pathStyle: IssuePackagePathStyle, limit: Int = 20) {
+        let findingPaths = scan.findings.flatMap { [$0.remotePath, $0.displayPath] }
+        let redactor = RemotePrivacyRedactor(
+            privacy: privacy,
+            target: scan.target,
+            additionalSensitiveValues: findingPaths
+        )
         self.scanID = scan.id
-        self.target = pathStyle == .redacted ? "<target redacted>" : (scan.target.alias ?? scan.target.input)
-        self.host = pathStyle == .redacted ? "<host redacted>" : (scan.target.resolvedHost ?? "unknown")
+        self.target = redactor.targetLabel()
+        self.host = redactor.host()
         self.coverageLevel = scan.coverage.level
         self.findingCount = scan.findings.count
         self.totalFindingBytes = scan.findings.reduce(Int64(0)) { $0 + ($1.allocatedBytes ?? 0) }
@@ -88,13 +95,20 @@ public struct IssuePackageRemoteSummary: Codable, Hashable, Sendable {
             .map {
                 IssuePackageRemoteFindingSummary(
                     bucket: $0.bucket,
-                    displayPath: privacy.displayPath($0.remotePath),
+                    displayPath: redactor.path($0.remotePath),
                     allocatedBytes: $0.allocatedBytes,
                     safetyClass: $0.safetyClass,
                     nextAction: $0.recommendedNextAction
                 )
             }
-        self.commandCards = scan.commandCards
+        self.commandCards = scan.commandCards.map(redactor.commandCard)
+        self.commandPreviews = scan.commands
+            .prefix(10)
+            .flatMap { command in
+                (command.stdoutPreview.prefix(2) + command.stderrPreview.prefix(2)).map {
+                    redactor.text($0, knownPaths: findingPaths)
+                }
+            }
         self.nonClaims = scan.nonClaims
     }
 }
@@ -243,6 +257,14 @@ public enum IssuePackageExporter {
                         finding.safetyClass.label
                     ].map(MarkdownTable.cell)
                     lines.append("| \(row.joined(separator: " | ")) |")
+                }
+            }
+            if !remoteSummary.commandPreviews.isEmpty {
+                lines.append("")
+                lines.append("### Command Preview Lines")
+                lines.append("")
+                for preview in remoteSummary.commandPreviews.prefix(10) {
+                    lines.append("- \(MarkdownTable.cell(preview))")
                 }
             }
         }
