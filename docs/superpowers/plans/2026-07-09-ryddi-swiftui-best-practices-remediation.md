@@ -1804,3 +1804,18 @@ Plan complete and saved to `docs/superpowers/plans/2026-07-09-ryddi-swiftui-best
 
 1. **Subagent-Driven (recommended)** - dispatch a fresh subagent per task, review between tasks, fast iteration.
 2. **Inline Execution** - execute tasks in this session using executing-plans, batch execution with checkpoints.
+
+## Execution Results
+
+- Disk headroom: `df -h /System/Volumes/Data` exit `0`; available space `71Gi`, so the Task 9 guardrail passed.
+- Focused layout tests: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests` exit `0`; `25` tests executed, `0` failures.
+- Full Swift tests: `swift test --scratch-path "$PWD/.build"` exit `1`; `335` tests executed, `10` failures, all in `MacDiskReclaimerAppPermissionAccessTests`.
+- Blocking regression evidence:
+  - `Tests/ReclaimerCoreTests/MacDiskReclaimerAppPermissionAccessTests.swift` reads only `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`.
+  - The failing assertions expect `onReviewPermissions`, `Open Full Disk Access`, `PermissionAccessBanner`, `PermissionAccessHelperPanel`, `Reveal Ryddi`, `Copy App Path`, `Refresh Coverage`, `report.coverageSummary`, `Optional missing roots`, and `blockingUnavailableScopes`.
+  - Those markers are present in `Sources/MacDiskReclaimerApp/DashboardContentViews.swift`, not in `MacDiskReclaimerApp.swift`, so the full suite is red and Task 9 cannot claim verified completion.
+- Build/package/release-check: not run after the full-suite regression. No fresh `dist/Ryddi.app`, zip, checksum, or release manifest was produced in this Task 9 run.
+- Preview trust state: not assessed in this run; do not claim signing, notarization, Gatekeeper acceptance, or release readiness.
+- Live smoke evidence: not run because verification stopped at the failed full-suite gate. No keyboard or settings-window claims were made from this task.
+- Temp hygiene: not run because verification stopped at the failed full-suite gate.
+- Final task commit range: `edd5266a1665cd5aeb38739c4374b58c7cb9baeb..HEAD` (empty before this Task 9 evidence note commit).
