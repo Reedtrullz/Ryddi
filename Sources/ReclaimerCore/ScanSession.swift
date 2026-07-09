@@ -119,19 +119,48 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
     }
 
     public func recordScan(findingDigest: String, updatedAt: Date = Date()) -> ScanSession {
-        copy(updatedAt: updatedAt, findingDigest: findingDigest, stage: .scanned, invalidationReasons: [])
+        copy(
+            updatedAt: updatedAt,
+            findingDigest: findingDigest,
+            planDigest: .some(nil),
+            dryRunReceiptID: .some(nil),
+            executionReceiptID: .some(nil),
+            stage: .scanned,
+            invalidationReasons: []
+        )
     }
 
     public func recordReviewSelection(findingDigest: String, updatedAt: Date = Date()) -> ScanSession {
-        copy(updatedAt: updatedAt, findingDigest: findingDigest, stage: .reviewed, invalidationReasons: [])
+        copy(
+            updatedAt: updatedAt,
+            findingDigest: findingDigest,
+            planDigest: .some(nil),
+            dryRunReceiptID: .some(nil),
+            executionReceiptID: .some(nil),
+            stage: .reviewed,
+            invalidationReasons: []
+        )
     }
 
     public func recordPlan(planDigest: String, updatedAt: Date = Date()) -> ScanSession {
-        copy(updatedAt: updatedAt, planDigest: planDigest, stage: .planReady, invalidationReasons: [])
+        copy(
+            updatedAt: updatedAt,
+            planDigest: planDigest,
+            dryRunReceiptID: .some(nil),
+            executionReceiptID: .some(nil),
+            stage: .planReady,
+            invalidationReasons: []
+        )
     }
 
     public func recordDryRunReceipt(_ receipt: ExecutionReceipt, updatedAt: Date = Date()) -> ScanSession {
-        copy(updatedAt: updatedAt, dryRunReceiptID: receipt.id, stage: .dryRunReady, invalidationReasons: [])
+        copy(
+            updatedAt: updatedAt,
+            dryRunReceiptID: receipt.id,
+            executionReceiptID: .some(nil),
+            stage: .dryRunReady,
+            invalidationReasons: []
+        )
     }
 
     public func markReclaimReady(updatedAt: Date = Date()) -> ScanSession {
@@ -166,7 +195,14 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
         guard !reasons.isEmpty else {
             return self
         }
-        return copy(updatedAt: updatedAt, stage: .invalidated, invalidationReasons: reasons)
+        return copy(
+            updatedAt: updatedAt,
+            planDigest: .some(nil),
+            dryRunReceiptID: .some(nil),
+            executionReceiptID: .some(nil),
+            stage: .invalidated,
+            invalidationReasons: reasons
+        )
     }
 
     private static func isRecoverableAction(_ action: ExecutionActionReceipt) -> Bool {

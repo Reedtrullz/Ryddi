@@ -5674,7 +5674,13 @@ struct ReviewQueuesView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Picker("Queue", selection: $selectedQueue) {
+                    Picker("Queue", selection: Binding(
+                        get: { selectedQueue },
+                        set: { queue in
+                            selectedQueue = queue
+                            model.recordReviewSelection(queue)
+                        }
+                    )) {
                         ForEach(ReviewQueueID.allCases) { queue in
                             Label(queue.title, systemImage: symbol(for: queue))
                                 .tag(queue)
@@ -5701,6 +5707,7 @@ struct ReviewQueuesView: View {
                                 ForEach(report.queues) { queue in
                                     Button {
                                         selectedQueue = queue.queueID
+                                        model.recordReviewSelection(queue.queueID)
                                     } label: {
                                         ReviewQueueSummaryRow(queue: queue, isSelected: selectedQueue == queue.queueID)
                                     }
@@ -5791,9 +5798,37 @@ struct ReviewQueueSummaryRow: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                Text("\(queue.count) item(s) • \(ByteFormat.string(queue.estimatedImmediateReclaim)) estimated reclaim")
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Count")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("\(queue.count)")
+                            .font(.caption.monospacedDigit())
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Bytes")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(ByteFormat.string(queue.allocatedSize))
+                            .font(.caption.monospacedDigit())
+                    }
+                    Spacer(minLength: 0)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Next action")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(reviewQueueNextAction.label)
+                        .font(.caption)
+                }
+                Text("Why blocked")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(reviewQueueBlockedReason)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(queue.guidance)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -5815,6 +5850,36 @@ struct ReviewQueueSummaryRow: View {
         case .valuableHistory: "archivebox"
         case .personalAppAssets: "person.crop.square"
         case .unknown: "questionmark.circle"
+        }
+    }
+
+    private var reviewQueueNextAction: ReviewNextAction {
+        switch queue.queueID {
+        case .safeMaintenance: .safeMaintenance
+        case .quitAppFirst: .quitAppFirst
+        case .useNativeTool: .useNativeTool
+        case .valuableHistory: .archiveCandidate
+        case .personalAppAssets: .protectByDefault
+        case .unknown: .reviewInFinder
+        }
+    }
+
+    private var reviewQueueBlockedReason: String {
+        switch queue.queueID {
+        case .safeMaintenance:
+            queue.estimatedImmediateReclaim > 0
+                ? "Blocked until this selection has a matching clean dry-run receipt."
+                : "No auto-safe reclaim bytes are selected in this queue yet."
+        case .quitAppFirst:
+            "Open-file or owner-app evidence must clear before this can enter a safe plan."
+        case .useNativeTool:
+            "Tool-owned storage needs its native cleanup flow; Ryddi will not infer permission from the row label."
+        case .valuableHistory:
+            "History and archive candidates need manual value review before cleanup."
+        case .personalAppAssets:
+            "Personal and app assets stay preserve-first unless explicit evidence reclassifies them."
+        case .unknown:
+            "Ambiguous findings need manual inspection before any cleanup plan."
         }
     }
 }
@@ -6758,6 +6823,8 @@ final class DashboardModel {
     var launchAgentInstalled = false
     var launchAgentStatus: LaunchAgentStatus = LaunchAgentManager().status()
     var error: String?
+    var currentScanSession: ScanSession?
+    var reviewedQueueID: ReviewQueueID?
 
     var selectedScopePlan: ScanScopePlan {
         if let selectedSavedScopeSet {
@@ -6845,6 +6912,13 @@ final class DashboardModel {
     }
 
     var actionCenterScanSession: ScanSession? {
+        if let currentScanSession {
+            return currentScanSession
+        }
+        return fallbackActionCenterScanSession
+    }
+
+    private var fallbackActionCenterScanSession: ScanSession? {
         guard overview != nil || !findings.isEmpty || plan != nil || lastDryRunReceipt != nil || lastExecutionReceipt != nil else {
             return nil
         }
@@ -6860,14 +6934,14 @@ final class DashboardModel {
             id: "app-summary-\(actionCenterSessionStage.rawValue)",
             createdAt: lastScanDate ?? updatedAt,
             updatedAt: updatedAt,
-            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "app-runtime",
-            ruleVersion: includeUserRulesInScans ? "app-runtime+user-rules" : "app-runtime",
+            appVersion: actionCenterAppVersion,
+            ruleVersion: actionCenterRuleVersion,
             preset: selectedScopePlan.preset ?? scanPreset,
             scopeDigest: actionCenterScopeDigest,
             policyDigest: actionCenterPolicyDigest,
             findingDigest: hasFindingEvidence ? actionCenterFindingDigest : nil,
             planDigest: plan?.id,
-            dryRunReceiptID: lastDryRunReceipt?.id,
+            dryRunReceiptID: nil,
             executionReceiptID: lastExecutionReceipt?.id,
             stage: actionCenterSessionStage
         )
@@ -6878,10 +6952,13 @@ final class DashboardModel {
             return .executed
         }
         if lastDryRunReceipt != nil {
-            return canReclaimSelected ? .reclaimReady : .dryRunReady
+            return .dryRunReady
         }
         if plan != nil {
             return .planReady
+        }
+        if reviewedQueueID != nil {
+            return .reviewed
         }
         return .scanned
     }
@@ -6906,6 +6983,73 @@ final class DashboardModel {
         return ids
     }
 
+    private var actionCenterAppVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "app-runtime"
+    }
+
+    private var actionCenterRuleVersion: String {
+        includeUserRulesInScans ? "app-runtime+user-rules" : "app-runtime"
+    }
+
+    func recordReviewSelection(_ queueID: ReviewQueueID, updatedAt: Date = Date()) {
+        guard overview != nil || !findings.isEmpty else { return }
+        reviewedQueueID = queueID
+        currentScanSession = sessionForCurrentFindings(updatedAt: updatedAt)
+            .recordReviewSelection(findingDigest: actionCenterFindingDigest, updatedAt: updatedAt)
+    }
+
+    private func recordScanSession(updatedAt: Date) {
+        reviewedQueueID = nil
+        currentScanSession = freshScanSession(updatedAt: updatedAt)
+            .recordScan(findingDigest: actionCenterFindingDigest, updatedAt: updatedAt)
+    }
+
+    private func recordPlanSession(_ plan: ReclaimPlan, updatedAt: Date = Date()) {
+        currentScanSession = sessionForCurrentFindings(updatedAt: updatedAt)
+            .recordPlan(planDigest: plan.id, updatedAt: updatedAt)
+    }
+
+    private func recordDryRunSession(_ receipt: ExecutionReceipt, updatedAt: Date? = nil) {
+        guard let plan else { return }
+        let transitionDate = updatedAt ?? receipt.createdAt
+        currentScanSession = sessionForCurrentFindings(updatedAt: transitionDate)
+            .recordPlan(planDigest: plan.id, updatedAt: transitionDate)
+            .recordDryRunReceipt(receipt, updatedAt: transitionDate)
+    }
+
+    private func recordExecutionSession(_ receipt: ExecutionReceipt, updatedAt: Date? = nil) {
+        let transitionDate = updatedAt ?? receipt.createdAt
+        currentScanSession = sessionForCurrentFindings(updatedAt: transitionDate)
+            .recordExecutionReceipt(receipt, updatedAt: transitionDate)
+    }
+
+    private func sessionForCurrentFindings(updatedAt: Date) -> ScanSession {
+        if let currentScanSession,
+           currentScanSession.scopeDigest == actionCenterScopeDigest,
+           currentScanSession.ruleVersion == actionCenterRuleVersion,
+           currentScanSession.policyDigest == actionCenterPolicyDigest,
+           currentScanSession.findingDigest == actionCenterFindingDigest,
+           currentScanSession.stage != .invalidated {
+            return currentScanSession
+        }
+        return freshScanSession(updatedAt: updatedAt)
+            .recordScan(findingDigest: actionCenterFindingDigest, updatedAt: updatedAt)
+    }
+
+    private func freshScanSession(updatedAt: Date) -> ScanSession {
+        ScanSession(
+            id: currentScanSession?.id ?? "app-session-\(UUID().uuidString)",
+            createdAt: currentScanSession?.createdAt ?? lastScanDate ?? updatedAt,
+            updatedAt: updatedAt,
+            appVersion: actionCenterAppVersion,
+            ruleVersion: actionCenterRuleVersion,
+            preset: selectedScopePlan.preset ?? scanPreset,
+            scopeDigest: actionCenterScopeDigest,
+            policyDigest: actionCenterPolicyDigest,
+            stage: .notStarted
+        )
+    }
+
     var queueSummaries: [ReviewQueueSummary] {
         reviewQueueReport.queues
     }
@@ -6924,7 +7068,15 @@ final class DashboardModel {
         guard let plan, selectedPlanCount > 0 else { return false }
         guard let receipt = lastDryRunReceipt, receipt.mode == ExecutionMode.dryRun.rawValue else { return false }
         guard receipt.createdAt >= plan.createdAt else { return false }
+        guard dryRunReceiptMatchesCurrentSession(plan: plan, receipt: receipt) else { return false }
         return receipt.actions.allSatisfy { $0.status == "dry-run" } && receipt.errors.isEmpty
+    }
+
+    private func dryRunReceiptMatchesCurrentSession(plan: ReclaimPlan, receipt: ExecutionReceipt) -> Bool {
+        guard let currentScanSession else { return false }
+        guard [.dryRunReady, .reclaimReady].contains(currentScanSession.stage) else { return false }
+        return currentScanSession.planDigest == plan.id
+            && currentScanSession.dryRunReceiptID == receipt.id
     }
 
     var reclaimConfirmationMessage: String {
@@ -6993,6 +7145,8 @@ final class DashboardModel {
         lastDryRunReceipt = nil
         lastExecutionReceipt = nil
         lastScannedScopeLabel = nil
+        currentScanSession = nil
+        reviewedQueueID = nil
     }
 
     private func currentScopes(includeUnavailable: Bool) -> [ScanScope] {
@@ -7073,6 +7227,7 @@ final class DashboardModel {
             lastDryRunReceipt = nil
             lastExecutionReceipt = nil
             lastScanDate = Date()
+            recordScanSession(updatedAt: lastScanDate ?? Date())
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -7083,12 +7238,14 @@ final class DashboardModel {
         isWorking = true
         defer { isWorking = false }
         let currentFindings = findings
-        plan = await Task.detached {
+        let builtPlan = await Task.detached {
             let builder = PlanBuilder(openFileChecker: LsofOpenFileChecker())
             return builder.buildPlan(from: currentFindings, mode: .autoSafeOnly)
         }.value
+        plan = builtPlan
         lastDryRunReceipt = nil
         lastExecutionReceipt = nil
+        recordPlanSession(builtPlan)
         error = nil
     }
 
@@ -7117,6 +7274,7 @@ final class DashboardModel {
             }.value
             lastDryRunReceipt = receipt
             lastExecutionReceipt = nil
+            recordDryRunSession(receipt)
             _ = try AuditStore().save(plan: plan)
             _ = try AuditStore().save(receipt: receipt)
             loadAudit()
@@ -7151,6 +7309,7 @@ final class DashboardModel {
                     )
             }.value
             lastExecutionReceipt = receipt
+            recordExecutionSession(receipt)
             _ = try AuditStore().save(receipt: receipt)
             loadAudit()
             loadHolding()
@@ -7185,6 +7344,7 @@ final class DashboardModel {
             plan = nil
             lastDryRunReceipt = nil
             lastScanDate = Date()
+            recordScanSession(updatedAt: lastScanDate ?? Date())
         } catch {
             self.error = error.localizedDescription
         }

@@ -61,6 +61,27 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testReviewQueueRowsShowTypedSessionAwareEvidence() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("model.recordReviewSelection(queue.queueID)"),
+            "Selecting a review queue should record a typed reviewed ScanSession transition."
+        )
+        XCTAssertTrue(
+            source.contains("reviewQueueNextAction"),
+            "Review queue rows should derive next-action text from typed queue semantics."
+        )
+        XCTAssertTrue(
+            source.contains("reviewQueueBlockedReason"),
+            "Review queue rows should explain why Reclaim remains blocked for that queue."
+        )
+        XCTAssertTrue(
+            source.contains("Text(\"Next action\")") && source.contains("Text(\"Why blocked\")"),
+            "Review queue rows should label the next action and blocked reason explicitly."
+        )
+    }
+
     func testPackageCacheReviewShowsPreviewLane() throws {
         let source = try appSource()
 

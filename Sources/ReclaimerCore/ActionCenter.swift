@@ -285,26 +285,17 @@ public enum ActionCenterBuilder {
             return nil
         }
         guard let receipt else {
-            return ActionCenterAction(
-                id: "plan.\(plan.id).dry-run",
-                kind: .runDryRun,
-                title: "Run Dry Run",
-                reason: "Preview the current plan before cleanup.",
-                priority: 650,
-                estimatedReclaimBytes: plan.expectedImmediateReclaim,
-                count: plan.items.filter(\.selected).count,
-                sourceIDs: [plan.id]
-            )
+            return dryRunAction(for: plan, reason: "Preview the current plan before cleanup.")
         }
 
         guard receipt.mode == ExecutionMode.dryRun.rawValue else {
             return nil
         }
         guard receipt.errors.isEmpty else {
-            return nil
+            return dryRunAction(for: plan, reason: "The last dry run had errors, so the current plan needs a clean dry run.")
         }
         guard dryRunReceiptIsCurrent(plan: plan, receipt: receipt, session: session) else {
-            return nil
+            return dryRunAction(for: plan, reason: "The current plan selection needs a fresh dry-run receipt.")
         }
 
         let selectedItems = plan.items.filter(\.selected)
@@ -332,6 +323,19 @@ public enum ActionCenterBuilder {
             count: selectedItems.count,
             isDestructive: true,
             sourceIDs: [plan.id, receipt.id]
+        )
+    }
+
+    private static func dryRunAction(for plan: ReclaimPlan, reason: String) -> ActionCenterAction {
+        ActionCenterAction(
+            id: "plan.\(plan.id).dry-run",
+            kind: .runDryRun,
+            title: "Run Dry Run",
+            reason: reason,
+            priority: 650,
+            estimatedReclaimBytes: plan.expectedImmediateReclaim,
+            count: plan.items.filter(\.selected).count,
+            sourceIDs: [plan.id]
         )
     }
 

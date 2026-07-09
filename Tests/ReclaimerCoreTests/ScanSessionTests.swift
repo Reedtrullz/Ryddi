@@ -84,6 +84,62 @@ final class ScanSessionTests: XCTestCase {
         XCTAssertEqual(recoveryAvailable.executionReceiptID, "recoverable-receipt")
     }
 
+    func testPlanSelectionChangeClearsDryRunEvidenceAndBlocksExecuteSafePlan() throws {
+        let originalPlan = makePlan(id: "plan-v1", createdAt: Date(timeIntervalSince1970: 1_300))
+        let changedPlan = makePlan(id: "plan-v2", createdAt: Date(timeIntervalSince1970: 1_500))
+        let receipt = makeReceipt(
+            id: "dry-run-receipt",
+            mode: ExecutionMode.dryRun.rawValue,
+            action: .trash,
+            status: "dry-run"
+        )
+        let dryRunReady = makeSession()
+            .recordScan(findingDigest: "finding-v1", updatedAt: Date(timeIntervalSince1970: 1_100))
+            .recordReviewSelection(findingDigest: "finding-v1", updatedAt: Date(timeIntervalSince1970: 1_200))
+            .recordPlan(planDigest: originalPlan.id, updatedAt: Date(timeIntervalSince1970: 1_300))
+            .recordDryRunReceipt(receipt, updatedAt: Date(timeIntervalSince1970: 1_400))
+
+        let planReady = dryRunReady.recordPlan(planDigest: changedPlan.id, updatedAt: Date(timeIntervalSince1970: 1_500))
+        let report = ActionCenterBuilder.build(input: ActionCenterInput(
+            permissionReport: makePermissionReport(),
+            latestScanSession: planReady,
+            findings: changedPlan.items.map(\.finding),
+            currentPlan: changedPlan,
+            latestExecutionReceipt: receipt
+        ))
+
+        XCTAssertEqual(planReady.stage, .planReady)
+        XCTAssertEqual(planReady.planDigest, changedPlan.id)
+        XCTAssertNil(planReady.dryRunReceiptID)
+        XCTAssertNil(planReady.executionReceiptID)
+        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertEqual(report.primaryAction?.kind, .runDryRun)
+    }
+
+    func testReviewSelectionClearsPlanAndReceiptEvidence() {
+        let receipt = makeReceipt(
+            id: "dry-run-receipt",
+            mode: ExecutionMode.dryRun.rawValue,
+            action: .trash,
+            status: "dry-run"
+        )
+        let dryRunReady = makeSession()
+            .recordScan(findingDigest: "finding-v1", updatedAt: Date(timeIntervalSince1970: 1_100))
+            .recordPlan(planDigest: "plan-v1", updatedAt: Date(timeIntervalSince1970: 1_200))
+            .recordDryRunReceipt(receipt, updatedAt: Date(timeIntervalSince1970: 1_300))
+
+        let reviewed = dryRunReady.recordReviewSelection(
+            findingDigest: "finding-v1",
+            updatedAt: Date(timeIntervalSince1970: 1_400)
+        )
+
+        XCTAssertEqual(reviewed.stage, .reviewed)
+        XCTAssertEqual(reviewed.findingDigest, "finding-v1")
+        XCTAssertNil(reviewed.planDigest)
+        XCTAssertNil(reviewed.dryRunReceiptID)
+        XCTAssertNil(reviewed.executionReceiptID)
+    }
+
     func testSessionInvalidatesWhenBaselineDigestsChange() {
         let session = makeSession(policyDigest: "policy-v1")
             .recordScan(findingDigest: "finding-v1", updatedAt: Date(timeIntervalSince1970: 1_100))
@@ -195,6 +251,60 @@ final class ScanSessionTests: XCTestCase {
                 ExecutionActionReceipt(path: "/tmp/\(id)", action: action, status: status, message: "fixture", reclaimedBytes: 512)
             ],
             userConfirmed: mode == ExecutionMode.perform.rawValue
+        )
+    }
+
+    private func makePlan(id: String, createdAt: Date) -> ReclaimPlan {
+        let finding = Finding(
+            scopeName: "Fixture",
+            path: "/Users/example/Library/Caches/Ryddi-\(id)",
+            displayName: "Ryddi \(id)",
+            logicalSize: 4_096,
+            allocatedSize: 4_096,
+            isDirectory: true,
+            safetyClass: .autoSafe,
+            actionKind: .trash,
+            ruleMatches: [
+                RuleMatch(
+                    ruleID: "fixture.cache",
+                    title: "Fixture cache",
+                    category: "Cache",
+                    safetyClass: .autoSafe,
+                    actionKind: .trash,
+                    evidence: ["Fixture cache evidence"]
+                )
+            ],
+            evidence: [Evidence(kind: "fixture", message: "Fixture cache evidence")]
+        )
+        return ReclaimPlan(
+            id: id,
+            createdAt: createdAt,
+            mode: PlanMode.autoSafeOnly.rawValue,
+            items: [
+                ReclaimPlanItem(
+                    finding: finding,
+                    selected: true,
+                    proposedAction: .trash,
+                    conditions: [],
+                    estimatedImmediateReclaim: finding.allocatedSize
+                )
+            ],
+            dryRunSummary: []
+        )
+    }
+
+    private func makePermissionReport() -> PermissionAdvisorReport {
+        PermissionAdvisorReport(
+            coverageLevel: .complete,
+            readableCount: 1,
+            deniedCount: 0,
+            missingCount: 0,
+            unknownCount: 0,
+            totalCount: 1,
+            readableFraction: 1,
+            scopeSummaries: [],
+            recommendedActions: [],
+            nonClaims: []
         )
     }
 
