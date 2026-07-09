@@ -1,6 +1,39 @@
 import XCTest
 
 final class MacDiskReclaimerAppLayoutTests: XCTestCase {
+    func testAppEntrypointAndShellTypesAreSplitIntoFocusedFiles() throws {
+        let appEntry = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift"),
+            encoding: .utf8
+        )
+        let dashboard = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardView.swift"),
+            encoding: .utf8
+        )
+        let status = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/StatusMenuView.swift"),
+            encoding: .utf8
+        )
+        let pathActions = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/PathActions.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertLessThan(appEntry.split(separator: "\n").count, 90)
+        XCTAssertTrue(appEntry.contains("@main"))
+        XCTAssertTrue(appEntry.contains("struct MacDiskReclaimerApp: App"))
+        XCTAssertFalse(appEntry.contains("struct DashboardView"))
+        XCTAssertFalse(appEntry.contains("final class DashboardModel"))
+        XCTAssertTrue(dashboard.contains("struct DashboardView: View"))
+        XCTAssertTrue(status.contains("struct StatusMenuView: View"))
+        XCTAssertTrue(status.contains("final class StatusMenuModel"))
+        XCTAssertTrue(pathActions.contains("enum PathActions"))
+    }
+
     func testDashboardModelIsSplitOutOfAppShellAndGroupedByResponsibility() throws {
         let appEntry = try String(
             contentsOf: repoRoot()
@@ -478,10 +511,11 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
     }
 
     private func dashboardViewSource() throws -> String {
-        let source = try appSource()
-        let start = try XCTUnwrap(source.range(of: "struct DashboardView: View {"))
-        let end = try XCTUnwrap(source.range(of: "\n}\n\nstruct OverviewView: View {"))
-        return String(source[start.lowerBound..<end.lowerBound])
+        try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardView.swift"),
+            encoding: .utf8
+        )
     }
 
     private func dashboardModelScanPlanSource() throws -> String {
