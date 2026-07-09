@@ -310,6 +310,59 @@ final class ScanSessionTests: XCTestCase {
         XCTAssertNil(first.dryRunReceiptID)
     }
 
+    func testFilesystemIdentityChangeInvalidatesFindingAndPlanDigests() throws {
+        let firstIdentity = FilesystemIdentity(
+            fileResourceIdentifier: "data:file-a",
+            volumeIdentifier: "data:volume-a",
+            isDirectory: true,
+            isRegularFile: false,
+            isSymbolicLink: false,
+            isPackage: false,
+            isVolume: false,
+            fileSize: 96,
+            allocatedSize: 128,
+            modificationDate: Date(timeIntervalSince1970: 1_000)
+        )
+        let replacementIdentity = FilesystemIdentity(
+            fileResourceIdentifier: "data:file-b",
+            volumeIdentifier: "data:volume-a",
+            isDirectory: true,
+            isRegularFile: false,
+            isSymbolicLink: false,
+            isPackage: false,
+            isVolume: false,
+            fileSize: 96,
+            allocatedSize: 128,
+            modificationDate: Date(timeIntervalSince1970: 1_000)
+        )
+        let path = tempRoot.appendingPathComponent("identity-cache").path
+        let firstFinding = digestFinding(path: path, identity: firstIdentity)
+        let replacementFinding = digestFinding(path: path, identity: replacementIdentity)
+        let scope = ScanScope(name: "Fixture", root: tempRoot)
+
+        let firstDigest = ScanSessionEvidenceBuilder.findingDigest(
+            appVersion: "0.3.0",
+            ruleVersion: "rules-v1",
+            preset: .developer,
+            scopes: [scope],
+            userPathPolicy: .empty,
+            findings: [firstFinding]
+        )
+        let replacementDigest = ScanSessionEvidenceBuilder.findingDigest(
+            appVersion: "0.3.0",
+            ruleVersion: "rules-v1",
+            preset: .developer,
+            scopes: [scope],
+            userPathPolicy: .empty,
+            findings: [replacementFinding]
+        )
+        let firstPlan = PlanBuilder().buildPlan(from: [firstFinding])
+        let replacementPlan = PlanBuilder().buildPlan(from: [replacementFinding])
+
+        XCTAssertNotEqual(firstDigest, replacementDigest)
+        XCTAssertNotEqual(firstPlan.id, replacementPlan.id)
+    }
+
     private func makeSession(
         id: String = "session-1",
         createdAt: Date = Date(timeIntervalSince1970: 1_000),
@@ -331,6 +384,25 @@ final class ScanSessionTests: XCTestCase {
             executionReceiptID: nil,
             stage: .notStarted,
             invalidationReasons: []
+        )
+    }
+
+    private func digestFinding(path: String, identity: FilesystemIdentity) -> Finding {
+        Finding(
+            id: "stable-finding-id",
+            scopeName: "Fixture",
+            path: path,
+            displayName: "identity-cache",
+            logicalSize: 128,
+            allocatedSize: 128,
+            isDirectory: true,
+            modificationDate: Date(timeIntervalSince1970: 1_000),
+            filesystemIdentity: identity,
+            safetyClass: .autoSafe,
+            actionKind: .trash,
+            ruleMatches: [],
+            evidence: [],
+            openFileStatus: OpenFileStatus(isOpen: false)
         )
     }
 

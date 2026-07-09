@@ -445,7 +445,8 @@ public enum ScanSessionEvidenceBuilder {
                 "symlink=\(finding.isSymbolicLink)",
                 "safety=\(finding.safetyClass.rawValue)",
                 "action=\(finding.actionKind.rawValue)",
-                "modified=\(finding.modificationDate?.timeIntervalSince1970 ?? -1)"
+                "modified=\(finding.modificationDate?.timeIntervalSince1970 ?? -1)",
+                "filesystemIdentity=\(finding.filesystemIdentity?.digestComponent ?? "missing")"
             ].joined(separator: "\u{001f}")
         }
         return ScanSessionDigestBuilder.digest(ScanSessionDigestParts(

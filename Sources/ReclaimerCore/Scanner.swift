@@ -133,6 +133,7 @@ public final class FileScanner: @unchecked Sendable {
         let measurement = measure(url: url, maxDepth: options.measurementDepth, userPathPolicy: options.userPathPolicy)
         let classification = ruleEngine.classify(path: url.path, isDirectory: isDirectory, isSymbolicLink: isSymbolicLink)
         let openStatus = options.includeOpenFileStatus ? openFileChecker.status(for: url) : nil
+        let filesystemIdentity = try? FilesystemIdentity.capture(at: url)
 
         var safetyClass = classification.safetyClass
         var actionKind = classification.actionKind
@@ -188,6 +189,7 @@ public final class FileScanner: @unchecked Sendable {
             isDirectory: isDirectory,
             isSymbolicLink: isSymbolicLink,
             modificationDate: values?.contentModificationDate,
+            filesystemIdentity: filesystemIdentity,
             ownerHint: ownerHint(for: url.path),
             safetyClass: safetyClass,
             actionKind: actionKind,

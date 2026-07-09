@@ -286,6 +286,7 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
     public let isDirectory: Bool
     public let isSymbolicLink: Bool
     public let modificationDate: Date?
+    public let filesystemIdentity: FilesystemIdentity?
     public let ownerHint: String?
     public let safetyClass: SafetyClass
     public let actionKind: ActionKind
@@ -303,6 +304,7 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
         isDirectory: Bool,
         isSymbolicLink: Bool = false,
         modificationDate: Date? = nil,
+        filesystemIdentity: FilesystemIdentity? = nil,
         ownerHint: String? = nil,
         safetyClass: SafetyClass,
         actionKind: ActionKind,
@@ -319,6 +321,7 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
         self.isDirectory = isDirectory
         self.isSymbolicLink = isSymbolicLink
         self.modificationDate = modificationDate
+        self.filesystemIdentity = filesystemIdentity
         self.ownerHint = ownerHint
         self.safetyClass = safetyClass
         self.actionKind = actionKind
@@ -361,6 +364,7 @@ public extension Finding {
             isDirectory: isDirectory,
             isSymbolicLink: isSymbolicLink,
             modificationDate: modificationDate,
+            filesystemIdentity: filesystemIdentity,
             ownerHint: ownerHint,
             safetyClass: safetyClass,
             actionKind: actionKind,

@@ -264,6 +264,7 @@ public final class PlanBuilder: @unchecked Sendable {
         let isDirectory: Bool
         let isSymbolicLink: Bool
         let modificationTimestamp: TimeInterval?
+        let filesystemIdentity: FilesystemIdentity?
         let conditionStates: [String]
 
         init(item: ReclaimPlanItem) {
@@ -277,6 +278,7 @@ public final class PlanBuilder: @unchecked Sendable {
             self.isDirectory = item.finding.isDirectory
             self.isSymbolicLink = item.finding.isSymbolicLink
             self.modificationTimestamp = item.finding.modificationDate?.timeIntervalSince1970
+            self.filesystemIdentity = item.finding.filesystemIdentity
             self.conditionStates = item.conditions
                 .map { "\($0.kind.rawValue)=\($0.isSatisfied ? "true" : "false")" }
                 .sorted()
@@ -294,6 +296,7 @@ public final class PlanBuilder: @unchecked Sendable {
             parts.append(isDirectory ? "directory" : "file")
             parts.append(isSymbolicLink ? "symlink" : "not-symlink")
             parts.append(modificationTimestamp.map { String($0) } ?? "no-mtime")
+            parts.append(filesystemIdentity?.digestComponent ?? "no-filesystem-identity")
             parts.append(conditionStates.joined(separator: "\u{001f}"))
             return parts.joined(separator: "\u{001f}")
         }

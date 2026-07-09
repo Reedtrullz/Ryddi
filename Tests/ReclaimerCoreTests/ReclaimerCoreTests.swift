@@ -5186,7 +5186,13 @@ final class ReclaimerCoreTests: XCTestCase {
         let file = tempRoot.appendingPathComponent("cache.bin")
         try Data(repeating: 4, count: 128).write(to: file)
         let holdRoot = tempRoot.appendingPathComponent("Holding", isDirectory: true)
-        let candidate = finding(path: file.path, safety: .safeAfterCondition, action: .quarantineHold, open: false)
+        let candidate = finding(
+            path: file.path,
+            safety: .safeAfterCondition,
+            action: .quarantineHold,
+            open: false,
+            filesystemIdentity: try FilesystemIdentity.capture(at: file)
+        )
         let engine = RuleEngine(
             version: "test",
             rules: [
@@ -5679,6 +5685,7 @@ final class ReclaimerCoreTests: XCTestCase {
         conditionGates: [PlanConditionKind] = [],
         allocatedSize: Int64 = 128,
         isDirectory: Bool = false,
+        filesystemIdentity: FilesystemIdentity? = nil,
         category: String = "Fixture",
         ownerHint: String? = nil
     ) -> Finding {
@@ -5701,6 +5708,7 @@ final class ReclaimerCoreTests: XCTestCase {
             logicalSize: allocatedSize,
             allocatedSize: allocatedSize,
             isDirectory: isDirectory,
+            filesystemIdentity: filesystemIdentity,
             ownerHint: ownerHint,
             safetyClass: safety,
             actionKind: action,

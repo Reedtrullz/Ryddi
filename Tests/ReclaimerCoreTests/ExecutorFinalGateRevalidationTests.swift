@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 @testable import ReclaimerCore
 
@@ -124,6 +125,59 @@ final class ExecutorFinalGateRevalidationTests: XCTestCase {
         XCTAssertEqual(receipt.actions.first?.status, "skipped")
         XCTAssertTrue(receipt.actions.first?.message.localizedCaseInsensitiveContains("missing current scan session") ?? false)
         XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("missing current scan session") })
+    }
+
+    func testPerformSkipsReplacementDirectoryAtPlannedPath() throws {
+        let cache = root.appendingPathComponent("Library/Caches/Codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data(repeating: 5, count: 16).write(to: cache.appendingPathComponent("planned.bin"))
+        let findings = try FileScanner(openFileChecker: ExecutorClearOpenFileChecker()).scan(
+            scopes: [ScanScope(name: "Fixture", root: cache)],
+            options: ScanOptions(minimumFindingSize: 0, maximumFindingDepth: 1, includeOpenFileStatus: false)
+        )
+        let plan = PlanBuilder(openFileChecker: ExecutorClearOpenFileChecker()).buildPlan(from: findings)
+        XCTAssertTrue(plan.items.contains(where: \.selected))
+
+        let originalDirectoryDescriptor = open(cache.path, O_RDONLY)
+        XCTAssertGreaterThanOrEqual(originalDirectoryDescriptor, 0)
+        defer { close(originalDirectoryDescriptor) }
+        try FileManager.default.removeItem(at: cache)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let replacement = cache.appendingPathComponent("replacement-must-survive.bin")
+        try Data(repeating: 6, count: 16).write(to: replacement)
+
+        let receipt = ReclaimerExecutor(
+            openFileChecker: ExecutorClearOpenFileChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan))
+        )
+        .execute(plan: plan, mode: .perform, ruleVersion: "fixture", userConfirmed: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: replacement.path))
+        XCTAssertTrue(receipt.actions.contains {
+            $0.status == "skipped" && $0.message.localizedCaseInsensitiveContains("filesystem identity")
+        })
+    }
+
+    func testLegacyFindingWithoutIdentityDecodesButCannotPerform() throws {
+        let cache = root.appendingPathComponent("legacy-finding-cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 16).write(to: cache.appendingPathComponent("cache.bin"))
+        let legacyFinding = finding(path: cache.path, ruleID: "fixture.legacy-finding", conditionGates: [])
+        let legacyData = try JSONEncoder().encode(legacyFinding)
+        XCTAssertFalse(String(decoding: legacyData, as: UTF8.self).contains("filesystemIdentity"))
+        let decodedFinding = try JSONDecoder().decode(Finding.self, from: legacyData)
+        let plan = selectedPlan(for: decodedFinding, conditions: [])
+
+        let receipt = ReclaimerExecutor(
+            openFileChecker: ExecutorClearOpenFileChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan)),
+            ruleEngine: RuleEngine(version: "fixture", rules: [rule(id: "fixture.legacy-finding", pathNeedle: cache.path)])
+        )
+        .execute(plan: plan, mode: .perform, ruleVersion: "fixture", userConfirmed: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
+        XCTAssertEqual(receipt.actions.first?.status, "skipped")
+        XCTAssertTrue(receipt.actions.first?.message.localizedCaseInsensitiveContains("filesystem identity") ?? false)
     }
 
     private func finding(

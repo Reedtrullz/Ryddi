@@ -157,6 +157,9 @@ public final class ReclaimerExecutor: @unchecked Sendable {
         guard fileManager.fileExists(atPath: url.path) else {
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Path no longer exists.")
         }
+        if let identityFailure = validateFilesystemIdentity(for: item) {
+            return identityFailure
+        }
 
         do {
             switch item.proposedAction {
@@ -238,6 +241,39 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Could not load rules for final safety check: \(error.localizedDescription)")
         }
 
+        return nil
+    }
+
+    private func validateFilesystemIdentity(for item: ReclaimPlanItem) -> ExecutionActionReceipt? {
+        let finding = item.finding
+        guard let plannedIdentity = finding.filesystemIdentity else {
+            return ExecutionActionReceipt(
+                path: finding.path,
+                action: item.proposedAction,
+                status: "skipped",
+                message: "Planned filesystem identity is missing; run a new scan, plan, and dry run."
+            )
+        }
+
+        let currentIdentity: FilesystemIdentity
+        do {
+            currentIdentity = try FilesystemIdentity.capture(at: URL(fileURLWithPath: finding.path))
+        } catch {
+            return ExecutionActionReceipt(
+                path: finding.path,
+                action: item.proposedAction,
+                status: "skipped",
+                message: "Current filesystem identity could not be read; perform was blocked."
+            )
+        }
+        guard currentIdentity == plannedIdentity else {
+            return ExecutionActionReceipt(
+                path: finding.path,
+                action: item.proposedAction,
+                status: "skipped",
+                message: "Filesystem identity or required metadata changed after planning."
+            )
+        }
         return nil
     }
 
