@@ -76,6 +76,8 @@ struct ReclaimerCLI {
             try containers(args: args)
         case "remote":
             try remote(args: args)
+        case "issue":
+            try issue(args: args)
         case "policy":
             try policy(args: args)
         case "scan":
@@ -1798,6 +1800,7 @@ struct ReclaimerCLI {
               active [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit] [--include-user-rules]
               audit summary [--json]
               audit prune [--dry-run|--yes] [--older-than-days N] [--keep-recent N] [--json]
+              issue package --output DIR [--path-style redacted|home-relative] [--include-remote] [--replace] [--json]
               history record [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
