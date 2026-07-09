@@ -109,11 +109,15 @@ final class DashboardModel {
     var canTrashPreviewedApp: Bool {
         guard let preview = appUninstallPreview,
               let receipt = lastAppUninstallDryRunReceipt,
-              receipt.previewID == preview.id else {
+              receipt.previewID == preview.id,
+              receipt.authorizationDigest == preview.bundleAuthorizationDigest else {
             return false
         }
+        let age = Date().timeIntervalSince(receipt.createdAt)
         return receipt.status == "dry-run"
             && receipt.errors.isEmpty
+            && age >= 0
+            && age <= AppUninstallExecutorConfiguration.maximumDryRunAuthorizationAge
             && preview.bundleCandidate.disposition == .trashPreview
     }
 

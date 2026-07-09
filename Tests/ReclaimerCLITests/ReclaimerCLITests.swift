@@ -495,6 +495,84 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertTrue(nativeAction.sourceIDs.contains("brew.preview"))
     }
 
+    func testAppUninstallYesWithoutSavedMatchingDryRunIsBlocked() throws {
+        let appRoot = readableScope.appendingPathComponent("Applications", isDirectory: true)
+        let home = readableScope.appendingPathComponent("Home", isDirectory: true)
+        let app = appRoot.appendingPathComponent("No Authorization.app", isDirectory: true)
+        try createAppBundle(
+            at: app,
+            bundleIdentifier: "com.example.no-authorization",
+            displayName: "No Authorization"
+        )
+
+        XCTAssertThrowsError(
+            try captureStandardOutput {
+                try ReclaimerCLI.run(arguments: [
+                    "apps", "uninstall",
+                    "--yes",
+                    "--app", app.path,
+                    "--path", appRoot.path,
+                    "--home", home.path,
+                    "--min-size", "1",
+                    "--json"
+                ])
+            }
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("saved matching app uninstall dry-run receipt"), String(describing: error))
+            XCTAssertTrue(error.localizedDescription.contains("--dry-run"), String(describing: error))
+            XCTAssertTrue(error.localizedDescription.contains("--save-audit"), String(describing: error))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
+    }
+
+    func testAppUninstallYesUsesSavedStableDryRunAcrossFreshPreviewID() throws {
+        let appRoot = readableScope.appendingPathComponent("Applications", isDirectory: true)
+        let home = readableScope.appendingPathComponent("Home", isDirectory: true)
+        let app = appRoot.appendingPathComponent("Authorized CLI.app", isDirectory: true)
+        try createAppBundle(
+            at: app,
+            bundleIdentifier: "com.example.authorized-cli",
+            displayName: "Authorized CLI"
+        )
+        let commonArguments = [
+            "--app", app.path,
+            "--path", appRoot.path,
+            "--home", home.path,
+            "--min-size", "1",
+            "--json"
+        ]
+
+        let dryRunOutput = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: [
+                "apps", "uninstall",
+                "--dry-run",
+                "--no-lsof",
+                "--save-audit"
+            ] + commonArguments)
+        }
+        let dryRun = try JSONDecoder.ryddi.decode(AppUninstallExecutionReceipt.self, from: Data(dryRunOutput.utf8))
+        XCTAssertEqual(dryRun.status, "dry-run")
+        XCTAssertNotNil(dryRun.authorizationDigest)
+
+        let performOutput = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: [
+                "apps", "uninstall",
+                "--yes"
+            ] + commonArguments)
+        }
+        let performed = try JSONDecoder.ryddi.decode(AppUninstallExecutionReceipt.self, from: Data(performOutput.utf8))
+        defer {
+            if let resultingTrashPath = performed.resultingTrashPath {
+                try? FileManager.default.removeItem(atPath: resultingTrashPath)
+            }
+        }
+
+        XCTAssertEqual(performed.status, "done", performed.message)
+        XCTAssertNotEqual(performed.previewID, dryRun.previewID)
+        XCTAssertEqual(performed.authorizationDigest, dryRun.authorizationDigest)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: app.path))
+    }
+
     private func makeSession(
         id: String,
         updatedAt: Date,
@@ -536,6 +614,21 @@ final class ReclaimerCLITests: XCTestCase {
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
         try Data(repeating: 9, count: 4_096).write(to: cache.appendingPathComponent("bottle.tar.gz"))
         return cache
+    }
+
+    private func createAppBundle(at url: URL, bundleIdentifier: String, displayName: String) throws {
+        let contents = url.appendingPathComponent("Contents", isDirectory: true)
+        let macOS = contents.appendingPathComponent("MacOS", isDirectory: true)
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        let info: [String: Any] = [
+            "CFBundleIdentifier": bundleIdentifier,
+            "CFBundleDisplayName": displayName,
+            "CFBundleName": displayName,
+            "CFBundleExecutable": displayName
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+        try data.write(to: contents.appendingPathComponent("Info.plist"))
+        try Data(repeating: 8, count: 512).write(to: macOS.appendingPathComponent(displayName))
     }
 
     private func scanFixtureArguments(command: String) -> [String] {

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 #if canImport(AppKit)
 import AppKit
@@ -79,6 +80,7 @@ public struct AppUninstallPreview: Codable, Hashable, Identifiable, Sendable {
     public let selectedApp: InstalledApp
     public let selector: AppUninstallSelector
     public let bundleCandidate: AppUninstallCandidate
+    public let bundleAuthorizationDigest: String?
     public let relatedItems: [AppReviewItem]
     public let relatedReviewBytes: Int64
     public let explicitTrashPreviewBytes: Int64
@@ -92,6 +94,7 @@ public struct AppUninstallPreview: Codable, Hashable, Identifiable, Sendable {
         selectedApp: InstalledApp,
         selector: AppUninstallSelector,
         bundleCandidate: AppUninstallCandidate,
+        bundleAuthorizationDigest: String? = nil,
         relatedItems: [AppReviewItem],
         notes: [String],
         nonClaims: [String]
@@ -101,6 +104,7 @@ public struct AppUninstallPreview: Codable, Hashable, Identifiable, Sendable {
         self.selectedApp = selectedApp
         self.selector = selector
         self.bundleCandidate = bundleCandidate
+        self.bundleAuthorizationDigest = bundleAuthorizationDigest
         self.relatedItems = relatedItems.sorted { lhs, rhs in
             if lhs.allocatedSize == rhs.allocatedSize {
                 return lhs.path < rhs.path
@@ -181,6 +185,11 @@ public enum AppUninstallPreviewBuilder {
             }?
             .items ?? []
         let bundleCandidate = bundleCandidate(for: app)
+        let bundleURL = URL(fileURLWithPath: app.path).standardizedFileURL
+        let bundleAuthorizationDigest = try? AppUninstallAuthorizationDigest.capture(
+            app: app,
+            bundleURL: bundleURL
+        )
         let protected = bundleCandidate.disposition != .trashPreview
         let notes = [
             protected
@@ -201,6 +210,7 @@ public enum AppUninstallPreviewBuilder {
             selectedApp: app,
             selector: selector,
             bundleCandidate: bundleCandidate,
+            bundleAuthorizationDigest: bundleAuthorizationDigest,
             relatedItems: related,
             notes: notes,
             nonClaims: nonClaims
@@ -326,6 +336,58 @@ public enum AppUninstallPreviewBuilder {
     }
 }
 
+private enum AppUninstallAuthorizationDigest {
+    static func capture(app: InstalledApp, bundleURL: URL) throws -> String {
+        let normalizedURL = bundleURL.standardizedFileURL
+        let bundleIdentity = try FilesystemIdentity.capture(at: normalizedURL)
+        guard bundleIdentity.isDirectory,
+              !bundleIdentity.isSymbolicLink,
+              !bundleIdentity.isVolume else {
+            throw FilesystemIdentityError.missingStableIdentifier(normalizedURL.path)
+        }
+
+        let infoURL = normalizedURL.appendingPathComponent("Contents/Info.plist")
+        let infoIdentity = try FilesystemIdentity.capture(at: infoURL)
+        guard infoIdentity.isRegularFile,
+              !infoIdentity.isSymbolicLink,
+              !infoIdentity.isPackage,
+              !infoIdentity.isVolume else {
+            throw FilesystemIdentityError.missingStableIdentifier(infoURL.path)
+        }
+
+        let executableIdentity: String
+        if let executableName = app.executableName, !executableName.isEmpty {
+            let executableURL = normalizedURL.appendingPathComponent("Contents/MacOS/\(executableName)")
+            let identity = try FilesystemIdentity.capture(at: executableURL)
+            guard identity.isRegularFile,
+                  !identity.isSymbolicLink,
+                  !identity.isPackage,
+                  !identity.isVolume else {
+                throw FilesystemIdentityError.missingStableIdentifier(executableURL.path)
+            }
+            executableIdentity = identity.digestComponent
+        } else {
+            executableIdentity = "no-executable"
+        }
+
+        let payload = [
+            "ryddi.app-uninstall.authorization.v1",
+            normalizedURL.path,
+            app.bundleIdentifier ?? "no-bundle-identifier",
+            app.displayName,
+            app.version ?? "no-version",
+            app.executableName ?? "no-executable-name",
+            app.modificationDate.map { String($0.timeIntervalSince1970) } ?? "no-app-mtime",
+            bundleIdentity.digestComponent,
+            infoIdentity.digestComponent,
+            executableIdentity
+        ].joined(separator: "\u{001e}")
+        return SHA256.hash(data: Data(payload.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+}
+
 public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let createdAt: Date
@@ -342,6 +404,7 @@ public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sen
     public let status: String
     public let message: String
     public let resultingTrashPath: String?
+    public let authorizationDigest: String?
     public let errors: [String]
     public let nonClaims: [String]
 
@@ -361,6 +424,7 @@ public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sen
         status: String,
         message: String,
         resultingTrashPath: String? = nil,
+        authorizationDigest: String? = nil,
         errors: [String] = [],
         nonClaims: [String]
     ) {
@@ -379,24 +443,56 @@ public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sen
         self.status = status
         self.message = message
         self.resultingTrashPath = resultingTrashPath
+        self.authorizationDigest = authorizationDigest
         self.errors = errors
         self.nonClaims = nonClaims
     }
 }
 
+public struct AppUninstallPerformAuthorization: Codable, Hashable, Sendable {
+    public let dryRunReceipt: AppUninstallExecutionReceipt
+
+    public init(dryRunReceipt: AppUninstallExecutionReceipt) {
+        self.dryRunReceipt = dryRunReceipt
+    }
+}
+
 public struct AppUninstallExecutorConfiguration: Sendable {
+    /// App-uninstall dry-run authorization is never valid for more than 15 minutes.
+    public static let maximumDryRunAuthorizationAge: TimeInterval = 15 * 60
+
     public let userPathPolicy: UserPathPolicy
     public let allowedAppRoots: [URL]
+    public let dryRunAuthorizationAge: TimeInterval
 
     public init(
         userPathPolicy: UserPathPolicy = .empty,
         allowedAppRoots: [URL] = [
             URL(fileURLWithPath: "/Applications"),
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
-        ]
+        ],
+        dryRunAuthorizationAge: TimeInterval = Self.maximumDryRunAuthorizationAge
     ) {
         self.userPathPolicy = userPathPolicy
         self.allowedAppRoots = allowedAppRoots.map(\.standardizedFileURL)
+        self.dryRunAuthorizationAge = max(
+            1,
+            min(dryRunAuthorizationAge, Self.maximumDryRunAuthorizationAge)
+        )
+    }
+}
+
+public protocol AppBundleTrashing: Sendable {
+    func trashItem(at url: URL) throws -> URL?
+}
+
+public struct FileManagerAppBundleTrasher: AppBundleTrashing {
+    public init() {}
+
+    public func trashItem(at url: URL) throws -> URL? {
+        var trashedURL: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &trashedURL)
+        return trashedURL as URL?
     }
 }
 
@@ -433,23 +529,30 @@ public final class AppUninstallExecutor: @unchecked Sendable {
     private let openFileChecker: OpenFileChecking
     private let runningApplicationChecker: RunningApplicationChecking
     private let configuration: AppUninstallExecutorConfiguration
+    private let appBundleTrasher: any AppBundleTrashing
+    private let now: @Sendable () -> Date
 
     public init(
         fileManager: FileManager = .default,
         openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
         runningApplicationChecker: RunningApplicationChecking = SystemRunningApplicationChecker(),
-        configuration: AppUninstallExecutorConfiguration = AppUninstallExecutorConfiguration()
+        configuration: AppUninstallExecutorConfiguration = AppUninstallExecutorConfiguration(),
+        appBundleTrasher: any AppBundleTrashing = FileManagerAppBundleTrasher(),
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.fileManager = fileManager
         self.openFileChecker = openFileChecker
         self.runningApplicationChecker = runningApplicationChecker
         self.configuration = configuration
+        self.appBundleTrasher = appBundleTrasher
+        self.now = now
     }
 
     public func execute(
         preview: AppUninstallPreview,
         mode: ExecutionMode,
-        userConfirmed: Bool
+        userConfirmed: Bool,
+        authorization: AppUninstallPerformAuthorization? = nil
     ) -> AppUninstallExecutionReceipt {
         let candidate = preview.bundleCandidate
         let url = URL(fileURLWithPath: candidate.path).standardizedFileURL
@@ -503,29 +606,80 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         if let checkFailed = openStatus.checkFailed {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Open-file check failed: \(checkFailed)")
         }
+        let currentAuthorizationDigest: String
+        do {
+            currentAuthorizationDigest = try AppUninstallAuthorizationDigest.capture(
+                app: current,
+                bundleURL: url
+            )
+        } catch {
+            return receipt(
+                preview: preview,
+                mode: mode,
+                userConfirmed: userConfirmed,
+                status: "skipped",
+                message: "Could not capture stable app-bundle identity and metadata for authorization: \(error.localizedDescription)"
+            )
+        }
+        guard let previewAuthorizationDigest = preview.bundleAuthorizationDigest else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App uninstall preview lacks stable bundle authorization evidence; rebuild the preview.")
+        }
+        guard previewAuthorizationDigest == currentAuthorizationDigest else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle identity or metadata changed since preview; rebuild the preview and dry run.")
+        }
         guard mode == .perform else {
             return receipt(
                 preview: preview,
                 mode: mode,
                 userConfirmed: userConfirmed,
                 status: "dry-run",
-                message: "Would move selected app bundle to Trash. Related support files would remain untouched."
+                message: "Would move selected app bundle to Trash. Related support files would remain untouched.",
+                authorizationDigest: currentAuthorizationDigest
             )
         }
         guard userConfirmed else {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Moving an app bundle to Trash requires explicit --yes/user confirmation.")
         }
+        if let blockReason = authorizationBlockReason(
+            authorization: authorization,
+            preview: preview,
+            currentApp: current,
+            currentAuthorizationDigest: currentAuthorizationDigest,
+            now: now()
+        ) {
+            return receipt(
+                preview: preview,
+                mode: mode,
+                userConfirmed: userConfirmed,
+                status: "skipped",
+                message: blockReason
+            )
+        }
+        guard let finalApp = currentInstalledApp(at: url),
+              let finalAuthorizationDigest = try? AppUninstallAuthorizationDigest.capture(
+                  app: finalApp,
+                  bundleURL: url
+              ),
+              finalAuthorizationDigest == currentAuthorizationDigest else {
+            return receipt(
+                preview: preview,
+                mode: mode,
+                userConfirmed: userConfirmed,
+                status: "skipped",
+                message: "App bundle identity or metadata changed during final authorization; rebuild the preview and dry run."
+            )
+        }
 
         do {
-            var trashedURL: NSURL?
-            try fileManager.trashItem(at: url, resultingItemURL: &trashedURL)
+            let trashedURL = try appBundleTrasher.trashItem(at: url)
             return receipt(
                 preview: preview,
                 mode: mode,
                 userConfirmed: userConfirmed,
                 status: "done",
                 message: "Moved selected app bundle to Trash. Related support files were not touched.",
-                resultingTrashPath: trashedURL?.path
+                resultingTrashPath: trashedURL?.path,
+                authorizationDigest: currentAuthorizationDigest
             )
         } catch {
             return receipt(
@@ -546,9 +700,11 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         status: String,
         message: String,
         resultingTrashPath: String? = nil,
+        authorizationDigest: String? = nil,
         errors: [String] = []
     ) -> AppUninstallExecutionReceipt {
         AppUninstallExecutionReceipt(
+            createdAt: now(),
             previewID: preview.id,
             mode: mode.rawValue,
             appDisplayName: preview.selectedApp.displayName,
@@ -562,6 +718,7 @@ public final class AppUninstallExecutor: @unchecked Sendable {
             status: status,
             message: message,
             resultingTrashPath: resultingTrashPath,
+            authorizationDigest: authorizationDigest,
             errors: errors,
             nonClaims: [
                 "Only the selected app bundle is in scope for this receipt; related support files were not moved or deleted.",
@@ -571,6 +728,43 @@ public final class AppUninstallExecutor: @unchecked Sendable {
                 "Preferences, licenses, app support data, containers, saved state, user documents, and creative assets remain review-only/manual."
             ]
         )
+    }
+
+    private func authorizationBlockReason(
+        authorization: AppUninstallPerformAuthorization?,
+        preview: AppUninstallPreview,
+        currentApp: InstalledApp,
+        currentAuthorizationDigest: String,
+        now: Date
+    ) -> String? {
+        guard let authorization else {
+            return "App uninstall perform requires a fresh matching dry-run authorization receipt. Run app uninstall dry run with audit saving first."
+        }
+        let dryRun = authorization.dryRunReceipt
+        guard dryRun.mode == ExecutionMode.dryRun.rawValue,
+              dryRun.status == "dry-run",
+              dryRun.errors.isEmpty,
+              dryRun.resultingTrashPath == nil,
+              dryRun.actionKind == .trash,
+              dryRun.disposition == .trashPreview else {
+            return "App uninstall authorization is not a clean dry-run receipt."
+        }
+        let expectedPath = URL(fileURLWithPath: preview.bundleCandidate.path).standardizedFileURL.path
+        let authorizedPath = URL(fileURLWithPath: dryRun.bundlePath).standardizedFileURL.path
+        guard authorizedPath == expectedPath else {
+            return "App uninstall dry-run authorization belongs to a different app bundle path."
+        }
+        guard dryRun.bundleIdentifier == currentApp.bundleIdentifier else {
+            return "App uninstall dry-run authorization belongs to different bundle metadata."
+        }
+        let age = now.timeIntervalSince(dryRun.createdAt)
+        guard age >= 0, age <= configuration.dryRunAuthorizationAge else {
+            return "App uninstall dry-run authorization is stale; run the dry run again."
+        }
+        guard dryRun.authorizationDigest == currentAuthorizationDigest else {
+            return "App uninstall dry-run authorization does not match the current bundle identity or metadata."
+        }
+        return nil
     }
 
     private func currentInstalledApp(at url: URL) -> InstalledApp? {

@@ -419,7 +419,7 @@ swift run --scratch-path .build reclaimer apps uninstall --dry-run --app /Applic
 swift run --scratch-path .build reclaimer apps uninstall --yes --app /Applications/Example.app --json --save-audit
 ```
 
-The preview separates the app bundle from related support files. `apps uninstall --dry-run` writes a receipt for moving only the selected app bundle to Trash. `apps uninstall --yes` performs that app-bundle Trash move after open-file, user-policy, and final bundle protection checks. Related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. Ryddi does not quit apps, unload helpers, run vendor uninstallers, or clean leftovers automatically.
+The preview separates the app bundle from related support files. `apps uninstall --dry-run --save-audit` writes a receipt for moving only the selected app bundle to Trash. `apps uninstall --yes` requires a clean saved dry-run receipt from the previous 15 minutes that matches the current normalized path, bundle metadata, filesystem identity, type, size, and modification evidence; the executor revalidates that evidence together with open-file, user-policy, and final bundle protection checks immediately before Trash. Related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. Ryddi does not quit apps, unload helpers, run vendor uninstallers, or clean leftovers automatically.
 
 ## Downloads Review
 

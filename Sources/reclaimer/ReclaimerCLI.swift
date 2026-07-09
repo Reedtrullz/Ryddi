@@ -1135,6 +1135,29 @@ struct ReclaimerCLI {
         let appReviewOptions = options.appReviewOptions
         let report = try AppReviewScanner().scan(options: appReviewOptions)
         let preview = try AppUninstallPreviewBuilder.build(report: report, selector: options.appUninstallSelector)
+        let auditStore = AuditStore()
+        let authorization: AppUninstallPerformAuthorization?
+        if options.dryRun {
+            authorization = nil
+        } else {
+            let expectedPath = URL(fileURLWithPath: preview.bundleCandidate.path).standardizedFileURL.path
+            guard let dryRunReceipt = auditStore.recentAppUninstallReceipts(limit: 100).first(where: { receipt in
+                receipt.mode == ExecutionMode.dryRun.rawValue
+                    && receipt.status == "dry-run"
+                    && receipt.errors.isEmpty
+                    && receipt.resultingTrashPath == nil
+                    && receipt.actionKind == .trash
+                    && receipt.disposition == .trashPreview
+                    && receipt.bundleIdentifier == preview.selectedApp.bundleIdentifier
+                    && URL(fileURLWithPath: receipt.bundlePath).standardizedFileURL.path == expectedPath
+            }) else {
+                throw CLIError.message(
+                    "apps uninstall --yes requires a saved matching app uninstall dry-run receipt. "
+                        + "Run reclaimer apps uninstall --dry-run --save-audit with the same app selector and scope first."
+                )
+            }
+            authorization = AppUninstallPerformAuthorization(dryRunReceipt: dryRunReceipt)
+        }
         let receipt = AppUninstallExecutor(
             openFileChecker: options.noLsof && options.dryRun ? NoOpenFilesChecker() : LsofOpenFileChecker(),
             configuration: AppUninstallExecutorConfiguration(
@@ -1145,11 +1168,12 @@ struct ReclaimerCLI {
             .execute(
                 preview: preview,
                 mode: options.dryRun ? .dryRun : .perform,
-                userConfirmed: options.yes
+                userConfirmed: options.yes,
+                authorization: authorization
             )
         if options.saveAudit {
-            let previewURL = try AuditStore().save(appUninstallPreview: preview)
-            let receiptURL = try AuditStore().save(appUninstallReceipt: receipt)
+            let previewURL = try auditStore.save(appUninstallPreview: preview)
+            let receiptURL = try auditStore.save(appUninstallReceipt: receipt)
             FileHandle.standardError.write(Data("saved app uninstall preview: \(previewURL.path)\n".utf8))
             FileHandle.standardError.write(Data("saved app uninstall receipt: \(receiptURL.path)\n".utf8))
         }

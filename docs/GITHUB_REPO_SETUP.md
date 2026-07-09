@@ -95,7 +95,7 @@ Known limits:
 - no Apple notarization unless Developer ID credentials are configured
 - no screenshots/GIFs for the first-run permission walkthrough yet
 - no root helper or system-wide cleanup
-- app uninstall execution can move only the selected app bundle to Trash after dry run and confirmation; related app support files stay review-only
+- app uninstall execution can move only the selected app bundle to Trash after a fresh saved matching dry run, confirmation, and final identity/metadata revalidation; related app support files stay review-only
 - Project Dependencies Review does not delete, move, Trash, prune, purge, clean, execute project scripts, or modify project files, source, manifests, lockfiles, env files, dependencies, build outputs, credentials, IDE settings, workspace metadata, generated code, local editable installs, or unknown project state
 - Xcode Review does not delete, move, Trash, prune, purge, reset simulators, or modify Xcode files
 ```

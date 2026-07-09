@@ -273,7 +273,9 @@ extension DashboardModel {
     }
 
     func trashPreviewedApp() async {
-        guard canTrashPreviewedApp, let preview = appUninstallPreview else {
+        guard canTrashPreviewedApp,
+              let preview = appUninstallPreview,
+              let dryRunReceipt = lastAppUninstallDryRunReceipt else {
             error = "Run a clean app uninstall dry run before moving the app bundle to Trash."
             return
         }
@@ -287,7 +289,12 @@ extension DashboardModel {
                     openFileChecker: LsofOpenFileChecker(),
                     configuration: AppUninstallExecutorConfiguration(userPathPolicy: policy, allowedAppRoots: allowedRoots)
                 )
-                    .execute(preview: preview, mode: .perform, userConfirmed: true)
+                    .execute(
+                        preview: preview,
+                        mode: .perform,
+                        userConfirmed: true,
+                        authorization: AppUninstallPerformAuthorization(dryRunReceipt: dryRunReceipt)
+                    )
             }.value
             lastAppUninstallReceipt = receipt
             _ = try AuditStore().save(appUninstallReceipt: receipt)
