@@ -8,7 +8,7 @@ extension ReclaimerCLI {
         }
         let rest = Array(args.dropFirst())
         switch subcommand {
-        case "execute", "prune", "reset":
+        case "execute", "prune", "reset", "delete", "clean", "vacuum":
             throw CLIError.message("Remote \(subcommand) is not available in v1; Remote Targets are report-only and never run destructive cleanup.")
         case "targets":
             try remoteTargets(args: rest)
