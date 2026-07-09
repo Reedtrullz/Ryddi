@@ -56,6 +56,8 @@ struct DashboardView: View {
     @State private var model = DashboardModel()
     @AppStorage(RyddiAppStorageKey.defaultScanPreset) private var defaultScanPresetRaw = ScanScopePreset.developer.rawValue
     @AppStorage(RyddiAppStorageKey.includeUserRulesByDefault) private var includeUserRulesByDefault = false
+    @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue
+    @AppStorage(RyddiAppStorageKey.redactUserTextByDefault) private var redactUserTextByDefault = false
     @State private var selectedFinding: Finding.ID?
     @SceneStorage("dashboard.selectedSectionID") private var selectedSectionID = DashboardLaunchOptions.initialSectionID
     @State private var showingReclaimConfirmation = false
@@ -204,7 +206,7 @@ struct DashboardView: View {
                 }
                 .disabled(model.plan == nil && model.findings.isEmpty)
                 Button {
-                    Task { await model.exportEvidenceReport() }
+                    exportEvidenceReportUsingDefaults()
                 } label: {
                     Label("Export Report", systemImage: "square.and.arrow.up")
                 }
@@ -262,11 +264,15 @@ struct DashboardView: View {
             scan: { Task { await model.scan() } },
             buildPlan: { Task { await model.buildPlan() } },
             dryRun: { Task { await model.runDryRun() } },
-            exportReport: { Task { await model.exportEvidenceReport() } },
+            exportReport: exportEvidenceReportUsingDefaults,
             exportRedactedReport: { Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) } },
             reclaim: { showingReclaimConfirmation = true },
             openSection: { selectSection($0) }
         )
+    }
+
+    private var defaultReportPathStyle: ReportPathStyle {
+        ReportPathStyle(rawValue: defaultReportPathStyleRaw) ?? .homeRelative
     }
 
     private var selectedSection: DashboardSection {
@@ -280,6 +286,12 @@ struct DashboardView: View {
 
     private func selectLegacySection(_ sectionID: String) {
         selectSection(DashboardSection.fromLegacyID(sectionID))
+    }
+
+    private func exportEvidenceReportUsingDefaults() {
+        Task {
+            await model.exportEvidenceReport(pathStyle: defaultReportPathStyle, redactUserText: redactUserTextByDefault)
+        }
     }
 }
 
@@ -5613,6 +5625,8 @@ struct ReviewQueuesView: View {
     let model: DashboardModel
     let onOpenFinding: (Finding) -> Void
     @State private var selectedQueue = ReviewQueueID.safeMaintenance
+    @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue
+    @AppStorage(RyddiAppStorageKey.redactUserTextByDefault) private var redactUserTextByDefault = false
 
     private var report: ReviewQueueReport {
         model.reviewQueueReport
@@ -5628,6 +5642,10 @@ struct ReviewQueuesView: View {
 
     private var selectedPlanIDs: Set<Finding.ID> {
         Set(model.plan?.items.filter(\.selected).map { $0.finding.id } ?? [])
+    }
+
+    private var defaultReportPathStyle: ReportPathStyle {
+        ReportPathStyle(rawValue: defaultReportPathStyleRaw) ?? .homeRelative
     }
 
     var body: some View {
@@ -5675,7 +5693,7 @@ struct ReviewQueuesView: View {
                                 canRunDryRun: model.plan != nil || !model.findings.isEmpty,
                                 onBuildPlan: { Task { await model.buildPlan() } },
                                 onDryRun: { Task { await model.runDryRun() } },
-                                onExport: { Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) } },
+                                onExport: exportEvidenceReportUsingDefaults,
                                 onOpenFinding: onOpenFinding
                             )
                             .frame(width: 760)
@@ -5698,7 +5716,7 @@ struct ReviewQueuesView: View {
                                 canRunDryRun: model.plan != nil || !model.findings.isEmpty,
                                 onBuildPlan: { Task { await model.buildPlan() } },
                                 onDryRun: { Task { await model.runDryRun() } },
-                                onExport: { Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) } },
+                                onExport: exportEvidenceReportUsingDefaults,
                                 onOpenFinding: onOpenFinding
                             )
                         }
@@ -5711,6 +5729,12 @@ struct ReviewQueuesView: View {
                 }
             }
             .padding(24)
+        }
+    }
+
+    private func exportEvidenceReportUsingDefaults() {
+        Task {
+            await model.exportEvidenceReport(pathStyle: defaultReportPathStyle, redactUserText: redactUserTextByDefault)
         }
     }
 

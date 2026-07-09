@@ -61,10 +61,18 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(settings.contains("@AppStorage(RyddiAppStorageKey.defaultScanPreset)"))
         XCTAssertTrue(settings.contains("@AppStorage(RyddiAppStorageKey.includeUserRulesByDefault)"))
         XCTAssertTrue(settings.contains("@AppStorage(RyddiAppStorageKey.defaultReportPathStyle)"))
+        XCTAssertTrue(settings.contains("@AppStorage(RyddiAppStorageKey.redactUserTextByDefault)"))
         XCTAssertTrue(settings.contains("TabView"))
         XCTAssertTrue(settings.contains("Picker(\"Default scan mode\""))
         XCTAssertTrue(source.contains("Settings {\n            DashboardSettingsView()\n        }"))
         XCTAssertTrue(source.contains("applyStoredSettings(defaultScanPresetRaw:"))
+        XCTAssertTrue(source.contains("@AppStorage(RyddiAppStorageKey.defaultReportPathStyle)"))
+        XCTAssertTrue(source.contains("@AppStorage(RyddiAppStorageKey.redactUserTextByDefault)"))
+        XCTAssertTrue(source.contains("ReportPathStyle(rawValue: defaultReportPathStyleRaw) ?? .homeRelative"))
+        XCTAssertTrue(source.contains("await model.exportEvidenceReport(pathStyle: defaultReportPathStyle, redactUserText: redactUserTextByDefault)"))
+        XCTAssertTrue(source.contains("exportReport: exportEvidenceReportUsingDefaults"))
+        XCTAssertTrue(source.contains("onExport: exportEvidenceReportUsingDefaults"))
+        XCTAssertTrue(source.contains("await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true)"))
     }
 
     func testDashboardSidebarUsesNativeSelectionAndKeepsDetailsOutOfSourceList() throws {

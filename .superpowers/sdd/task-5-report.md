@@ -79,3 +79,43 @@ Executed 22 tests, with 0 failures (0 unexpected) in 0.379 seconds
 ## Concerns
 
 - None.
+
+## Review Fix
+
+### Summary
+
+- Verified the review finding: Task 5 persisted `defaultReportPathStyle` and `redactUserTextByDefault`, but ordinary evidence-report exports still used the hardcoded `exportEvidenceReport()` defaults.
+- Extended the focused settings test so it now proves privacy defaults are read in app source, converted back into `ReportPathStyle`, consumed by ordinary export actions, and kept distinct from explicit redacted export actions.
+- Updated `DashboardView` and `ReviewQueuesView` to read the stored privacy defaults and route ordinary evidence-report exports through them, while preserving explicit redacted actions as `.redacted` plus `redactUserText: true`.
+
+### Exact test commands
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testSettingsAreNativePersistedAndReachable
+swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests
+```
+
+### Pass output
+
+```text
+Build complete! (14.77s)
+Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:32:27.134.
+Executed 1 test, with 0 failures (0 unexpected) in 0.039 seconds
+
+Build complete! (0.14s)
+Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:32:44.051.
+Executed 22 tests, with 0 failures (0 unexpected) in 0.397 seconds
+```
+
+### Files changed
+
+- `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`
+- `Tests/ReclaimerCoreTests/MacDiskReclaimerAppLayoutTests.swift`
+- `.superpowers/sdd/task-5-report.md`
+
+### Self-review
+
+- Kept the fix inside Task 5 ownership and the existing pre-Task-6 single-file app/view layout.
+- Left explicit redacted export actions untouched so the privacy-preserving path remains opt-in and obvious in the UI.
+- Consumed the stored privacy defaults only at app-view export call sites; no `ReclaimerCore` contracts, remote boundaries, or destructive/report-only behavior changed.
+- Accepted a small duplicated helper between `DashboardView` and `ReviewQueuesView` to avoid broader file surgery before the planned Task 6 split.
