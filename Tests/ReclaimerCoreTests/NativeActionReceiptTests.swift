@@ -63,18 +63,42 @@ final class NativeActionReceiptTests: XCTestCase {
         XCTAssertEqual(receipt.skippedReason, "Homebrew cleanup requires explicit confirmation.")
         XCTAssertNil(receipt.afterDisk)
     }
+
+    func testFailedHomebrewCommandStillWritesBoundedReceiptWithoutAfterSnapshot() {
+        let runner = RecordingNativeActionReceiptRunner(
+            exitCode: 2,
+            stdout: "line 1\nline 2\n",
+            stderr: "warning 1\nwarning 2\n"
+        )
+        let receipt = NativeActionExecutor(
+            runner: runner,
+            configuration: NativeActionExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot, previewLineLimit: 1)
+        ).executeHomebrewCleanup(mode: .dryRun, userConfirmed: false)
+
+        XCTAssertEqual(receipt.mode, .dryRun)
+        XCTAssertEqual(receipt.exitCode, 2)
+        XCTAssertEqual(receipt.stdoutPreview, ["line 1"])
+        XCTAssertEqual(receipt.stderrPreview, ["warning 1"])
+        XCTAssertNotNil(receipt.beforeDisk)
+        XCTAssertNil(receipt.afterDisk)
+        XCTAssertTrue(receipt.nonClaims.contains { $0.localizedCaseInsensitiveContains("APFS free space") })
+    }
 }
 
 private final class RecordingNativeActionReceiptRunner: ToolCommandRunning, @unchecked Sendable {
     private(set) var invocations: [ToolCommandInvocation] = []
+    private let exitCode: Int32
     private let stdout: String
+    private let stderr: String
 
-    init(stdout: String) {
+    init(exitCode: Int32 = 0, stdout: String, stderr: String = "") {
+        self.exitCode = exitCode
         self.stdout = stdout
+        self.stderr = stderr
     }
 
     func run(_ invocation: ToolCommandInvocation, timeout: TimeInterval) -> ToolCommandOutput {
         invocations.append(invocation)
-        return ToolCommandOutput(invocation: invocation, exitCode: 0, stdout: stdout)
+        return ToolCommandOutput(invocation: invocation, exitCode: exitCode, stdout: stdout, stderr: stderr)
     }
 }

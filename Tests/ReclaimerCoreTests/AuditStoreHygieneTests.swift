@@ -75,6 +75,18 @@ final class AuditStoreHygieneTests: XCTestCase {
         XCTAssertNoThrow(try FileManager.default.destinationOfSymbolicLink(atPath: symlink.path))
     }
 
+    func testAuditPruneReceiptListsDeletedFileIDsWithoutFullPaths() throws {
+        let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
+        let store = AuditStore(root: root)
+        _ = try writeFixture("plan-old.json", bytes: 10, daysAgo: 90, root: root)
+
+        let plan = store.prunePlan(policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 0), now: Date(timeIntervalSince1970: 2_000_000_000))
+        let receipt = try store.prune(plan: plan, dryRun: false)
+
+        XCTAssertEqual(receipt.deletedFileIDs, ["plan-old.json"])
+        XCTAssertTrue(receipt.deletedFileIDs.allSatisfy { !$0.contains("/") })
+    }
+
     func testAuditRetentionDefaultMatchesFirstClassActionPolicy() {
         let policy = AuditRetentionPolicy()
 

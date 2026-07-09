@@ -2435,6 +2435,9 @@ func printAuditPruneResult(plan: AuditPrunePlan, receipt: AuditPruneReceipt) {
     print("Deleted: \(receipt.deletedCount) (\(ByteFormat.string(receipt.deletedBytes)))")
     print("Unknown files skipped: \(plan.skippedUnknownPaths.count)")
     print("Symlinks skipped: \(plan.skippedSymlinkPaths.count)")
+    if !receipt.deletedFileIDs.isEmpty {
+        print("Deleted file IDs: \(receipt.deletedFileIDs.joined(separator: ", "))")
+    }
     if receipt.dryRun, !plan.candidates.isEmpty {
         print("\nDry-run only. Re-run with --yes after reviewing the candidate list.")
     }

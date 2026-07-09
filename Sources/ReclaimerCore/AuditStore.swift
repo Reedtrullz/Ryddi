@@ -143,6 +143,7 @@ public final class AuditStore: @unchecked Sendable {
 
         var deletedCount = 0
         var deletedBytes: Int64 = 0
+        var deletedFileIDs: [String] = []
         var errors: [String] = []
         for candidate in plan.candidates {
             let url = URL(fileURLWithPath: candidate.path).standardizedFileURL
@@ -166,6 +167,7 @@ public final class AuditStore: @unchecked Sendable {
                 try FileManager.default.removeItem(at: url)
                 deletedCount += 1
                 deletedBytes += candidate.bytes
+                deletedFileIDs.append(url.lastPathComponent)
             } catch {
                 errors.append("\(candidate.path): \(error.localizedDescription)")
             }
@@ -177,6 +179,7 @@ public final class AuditStore: @unchecked Sendable {
             planID: plan.id,
             deletedCount: deletedCount,
             deletedBytes: deletedBytes,
+            deletedFileIDs: deletedFileIDs.sorted(),
             errors: errors
         )
     }

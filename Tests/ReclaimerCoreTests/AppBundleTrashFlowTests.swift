@@ -31,6 +31,7 @@ final class AppBundleTrashFlowTests: XCTestCase {
 
         XCTAssertEqual(receipt.status, "skipped")
         XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("running"))
+        XCTAssertTrue(receipt.nonClaims.contains { $0.localizedCaseInsensitiveContains("Finder") && $0.localizedCaseInsensitiveContains("Trash") })
         XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
     }
 

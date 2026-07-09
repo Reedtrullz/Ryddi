@@ -565,6 +565,7 @@ public final class AppUninstallExecutor: @unchecked Sendable {
             errors: errors,
             nonClaims: [
                 "Only the selected app bundle is in scope for this receipt; related support files were not moved or deleted.",
+                "If the app bundle was moved to Trash, restore it from Finder Trash before emptying Trash.",
                 "Trash does not guarantee immediate free-space recovery until the user empties Trash and APFS accounting settles.",
                 "Ryddi did not quit the app, unload helpers, remove launch agents, revoke login items, or run vendor uninstallers.",
                 "Preferences, licenses, app support data, containers, saved state, user documents, and creative assets remain review-only/manual."
