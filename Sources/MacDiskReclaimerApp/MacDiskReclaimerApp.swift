@@ -4800,30 +4800,31 @@ struct FindingDetailView: View {
                                         .truncationMode(.middle)
                                         .textSelection(.enabled)
                                 }
-                                if let context = command.context {
-                                    Text(context)
-                                        .foregroundStyle(.secondary)
-                                }
-                                HStack {
-                                    Button {
-                                        Task { await model.runNativeToolCommand(receipt: nativeReceipt, command: command, perform: false) }
-                                    } label: {
-                                        Label("Dry Run", systemImage: "doc.text.magnifyingglass")
-                                    }
-                                    if NativeToolExecutor.blockReason(for: command) == nil {
-                                        Button {
-                                            pendingNativeCommand = command
-                                        } label: {
-                                            Label("Run", systemImage: "terminal")
-                                        }
-                                    }
-                                }
-                                if let blockReason = NativeToolExecutor.blockReason(for: command) {
-                                    Text(blockReason)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
+	                                if let context = command.context {
+	                                    Text(context)
+	                                        .foregroundStyle(.secondary)
+	                                }
+	                                let performBlockReason = model.nativePerformBlockReason(receipt: nativeReceipt, command: command)
+	                                HStack {
+	                                    Button {
+	                                        Task { await model.runNativeToolCommand(receipt: nativeReceipt, command: command, perform: false) }
+	                                    } label: {
+	                                        Label("Dry Run", systemImage: "doc.text.magnifyingglass")
+	                                    }
+	                                    if performBlockReason == nil {
+	                                        Button {
+	                                            pendingNativeCommand = command
+	                                        } label: {
+	                                            Label("Run", systemImage: "terminal")
+	                                        }
+	                                    }
+	                                }
+	                                if let performBlockReason {
+	                                    Text(performBlockReason)
+	                                        .font(.caption)
+	                                        .foregroundStyle(.secondary)
+	                                        .fixedSize(horizontal: false, vertical: true)
+	                                }
                             }
                             .padding(.vertical, 4)
                         }
@@ -8127,17 +8128,21 @@ final class DashboardModel {
         }
     }
 
-    func runNativeToolCommand(receipt: NativeToolReceipt, command: NativeToolCommand, perform: Bool) async {
-        isWorking = true
-        defer { isWorking = false }
-        do {
-            let includeUserRules = includeUserRulesInScans
-            let executionReceipt = try await Task.detached {
-                let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
-                let selection = NativeToolCommandSelection(receipt: receipt, command: command)
-                return NativeToolExecutor().execute(
-                    selection: selection,
-                    mode: perform ? .perform : .dryRun,
+	    func runNativeToolCommand(receipt: NativeToolReceipt, command: NativeToolCommand, perform: Bool) async {
+	        isWorking = true
+	        defer { isWorking = false }
+	        do {
+	            let includeUserRules = includeUserRulesInScans
+	            let selection = NativeToolCommandSelection(receipt: receipt, command: command)
+	            if perform, let reason = nativePerformBlockReason(selection: selection) {
+	                error = reason
+	                return
+	            }
+	            let executionReceipt = try await Task.detached {
+	                let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
+	                return NativeToolExecutor().execute(
+	                    selection: selection,
+	                    mode: perform ? .perform : .dryRun,
                     ruleVersion: ruleVersion,
                     userConfirmed: perform
                 )
@@ -8147,10 +8152,27 @@ final class DashboardModel {
             error = executionReceipt.errors.isEmpty ? nil : executionReceipt.message
         } catch {
             self.error = error.localizedDescription
-        }
-    }
+	        }
+	    }
 
-    func inspectContainers() async {
+	    func nativePerformBlockReason(receipt: NativeToolReceipt, command: NativeToolCommand) -> String? {
+	        nativePerformBlockReason(selection: NativeToolCommandSelection(receipt: receipt, command: command))
+	    }
+
+	    private func nativePerformBlockReason(selection: NativeToolCommandSelection) -> String? {
+	        if let reason = NativeToolExecutor.performBlockReason(for: selection.command) {
+	            return reason
+	        }
+	        if NativeToolExecutor.savedDryRunReceiptExists(
+	            authorizing: selection,
+	            in: recentNativeToolExecutionReceipts
+	        ) {
+	            return nil
+	        }
+	        return "Run requires a saved dry-run receipt for this native command and finding. Use Dry Run first."
+	    }
+
+	    func inspectContainers() async {
         isWorking = true
         defer { isWorking = false }
         do {

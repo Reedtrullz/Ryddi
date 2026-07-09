@@ -186,7 +186,8 @@ Deferred:
 - `reclaimer agents retention --path FIXTURE --profile balanced --min-size 1 --max-depth 4 --json` reports cleanup-plan, compression-review, keep, and protect recommendations without deleting, compressing, moving, or modifying agent files.
 - `reclaimer native --path FIXTURE --json` emits native-tool preview receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
 - `reclaimer native run --command-id brew.preview --path FIXTURE --dry-run --json --save-audit` creates a local native command execution receipt without executing the command.
-- `reclaimer native run --command-id brew.preview --path FIXTURE --yes --save-audit` requires a matching saved dry-run receipt first and remains limited to explicitly allowlisted native commands.
+- `reclaimer native homebrew cleanup --dry-run --finding-path FIXTURE/Library/Caches/Homebrew --json --save-audit` runs Homebrew's own preview command and saves the bounded output as a native command receipt.
+- `reclaimer native run --command-id brew.cleanup --finding-path FIXTURE/Library/Caches/Homebrew --path FIXTURE --yes --save-audit` requires saved preview evidence for the same finding path and remains limited to explicitly allowlisted native commands.
 - `reclaimer native receipts list/export` retrieves saved native command receipts and writes local Markdown reports without rerunning native tools.
 - `reclaimer containers --json --timeout 2` emits a read-only Docker/Colima inventory, classifies missing versus not-running tools, and never emits prune/delete/stop/reset commands.
 - `reclaimer remote history list/diff/report` reads saved reachable remote scan audit records, compares bucket/path growth, writes optional redacted Markdown, and never connects to or mutates a server.

@@ -147,6 +147,38 @@ public final class NativeToolExecutor: @unchecked Sendable {
         return nil
     }
 
+    public static func performBlockReason(for command: NativeToolCommand) -> String? {
+        if let reason = blockReason(for: command) {
+            return reason
+        }
+        guard let invocation = invocation(for: command) else {
+            return "Could not parse native command for execution."
+        }
+        guard let actionCommand = nativeActionCommand(for: command, invocation: invocation) else {
+            return "Native command perform is only available for explicitly allowlisted commands; this command remains guidance-only."
+        }
+        return NativeActionAllowlist.validate(actionCommand).blockedReason
+    }
+
+    public static func savedDryRunReceipt(
+        _ receipt: NativeToolExecutionReceipt,
+        authorizes selection: NativeToolCommandSelection
+    ) -> Bool {
+        receipt.mode == .dryRun
+            && receipt.status == "dry-run"
+            && receipt.errors.isEmpty
+            && savedDryRunCommand(receipt, authorizes: selection.command.id)
+            && URL(fileURLWithPath: receipt.findingPath).standardizedFileURL.path
+                == URL(fileURLWithPath: selection.receipt.findingPath).standardizedFileURL.path
+    }
+
+    public static func savedDryRunReceiptExists(
+        authorizing selection: NativeToolCommandSelection,
+        in receipts: [NativeToolExecutionReceipt]
+    ) -> Bool {
+        receipts.contains { savedDryRunReceipt($0, authorizes: selection) }
+    }
+
     public func execute(
         selection: NativeToolCommandSelection,
         mode: NativeToolExecutionMode,
@@ -320,6 +352,30 @@ public final class NativeToolExecutor: @unchecked Sendable {
             )
         }
         return nil
+    }
+
+    private static func savedDryRunCommand(
+        _ receipt: NativeToolExecutionReceipt,
+        authorizes performCommandID: String
+    ) -> Bool {
+        if receipt.command.id == performCommandID {
+            return true
+        }
+        return receipt.command.id == "brew.preview"
+            && performCommandID == "brew.cleanup"
+            && isActualHomebrewPreviewReceipt(receipt)
+    }
+
+    private static func isActualHomebrewPreviewReceipt(_ receipt: NativeToolExecutionReceipt) -> Bool {
+        guard let invocation = receipt.invocation, let output = receipt.output else {
+            return false
+        }
+        let executable = URL(fileURLWithPath: invocation.executable).lastPathComponent
+        let arguments = invocation.arguments
+        return executable == "brew"
+            && output.status == "ok"
+            && arguments.contains("cleanup")
+            && (arguments.contains("-n") || arguments.contains("--dry-run"))
     }
 
     private static func commandParts(_ command: String) -> [String] {

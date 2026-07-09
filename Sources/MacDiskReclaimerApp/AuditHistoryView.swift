@@ -159,7 +159,7 @@ struct AuditHistoryView: View {
                                                 .monospacedDigit()
                                         }
                                     }
-                                    if let after = receipt.afterFreeBytes {
+                                    if receipt.mode == .perform, let after = receipt.afterFreeBytes {
                                         GridRow {
                                             Text("After")
                                                 .foregroundStyle(.secondary)

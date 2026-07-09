@@ -1271,12 +1271,30 @@ struct ReclaimerCLI {
         }
         let options = ParsedOptions(Array(args.dropFirst()))
         let mode: SafeActionExecutionMode = options.dryRun ? .dryRun : .perform
+        let ruleVersion = try options.ruleEngine().version
+        let findingPath = options.nativeFindingPath ?? NativeActionReceiptBridge.defaultHomebrewFindingPath
+        if mode == .perform {
+            let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
+            guard savedNativeDryRunExists(for: selection, in: AuditStore()) else {
+                throw CLIError.message("native homebrew cleanup --yes requires a saved Homebrew dry-run receipt for the same finding. Run `reclaimer native homebrew cleanup --dry-run --save-audit --finding-path \(findingPath)` first.")
+            }
+        }
         let receipt = NativeActionExecutor(
             configuration: NativeActionExecutionConfiguration(timeout: options.timeoutSeconds)
         ).executeHomebrewCleanup(
             mode: mode,
             userConfirmed: options.yes
         )
+        if options.saveAudit {
+            let executionReceipt = NativeActionReceiptBridge.nativeToolExecutionReceipt(
+                from: receipt,
+                ruleVersion: ruleVersion,
+                findingPath: findingPath,
+                userConfirmed: options.yes
+            )
+            let url = try AuditStore().save(nativeToolExecutionReceipt: executionReceipt)
+            FileHandle.standardError.write(Data("saved native-tool execution receipt: \(url.path)\n".utf8))
+        }
         if options.json {
             printJSON(receipt)
         } else {
@@ -1328,14 +1346,10 @@ struct ReclaimerCLI {
         for selection: NativeToolCommandSelection,
         in store: AuditStore
     ) -> Bool {
-        store.recentNativeToolExecutionReceipts(limit: 500).contains { receipt in
-            receipt.mode == .dryRun
-                && receipt.status == "dry-run"
-                && receipt.errors.isEmpty
-                && receipt.command.id == selection.command.id
-                && URL(fileURLWithPath: receipt.findingPath).standardizedFileURL.path
-                    == URL(fileURLWithPath: selection.receipt.findingPath).standardizedFileURL.path
-        }
+        NativeToolExecutor.savedDryRunReceiptExists(
+            authorizing: selection,
+            in: store.recentNativeToolExecutionReceipts(limit: 500)
+        )
     }
 
     static func nativeReceipts(args: [String]) throws {
@@ -2006,6 +2020,7 @@ struct ReclaimerCLI {
               agents retention-plan [--json] [--profile conservative|balanced|aggressive] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID]
                      [--min-size BYTES] [--max-depth N] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               native [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--save-audit] [--include-user-rules]
+              native homebrew cleanup [--dry-run|--yes] [--json] [--timeout SECONDS] [--save-audit] [--finding-path PATH]
               native run --command-id COMMAND_ID [--dry-run|--yes] [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
                      [--finding-path PATH] [--timeout SECONDS] [--save-audit] [--include-user-rules]
               native receipts list [--json] [--limit N]
@@ -4419,7 +4434,7 @@ func printNativeToolExecutionReceipt(_ receipt: NativeToolExecutionReceipt) {
     if let before = receipt.beforeFreeBytes {
         print("Before free: \(ByteFormat.string(before))")
     }
-    if let after = receipt.afterFreeBytes {
+    if receipt.mode == .perform, let after = receipt.afterFreeBytes {
         print("After free: \(ByteFormat.string(after))")
     }
     print("Message: \(receipt.message)")
@@ -4487,7 +4502,7 @@ func printNativeActionReceipt(_ receipt: NativeActionReceipt) {
     if let before = receipt.beforeDisk?.displayFreeBytes {
         print("Before free: \(ByteFormat.string(before))")
     }
-    if let after = receipt.afterDisk?.displayFreeBytes {
+    if receipt.mode == .perform, let after = receipt.afterDisk?.displayFreeBytes {
         print("After free: \(ByteFormat.string(after))")
     }
     if let skippedReason = receipt.skippedReason {

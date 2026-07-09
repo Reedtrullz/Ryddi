@@ -31,7 +31,7 @@ final class NativeActionReceiptTests: XCTestCase {
         XCTAssertEqual(receipt.exitCode, 0)
         XCTAssertEqual(receipt.stdoutPreview, ["Would remove bottle"])
         XCTAssertNotNil(receipt.beforeDisk)
-        XCTAssertNotNil(receipt.afterDisk)
+        XCTAssertNil(receipt.afterDisk)
         XCTAssertNil(receipt.skippedReason)
         XCTAssertTrue(receipt.nonClaims.contains("Homebrew decides the exact cleanup set."))
     }
@@ -136,6 +136,76 @@ final class NativeActionReceiptTests: XCTestCase {
         XCTAssertTrue(report.markdown.contains("Preview \\| Homebrew cleanup."))
         XCTAssertTrue(report.markdown.contains("does not execute cleanup"))
         XCTAssertTrue(report.markdown.contains("do not authorize generic file deletion"))
+        XCTAssertFalse(report.markdown.contains("| After free |"))
+        XCTAssertFalse(report.markdown.contains("| Free-space delta |"))
+    }
+
+    func testHomebrewNativeActionReceiptBridgesToCanonicalNativeToolReceipt() throws {
+        let runner = RecordingNativeActionReceiptRunner(stdout: "Would remove bottle\n")
+        let actionReceipt = NativeActionExecutor(
+            runner: runner,
+            configuration: NativeActionExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot)
+        ).executeHomebrewCleanup(mode: .dryRun, userConfirmed: false)
+
+        let receipt = NativeActionReceiptBridge.nativeToolExecutionReceipt(
+            from: actionReceipt,
+            ruleVersion: "rules-v1",
+            findingPath: "/Users/reidar/Library/Caches/Homebrew",
+            userConfirmed: false
+        )
+
+        XCTAssertEqual(receipt.id, actionReceipt.id)
+        XCTAssertEqual(receipt.mode, .dryRun)
+        XCTAssertEqual(receipt.status, "dry-run")
+        XCTAssertEqual(receipt.command.id, "brew.preview")
+        XCTAssertEqual(receipt.invocation?.executable, "brew")
+        XCTAssertEqual(receipt.invocation?.arguments, ["cleanup", "--dry-run"])
+        XCTAssertEqual(receipt.output?.stdoutPreview, ["Would remove bottle"])
+        XCTAssertNil(receipt.afterFreeBytes)
+        XCTAssertFalse(receipt.userConfirmed)
+        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("dry run completed"))
+        XCTAssertTrue(receipt.nonClaims.contains { $0.localizedCaseInsensitiveContains("Native command receipts") })
+    }
+
+    func testOnlyActualHomebrewPreviewReceiptAuthorizesCleanupPair() throws {
+        let findingPath = "/Users/reidar/Library/Caches/Homebrew"
+        let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
+        let noOutputPreview = NativeToolExecutionReceipt(
+            ruleVersion: "rules-v1",
+            mode: .dryRun,
+            status: "dry-run",
+            findingPath: findingPath,
+            category: "Homebrew",
+            command: NativeToolCommand(
+                id: "brew.preview",
+                command: "brew cleanup -n",
+                purpose: "Preview Homebrew cleanup.",
+                risk: .inspect,
+                requiresReview: false,
+                expectedEffect: "Shows what Homebrew would remove."
+            ),
+            invocation: ToolCommandInvocation(executable: "brew", arguments: ["cleanup", "-n"]),
+            beforeFreeBytes: 100,
+            afterFreeBytes: 100,
+            output: nil,
+            userConfirmed: false,
+            message: "Dry run only; would execute Homebrew preview.",
+            nonClaims: NativeToolExecutor.nonClaims
+        )
+
+        XCTAssertFalse(NativeToolExecutor.savedDryRunReceipt(noOutputPreview, authorizes: selection))
+
+        let actualPreview = NativeActionReceiptBridge.nativeToolExecutionReceipt(
+            from: NativeActionExecutor(
+                runner: RecordingNativeActionReceiptRunner(stdout: "Would remove bottle\n"),
+                configuration: NativeActionExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot)
+            ).executeHomebrewCleanup(mode: .dryRun, userConfirmed: false),
+            ruleVersion: "rules-v1",
+            findingPath: findingPath,
+            userConfirmed: false
+        )
+
+        XCTAssertTrue(NativeToolExecutor.savedDryRunReceipt(actualPreview, authorizes: selection))
     }
 }
 

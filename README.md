@@ -176,8 +176,8 @@ swift run --scratch-path .build reclaimer projects --json --path ~/Projects --in
 swift run --scratch-path .build reclaimer projects policy preserve ~/Projects/ImportantApp --reason "keep demo dependencies"
 swift run --scratch-path .build reclaimer xcode --json --save-audit
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
-swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
-swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
+swift run --scratch-path .build reclaimer native homebrew cleanup --dry-run --save-audit --finding-path ~/Library/Caches/Homebrew
+swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --finding-path ~/Library/Caches/Homebrew --path ~/Library/Caches/Homebrew --yes --save-audit
 swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
 swift run --scratch-path .build reclaimer remote targets list
 swift run --scratch-path .build reclaimer remote probe my-vps --json --timeout 5
@@ -327,7 +327,7 @@ The permission advisor reports readable, denied, missing, and unknown scopes; re
 
 ## Native Command Receipts
 
-Native-tool findings stay review-first. `reclaimer native` builds local command guidance for Docker, Colima, Homebrew, and package-manager storage without executing those commands. `reclaimer native run --command-id ... --dry-run --save-audit` records a saved native command receipt; `reclaimer native run --yes` requires a matching saved dry-run receipt first and then remains limited to explicitly allowlisted native commands. Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside the allowlist, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
+Native-tool findings stay review-first. `reclaimer native` builds local command guidance for Docker, Colima, Homebrew, and package-manager storage without executing those commands. `reclaimer native run --command-id ... --dry-run --save-audit` records a saved native command receipt; `reclaimer native homebrew cleanup --dry-run --save-audit` runs Homebrew's own preview command and saves the bounded output as a native command receipt. `reclaimer native run --yes` and `reclaimer native homebrew cleanup --yes` both require saved preview evidence first; a saved `brew.preview` receipt authorizes only the paired `brew.cleanup` command for the same finding path. Perform mode remains limited to explicitly allowlisted native commands. Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside the allowlist, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
 
 Saved native command receipts can be retrieved with `reclaimer native receipts list` and exported with `reclaimer native receipts export --path-style redacted --output RECEIPT.md`. Exporting a receipt summarizes local evidence only; it does not rerun the native command or prove exact APFS reclaim.
 
@@ -676,11 +676,11 @@ The report is a preview receipt: command, purpose, risk, expected effect, and no
 For selected non-destructive/non-placeholder commands, Ryddi can also create a native command execution receipt:
 
 ```bash
-swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
-swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
+swift run --scratch-path .build reclaimer native homebrew cleanup --dry-run --save-audit --finding-path ~/Library/Caches/Homebrew
+swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --finding-path ~/Library/Caches/Homebrew --path ~/Library/Caches/Homebrew --yes --save-audit
 ```
 
-`native run` executes exactly one selected command. It defaults to dry-run, requires `--yes` before performing the command, records stdout/stderr previews and before/after free-space fields, and blocks destructive commands, placeholder commands, shell metacharacters, and raw-delete paths. Ryddi does not run Docker/Colima prune/reset commands automatically and does not raw-delete VM disks, volumes, or package stores.
+`native run` executes exactly one selected command. It defaults to dry-run, requires `--yes` before performing the command, records stdout/stderr previews and before/after free-space fields, and blocks destructive commands, placeholder commands, shell metacharacters, and raw-delete paths. For Homebrew, `native homebrew cleanup --dry-run --save-audit` captures Homebrew's actual preview output as the saved receipt; that preview can authorize only the paired `brew.cleanup` command for the same finding path, including the direct `native homebrew cleanup --yes` shortcut. Ryddi does not run Docker/Colima prune/reset commands automatically and does not raw-delete VM disks, volumes, or package stores.
 
 ## Container Inventory
 

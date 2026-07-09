@@ -297,6 +297,129 @@ final class ReclaimerCLITests: XCTestCase {
         }
     }
 
+    func testNativeHomebrewDryRunSaveAuditCreatesExportableNativeReceipt() throws {
+        let homebrewCache = try writeHomebrewCacheFixture()
+
+        try withFakeBrew(stdout: "Would remove fake bottle\n") {
+            _ = try captureStandardOutput {
+                try ReclaimerCLI.run(arguments: [
+                    "native",
+                    "homebrew",
+                    "cleanup",
+                    "--dry-run",
+                    "--save-audit",
+                    "--finding-path", homebrewCache.path,
+                    "--json"
+                ])
+            }
+        }
+
+        let listOutput = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: ["native", "receipts", "list", "--json"])
+        }
+        let receipts = try JSONDecoder.ryddi.decode([NativeToolExecutionReceipt].self, from: Data(listOutput.utf8))
+        let receipt = try XCTUnwrap(receipts.first)
+        XCTAssertEqual(receipt.command.id, "brew.preview")
+        XCTAssertEqual(receipt.findingPath, homebrewCache.path)
+        XCTAssertEqual(receipt.status, "dry-run")
+        XCTAssertEqual(receipt.output?.stdoutPreview, ["Would remove fake bottle"])
+
+        let exportOutput = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: [
+                "native", "receipts", "export",
+                "--id", String(receipt.id.prefix(8)),
+                "--path-style", "redacted",
+                "--json"
+            ])
+        }
+        let report = try JSONDecoder.ryddi.decode(NativeToolExecutionReceiptReport.self, from: Data(exportOutput.utf8))
+        XCTAssertEqual(report.commandID, "brew.preview")
+        XCTAssertTrue(report.markdown.contains("Would remove fake bottle"))
+        XCTAssertFalse(report.markdown.contains(homebrewCache.path))
+    }
+
+    func testNativeRunCleanupCanUseSavedHomebrewPreviewReceiptForSameFinding() throws {
+        let homebrewCache = try writeHomebrewCacheFixture()
+
+        try withFakeBrew(stdout: "Homebrew fake output\n") {
+            _ = try captureStandardOutput {
+                try ReclaimerCLI.run(arguments: [
+                    "native",
+                    "homebrew",
+                    "cleanup",
+                    "--dry-run",
+                    "--save-audit",
+                    "--finding-path", homebrewCache.path,
+                    "--json"
+                ])
+            }
+
+            let output = try captureStandardOutput {
+                try ReclaimerCLI.run(arguments: [
+                    "native",
+                    "run",
+                    "--command-id", "brew.cleanup",
+                    "--finding-path", homebrewCache.path,
+                    "--yes",
+                    "--json"
+                ] + nativeFixtureOptions())
+            }
+
+            let receipt = try JSONDecoder.ryddi.decode(NativeToolExecutionReceipt.self, from: Data(output.utf8))
+            XCTAssertEqual(receipt.command.id, "brew.cleanup")
+            XCTAssertEqual(receipt.mode, .perform)
+            XCTAssertEqual(receipt.status, "done")
+            XCTAssertTrue(receipt.userConfirmed)
+            XCTAssertEqual(receipt.output?.stdoutPreview, ["Homebrew fake output"])
+        }
+    }
+
+    func testNativeRunCleanupRejectsNoOutputPreviewReceipt() throws {
+        let homebrewCache = try writeHomebrewCacheFixture()
+
+        _ = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: [
+                "native",
+                "run",
+                "--command-id", "brew.preview",
+                "--finding-path", homebrewCache.path,
+                "--dry-run",
+                "--save-audit",
+                "--json"
+            ] + nativeFixtureOptions())
+        }
+
+        try withFakeBrew(stdout: "should not execute\n") {
+            XCTAssertThrowsError(try ReclaimerCLI.run(arguments: [
+                "native",
+                "run",
+                "--command-id", "brew.cleanup",
+                "--finding-path", homebrewCache.path,
+                "--yes",
+                "--json"
+            ] + nativeFixtureOptions())) { error in
+                XCTAssertTrue(error.localizedDescription.contains("requires a saved dry-run receipt"), String(describing: error))
+            }
+        }
+    }
+
+    func testNativeHomebrewPerformRequiresSavedPreviewReceipt() throws {
+        let homebrewCache = try writeHomebrewCacheFixture()
+
+        try withFakeBrew(stdout: "should not execute\n") {
+            XCTAssertThrowsError(try ReclaimerCLI.run(arguments: [
+                "native",
+                "homebrew",
+                "cleanup",
+                "--yes",
+                "--finding-path", homebrewCache.path,
+                "--json"
+            ])) { error in
+                XCTAssertTrue(error.localizedDescription.contains("requires a saved Homebrew dry-run receipt"), String(describing: error))
+            }
+        }
+    }
+
     func testActionsJSONIncludesSavedNativeReceiptReviewAction() throws {
         let receipt = NativeToolExecutionReceipt(
             id: "native-receipt-cli-v1",
@@ -394,6 +517,30 @@ final class ReclaimerCLITests: XCTestCase {
             "--max-depth", "6",
             "--no-lsof"
         ]
+    }
+
+    private func withFakeBrew(stdout: String, _ body: () throws -> Void) throws {
+        let bin = auditRoot.deletingLastPathComponent().appendingPathComponent("fake-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let brew = bin.appendingPathComponent("brew")
+        let escaped = stdout.replacingOccurrences(of: "'", with: "'\\''")
+        try """
+        #!/bin/sh
+        printf '%s' '\(escaped)'
+        exit 0
+        """.write(to: brew, atomically: true, encoding: .utf8)
+        XCTAssertEqual(chmod(brew.path, S_IRWXU), 0)
+
+        let oldPath = getenv("PATH").map { String(cString: $0) }
+        setenv("PATH", "\(bin.path):\(oldPath ?? "")", 1)
+        defer {
+            if let oldPath {
+                setenv("PATH", oldPath, 1)
+            } else {
+                unsetenv("PATH")
+            }
+        }
+        try body()
     }
 
     private func captureStandardOutput(_ body: () throws -> Void) throws -> String {

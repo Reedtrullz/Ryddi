@@ -98,6 +98,44 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(source.contains("receipt.findingPath"))
         XCTAssertTrue(source.contains("receipt.command.risk.label"))
         XCTAssertTrue(source.contains("receipt.nonClaims.first"))
+        XCTAssertTrue(
+            source.contains("receipt.mode == .perform, let after = receipt.afterFreeBytes"),
+            "Native dry-run receipt rows should not show an After-free value that looks like reclaim happened."
+        )
+    }
+
+    func testNativeCommandButtonsUseSavedPreviewGate() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("nativePerformBlockReason(receipt: nativeReceipt, command: command)"),
+            "Native command detail rows should ask DashboardModel whether perform mode is currently allowed."
+        )
+        XCTAssertTrue(
+            source.contains("NativeToolExecutor.performBlockReason(for: selection.command)"),
+            "The app should use ReclaimerCore's explicit native perform allowlist check before showing Run."
+        )
+        XCTAssertTrue(
+            source.contains("NativeToolExecutor.savedDryRunReceiptExists("),
+            "The app should require saved native dry-run evidence before perform mode."
+        )
+        XCTAssertTrue(
+            source.contains("Run requires a saved dry-run receipt"),
+            "The blocked state should tell the user to create saved preview evidence first."
+        )
+    }
+
+    func testActionCenterRoutesNativeReceiptReviewsToAuditHistory() throws {
+        let guided = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/GuidedSummaryView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(
+            guided.contains("native-tool-receipt.") && guided.contains("? \"Audit\" : \"Packages\""),
+            "Action Center native receipt review actions should open Audit History, while native package guidance can still open Package Caches."
+        )
     }
 
     func testScanSessionAppScanPersistsDurableSessionRecord() throws {

@@ -268,9 +268,9 @@ public enum NativeToolExecutionReceiptReportBuilder {
         }
 
         let id = UUID().uuidString
-        let delta = receipt.beforeFreeBytes.flatMap { before in
-            receipt.afterFreeBytes.map { $0 - before }
-        }
+        let delta = receipt.mode == .perform
+            ? receipt.beforeFreeBytes.flatMap { before in receipt.afterFreeBytes.map { $0 - before } }
+            : nil
         let markdown = markdown(
             id: id,
             title: title,
@@ -329,7 +329,7 @@ public enum NativeToolExecutionReceiptReportBuilder {
         if let before = receipt.beforeFreeBytes {
             rows.append(["Before free", ByteFormat.string(before)])
         }
-        if let after = receipt.afterFreeBytes {
+        if receipt.mode == .perform, let after = receipt.afterFreeBytes {
             rows.append(["After free", ByteFormat.string(after)])
         }
         if let freeSpaceDelta {

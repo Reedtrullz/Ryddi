@@ -328,7 +328,7 @@ struct GuidedSummaryView: View {
         case .quitApp:
             navigate(action.id.hasPrefix("browser-cache.") ? "Browsers" : "Active")
         case .useNativeTool:
-            navigate("Packages")
+            navigate(action.id.hasPrefix("native-tool-receipt.") ? "Audit" : "Packages")
         }
     }
 
