@@ -9,9 +9,12 @@ Remote Targets extends Ryddi's evidence-first cleanup workflow to SSH/VPS hosts 
 - Runs bounded read-only SSH probes with `BatchMode=yes`, `NumberOfPasswordPrompts=0`, `StrictHostKeyChecking=yes`, and a short connect timeout.
 - Reports Linux VPS disk and inode pressure, journald size, APT cache size, Docker storage estimates, old deploy release directories, large files, remote temp paths, app data, and permission-denied areas.
 - Labels each scan as `complete`, `partial`, `unreachable`, or `unsupported` from command outcomes so missing evidence is not treated as a clean host.
-- Emits manual native guidance for journald, APT, Docker, and deploy release review.
+- Emits manual native guidance and copyable command cards for journald, APT, Docker, and deploy release review. Ryddi never runs these cards remotely.
+- Shows coverage rows for connection, host key, Linux detection, disk filesystems, inodes, Docker, journald, and APT cache so partial scans have concrete reasons.
 - Compares saved reachable remote scan audit records locally so you can see bucket and path growth without reconnecting to the host.
+- Shows saved bucket changes in `remote scan` text output when a comparable previous scan exists.
 - Packages remote dogfood Markdown from a live read-only scan or disposable saved local audit records.
+- Exports a redacted local issue package for debugging Ryddi results without copying raw SSH config, private keys, or arbitrary audit JSON.
 - Saves local JSON audit records and optional Markdown reports.
 
 ## CLI
@@ -27,6 +30,7 @@ swift run --scratch-path .build reclaimer remote plan my-vps --json
 swift run --scratch-path .build reclaimer remote history list
 swift run --scratch-path .build reclaimer remote history diff --limit 10
 swift run --scratch-path .build reclaimer remote history report --path-style redacted --output ryddi-vps-growth.md
+swift run --scratch-path .build reclaimer issue package --path-style redacted --include-remote --output ryddi-issue-package
 ```
 
 ## Safety Contract
@@ -58,9 +62,9 @@ Remote reports preserve or require manual review for:
 
 ## Redaction Limits
 
-`--path-style redacted` hides full remote paths in Markdown reports. Reports can still reveal host aliases, usernames, hostnames, filesystem names, service names, Docker object names, command labels, sizes, counts, and error text. Review reports before sharing them.
+`--path-style redacted` hides full remote paths in Markdown reports and applies best-effort redaction to target aliases, resolved host/user fields, path fragments, Docker-like object names, deploy-release fragments, command-card text, and SSH private-key markers in command previews. Review reports before sharing them; redaction is defensive, not a secrets scanner.
 
-Remote growth reports can also reveal bucket names, size deltas, target aliases, resolved host/user fields, and whether paths were added, shrank, or grew. Redacted Markdown hides full paths, but saved local audit JSON may still contain the original remote paths.
+Remote growth reports can still reveal bucket names, size deltas, and whether storage grew or shrank. Saved local audit JSON may still contain original remote paths and host metadata.
 
 ## Deferred
 

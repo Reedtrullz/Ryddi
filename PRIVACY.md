@@ -48,7 +48,7 @@ Native-tool reports read scan findings and generate local command preview receip
 
 Container inventory can run read-only Docker and Colima inspection commands. The resulting local reports can include Docker image names, container names, volume names, context endpoints, Colima profile names, command exit states, and short command-output previews. Ryddi does not upload this inventory and does not run prune, delete, stop, reset, or raw VM-disk commands.
 
-Remote Targets can read your local SSH config to list non-wildcard host aliases and can use the system `ssh` client to resolve and probe a target. Remote reports can include SSH aliases, resolved user/host/port values, known-host state, host-key fingerprint snippets, remote OS summary, remote home directory, remote paths, filesystem names, Docker object names, command IDs, exit codes, short stdout/stderr previews, typed coverage levels, failed/timed-out/permission-denied command IDs, and target-continuity warnings. Saved remote growth reports compare local remote-scan audit records and can include target metadata, bucket names, remote paths or redacted path placeholders, size deltas, safety classes, and next-action labels. Remote dogfood reports can combine remote probe metadata, remote scan findings, command previews, saved growth deltas, and redacted remote paths. Redaction affects the exported Markdown report; saved local audit JSON can still contain original remote paths and host metadata. Ryddi does not store SSH private keys, passwords, passphrases, sudo passwords, tokens, or remote secrets. Remote Targets v1 does not install an agent on the server, upload remote scan results, run remote cleanup, run Docker prune/reset, run `rm`, run `find -delete`, or run sudo cleanup commands. `sudo -n true` is used only as a non-interactive capability probe.
+Remote Targets can read your local SSH config to list non-wildcard host aliases and can use the system `ssh` client to resolve and probe a target. Remote reports can include SSH aliases, resolved user/host/port values, known-host state, host-key fingerprint snippets, remote OS summary, remote home directory, remote paths, filesystem names, Docker object names, command IDs, exit codes, short stdout/stderr previews, typed coverage levels, coverage rows, failed/timed-out/permission-denied command IDs, manual command cards, and target-continuity warnings. Saved remote growth reports compare local remote-scan audit records and can include target metadata, bucket names, remote paths or redacted path placeholders, size deltas, safety classes, and next-action labels. Remote dogfood reports can combine remote probe metadata, remote scan findings, command previews, saved growth deltas, and redacted remote paths. Redacted remote Markdown and redacted issue packages apply best-effort redaction to target aliases, resolved host/user fields, path fragments, Docker-like object names, deploy-release fragments, command-card text, command preview lines, and SSH private-key markers. Saved local audit JSON can still contain original remote paths and host metadata. Ryddi does not store SSH private keys, passwords, passphrases, sudo passwords, tokens, or remote secrets. Remote Targets v1 does not install an agent on the server, upload remote scan results, run remote cleanup, run Docker prune/reset, run `rm`, run `find -delete`, or run sudo cleanup commands. `sudo -n true` is used only as a non-interactive capability probe.
 
 User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
 
@@ -64,6 +64,8 @@ Saved scope sets store local scan root names and paths for reuse. Ryddi does not
 
 Evidence report export reads scan findings, disk status, scan coverage, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them.
 
+Issue package export writes a small local diagnostics folder with `manifest.json`, `report.md`, `non-claims.md`, `local-summary.json`, and optionally `remote-summary.json`. It summarizes local audit counts, latest scan-session state, and selected redacted remote evidence. It does not copy raw audit JSON, raw SSH config, private keys, passwords, tokens, or arbitrary filesystem data. Redaction is best-effort and not a secrets inventory; review the package before sharing it.
+
 Plan report export reads a proposed reclaim plan to write local Markdown. Plan reports can include selected action paths, blocked or review-only paths, safety buckets, condition messages, and reclaim estimates. Ryddi does not upload plan reports or execute cleanup while creating them.
 
 Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Ryddi does not upload receipt reports or rerun cleanup while creating them.
@@ -76,7 +78,7 @@ Report exports support path privacy controls. `home-relative` reports hide your 
 
 Dogfood report redaction uses the same path privacy controls. Redacted reports hide full paths in the generated Markdown, but they can still include owner names, categories, workflow labels, counts, sizes, process summaries, command labels, and other local context. Review any report before sharing it.
 
-Remote report redaction hides full remote paths in generated Markdown, but reports can still reveal host aliases, usernames, hostnames, service names, Docker object names, mount names, command labels, sizes, counts, and error text. Review remote reports before sharing them.
+Remote report redaction hides full remote paths in generated Markdown and redacts common target, host, object-name, deploy-fragment, command-card, command-preview, and SSH key-marker text. Reports can still reveal bucket names, filesystem names, service categories, mount classes, command labels, sizes, counts, and non-secret error context. Review remote reports before sharing them.
 
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
@@ -90,6 +92,7 @@ Ryddi can write:
 - saved Markdown receipt reports;
 - saved Markdown growth reports;
 - saved Markdown dogfood reports when you choose an output path;
+- saved issue package folders when you choose an output directory;
 - saved native-tool preview reports;
 - saved container inventory reports;
 - saved remote probe, scan, and local growth-history audit records;

@@ -91,7 +91,8 @@ Current synthetic UI proof assets are available under [docs/assets/screenshots](
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
 - read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
-- Remote Targets for agentless, report-only SSH/VPS storage evidence: target discovery from SSH config, safe probe, VPS scan, native guidance, redacted Markdown export, saved remote growth diffs, and local audit history
+- Remote Targets for agentless, report-only SSH/VPS storage evidence: target discovery from SSH config, safe probe, VPS scan, row-level coverage, manual command cards, native guidance, redacted Markdown export, saved remote growth diffs, and local audit history
+- redacted issue package export for local support/debug evidence without copying raw SSH config, private keys, tokens, or arbitrary audit JSON
 - native-tool command preview and execution receipts for selected non-destructive Homebrew/package-manager cleanup commands, while Docker/Colima destructive commands remain guidance-only
 - Xcode DerivedData, module cache, archive, DeviceSupport, simulator, runtime, and developer-state review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
@@ -185,6 +186,7 @@ swift run --scratch-path .build reclaimer remote native my-vps
 swift run --scratch-path .build reclaimer remote history list
 swift run --scratch-path .build reclaimer remote history diff
 swift run --scratch-path .build reclaimer remote history report --path-style redacted --output ryddi-vps-growth.md
+swift run --scratch-path .build reclaimer issue package --path-style redacted --include-remote --output ryddi-issue-package
 swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
 swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch
 swift run --scratch-path .build reclaimer policy export --output ryddi-policy.json
