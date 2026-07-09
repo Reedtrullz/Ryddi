@@ -4474,26 +4474,39 @@ final class ReclaimerCoreTests: XCTestCase {
             category: "Developer cache"
         )
         let report = NativeToolGuidance.report(for: [homebrew], ruleVersion: "test")
-        let selection = try XCTUnwrap(NativeToolExecutor.selection(in: report, commandID: "brew.preview"))
+        let previewSelection = try XCTUnwrap(NativeToolExecutor.selection(in: report, commandID: "brew.preview"))
+        let cleanupSelection = try XCTUnwrap(NativeToolExecutor.selection(in: report, commandID: "brew.cleanup"))
         let runner = FakeToolRunner(outputs: [
-            fakeOutput("brew", ["cleanup", "-n"], stdout: "Would remove old bottles\n")
+            fakeOutput("brew", ["cleanup", "-n"], stdout: "Would remove old bottles\n"),
+            fakeOutput("brew", ["cleanup"], stdout: "Removed old bottles\n")
         ])
         let executor = NativeToolExecutor(
             runner: runner,
             configuration: NativeToolExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot)
         )
 
-        let dryRun = executor.execute(selection: selection, mode: .dryRun, ruleVersion: "test", userConfirmed: false)
+        let dryRun = executor.execute(selection: previewSelection, mode: .dryRun, ruleVersion: "test", userConfirmed: false)
         XCTAssertEqual(dryRun.status, "dry-run")
         XCTAssertEqual(dryRun.invocation?.displayCommand, "brew cleanup -n")
-        XCTAssertNil(dryRun.output)
-        XCTAssertTrue(runner.commands.isEmpty)
+        XCTAssertEqual(dryRun.output?.stdoutPreview, ["Would remove old bottles"])
+        XCTAssertEqual(runner.commands, ["brew cleanup -n"])
         XCTAssertTrue(dryRun.nonClaims.contains { $0.contains("only one explicitly selected") })
 
-        let performed = executor.execute(selection: selection, mode: .perform, ruleVersion: "test", userConfirmed: true)
+        let authorization = try XCTUnwrap(NativeToolExecutor.performAuthorization(
+            authorizing: cleanupSelection,
+            in: [dryRun],
+            ruleVersion: "test"
+        ))
+        let performed = executor.execute(
+            selection: cleanupSelection,
+            mode: .perform,
+            ruleVersion: "test",
+            userConfirmed: true,
+            authorization: authorization
+        )
         XCTAssertEqual(performed.status, "done")
-        XCTAssertEqual(performed.output?.stdoutPreview.first, "Would remove old bottles")
-        XCTAssertEqual(runner.commands, ["brew cleanup -n"])
+        XCTAssertEqual(performed.output?.stdoutPreview.first, "Removed old bottles")
+        XCTAssertEqual(runner.commands, ["brew cleanup -n", "brew cleanup"])
         XCTAssertNotNil(performed.beforeFreeBytes)
         XCTAssertNotNil(performed.afterFreeBytes)
         XCTAssertTrue(performed.errors.isEmpty)

@@ -441,13 +441,17 @@ final class DashboardModel {
         if let reason = NativeToolExecutor.performBlockReason(for: selection.command) {
             return reason
         }
-        if NativeToolExecutor.savedDryRunReceiptExists(
+        guard let ruleVersion = try? RuleEngine.bundled(includingUserRules: includeUserRulesInScans).version else {
+            return "Could not load the current rule version for native preview authorization."
+        }
+        if NativeToolExecutor.performAuthorization(
             authorizing: selection,
-            in: recentNativeToolExecutionReceipts
-        ) {
+            in: recentNativeToolExecutionReceipts,
+            ruleVersion: ruleVersion
+        ) != nil {
             return nil
         }
-        return "Run requires a saved dry-run receipt for this native command and finding. Use Dry Run first."
+        return "Run requires a fresh successful brew.preview authorization receipt for this finding. Use Dry Run first."
     }
 
     func planItem(for findingID: Finding.ID) -> ReclaimPlanItem? {

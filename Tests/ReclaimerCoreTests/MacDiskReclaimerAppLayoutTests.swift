@@ -285,12 +285,12 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             "The app should use ReclaimerCore's explicit native perform allowlist check before showing Run."
         )
         XCTAssertTrue(
-            source.contains("NativeToolExecutor.savedDryRunReceiptExists("),
-            "The app should require saved native dry-run evidence before perform mode."
+            source.contains("NativeToolExecutor.performAuthorization("),
+            "The app should pass typed native preview authorization into perform mode."
         )
         XCTAssertTrue(
-            source.contains("Run requires a saved dry-run receipt"),
-            "The blocked state should tell the user to create saved preview evidence first."
+            source.contains("fresh successful brew.preview authorization receipt"),
+            "The blocked state should tell the user to create fresh actual preview evidence first."
         )
     }
 

@@ -1273,17 +1273,28 @@ struct ReclaimerCLI {
         let mode: SafeActionExecutionMode = options.dryRun ? .dryRun : .perform
         let ruleVersion = try options.ruleEngine().version
         let findingPath = options.nativeFindingPath ?? NativeActionReceiptBridge.defaultHomebrewFindingPath
+        let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
+        let authorization: NativeToolPerformAuthorization?
         if mode == .perform {
-            let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
-            guard savedNativeDryRunExists(for: selection, in: AuditStore()) else {
+            guard let savedAuthorization = savedNativeAuthorization(
+                for: selection,
+                ruleVersion: ruleVersion,
+                in: AuditStore()
+            ) else {
                 throw CLIError.message("native homebrew cleanup --yes requires a saved Homebrew dry-run receipt for the same finding. Run `reclaimer native homebrew cleanup --dry-run --save-audit --finding-path \(findingPath)` first.")
             }
+            authorization = savedAuthorization
+        } else {
+            authorization = nil
         }
         let receipt = NativeActionExecutor(
             configuration: NativeActionExecutionConfiguration(timeout: options.timeoutSeconds)
         ).executeHomebrewCleanup(
             mode: mode,
-            userConfirmed: options.yes
+            userConfirmed: options.yes,
+            authorization: authorization,
+            ruleVersion: ruleVersion,
+            findingPath: findingPath
         )
         if options.saveAudit {
             let executionReceipt = NativeActionReceiptBridge.nativeToolExecutionReceipt(
@@ -1318,10 +1329,18 @@ struct ReclaimerCLI {
         ) else {
             throw CLIError.message("No native-tool command matched --command-id \(commandID). Run `reclaimer native` to inspect available command ids.")
         }
+        let authorization: NativeToolPerformAuthorization?
         if !options.dryRun {
-            guard savedNativeDryRunExists(for: selection, in: AuditStore()) else {
+            guard let savedAuthorization = savedNativeAuthorization(
+                for: selection,
+                ruleVersion: ruleEngine.version,
+                in: AuditStore()
+            ) else {
                 throw CLIError.message("native run --yes requires a saved dry-run receipt for the same native command and finding. Run `reclaimer native run --command-id \(commandID) --dry-run --save-audit` first.")
             }
+            authorization = savedAuthorization
+        } else {
+            authorization = nil
         }
         let receipt = NativeToolExecutor(
             configuration: NativeToolExecutionConfiguration(timeout: options.timeoutSeconds)
@@ -1329,7 +1348,8 @@ struct ReclaimerCLI {
             selection: selection,
             mode: options.dryRun ? .dryRun : .perform,
             ruleVersion: ruleEngine.version,
-            userConfirmed: options.yes
+            userConfirmed: options.yes,
+            authorization: authorization
         )
         if options.saveAudit {
             let url = try AuditStore().save(nativeToolExecutionReceipt: receipt)
@@ -1342,13 +1362,15 @@ struct ReclaimerCLI {
         }
     }
 
-    private static func savedNativeDryRunExists(
+    private static func savedNativeAuthorization(
         for selection: NativeToolCommandSelection,
+        ruleVersion: String,
         in store: AuditStore
-    ) -> Bool {
-        NativeToolExecutor.savedDryRunReceiptExists(
+    ) -> NativeToolPerformAuthorization? {
+        NativeToolExecutor.performAuthorization(
             authorizing: selection,
-            in: store.recentNativeToolExecutionReceipts(limit: 500)
+            in: store.recentNativeToolExecutionReceipts(limit: 500),
+            ruleVersion: ruleVersion
         )
     }
 

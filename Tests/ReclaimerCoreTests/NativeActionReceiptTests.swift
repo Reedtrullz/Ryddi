@@ -37,11 +37,25 @@ final class NativeActionReceiptTests: XCTestCase {
     }
 
     func testHomebrewPerformUsesCleanupArgvWithoutShellInterpolation() {
+        let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
+        let authorization = NativeToolPerformAuthorization(
+            previewReceipt: actualPreviewReceipt(
+                findingPath: findingPath,
+                createdAt: Date(),
+                arguments: ["cleanup", "--dry-run"]
+            )
+        )
         let runner = RecordingNativeActionReceiptRunner(stdout: "Removing old download\n")
         let receipt = NativeActionExecutor(
             runner: runner,
             configuration: NativeActionExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot)
-        ).executeHomebrewCleanup(mode: .perform, userConfirmed: true)
+        ).executeHomebrewCleanup(
+            mode: .perform,
+            userConfirmed: true,
+            authorization: authorization,
+            ruleVersion: "rules-v1",
+            findingPath: findingPath
+        )
 
         XCTAssertEqual(runner.invocations.count, 1)
         XCTAssertEqual(runner.invocations.first?.executable, "brew")
@@ -61,6 +75,18 @@ final class NativeActionReceiptTests: XCTestCase {
 
         XCTAssertTrue(runner.invocations.isEmpty)
         XCTAssertEqual(receipt.skippedReason, "Homebrew cleanup requires explicit confirmation.")
+        XCTAssertNil(receipt.afterDisk)
+    }
+
+    func testHomebrewPerformRequiresPreviewAuthorizationEvenWhenConfirmed() {
+        let runner = RecordingNativeActionReceiptRunner(stdout: "should not run\n")
+        let receipt = NativeActionExecutor(
+            runner: runner,
+            configuration: NativeActionExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot)
+        ).executeHomebrewCleanup(mode: .perform, userConfirmed: true)
+
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertTrue(receipt.skippedReason?.localizedCaseInsensitiveContains("preview authorization") ?? false)
         XCTAssertNil(receipt.afterDisk)
     }
 
@@ -193,7 +219,7 @@ final class NativeActionReceiptTests: XCTestCase {
             nonClaims: NativeToolExecutor.nonClaims
         )
 
-        XCTAssertFalse(NativeToolExecutor.savedDryRunReceipt(noOutputPreview, authorizes: selection))
+        XCTAssertFalse(NativeToolExecutor.savedDryRunReceipt(noOutputPreview, authorizes: selection, ruleVersion: "rules-v1"))
 
         let actualPreview = NativeActionReceiptBridge.nativeToolExecutionReceipt(
             from: NativeActionExecutor(
@@ -205,7 +231,231 @@ final class NativeActionReceiptTests: XCTestCase {
             userConfirmed: false
         )
 
-        XCTAssertTrue(NativeToolExecutor.savedDryRunReceipt(actualPreview, authorizes: selection))
+        XCTAssertTrue(NativeToolExecutor.savedDryRunReceipt(actualPreview, authorizes: selection, ruleVersion: "rules-v1"))
+    }
+
+    func testSyntheticCleanupDryRunReceiptCannotAuthorizePerform() {
+        let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
+        let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
+        let syntheticCleanup = NativeToolExecutionReceipt(
+            ruleVersion: "rules-v1",
+            mode: .dryRun,
+            status: "dry-run",
+            findingPath: findingPath,
+            category: "Homebrew",
+            command: selection.command,
+            invocation: ToolCommandInvocation(executable: "brew", arguments: ["cleanup"]),
+            beforeFreeBytes: 100,
+            afterFreeBytes: 100,
+            output: nil,
+            userConfirmed: false,
+            message: "Synthetic same-command dry run.",
+            nonClaims: NativeToolExecutor.nonClaims
+        )
+
+        XCTAssertFalse(NativeToolExecutor.savedDryRunReceipt(syntheticCleanup, authorizes: selection, ruleVersion: "rules-v1"))
+    }
+
+    func testBrewPreviewDryRunExecutesRunnerAndCapturesOutput() throws {
+        let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
+        let preview = NativeToolCommand(
+            id: "brew.preview",
+            command: "brew cleanup --dry-run",
+            purpose: "Preview Homebrew cleanup.",
+            risk: .inspect,
+            requiresReview: false,
+            expectedEffect: "Shows what Homebrew would remove."
+        )
+        let selection = NativeToolCommandSelection(
+            receipt: NativeToolReceipt(
+                findingPath: findingPath,
+                displayName: "Homebrew cache",
+                category: "Homebrew",
+                allocatedSize: 100,
+                safetyClass: .safeAfterCondition,
+                actionKind: .nativeToolCommand,
+                status: "native-tool",
+                message: "Preview Homebrew cleanup.",
+                commands: [preview],
+                nonClaims: []
+            ),
+            command: preview
+        )
+        let runner = RecordingNativeActionReceiptRunner(stdout: "Would remove bottle\n")
+
+        let receipt = NativeToolExecutor(
+            runner: runner,
+            configuration: NativeToolExecutionConfiguration(timeout: 3, diskStatusPath: tempRoot)
+        ).execute(
+            selection: selection,
+            mode: .dryRun,
+            ruleVersion: "rules-v1",
+            userConfirmed: false
+        )
+
+        XCTAssertEqual(runner.invocations.map(\.arguments), [["cleanup", "--dry-run"]])
+        XCTAssertEqual(receipt.status, "dry-run")
+        XCTAssertEqual(receipt.output?.stdoutPreview, ["Would remove bottle"])
+        XCTAssertTrue(receipt.errors.isEmpty)
+    }
+
+    func testStaleOrLooseArgvHomebrewPreviewCannotAuthorizePerform() {
+        let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
+        let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
+        let stalePreview = actualPreviewReceipt(
+            findingPath: findingPath,
+            createdAt: Date().addingTimeInterval(-3_600),
+            arguments: ["cleanup", "--dry-run"]
+        )
+        let looseArgvPreview = actualPreviewReceipt(
+            findingPath: findingPath,
+            createdAt: Date(),
+            arguments: ["cleanup", "--dry-run", "--prune=all"]
+        )
+
+        XCTAssertFalse(NativeToolExecutor.savedDryRunReceipt(stalePreview, authorizes: selection, ruleVersion: "rules-v1"))
+        XCTAssertFalse(NativeToolExecutor.savedDryRunReceipt(looseArgvPreview, authorizes: selection, ruleVersion: "rules-v1"))
+    }
+
+    func testNativeToolPerformWithoutPreviewAuthorizationIsBlockedInsideExecutor() {
+        let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
+        let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
+        let runner = RecordingNativeActionReceiptRunner(stdout: "must not run\n")
+
+        let receipt = NativeToolExecutor(
+            runner: runner,
+            configuration: NativeToolExecutionConfiguration(timeout: 3, diskStatusPath: tempRoot)
+        ).execute(
+            selection: selection,
+            mode: .perform,
+            ruleVersion: "rules-v1",
+            userConfirmed: true
+        )
+
+        XCTAssertEqual(receipt.status, "blocked")
+        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("preview authorization"))
+        XCTAssertTrue(runner.invocations.isEmpty)
+    }
+
+    func testFreshActualPreviewAuthorizationAllowsOnlyMatchingPerform() throws {
+        let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
+        let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
+        let preview = actualPreviewReceipt(
+            findingPath: findingPath,
+            createdAt: Date(),
+            arguments: ["cleanup", "-n"]
+        )
+        let authorization = try XCTUnwrap(NativeToolExecutor.performAuthorization(
+            authorizing: selection,
+            in: [preview],
+            ruleVersion: "rules-v1"
+        ))
+        let runner = RecordingNativeActionReceiptRunner(stdout: "Removed old bottle\n")
+
+        let receipt = NativeToolExecutor(
+            runner: runner,
+            configuration: NativeToolExecutionConfiguration(timeout: 3, diskStatusPath: tempRoot)
+        ).execute(
+            selection: selection,
+            mode: .perform,
+            ruleVersion: "rules-v1",
+            userConfirmed: true,
+            authorization: authorization
+        )
+
+        XCTAssertEqual(receipt.status, "done")
+        XCTAssertEqual(runner.invocations.map(\.arguments), [["cleanup"]])
+        XCTAssertEqual(receipt.output?.stdoutPreview, ["Removed old bottle"])
+    }
+
+    func testPreviewAuthorizationRejectsFailedWrongPathWrongRuleAndDigest() {
+        let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
+        let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
+        let valid = actualPreviewReceipt(
+            findingPath: findingPath,
+            createdAt: Date(),
+            arguments: ["cleanup", "--dry-run"]
+        )
+        let failed = actualPreviewReceipt(
+            findingPath: findingPath,
+            createdAt: Date(),
+            arguments: ["cleanup", "--dry-run"],
+            exitCode: 1
+        )
+        let wrongDigest = actualPreviewReceipt(
+            findingPath: findingPath,
+            createdAt: Date(),
+            arguments: ["cleanup", "--dry-run"],
+            authorizationDigest: "wrong-digest"
+        )
+        let wrongPathSelection = NativeActionReceiptBridge.homebrewCleanupSelection(
+            findingPath: tempRoot.appendingPathComponent("different/Homebrew").path
+        )
+
+        XCTAssertNil(NativeToolExecutor.performAuthorization(
+            authorizing: selection,
+            in: [failed],
+            ruleVersion: "rules-v1"
+        ))
+        XCTAssertNil(NativeToolExecutor.performAuthorization(
+            authorizing: wrongPathSelection,
+            in: [valid],
+            ruleVersion: "rules-v1"
+        ))
+        XCTAssertNil(NativeToolExecutor.performAuthorization(
+            authorizing: selection,
+            in: [valid],
+            ruleVersion: "rules-v2"
+        ))
+        XCTAssertNil(NativeToolExecutor.performAuthorization(
+            authorizing: selection,
+            in: [wrongDigest],
+            ruleVersion: "rules-v1"
+        ))
+    }
+
+    private func actualPreviewReceipt(
+        findingPath: String,
+        createdAt: Date,
+        arguments: [String],
+        ruleVersion: String = "rules-v1",
+        exitCode: Int32 = 0,
+        authorizationDigest: String? = nil
+    ) -> NativeToolExecutionReceipt {
+        let invocation = ToolCommandInvocation(executable: "brew", arguments: arguments)
+        return NativeToolExecutionReceipt(
+            createdAt: createdAt,
+            ruleVersion: ruleVersion,
+            mode: .dryRun,
+            status: exitCode == 0 ? "dry-run" : "failed",
+            findingPath: findingPath,
+            category: "Homebrew",
+            command: NativeToolCommand(
+                id: "brew.preview",
+                command: invocation.displayCommand,
+                purpose: "Preview Homebrew cleanup.",
+                risk: .inspect,
+                requiresReview: false,
+                expectedEffect: "Shows what Homebrew would remove."
+            ),
+            invocation: invocation,
+            authorizationDigest: authorizationDigest
+                ?? NativeToolExecutor.homebrewCleanupAuthorizationDigest(
+                    findingPath: findingPath,
+                    ruleVersion: ruleVersion
+                ),
+            beforeFreeBytes: 100,
+            afterFreeBytes: 100,
+            output: ToolCommandSnapshot(output: ToolCommandOutput(
+                invocation: invocation,
+                exitCode: exitCode,
+                stdout: "Would remove bottle\n"
+            )),
+            userConfirmed: false,
+            message: "Actual Homebrew preview.",
+            errors: exitCode == 0 ? [] : ["Command failed."],
+            nonClaims: NativeToolExecutor.nonClaims
+        )
     }
 }
 

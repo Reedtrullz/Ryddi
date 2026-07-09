@@ -247,15 +247,17 @@ final class ReclaimerCLITests: XCTestCase {
     func testNativeReceiptsListAndExportSavedDryRunReceipt() throws {
         try writeHomebrewCacheFixture()
 
-        _ = try captureStandardOutput {
-            try ReclaimerCLI.run(arguments: [
-                "native",
-                "run",
-                "--command-id", "brew.preview",
-                "--dry-run",
-                "--save-audit",
-                "--json"
-            ] + nativeFixtureOptions())
+        try withFakeBrew(stdout: "Would remove fake bottle\n") {
+            _ = try captureStandardOutput {
+                try ReclaimerCLI.run(arguments: [
+                    "native",
+                    "run",
+                    "--command-id", "brew.preview",
+                    "--dry-run",
+                    "--save-audit",
+                    "--json"
+                ] + nativeFixtureOptions())
+            }
         }
 
         let listOutput = try captureStandardOutput {
@@ -374,14 +376,14 @@ final class ReclaimerCLITests: XCTestCase {
         }
     }
 
-    func testNativeRunCleanupRejectsNoOutputPreviewReceipt() throws {
+    func testNativeRunCleanupRejectsSyntheticCleanupDryRunReceipt() throws {
         let homebrewCache = try writeHomebrewCacheFixture()
 
         _ = try captureStandardOutput {
             try ReclaimerCLI.run(arguments: [
                 "native",
                 "run",
-                "--command-id", "brew.preview",
+                "--command-id", "brew.cleanup",
                 "--finding-path", homebrewCache.path,
                 "--dry-run",
                 "--save-audit",
@@ -417,6 +419,41 @@ final class ReclaimerCLITests: XCTestCase {
             ])) { error in
                 XCTAssertTrue(error.localizedDescription.contains("requires a saved Homebrew dry-run receipt"), String(describing: error))
             }
+        }
+    }
+
+    func testNativeHomebrewPerformUsesSavedMatchingPreviewReceipt() throws {
+        let homebrewCache = try writeHomebrewCacheFixture()
+
+        try withFakeBrew(stdout: "Homebrew fake output\n") {
+            _ = try captureStandardOutput {
+                try ReclaimerCLI.run(arguments: [
+                    "native",
+                    "homebrew",
+                    "cleanup",
+                    "--dry-run",
+                    "--save-audit",
+                    "--finding-path", homebrewCache.path,
+                    "--json"
+                ])
+            }
+
+            let output = try captureStandardOutput {
+                try ReclaimerCLI.run(arguments: [
+                    "native",
+                    "homebrew",
+                    "cleanup",
+                    "--yes",
+                    "--finding-path", homebrewCache.path,
+                    "--json"
+                ])
+            }
+            let receipt = try JSONDecoder.ryddi.decode(NativeActionReceipt.self, from: Data(output.utf8))
+
+            XCTAssertEqual(receipt.mode, .perform)
+            XCTAssertEqual(receipt.commandDisplay, ["brew", "cleanup"])
+            XCTAssertEqual(receipt.exitCode, 0)
+            XCTAssertNil(receipt.skippedReason)
         }
     }
 

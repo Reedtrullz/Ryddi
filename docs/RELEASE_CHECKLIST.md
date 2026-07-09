@@ -61,10 +61,10 @@ This project is intended for direct macOS distribution outside the Mac App Store
 - [ ] `reclaimer agents --path FIXTURE --min-size 1 --max-depth 4 --json` reports AI-agent storage buckets for cache, history, protected state, and quit-first data without emitting a cleanup plan.
 - [ ] `reclaimer agents retention --path FIXTURE --profile balanced --min-size 1 --max-depth 4 --json` reports cleanup-plan, compression-review, keep, and protect recommendations without deleting, compressing, moving, or modifying agent files.
 - [ ] `reclaimer native --path FIXTURE --json --save-audit` emits native-tool preview receipts and saves a local audit record without executing native cleanup commands.
-- [ ] `reclaimer native run --command-id brew.preview --path FIXTURE --dry-run --json --save-audit` writes a native command execution receipt without running the command.
+- [ ] `reclaimer native run --command-id brew.preview --path FIXTURE --dry-run --json --save-audit` runs only the exact bounded Homebrew preview command and captures its output in a native command execution receipt.
 - [ ] `reclaimer native homebrew cleanup --dry-run --finding-path FIXTURE/Library/Caches/Homebrew --json --save-audit` saves Homebrew's actual preview output as an exportable native command receipt.
 - [ ] `reclaimer native receipts list --json` and `reclaimer native receipts export --path-style redacted --output RECEIPT.md` retrieve saved native command receipts without rerunning native tools.
-- [ ] `reclaimer native run --command-id brew.cleanup --finding-path FIXTURE/Library/Caches/Homebrew --path FIXTURE --yes --save-audit` requires saved preview evidence for that same finding path before perform mode.
+- [ ] `reclaimer native run --command-id brew.cleanup --finding-path FIXTURE/Library/Caches/Homebrew --path FIXTURE --yes --save-audit` requires successful preview evidence no older than 15 minutes for the same normalized path, current rule version, and exact cleanup invocation.
 - [ ] `reclaimer execute --dry-run --path FIXTURE --save-audit` followed by `reclaimer receipts export --output RECEIPT.md` writes a local Markdown receipt report without rerunning cleanup.
 - [ ] `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
 - [ ] `reclaimer recovery --json` reports app-held, dry-run, skipped, Trash, native-tool, and direct-delete recovery states without mutating files.

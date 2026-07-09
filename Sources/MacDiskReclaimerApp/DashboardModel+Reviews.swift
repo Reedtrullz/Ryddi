@@ -374,18 +374,27 @@ extension DashboardModel {
         defer { isWorking = false }
         do {
             let includeUserRules = includeUserRulesInScans
-            let selection = NativeToolCommandSelection(receipt: receipt, command: command)
+            let savedReceipts = recentNativeToolExecutionReceipts
             if perform, let reason = nativePerformBlockReason(receipt: receipt, command: command) {
                 error = reason
                 return
             }
             let executionReceipt = try await Task.detached {
                 let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
+                let selection = NativeToolCommandSelection(receipt: receipt, command: command)
+                let authorization = perform
+                    ? NativeToolExecutor.performAuthorization(
+                        authorizing: selection,
+                        in: savedReceipts,
+                        ruleVersion: ruleVersion
+                    )
+                    : nil
                 return NativeToolExecutor().execute(
                     selection: selection,
                     mode: perform ? .perform : .dryRun,
                     ruleVersion: ruleVersion,
-                    userConfirmed: perform
+                    userConfirmed: perform,
+                    authorization: authorization
                 )
             }.value
             _ = try AuditStore().save(nativeToolExecutionReceipt: executionReceipt)

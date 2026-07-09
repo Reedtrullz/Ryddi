@@ -77,6 +77,12 @@ public enum NativeActionReceiptBridge {
             category: category,
             command: command,
             invocation: invocation,
+            authorizationDigest: command.id == "brew.preview" && status == "dry-run" && snapshot?.status == "ok"
+                ? NativeToolExecutor.homebrewCleanupAuthorizationDigest(
+                    findingPath: findingPath,
+                    ruleVersion: ruleVersion
+                )
+                : nil,
             beforeFreeBytes: receipt.beforeDisk?.displayFreeBytes,
             afterFreeBytes: receipt.mode == .dryRun ? nil : receipt.afterDisk?.displayFreeBytes,
             output: snapshot,
@@ -211,15 +217,21 @@ public struct NativeActionExecutionConfiguration: Hashable, Sendable {
     public let timeout: TimeInterval
     public let diskStatusPath: URL
     public let previewLineLimit: Int
+    public let previewAuthorizationAge: TimeInterval
 
     public init(
         timeout: TimeInterval = 60,
         diskStatusPath: URL = URL(fileURLWithPath: "/System/Volumes/Data"),
-        previewLineLimit: Int = 12
+        previewLineLimit: Int = 12,
+        previewAuthorizationAge: TimeInterval = NativeToolExecutionConfiguration.maximumPreviewAuthorizationAge
     ) {
         self.timeout = max(1, min(timeout, 600))
         self.diskStatusPath = diskStatusPath.standardizedFileURL
         self.previewLineLimit = max(1, min(previewLineLimit, 50))
+        self.previewAuthorizationAge = max(
+            1,
+            min(previewAuthorizationAge, NativeToolExecutionConfiguration.maximumPreviewAuthorizationAge)
+        )
     }
 }
 
@@ -233,20 +245,26 @@ public final class NativeActionExecutor: @unchecked Sendable {
     private let runner: any ToolCommandRunning
     private let diskStatusReader: DiskStatusReader
     private let configuration: NativeActionExecutionConfiguration
+    private let now: @Sendable () -> Date
 
     public init(
         runner: any ToolCommandRunning = ProcessToolCommandRunner(),
         diskStatusReader: DiskStatusReader = DiskStatusReader(),
-        configuration: NativeActionExecutionConfiguration = NativeActionExecutionConfiguration()
+        configuration: NativeActionExecutionConfiguration = NativeActionExecutionConfiguration(),
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.runner = runner
         self.diskStatusReader = diskStatusReader
         self.configuration = configuration
+        self.now = now
     }
 
     public func executeHomebrewCleanup(
         mode: SafeActionExecutionMode,
-        userConfirmed: Bool
+        userConfirmed: Bool,
+        authorization: NativeToolPerformAuthorization? = nil,
+        ruleVersion: String = "source",
+        findingPath: String = NativeActionReceiptBridge.defaultHomebrewFindingPath
     ) -> NativeActionReceipt {
         let invocation = homebrewCleanupInvocation(mode: mode)
         let command = NativeActionCommand(
@@ -266,6 +284,22 @@ public final class NativeActionExecutor: @unchecked Sendable {
         }
 
         if let reason = NativeActionAllowlist.validate(command).blockedReason {
+            return skippedHomebrewReceipt(
+                mode: mode,
+                commandDisplay: displayCommandParts(for: invocation),
+                before: before,
+                reason: reason
+            )
+        }
+
+        if mode == .perform,
+           let reason = NativeToolExecutor.authorizationBlockReason(
+               authorization: authorization,
+               selection: NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath),
+               ruleVersion: ruleVersion,
+               now: now(),
+               maximumAge: configuration.previewAuthorizationAge
+           ) {
             return skippedHomebrewReceipt(
                 mode: mode,
                 commandDisplay: displayCommandParts(for: invocation),

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public enum NativeToolExecutionMode: String, Codable, Hashable, Sendable {
@@ -25,6 +26,7 @@ public struct NativeToolExecutionReceipt: Codable, Hashable, Identifiable, Senda
     public let category: String
     public let command: NativeToolCommand
     public let invocation: ToolCommandInvocation?
+    public let authorizationDigest: String?
     public let beforeFreeBytes: Int64?
     public let afterFreeBytes: Int64?
     public let output: ToolCommandSnapshot?
@@ -43,6 +45,7 @@ public struct NativeToolExecutionReceipt: Codable, Hashable, Identifiable, Senda
         category: String,
         command: NativeToolCommand,
         invocation: ToolCommandInvocation?,
+        authorizationDigest: String? = nil,
         beforeFreeBytes: Int64?,
         afterFreeBytes: Int64?,
         output: ToolCommandSnapshot?,
@@ -60,6 +63,7 @@ public struct NativeToolExecutionReceipt: Codable, Hashable, Identifiable, Senda
         self.category = category
         self.command = command
         self.invocation = invocation
+        self.authorizationDigest = authorizationDigest
         self.beforeFreeBytes = beforeFreeBytes
         self.afterFreeBytes = afterFreeBytes
         self.output = output
@@ -70,16 +74,30 @@ public struct NativeToolExecutionReceipt: Codable, Hashable, Identifiable, Senda
     }
 }
 
+public struct NativeToolPerformAuthorization: Codable, Hashable, Sendable {
+    public let previewReceipt: NativeToolExecutionReceipt
+
+    public init(previewReceipt: NativeToolExecutionReceipt) {
+        self.previewReceipt = previewReceipt
+    }
+}
+
 public struct NativeToolExecutionConfiguration: Hashable, Sendable {
+    /// Preview authorization is never valid for more than 15 minutes.
+    public static let maximumPreviewAuthorizationAge: TimeInterval = 15 * 60
+
     public let timeout: TimeInterval
     public let diskStatusPath: URL
+    public let previewAuthorizationAge: TimeInterval
 
     public init(
         timeout: TimeInterval = 60,
-        diskStatusPath: URL = URL(fileURLWithPath: "/System/Volumes/Data")
+        diskStatusPath: URL = URL(fileURLWithPath: "/System/Volumes/Data"),
+        previewAuthorizationAge: TimeInterval = Self.maximumPreviewAuthorizationAge
     ) {
         self.timeout = max(1, min(timeout, 600))
         self.diskStatusPath = diskStatusPath.standardizedFileURL
+        self.previewAuthorizationAge = max(1, min(previewAuthorizationAge, Self.maximumPreviewAuthorizationAge))
     }
 }
 
@@ -94,15 +112,18 @@ public final class NativeToolExecutor: @unchecked Sendable {
     private let runner: any ToolCommandRunning
     private let diskStatusReader: DiskStatusReader
     private let configuration: NativeToolExecutionConfiguration
+    private let now: @Sendable () -> Date
 
     public init(
         runner: any ToolCommandRunning = ProcessToolCommandRunner(),
         diskStatusReader: DiskStatusReader = DiskStatusReader(),
-        configuration: NativeToolExecutionConfiguration = NativeToolExecutionConfiguration()
+        configuration: NativeToolExecutionConfiguration = NativeToolExecutionConfiguration(),
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.runner = runner
         self.diskStatusReader = diskStatusReader
         self.configuration = configuration
+        self.now = now
     }
 
     public static func selection(
@@ -162,28 +183,62 @@ public final class NativeToolExecutor: @unchecked Sendable {
 
     public static func savedDryRunReceipt(
         _ receipt: NativeToolExecutionReceipt,
-        authorizes selection: NativeToolCommandSelection
+        authorizes selection: NativeToolCommandSelection,
+        ruleVersion: String,
+        now: Date = Date(),
+        maximumAge: TimeInterval = NativeToolExecutionConfiguration.maximumPreviewAuthorizationAge
     ) -> Bool {
-        receipt.mode == .dryRun
-            && receipt.status == "dry-run"
-            && receipt.errors.isEmpty
-            && savedDryRunCommand(receipt, authorizes: selection.command.id)
-            && URL(fileURLWithPath: receipt.findingPath).standardizedFileURL.path
-                == URL(fileURLWithPath: selection.receipt.findingPath).standardizedFileURL.path
+        authorizationBlockReason(
+            authorization: NativeToolPerformAuthorization(previewReceipt: receipt),
+            selection: selection,
+            ruleVersion: ruleVersion,
+            now: now,
+            maximumAge: maximumAge
+        ) == nil
     }
 
     public static func savedDryRunReceiptExists(
         authorizing selection: NativeToolCommandSelection,
-        in receipts: [NativeToolExecutionReceipt]
+        in receipts: [NativeToolExecutionReceipt],
+        ruleVersion: String,
+        now: Date = Date(),
+        maximumAge: TimeInterval = NativeToolExecutionConfiguration.maximumPreviewAuthorizationAge
     ) -> Bool {
-        receipts.contains { savedDryRunReceipt($0, authorizes: selection) }
+        performAuthorization(
+            authorizing: selection,
+            in: receipts,
+            ruleVersion: ruleVersion,
+            now: now,
+            maximumAge: maximumAge
+        ) != nil
+    }
+
+    public static func performAuthorization(
+        authorizing selection: NativeToolCommandSelection,
+        in receipts: [NativeToolExecutionReceipt],
+        ruleVersion: String,
+        now: Date = Date(),
+        maximumAge: TimeInterval = NativeToolExecutionConfiguration.maximumPreviewAuthorizationAge
+    ) -> NativeToolPerformAuthorization? {
+        receipts.lazy
+            .map(NativeToolPerformAuthorization.init(previewReceipt:))
+            .first {
+                authorizationBlockReason(
+                    authorization: $0,
+                    selection: selection,
+                    ruleVersion: ruleVersion,
+                    now: now,
+                    maximumAge: maximumAge
+                ) == nil
+            }
     }
 
     public func execute(
         selection: NativeToolCommandSelection,
         mode: NativeToolExecutionMode,
         ruleVersion: String,
-        userConfirmed: Bool
+        userConfirmed: Bool,
+        authorization: NativeToolPerformAuthorization? = nil
     ) -> NativeToolExecutionReceipt {
         let receipt = selection.receipt
         let command = selection.command
@@ -226,6 +281,17 @@ public final class NativeToolExecutor: @unchecked Sendable {
                 message: error,
                 errors: [error],
                 nonClaims: Self.nonClaims
+            )
+        }
+
+        if mode == .dryRun,
+           command.id == "brew.preview",
+           Self.isExactHomebrewPreviewInvocation(invocation) {
+            return executeHomebrewPreview(
+                selection: selection,
+                invocation: invocation,
+                ruleVersion: ruleVersion,
+                beforeFreeBytes: before
             )
         }
 
@@ -306,6 +372,31 @@ public final class NativeToolExecutor: @unchecked Sendable {
             )
         }
 
+        if let reason = Self.authorizationBlockReason(
+            authorization: authorization,
+            selection: selection,
+            ruleVersion: ruleVersion,
+            now: now(),
+            maximumAge: configuration.previewAuthorizationAge
+        ) {
+            return NativeToolExecutionReceipt(
+                ruleVersion: ruleVersion,
+                mode: mode,
+                status: "blocked",
+                findingPath: receipt.findingPath,
+                category: receipt.category,
+                command: command,
+                invocation: invocation,
+                beforeFreeBytes: before,
+                afterFreeBytes: before,
+                output: nil,
+                userConfirmed: true,
+                message: reason,
+                errors: [reason],
+                nonClaims: Self.nonClaims
+            )
+        }
+
         let output = runner.run(invocation, timeout: configuration.timeout)
         let after = diskStatusReader.snapshot(for: configuration.diskStatusPath).displayFreeBytes
         let snapshot = ToolCommandSnapshot(output: output)
@@ -354,28 +445,139 @@ public final class NativeToolExecutor: @unchecked Sendable {
         return nil
     }
 
-    private static func savedDryRunCommand(
-        _ receipt: NativeToolExecutionReceipt,
-        authorizes performCommandID: String
-    ) -> Bool {
-        if receipt.command.id == performCommandID {
-            return true
-        }
-        return receipt.command.id == "brew.preview"
-            && performCommandID == "brew.cleanup"
-            && isActualHomebrewPreviewReceipt(receipt)
+    private func executeHomebrewPreview(
+        selection: NativeToolCommandSelection,
+        invocation: ToolCommandInvocation,
+        ruleVersion: String,
+        beforeFreeBytes: Int64?
+    ) -> NativeToolExecutionReceipt {
+        let output = runner.run(invocation, timeout: configuration.timeout)
+        let snapshot = ToolCommandSnapshot(output: output)
+        let errors = output.succeeded ? [] : errorMessages(from: output)
+        return NativeToolExecutionReceipt(
+            createdAt: now(),
+            ruleVersion: ruleVersion,
+            mode: .dryRun,
+            status: output.succeeded ? "dry-run" : "failed",
+            findingPath: selection.receipt.findingPath,
+            category: selection.receipt.category,
+            command: selection.command,
+            invocation: invocation,
+            authorizationDigest: output.succeeded
+                ? Self.homebrewCleanupAuthorizationDigest(
+                    findingPath: selection.receipt.findingPath,
+                    ruleVersion: ruleVersion
+                )
+                : nil,
+            beforeFreeBytes: beforeFreeBytes,
+            afterFreeBytes: beforeFreeBytes,
+            output: snapshot,
+            userConfirmed: false,
+            message: output.succeeded
+                ? "Homebrew preview completed: \(invocation.displayCommand)"
+                : "Homebrew preview did not complete successfully: \(invocation.displayCommand)",
+            errors: errors,
+            nonClaims: Self.nonClaims
+        )
     }
 
-    private static func isActualHomebrewPreviewReceipt(_ receipt: NativeToolExecutionReceipt) -> Bool {
-        guard let invocation = receipt.invocation, let output = receipt.output else {
-            return false
+    static func authorizationBlockReason(
+        authorization: NativeToolPerformAuthorization?,
+        selection: NativeToolCommandSelection,
+        ruleVersion: String,
+        now: Date,
+        maximumAge: TimeInterval
+    ) -> String? {
+        guard selection.command.id == "brew.cleanup",
+              let performInvocation = invocation(for: selection.command),
+              isExactHomebrewCleanupInvocation(performInvocation) else {
+            return "No preview authorization scheme exists for this native command."
         }
+
+        guard let authorization else {
+            return "Homebrew cleanup requires a fresh successful brew.preview authorization receipt."
+        }
+        let preview = authorization.previewReceipt
+        guard preview.mode == .dryRun,
+              preview.status == "dry-run",
+              preview.errors.isEmpty,
+              preview.command.id == "brew.preview" else {
+            return "Homebrew preview authorization is not a clean successful dry-run receipt."
+        }
+        guard preview.ruleVersion == ruleVersion else {
+            return "Homebrew preview authorization was created with a different rule version."
+        }
+        let plannedPath = URL(fileURLWithPath: selection.receipt.findingPath).standardizedFileURL.path
+        let previewPath = URL(fileURLWithPath: preview.findingPath).standardizedFileURL.path
+        guard previewPath == plannedPath else {
+            return "Homebrew preview authorization belongs to a different finding path."
+        }
+        let boundedMaximumAge = max(
+            1,
+            min(maximumAge, NativeToolExecutionConfiguration.maximumPreviewAuthorizationAge)
+        )
+        let age = now.timeIntervalSince(preview.createdAt)
+        guard age >= 0, age <= boundedMaximumAge else {
+            return "Homebrew preview authorization is stale; run brew.preview again."
+        }
+        guard let previewInvocation = preview.invocation,
+              isExactHomebrewPreviewInvocation(previewInvocation),
+              let output = preview.output,
+              output.status == "ok",
+              output.exitCode == 0,
+              !output.timedOut,
+              output.launchError == nil,
+              output.command == previewInvocation.displayCommand else {
+            return "Homebrew preview authorization lacks exact successful brew cleanup --dry-run output."
+        }
+        let expectedDigest = authorizationDigest(
+            findingPath: plannedPath,
+            ruleVersion: ruleVersion,
+            performInvocation: performInvocation
+        )
+        guard preview.authorizationDigest == expectedDigest else {
+            return "Homebrew preview authorization does not match the intended cleanup invocation."
+        }
+        return nil
+    }
+
+    public static func homebrewCleanupAuthorizationDigest(
+        findingPath: String,
+        ruleVersion: String
+    ) -> String {
+        authorizationDigest(
+            findingPath: findingPath,
+            ruleVersion: ruleVersion,
+            performInvocation: ToolCommandInvocation(executable: "brew", arguments: ["cleanup"])
+        )
+    }
+
+    private static func authorizationDigest(
+        findingPath: String,
+        ruleVersion: String,
+        performInvocation: ToolCommandInvocation
+    ) -> String {
+        let executable = URL(fileURLWithPath: performInvocation.executable).lastPathComponent
+        let payload = [
+            "ryddi.native.homebrew.authorization.v1",
+            URL(fileURLWithPath: findingPath).standardizedFileURL.path,
+            ruleVersion,
+            executable,
+            performInvocation.arguments.joined(separator: "\u{001f}")
+        ].joined(separator: "\u{001e}")
+        return SHA256.hash(data: Data(payload.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func isExactHomebrewPreviewInvocation(_ invocation: ToolCommandInvocation) -> Bool {
         let executable = URL(fileURLWithPath: invocation.executable).lastPathComponent
-        let arguments = invocation.arguments
         return executable == "brew"
-            && output.status == "ok"
-            && arguments.contains("cleanup")
-            && (arguments.contains("-n") || arguments.contains("--dry-run"))
+            && (invocation.arguments == ["cleanup", "--dry-run"]
+                || invocation.arguments == ["cleanup", "-n"])
+    }
+
+    private static func isExactHomebrewCleanupInvocation(_ invocation: ToolCommandInvocation) -> Bool {
+        URL(fileURLWithPath: invocation.executable).lastPathComponent == "brew"
+            && invocation.arguments == ["cleanup"]
     }
 
     private static func commandParts(_ command: String) -> [String] {
