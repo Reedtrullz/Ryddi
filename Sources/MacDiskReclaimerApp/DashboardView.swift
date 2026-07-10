@@ -9,7 +9,6 @@ struct DashboardView: View {
     @AppStorage(RyddiAppStorageKey.redactUserTextByDefault) private var redactUserTextByDefault = false
     @State private var selectedFinding: Finding.ID?
     @SceneStorage("dashboard.selectedSectionID") private var selectedSectionID = DashboardLaunchOptions.initialSectionID
-    @State private var showingReclaimConfirmation = false
 
     var body: some View {
         NavigationSplitView {
@@ -79,14 +78,12 @@ struct DashboardView: View {
                 } else {
                     OverviewView(
                         model: model,
-                        onReclaim: { showingReclaimConfirmation = true },
                         navigate: selectLegacySection
                     )
                 }
             case .summary:
                 OverviewView(
                     model: model,
-                    onReclaim: { showingReclaimConfirmation = true },
                     navigate: selectLegacySection
                 )
             }
@@ -167,23 +164,15 @@ struct DashboardView: View {
                 }
                 .disabled(model.overview == nil || model.findings.isEmpty)
                 Divider()
-                Button(role: .destructive) {
-                    showingReclaimConfirmation = true
+                Button {
+                    selectSection(.queues)
                 } label: {
-                    Label("Reclaim", systemImage: "trash")
+                    Label("Review Manual Cleanup", systemImage: "folder")
                 }
-                .disabled(!model.canReclaimSelected || selectedSection == .remoteTargets)
+                .disabled(model.findings.isEmpty)
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
             }
-        }
-        .confirmationDialog("Reclaim selected auto-safe items?", isPresented: $showingReclaimConfirmation) {
-            Button("Reclaim Selected", role: .destructive) {
-                Task { await model.reclaimSelected() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(model.reclaimConfirmationMessage)
         }
         .onAppear {
             model.applyStoredSettings(
@@ -219,13 +208,11 @@ struct DashboardView: View {
             canPlan: !model.findings.isEmpty && !model.isWorking,
             canDryRun: (model.plan != nil || !model.findings.isEmpty) && !model.isWorking,
             canExport: model.overview != nil && !model.findings.isEmpty && !model.isWorking,
-            canReclaim: model.canReclaimSelected && selectedSection != .remoteTargets,
             scan: { Task { await model.scan() } },
             buildPlan: { Task { await model.buildPlan() } },
             dryRun: { Task { await model.runDryRun() } },
             exportReport: exportEvidenceReportUsingDefaults,
             exportRedactedReport: { Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) } },
-            reclaim: { showingReclaimConfirmation = true },
             openSection: { selectSection($0) }
         )
     }

@@ -2,7 +2,7 @@ import XCTest
 @testable import ReclaimerCore
 
 final class SafeActionPlannerTests: XCTestCase {
-    func testPlannerMapsKnownFindingsToSafeActions() {
+    func testPlannerMapsKnownFindingsToSafeActions() throws {
         let findings = [
             finding(
                 path: "/Users/reidar/Library/Caches/Homebrew",
@@ -32,10 +32,13 @@ final class SafeActionPlannerTests: XCTestCase {
 
         let actions = SafeActionPlanner().build(findings: findings)
 
-        XCTAssertEqual(Set(actions.map(\.kind)), [.homebrewCleanup, .trashAppBundle, .packageCacheGuidance])
+        XCTAssertEqual(Set(actions.map(\.kind)), [.homebrewCleanup, .openFinderReview, .packageCacheGuidance])
         XCTAssertEqual(actions.first { $0.kind == .homebrewCleanup }?.commandPreview, ["brew", "cleanup", "--dry-run"])
         XCTAssertEqual(actions.first { $0.kind == .homebrewCleanup }?.requiredConditions, [.nativeToolRequired, .finalClassificationRequired])
-        XCTAssertEqual(actions.first { $0.kind == .trashAppBundle }?.requiredConditions, [.manualReviewRequired, .appQuitRequired, .notSymbolicLink, .finalClassificationRequired])
+        let appReview = try XCTUnwrap(actions.first { $0.id.hasPrefix("app-bundle-review:") })
+        XCTAssertEqual(appReview.requiredConditions, [.manualReviewRequired, .appQuitRequired, .notSymbolicLink, .finalClassificationRequired])
+        XCTAssertFalse(appReview.destructive)
+        XCTAssertTrue(appReview.reviewRequired)
         XCTAssertEqual(actions.first { $0.kind == .packageCacheGuidance }?.reviewRequired, true)
     }
 
@@ -55,6 +58,8 @@ final class SafeActionPlannerTests: XCTestCase {
         XCTAssertEqual(action.estimatedBytes, summary.totalKnownBytes)
         XCTAssertEqual(action.commandPreview, ["reclaimer", "audit", "prune", "--dry-run", "--older-than-days", "30", "--keep-recent", "100"])
         XCTAssertEqual(action.requiredConditions, [.manualReviewRequired, .finalClassificationRequired])
+        XCTAssertFalse(action.destructive)
+        XCTAssertTrue(action.detail.localizedCaseInsensitiveContains("manual"))
     }
 
     func testPlannerDoesNotProduceExecutableActionsForProtectedStorage() {

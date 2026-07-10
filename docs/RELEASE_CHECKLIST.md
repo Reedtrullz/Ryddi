@@ -62,19 +62,19 @@ Human review follows [QA_V0.3.md](QA_V0.3.md).
 - [ ] `reclaimer trash --path FIXTURE/.Trash --json --save-audit` reports Trash size/largest items, saves a local audit record, and does not empty, restore, move, or delete files.
 - [ ] `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` reports installed app support files and orphan candidates without emitting a cleanup plan.
 - [ ] `reclaimer apps uninstall-preview --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --output PREVIEW.md` writes a selected-app uninstall checklist where related files remain review-only and no deletion occurs.
-- [ ] `reclaimer apps uninstall --dry-run --save-audit --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` writes a clean, saved app-uninstall authorization receipt where only the selected app bundle would move to Trash and related files remain untouched.
-- [ ] `reclaimer apps uninstall --yes --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` requires that saved receipt to be fresh and to match the unchanged bundle path, identifier, filesystem identity, type, size, and modification evidence.
+- [ ] `reclaimer apps uninstall --dry-run --save-audit --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` writes evidence for manual Finder removal while related files remain untouched.
+- [ ] `reclaimer apps uninstall --yes ...` is rejected and preserves the selected app bundle.
 - [ ] `reclaimer agents --path FIXTURE --min-size 1 --max-depth 4 --json` reports AI-agent storage buckets for cache, history, protected state, and quit-first data without emitting a cleanup plan.
 - [ ] `reclaimer agents retention --path FIXTURE --profile balanced --min-size 1 --max-depth 4 --json` reports cleanup-plan, compression-review, keep, and protect recommendations without deleting, compressing, moving, or modifying agent files.
 - [ ] `reclaimer native --path FIXTURE --json --save-audit` emits native-tool preview receipts and saves a local audit record without executing native cleanup commands.
 - [ ] `reclaimer native run --command-id brew.preview --path FIXTURE --dry-run --json --save-audit` runs only the exact bounded Homebrew preview command and captures its output in a native command execution receipt.
 - [ ] `reclaimer native homebrew cleanup --dry-run --finding-path FIXTURE/Library/Caches/Homebrew --json --save-audit` saves Homebrew's actual preview output as an exportable native command receipt.
 - [ ] `reclaimer native receipts list --json` and `reclaimer native receipts export --path-style redacted --output RECEIPT.md` retrieve saved native command receipts without rerunning native tools.
-- [ ] `reclaimer native run --command-id brew.cleanup --finding-path FIXTURE/Library/Caches/Homebrew --path FIXTURE --yes --save-audit` requires successful preview evidence no older than 15 minutes for the same normalized path, current rule version, and exact cleanup invocation.
+- [ ] `reclaimer native run --command-id brew.cleanup --finding-path FIXTURE/Library/Caches/Homebrew --path FIXTURE --yes --save-audit` runs a fresh preview and consumes its same-process capability before the exact cleanup invocation; saved receipts cannot authorize a later run.
 - [ ] `reclaimer execute --dry-run --path FIXTURE --save-audit` followed by `reclaimer receipts export --output RECEIPT.md` writes a local Markdown receipt report without rerunning cleanup.
 - [ ] `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
-- [ ] `reclaimer recovery --json` reports app-held, dry-run, skipped, Trash, native-tool, and direct-delete recovery states without mutating files.
-- [ ] `reclaimer recovery restore HOLDING_ID --to DESTINATION` restores a disposable app-held fixture and refuses overwrite conflicts.
+- [ ] `reclaimer recovery --json` reports holding records as manual Finder review, plus dry-run, skipped, Trash, and native-tool recovery states without mutating files.
+- [ ] `reclaimer recovery restore HOLDING_ID --to DESTINATION` rejects automatic moves and preserves the disposable held fixture for manual Finder review.
 - [ ] `reclaimer containers --json --timeout 2 --save-audit` emits a read-only Docker/Colima inventory, saves a local audit record, and does not execute prune/delete/stop/reset commands.
 - [ ] `reclaimer remote history list/diff/report` reads disposable saved reachable remote scan audit records, writes a redacted remote growth Markdown report, excludes unreachable scans from default comparisons, and does not connect to or mutate a server.
 - [ ] `reclaimer remote dogfood --from-audit` writes redacted Markdown from disposable saved remote audit records and does not connect to or mutate a server.
@@ -84,7 +84,7 @@ Human review follows [QA_V0.3.md](QA_V0.3.md).
 - [ ] App Duplicate Review scans bounded roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App Apps & Leftovers review scans bounded app roots and does not enable Reclaim or modify the dry-run plan.
 - [ ] App AI Agent Storage review separates reclaimable cache from valuable history/protected state and does not enable Reclaim or modify the dry-run plan.
-- [ ] App Recovery Center shows app-held restore rows separately from receipt-only guidance.
+- [ ] App Recovery Center shows holding records separately from receipt guidance without exposing automatic restore or expiry actions.
 - [ ] App menu bar status item shows disk pressure and report-only scan controls without enabling cleanup actions.
 - [ ] Manual GitHub Actions workflow `Release Preview Artifact` uploads the unsigned preview zip, checksum, and manifest when run.
 - [ ] README states that the build is unsigned if `CODESIGN_IDENTITY` is unset.
@@ -142,9 +142,9 @@ Non-claims:
 - [ ] Release notes say automation is report-first.
 - [ ] Release notes say menu bar status is disk-pressure/report-only, not RAM cleaning or performance optimization.
 - [ ] Release notes say duplicate review uses local hashes and does not automatically select or delete duplicates.
-- [ ] Release notes say Apps & Leftovers related files are review-only; app uninstall execution can move only the selected app bundle to Trash after a matching saved dry run from the previous 15 minutes, confirmation, identity/metadata revalidation, open-file checks, user-policy checks, and final protection checks.
+- [ ] Release notes say Apps & Leftovers related files are review-only; app uninstall previews and dry-run receipts are evidence for manual Finder removal, and `apps uninstall --yes` is rejected.
 - [ ] Release notes say AI Agent Storage review is report-only and does not automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
-- [ ] Release notes say native-tool reports are review-first, `native run` defaults to dry-run, `native homebrew cleanup --dry-run --save-audit` captures Homebrew's actual preview output, `native run --yes` requires a matching saved dry-run receipt or the explicit `brew.preview` to `brew.cleanup` pair for the same path, perform mode is limited to explicitly allowlisted commands, and Docker/Colima prune/delete/reset plus unallowlisted package-manager cache-clearing commands remain guidance-only.
+- [ ] Release notes say native-tool reports are review-first, `native run` defaults to dry-run, `native homebrew cleanup --dry-run --save-audit` captures Homebrew's actual preview output, Homebrew `--yes` runs a fresh same-process preview before the paired cleanup, saved receipts remain evidence only, and Docker/Colima prune/delete/reset plus unallowlisted package-manager cache-clearing commands remain guidance-only.
 - [ ] Release notes say container inventory runs read-only inspection commands only.
 - [ ] Release notes say user protections/exclusions are local path policy, exports can contain private paths/reasons, imports do not delete files or grant permissions, and policy data is not uploaded.
 - [ ] Release notes say user rule packs are local, can contain private path fragments/app names/evidence text, are disabled by default unless explicitly included in CLI scans or app scans, cannot grant cleanup actions, and cannot downgrade bundled never-touch protections.
@@ -157,7 +157,7 @@ Non-claims:
 - [ ] Release notes say growth reports compare saved local scan snapshots, can include paths, and do not prove exact current disk state or execute cleanup.
 - [ ] Release notes say plan reports summarize proposed cleanup locally and do not execute cleanup or replace dry-run receipts.
 - [ ] Release notes say receipt reports summarize saved receipts locally and do not rerun cleanup.
-- [ ] Release notes say Recovery Center can restore only app-held items; Trash, native-tool, direct-delete, dry-run, skipped, and failed receipt rows are guidance, not guaranteed undo.
+- [ ] Release notes say holding records require manual Finder recovery; Trash, native-tool, dry-run, skipped, and failed receipt rows are guidance, not guaranteed undo.
 - [ ] Release notes say Trash Review is report-only and does not empty Trash, restore items, move files, or guarantee immediate free-space recovery.
 - [ ] Release notes say Browser Cache Review is report-only and does not quit browsers, delete, move, reset, or modify browser caches or protected profile roots.
 - [ ] Release notes say Package Cache Review is report-only and does not delete, move, prune, purge, or modify package-manager caches or protected config/auth paths.

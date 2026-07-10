@@ -5,6 +5,7 @@ public enum ActionCenterActionKind: String, Codable, CaseIterable, Hashable, Sen
     case runScan
     case reviewQueue
     case runDryRun
+    // Retained for decoding historical reports; new action-center reports never emit it.
     case executeSafePlan
     case quitApp
     case useNativeTool
@@ -110,7 +111,8 @@ public enum ActionCenterBuilder {
     public static let defaultNonClaims = [
         "Building the action center does not perform cleanup or modify files.",
         "Estimated bytes are not a promise of exact APFS free-space gain.",
-        "Protected data remains review-only."
+        "Protected data remains review-only.",
+        "Core filesystem mutation is disabled; a clean dry run is evidence for manual review, not permission to delete files."
     ]
 
     public static func build(input: ActionCenterInput) -> ActionCenterReport {
@@ -368,14 +370,14 @@ public enum ActionCenterBuilder {
         }
 
         return ActionCenterAction(
-            id: "plan.\(plan.id).execute-safe",
-            kind: .executeSafePlan,
-            title: "Execute Safe Plan",
-            reason: "A clean dry-run receipt exists for selected auto-safe trash/cache items.",
+            id: "plan.\(plan.id).manual-review",
+            kind: .reviewQueue,
+            title: "Review Safe Plan",
+            reason: "A clean dry-run receipt exists, but automatic filesystem mutation is disabled. Review the selected items and remove them manually in Finder.",
             priority: 600,
             estimatedReclaimBytes: min(safeBytes, dryRunBytes),
             count: selectedItems.count,
-            isDestructive: true,
+            isDestructive: false,
             sourceIDs: [plan.id, receipt.id]
         )
     }

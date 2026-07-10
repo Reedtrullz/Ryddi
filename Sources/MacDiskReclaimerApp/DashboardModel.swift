@@ -124,21 +124,6 @@ final class DashboardModel {
         lastAppUninstallReceipt ?? lastAppUninstallDryRunReceipt
     }
 
-    var canTrashPreviewedApp: Bool {
-        guard let preview = appUninstallPreview,
-              let receipt = lastAppUninstallDryRunReceipt,
-              receipt.previewID == preview.id,
-              receipt.authorizationDigest == preview.bundleAuthorizationDigest else {
-            return false
-        }
-        let age = Date().timeIntervalSince(receipt.createdAt)
-        return receipt.status == "dry-run"
-            && receipt.errors.isEmpty
-            && age >= 0
-            && age <= AppUninstallExecutorConfiguration.maximumDryRunAuthorizationAge
-            && preview.bundleCandidate.disposition == .trashPreview
-    }
-
     var scopeTemplates: [ScopeTemplate] {
         ScopeTemplateCatalog.all(includeUnavailable: true)
     }
@@ -322,28 +307,6 @@ final class DashboardModel {
         plan?.items.filter(\.selected).count ?? 0
     }
 
-    var canReclaimSelected: Bool {
-        guard let plan, selectedPlanCount > 0 else { return false }
-        guard let receipt = lastDryRunReceipt, receipt.mode == ExecutionMode.dryRun.rawValue else { return false }
-        guard receipt.createdAt >= plan.createdAt else { return false }
-        guard dryRunReceiptMatchesCurrentSession(plan: plan, receipt: receipt) else { return false }
-        return receipt.actions.allSatisfy { $0.status == "dry-run" } && receipt.errors.isEmpty
-    }
-
-    private func dryRunReceiptMatchesCurrentSession(plan: ReclaimPlan, receipt: ExecutionReceipt) -> Bool {
-        guard let currentScanSession else { return false }
-        guard [.dryRunReady, .reclaimReady].contains(currentScanSession.stage) else { return false }
-        return currentScanSession.planDigest == plan.id
-            && currentScanSession.dryRunReceiptID == receipt.id
-    }
-
-    var reclaimConfirmationMessage: String {
-        guard let plan else {
-            return "No reclaim plan is available."
-        }
-        return "This will execute \(selectedPlanCount) selected auto-safe action(s), expected immediate reclaim \(ByteFormat.string(plan.expectedImmediateReclaim)). A receipt will be saved locally."
-    }
-
     func applyStoredSettings(defaultScanPresetRaw: String, includeUserRulesByDefault: Bool) {
         guard !hasAppliedStoredSettings else { return }
         hasAppliedStoredSettings = true
@@ -472,17 +435,10 @@ final class DashboardModel {
         if let reason = NativeToolExecutor.performBlockReason(for: selection.command) {
             return reason
         }
-        guard let ruleVersion = try? RuleEngine.bundled(includingUserRules: includeUserRulesInScans).version else {
-            return "Could not load the current rule version for native preview authorization."
-        }
-        if NativeToolExecutor.performAuthorization(
-            authorizing: selection,
-            in: recentNativeToolExecutionReceipts,
-            ruleVersion: ruleVersion
-        ) != nil {
+        if selection.command.id == "brew.cleanup" {
             return nil
         }
-        return "Run requires a fresh successful brew.preview authorization receipt for this finding. Use Dry Run first."
+        return "Confirmed native execution requires an executor-minted same-process capability. This command remains guidance-only."
     }
 
     func planItem(for findingID: Finding.ID) -> ReclaimPlanItem? {

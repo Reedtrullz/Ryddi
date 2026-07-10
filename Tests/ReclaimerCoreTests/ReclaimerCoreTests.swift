@@ -2214,8 +2214,8 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.whyMatched.contains { $0.contains("Fixture evidence") })
         XCTAssertTrue(report.riskSummary.contains("Low-risk"))
         XCTAssertTrue(report.cleanupPermission.contains("Eligible for dry-run planning"))
-        XCTAssertTrue(report.exactAction.contains("Delete cache"))
-        XCTAssertTrue(report.removalEffect.contains("owning app/tool may recreate"))
+        XCTAssertTrue(report.exactAction.contains("Cache candidate"))
+        XCTAssertTrue(report.removalEffect.contains("owning app/tool may rebuild"))
         XCTAssertTrue(report.recovery.contains { $0.contains("Rebuild or re-download cache") })
         XCTAssertTrue(report.conditions.contains { $0.contains("Skip active processes") })
         XCTAssertTrue(report.conditions.contains { $0.contains("No active open file handle") })
@@ -2806,6 +2806,26 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.recent(limit: 2).map(\.id), ["newer", "older"])
         XCTAssertEqual(store.latestGrowthDeltas().first { $0.name == "Codex" }?.deltaAllocatedSize, 40)
         XCTAssertEqual(store.snapshot(id: "older")?.id, "older")
+    }
+
+    func testScanHistoryStoreDoesNotAutomaticallyPruneOlderSnapshots() throws {
+        let historyRoot = tempRoot.appendingPathComponent("HistoryNoPrune", isDirectory: true)
+        let store = ScanHistoryStore(root: historyRoot)
+        let older = snapshot(
+            id: "older-no-prune",
+            createdAt: Date(timeIntervalSince1970: 10),
+            category: [BucketSummary(name: "Codex", count: 1, logicalSize: 100, allocatedSize: 100)]
+        )
+        let newer = snapshot(
+            id: "newer-no-prune",
+            createdAt: Date(timeIntervalSince1970: 20),
+            category: [BucketSummary(name: "Codex", count: 1, logicalSize: 120, allocatedSize: 120)]
+        )
+
+        try store.save(snapshot: older, keepLimit: 1)
+        try store.save(snapshot: newer, keepLimit: 1)
+
+        XCTAssertEqual(Set(store.recent(limit: 10).map(\.id)), Set([older.id, newer.id]))
     }
 
     func testGrowthReportIncludesDeltasNonClaimsAndRedactedPaths() {
@@ -4492,7 +4512,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(runner.commands, ["brew cleanup -n"])
         XCTAssertTrue(dryRun.nonClaims.contains { $0.contains("only one explicitly selected") })
 
-        let authorization = try XCTUnwrap(NativeToolExecutor.performAuthorization(
+        XCTAssertNil(NativeToolExecutor.performAuthorization(
             authorizing: cleanupSelection,
             in: [dryRun],
             ruleVersion: "test"
@@ -4502,14 +4522,14 @@ final class ReclaimerCoreTests: XCTestCase {
             mode: .perform,
             ruleVersion: "test",
             userConfirmed: true,
-            authorization: authorization
+            authorization: nil
         )
-        XCTAssertEqual(performed.status, "done")
-        XCTAssertEqual(performed.output?.stdoutPreview.first, "Removed old bottles")
-        XCTAssertEqual(runner.commands, ["brew cleanup -n", "brew cleanup"])
+        XCTAssertEqual(performed.status, "blocked")
+        XCTAssertTrue(performed.message.localizedCaseInsensitiveContains("evidence only"))
+        XCTAssertEqual(runner.commands, ["brew cleanup -n"])
         XCTAssertNotNil(performed.beforeFreeBytes)
-        XCTAssertNotNil(performed.afterFreeBytes)
-        XCTAssertTrue(performed.errors.isEmpty)
+        XCTAssertEqual(performed.afterFreeBytes, performed.beforeFreeBytes)
+        XCTAssertFalse(performed.errors.isEmpty)
     }
 
     func testNativeToolExecutionBlocksDestructiveAndPlaceholderCommands() throws {
@@ -5062,7 +5082,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(receipt.actions.allSatisfy { $0.status == "dry-run" })
     }
 
-    func testExecutorPerformsDirectDeleteForAutoSafeCacheFixture() throws {
+    func testExecutorConfirmedDirectDeleteFailsClosedWithoutMutatingCache() throws {
         let cacheRoot = tempRoot.appendingPathComponent("Library/Caches/Codex", isDirectory: true)
         let cacheFile = cacheRoot.appendingPathComponent("cache.bin")
         try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
@@ -5079,9 +5099,12 @@ final class ReclaimerCoreTests: XCTestCase {
         )
             .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheRoot.path))
-        XCTAssertTrue(receipt.actions.contains { $0.status == "done" && $0.action == .deleteCache })
-        XCTAssertTrue(receipt.errors.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheRoot.path))
+        XCTAssertTrue(receipt.actions.contains {
+            $0.status == "skipped"
+                && $0.action == .deleteCache
+                && $0.message.localizedCaseInsensitiveContains("identity-bound")
+        })
     }
 
     func testExecutorDirectDeleteRefusesPreserveByDefault() throws {
@@ -5245,23 +5268,16 @@ final class ReclaimerCoreTests: XCTestCase {
         )
         .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
-        XCTAssertEqual(receipt.actions.first?.status, "done")
-        XCTAssertTrue((try FileManager.default.subpathsOfDirectory(atPath: holdRoot.path)).contains("cache.bin") == false)
-        XCTAssertTrue((try FileManager.default.subpathsOfDirectory(atPath: holdRoot.path)).contains { $0.hasSuffix("cache.bin") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertEqual(receipt.actions.first?.status, "skipped")
+        XCTAssertTrue(receipt.actions.first?.message.localizedCaseInsensitiveContains("identity-bound") ?? false)
 
         let store = HoldingStore(root: holdRoot)
-        let held = store.list()
-        XCTAssertEqual(held.count, 1)
-        XCTAssertEqual(held.first?.originalPath, file.path)
-
-        let restored = try store.restore(id: try XCTUnwrap(held.first?.id))
-        XCTAssertEqual(restored.path, file.path)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
         XCTAssertTrue(store.list().isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
-    func testHoldingStoreExpireDryRunAndConfirmedRemoval() throws {
+    func testHoldingStoreExpireDryRunAndConfirmedExpiryRemainNonDestructive() throws {
         let heldRoot = tempRoot.appendingPathComponent("Holding", isDirectory: true)
         let source = tempRoot.appendingPathComponent("source.bin")
         try Data(repeating: 5, count: 128).write(to: source)
@@ -5280,12 +5296,14 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(dryRunExpired.count, 1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: heldFile.path))
 
-        let removed = try store.expire(olderThan: Date().addingTimeInterval(1), dryRun: false)
-        XCTAssertEqual(removed.count, 1)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: heldDirectory.path))
+        XCTAssertThrowsError(try store.expire(olderThan: Date().addingTimeInterval(1), dryRun: false)) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("disabled"), String(describing: error))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldFile.path))
     }
 
-    func testRecoveryCenterSeparatesRestorableItemsFromReceiptGuidance() throws {
+    func testRecoveryCenterSurfacesHoldingItemsForManualFinderRecovery() throws {
         let heldRoot = tempRoot.appendingPathComponent("Holding", isDirectory: true)
         let source = tempRoot.appendingPathComponent("Library/Caches/Ryddi/held-cache.bin")
         try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -5338,13 +5356,15 @@ final class ReclaimerCoreTests: XCTestCase {
             generatedAt: Date(timeIntervalSince1970: 30)
         )
 
-        XCTAssertEqual(report.restorableCount, 1)
-        XCTAssertEqual(report.restorableBytes, 128)
-        XCTAssertTrue(report.nonClaims.contains { $0.contains("Ryddi can restore only items currently held") })
-        XCTAssertEqual(report.items.first?.state, .restorableFromHolding)
+        XCTAssertEqual(report.restorableCount, 0)
+        XCTAssertEqual(report.restorableBytes, 0)
+        XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("manual Finder") })
+        XCTAssertEqual(report.items.first?.state, .manualReview)
         XCTAssertEqual(report.items.first?.holdingID, heldID)
+        XCTAssertEqual(report.items.first?.canRestoreWithRyddi, false)
+        XCTAssertTrue(report.items.first?.guidance.contains { $0.localizedCaseInsensitiveContains("Finder") } ?? false)
         XCTAssertEqual(Set(report.items.map(\.state)), [
-            .restorableFromHolding,
+            .manualReview,
             .trashReview,
             .notRecoverableByRyddi,
             .guidanceOnly,
@@ -5354,13 +5374,16 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.items.contains { $0.state == .trashReview && $0.guidance.contains { $0.contains("Finder Trash") } })
         XCTAssertTrue(report.items.contains { $0.state == .notRecoverableByRyddi && $0.guidance.contains { $0.contains("rebuild the cache") } })
 
-        let restored = try store.restore(id: heldID)
-        XCTAssertEqual(restored.path, source.path)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertThrowsError(try store.restore(id: heldID)) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("manual"), String(describing: error))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldFile.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
 
         let refreshed = RecoveryCenter.build(heldItems: store.list(), receipts: [], limit: 20)
         XCTAssertEqual(refreshed.restorableCount, 0)
-        XCTAssertTrue(refreshed.items.isEmpty)
+        XCTAssertEqual(refreshed.items.count, 1)
+        XCTAssertEqual(refreshed.items.first?.state, .manualReview)
     }
 
     func testLaunchAgentPlistContainsReportOnlyScan() {

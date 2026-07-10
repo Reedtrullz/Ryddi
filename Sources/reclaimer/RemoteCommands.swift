@@ -90,8 +90,7 @@ extension ReclaimerCLI {
                 includeCommandCards: options.includeCommandCards
             ).markdown
             let url = URL(fileURLWithPath: output).standardizedFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            try SafeFileOutput.write(markdown, to: url)
             FileHandle.standardError.write(Data("wrote remote report: \(url.path)\n".utf8))
         }
         if options.json {
@@ -161,8 +160,7 @@ extension ReclaimerCLI {
         }
         if let output = options.outputPath {
             let url = URL(fileURLWithPath: output).standardizedFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+            try SafeFileOutput.write(report.markdown, to: url)
             FileHandle.standardError.write(Data("wrote remote dogfood report: \(url.path)\n".utf8))
         }
         if options.json {
@@ -212,8 +210,7 @@ extension ReclaimerCLI {
             )
             if subcommand == "report", let output = options.outputPath {
                 let url = URL(fileURLWithPath: output).standardizedFileURL
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                try SafeFileOutput.write(report.markdown, to: url)
                 FileHandle.standardError.write(Data("wrote remote growth report: \(url.path)\n".utf8))
             }
             if options.json {

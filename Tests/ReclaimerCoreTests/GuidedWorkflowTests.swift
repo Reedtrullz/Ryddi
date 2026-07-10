@@ -84,7 +84,7 @@ final class GuidedWorkflowTests: XCTestCase {
         XCTAssertFalse(report.primaryAction.isDestructive)
     }
 
-    func testDryRunReceiptWithSelectedPlanSelectsReclaimSafely() throws {
+    func testDryRunReceiptWithSelectedPlanRoutesToManualReviewWithoutDestructiveAction() throws {
         let finding = GuidedWorkflowFixtures.finding(nextAction: .safeMaintenance, allocatedSize: 300_000_000)
         let input = GuidedWorkflowFixtures.input(
             permissionCoverage: .complete,
@@ -96,9 +96,11 @@ final class GuidedWorkflowTests: XCTestCase {
         let report = GuidedWorkflowBuilder.build(input: input)
 
         XCTAssertEqual(report.currentStep, .reclaimOrExport)
-        XCTAssertEqual(report.primaryAction.kind, .reclaimSafely)
+        XCTAssertEqual(report.primaryAction.kind, .openReviewQueues)
+        XCTAssertEqual(report.primaryAction.title, "Review Safe Plan")
         XCTAssertEqual(report.primaryAction.estimatedBytes, 300_000_000)
-        XCTAssertTrue(report.primaryAction.isDestructive)
+        XCTAssertFalse(report.primaryAction.isDestructive)
+        XCTAssertTrue(report.explanation.localizedCaseInsensitiveContains("manual"))
         XCTAssertTrue(report.secondaryActions.contains { $0.kind == .exportReport })
     }
 

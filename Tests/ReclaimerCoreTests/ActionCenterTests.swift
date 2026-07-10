@@ -77,7 +77,7 @@ final class ActionCenterTests: XCTestCase {
         XCTAssertEqual(primary.estimatedReclaimBytes, 2_000)
     }
 
-    func testCleanDryRunWithSafeBytesSelectsExecuteSafePlan() throws {
+    func testCleanDryRunWithSafeBytesSelectsManualSafePlanReview() throws {
         let plan = ReclaimPlan.fixture(expectedReclaim: 3_000)
         let receipt = ExecutionReceipt.fixture(mode: ExecutionMode.dryRun.rawValue, status: "dry-run", reclaimedBytes: 3_000)
 
@@ -88,13 +88,14 @@ final class ActionCenterTests: XCTestCase {
         ))
 
         let primary = try XCTUnwrap(report.primaryAction)
-        XCTAssertEqual(primary.kind, .executeSafePlan)
-        XCTAssertTrue(primary.isDestructive)
+        XCTAssertEqual(primary.kind, .reviewQueue)
+        XCTAssertEqual(primary.title, "Review Safe Plan")
+        XCTAssertFalse(primary.isDestructive)
         XCTAssertEqual(primary.estimatedReclaimBytes, 3_000)
         XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("apfs") })
     }
 
-    func testDryRunReceiptMustMatchCurrentSessionBeforeExecuteSafePlan() throws {
+    func testDryRunReceiptMustMatchCurrentSessionBeforeManualSafePlanReview() throws {
         let plan = ReclaimPlan.fixture(expectedReclaim: 3_000)
         let receipt = ExecutionReceipt.fixture(id: "receipt-current", mode: ExecutionMode.dryRun.rawValue, status: "dry-run", reclaimedBytes: 3_000)
 
@@ -114,12 +115,12 @@ final class ActionCenterTests: XCTestCase {
             latestExecutionReceipt: receipt
         ))
 
-        XCTAssertFalse(staleSessionReport.actions.contains { $0.kind == .executeSafePlan })
-        XCTAssertFalse(receiptMismatchReport.actions.contains { $0.kind == .executeSafePlan })
-        XCTAssertFalse(planMismatchReport.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertEqual(staleSessionReport.primaryAction?.kind, .runDryRun)
+        XCTAssertEqual(receiptMismatchReport.primaryAction?.kind, .runDryRun)
+        XCTAssertEqual(planMismatchReport.primaryAction?.kind, .runDryRun)
     }
 
-    func testMixedSelectedPlanDoesNotCreatePlanLevelExecuteSafePlan() throws {
+    func testMixedSelectedPlanDoesNotCreatePlanLevelManualSafeReview() throws {
         let safeFinding = Finding.fixture(
             path: "/Users/example/Library/Caches/Ryddi-safe",
             safetyClass: .autoSafe,
@@ -144,7 +145,7 @@ final class ActionCenterTests: XCTestCase {
             latestExecutionReceipt: receipt
         ))
 
-        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertFalse(report.actions.contains { $0.id.contains("manual-review") })
         XCTAssertFalse(report.actions.contains { $0.isDestructive })
     }
 
@@ -217,7 +218,7 @@ final class ActionCenterTests: XCTestCase {
         let nativeAction = try XCTUnwrap(report.actions.first { $0.id == "native-tool-receipt.\(receipt.id)" })
         XCTAssertEqual(nativeAction.title, "Review Failed Native Command")
         XCTAssertFalse(nativeAction.isDestructive)
-        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertFalse(report.actions.contains { $0.id.contains("manual-review") })
     }
 
     func testActionsSortByPriorityThenEstimatedBytesThenCount() throws {
@@ -261,7 +262,7 @@ final class ActionCenterTests: XCTestCase {
             latestExecutionReceipt: receipt
         ))
 
-        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertFalse(report.actions.contains { $0.id.contains("manual-review") })
         XCTAssertFalse(report.actions.contains { $0.isDestructive })
         XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("protected data remains review-only") })
     }
@@ -284,7 +285,7 @@ final class ActionCenterTests: XCTestCase {
             latestExecutionReceipt: receipt
         ))
 
-        XCTAssertTrue(report.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertTrue(report.actions.contains { $0.id.contains("manual-review") && $0.kind == .reviewQueue })
     }
 
     func testCodexMemoriesPathRemainsNonDestructive() throws {
@@ -305,7 +306,7 @@ final class ActionCenterTests: XCTestCase {
             latestExecutionReceipt: receipt
         ))
 
-        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+        XCTAssertFalse(report.actions.contains { $0.id.contains("manual-review") })
         XCTAssertFalse(report.actions.contains { $0.isDestructive })
     }
 }

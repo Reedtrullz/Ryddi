@@ -482,20 +482,6 @@ public struct AppUninstallExecutorConfiguration: Sendable {
     }
 }
 
-public protocol AppBundleTrashing: Sendable {
-    func trashItem(at url: URL) throws -> URL?
-}
-
-public struct FileManagerAppBundleTrasher: AppBundleTrashing {
-    public init() {}
-
-    public func trashItem(at url: URL) throws -> URL? {
-        var trashedURL: NSURL?
-        try FileManager.default.trashItem(at: url, resultingItemURL: &trashedURL)
-        return trashedURL as URL?
-    }
-}
-
 public protocol RunningApplicationChecking: Sendable {
     func isAppRunning(bundleIdentifier: String?, executableName: String?, displayName: String) -> Bool
 }
@@ -529,7 +515,6 @@ public final class AppUninstallExecutor: @unchecked Sendable {
     private let openFileChecker: OpenFileChecking
     private let runningApplicationChecker: RunningApplicationChecking
     private let configuration: AppUninstallExecutorConfiguration
-    private let appBundleTrasher: any AppBundleTrashing
     private let now: @Sendable () -> Date
 
     public init(
@@ -537,14 +522,12 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
         runningApplicationChecker: RunningApplicationChecking = SystemRunningApplicationChecker(),
         configuration: AppUninstallExecutorConfiguration = AppUninstallExecutorConfiguration(),
-        appBundleTrasher: any AppBundleTrashing = FileManagerAppBundleTrasher(),
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.fileManager = fileManager
         self.openFileChecker = openFileChecker
         self.runningApplicationChecker = runningApplicationChecker
         self.configuration = configuration
-        self.appBundleTrasher = appBundleTrasher
         self.now = now
     }
 
@@ -640,57 +623,14 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         guard userConfirmed else {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Moving an app bundle to Trash requires explicit --yes/user confirmation.")
         }
-        if let blockReason = authorizationBlockReason(
-            authorization: authorization,
+        return receipt(
             preview: preview,
-            currentApp: current,
-            currentAuthorizationDigest: currentAuthorizationDigest,
-            now: now()
-        ) {
-            return receipt(
-                preview: preview,
-                mode: mode,
-                userConfirmed: userConfirmed,
-                status: "skipped",
-                message: blockReason
-            )
-        }
-        guard let finalApp = currentInstalledApp(at: url),
-              let finalAuthorizationDigest = try? AppUninstallAuthorizationDigest.capture(
-                  app: finalApp,
-                  bundleURL: url
-              ),
-              finalAuthorizationDigest == currentAuthorizationDigest else {
-            return receipt(
-                preview: preview,
-                mode: mode,
-                userConfirmed: userConfirmed,
-                status: "skipped",
-                message: "App bundle identity or metadata changed during final authorization; rebuild the preview and dry run."
-            )
-        }
-
-        do {
-            let trashedURL = try appBundleTrasher.trashItem(at: url)
-            return receipt(
-                preview: preview,
-                mode: mode,
-                userConfirmed: userConfirmed,
-                status: "done",
-                message: "Moved selected app bundle to Trash. Related support files were not touched.",
-                resultingTrashPath: trashedURL?.path,
-                authorizationDigest: currentAuthorizationDigest
-            )
-        } catch {
-            return receipt(
-                preview: preview,
-                mode: mode,
-                userConfirmed: userConfirmed,
-                status: "error",
-                message: error.localizedDescription,
-                errors: [error.localizedDescription]
-            )
-        }
+            mode: mode,
+            userConfirmed: userConfirmed,
+            status: "skipped",
+            message: "Automatic app-bundle Trash is disabled because macOS cannot bind this final path mutation to the verified bundle. The dry-run receipt is evidence only; remove the selected app manually in Finder.",
+            authorizationDigest: currentAuthorizationDigest
+        )
     }
 
     private func receipt(

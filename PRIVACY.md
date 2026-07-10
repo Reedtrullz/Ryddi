@@ -44,7 +44,7 @@ Project Dependencies Review reads local filesystem metadata from configured proj
 
 AI-agent storage review reads local filesystem metadata from common Codex, Claude, Cursor, Windsurf, and Ollama roots, or from explicit paths you provide. Results can include local paths, owner hints, rule IDs, bucket names, and evidence strings. Ryddi does not upload this report, inspect prompt contents for remote analysis, or automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
 
-Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Native command execution receipts can include one selected command ID, command text, finding path, category, user-confirmation state, before/after free-space snapshots, bounded stdout/stderr previews, errors, and non-claims. Ryddi does not upload these reports. Native perform mode requires explicit confirmation and a matching saved dry-run receipt first, and remains limited to explicitly allowlisted commands; Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside the allowlist, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
+Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Native command execution receipts can include one selected command ID, command text, finding path, category, user-confirmation state, before/after free-space snapshots, bounded stdout/stderr previews, errors, and non-claims. Ryddi does not upload these reports. Saved native receipts are evidence only. Homebrew cleanup requires explicit confirmation plus a fresh actual preview and one-time capability in the same process; Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside that Homebrew lane, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
 
 Container inventory can run read-only Docker and Colima inspection commands. The resulting local reports can include Docker image names, container names, volume names, context endpoints, Colima profile names, command exit states, and short command-output previews. Ryddi does not upload this inventory and does not run prune, delete, stop, reset, or raw VM-disk commands.
 
@@ -70,7 +70,7 @@ Plan report export reads a proposed reclaim plan to write local Markdown. Plan r
 
 Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Native command receipt export reads saved native command receipts and can include one command, command context, bounded output previews, errors, path privacy transforms, and native non-claims. Ryddi does not upload receipt reports or rerun cleanup/native tools while creating them.
 
-Recovery Center reads local holding-area metadata and saved execution receipts to show what Ryddi can restore directly and what needs Trash, native-tool, backup, or manual review. Recovery output can include original paths, held paths, receipt IDs, action statuses, and guidance. Ryddi can restore only app-held items; it does not upload recovery data or silently recover/delete receipt-only items.
+Recovery Center reads local holding-area metadata and saved execution receipts to show what needs Finder Trash, native-tool, backup, or manual review. Recovery output can include original paths, held paths, receipt IDs, action statuses, and guidance. Holding records remain manual Finder recovery only; Ryddi does not upload recovery data or silently restore, move, or delete them.
 
 Growth report export reads saved scan-history snapshots to write local Markdown. Growth reports can include category, scope, safety, scan coverage, and current top finding paths. Ryddi does not upload growth reports or execute cleanup while creating them.
 
@@ -105,12 +105,12 @@ Ryddi can write:
 - saved project dependency policy for per-project review choices;
 - saved user rule packs for custom review/protection signals;
 - saved scope sets for repeatable scan roots;
-- compact local scan-history snapshots for growth comparisons;
+- compact local scan-history snapshots for growth comparisons, retained for review rather than automatically pruned;
 - app-managed holding-area metadata;
 - a per-user LaunchAgent plist if you install report scheduling;
-- cleanup changes only after explicit confirmation.
+- same-process Homebrew cleanup only after an explicit confirmation and fresh bounded preview.
 
-Uncertain user-visible data should go to Trash or the app-managed holding area. Direct delete is reserved for allowlisted reproducible cache/temp data after safety checks.
+Core filesystem cleanup is manual-only in this build. Holding records are retained for manual Finder review, while Homebrew is the narrow native-tool exception with a fresh same-process preview capability.
 
 ## What Ryddi Should Never Touch Automatically
 
@@ -138,4 +138,4 @@ Ryddi data is expected under:
 ~/Library/LaunchAgents/com.reidar.ryddi.agent.plist
 ```
 
-Remove the LaunchAgent from the app or CLI before deleting app support data.
+Ryddi does not unload or remove a LaunchAgent plist automatically. Reveal `~/Library/LaunchAgents/com.reidar.ryddi.agent.plist` in Finder and remove it manually before deleting app support data; if it is loaded, manually run `launchctl bootout gui/$(id -u)/com.reidar.ryddi.agent` first.

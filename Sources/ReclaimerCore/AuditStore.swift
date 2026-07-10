@@ -153,73 +153,15 @@ public final class AuditStore: @unchecked Sendable {
             )
         }
 
-        var deletedCount = 0
-        var deletedBytes: Int64 = 0
-        var deletedFileIDs: [String] = []
-        var errors: [String] = []
-        for candidate in plan.candidates {
-            let url = URL(fileURLWithPath: candidate.path).standardizedFileURL
-            guard url.path.hasPrefix(root.path + "/") else {
-                errors.append("skipped outside audit root: \(candidate.path)")
-                continue
-            }
-            guard knownAuditKind(for: url.lastPathComponent) != nil else {
-                errors.append("skipped unknown audit file: \(candidate.path)")
-                continue
-            }
-            guard let plannedIdentity = candidate.filesystemIdentity else {
-                errors.append("skipped audit plan without filesystem identity: \(candidate.path)")
-                continue
-            }
-            let currentIdentity: FilesystemIdentity
-            do {
-                currentIdentity = try FilesystemIdentity.capture(at: url)
-            } catch {
-                errors.append("skipped changed or unreadable audit file: \(candidate.path): \(error.localizedDescription)")
-                continue
-            }
-            guard currentIdentity.isRegularFile,
-                  !currentIdentity.isDirectory,
-                  !currentIdentity.isSymbolicLink,
-                  !currentIdentity.isPackage,
-                  !currentIdentity.isVolume else {
-                errors.append("skipped non-regular audit file: \(candidate.path)")
-                continue
-            }
-            guard currentIdentity.fileResourceIdentifier == plannedIdentity.fileResourceIdentifier,
-                  currentIdentity.volumeIdentifier == plannedIdentity.volumeIdentifier else {
-                errors.append("skipped because audit file identity changed: \(candidate.path)")
-                continue
-            }
-            guard currentIdentity.fileSize == plannedIdentity.fileSize,
-                  currentIdentity.fileSize == candidate.bytes,
-                  currentIdentity.modificationDate == plannedIdentity.modificationDate,
-                  currentIdentity.modificationDate == candidate.modifiedAt,
-                  currentIdentity.allocatedSize == plannedIdentity.allocatedSize else {
-                errors.append("skipped because audit file metadata changed: \(candidate.path)")
-                continue
-            }
-            let result = url.withUnsafeFileSystemRepresentation { path in
-                guard let path else { return Int32(-1) }
-                return unlink(path)
-            }
-            if result == 0 {
-                deletedCount += 1
-                deletedBytes += candidate.bytes
-                deletedFileIDs.append(url.lastPathComponent)
-            } else {
-                errors.append("\(candidate.path): \(String(cString: strerror(errno)))")
-            }
-        }
         return AuditPruneReceipt(
             id: UUID().uuidString,
             createdAt: Date(),
             dryRun: false,
             planID: plan.id,
-            deletedCount: deletedCount,
-            deletedBytes: deletedBytes,
-            deletedFileIDs: deletedFileIDs.sorted(),
-            errors: errors
+            deletedCount: 0,
+            deletedBytes: 0,
+            deletedFileIDs: [],
+            errors: ["Confirmed audit pruning is disabled because unlink cannot be bound to the verified audit object. The dry-run plan remains available for manual review."]
         )
     }
 

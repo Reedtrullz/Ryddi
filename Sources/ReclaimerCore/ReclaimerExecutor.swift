@@ -161,32 +161,16 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             return identityFailure
         }
 
-        do {
-            switch item.proposedAction {
-            case .deleteCache:
-                guard finding.safetyClass == .autoSafe else {
-                    return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Direct cache delete requires Auto-safe classification.")
-                }
-                try fileManager.removeItem(at: url)
-                return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "done", message: "Deleted allowlisted cache.", reclaimedBytes: finding.allocatedSize)
-            case .trash:
-                var trashedURL: NSURL?
-                try fileManager.trashItem(at: url, resultingItemURL: &trashedURL)
-                return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "done", message: "Moved to Trash.", reclaimedBytes: finding.allocatedSize)
-            case .compress:
-                try gzip(url: url)
-                return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "done", message: "Compressed file with gzip.", reclaimedBytes: finding.allocatedSize / 2)
-            case .quarantineHold:
-                let target = try holdingURL(for: url)
-                try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try fileManager.moveItem(at: url, to: target)
-                try HoldingStore(root: configuration.holdingRoot, fileManager: fileManager).recordHold(source: url, target: target, finding: finding)
-                return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "done", message: "Moved to app holding area: \(target.path).")
-            case .nativeToolCommand, .openGuidance, .reportOnly:
-                return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Action is guidance/report-only.")
-            }
-        } catch {
-            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "error", message: error.localizedDescription)
+        switch item.proposedAction {
+        case .deleteCache, .trash, .compress, .quarantineHold:
+            return ExecutionActionReceipt(
+                path: finding.path,
+                action: item.proposedAction,
+                status: "skipped",
+                message: "Automatic filesystem mutation is disabled: macOS does not provide an identity-bound primitive for this action. Review the item and use the manual recovery path instead."
+            )
+        case .nativeToolCommand, .openGuidance, .reportOnly:
+            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Action is guidance/report-only.")
         }
     }
 
@@ -370,25 +354,6 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             return ruleEngine
         }
         return try RuleEngine.bundled()
-    }
-
-    private func holdingURL(for source: URL) throws -> URL {
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        return configuration.holdingRoot.appendingPathComponent(stamp, isDirectory: true).appendingPathComponent(source.lastPathComponent)
-    }
-
-    private func gzip(url: URL) throws {
-        guard !url.hasDirectoryPath else {
-            throw NSError(domain: "Ryddi", code: 3, userInfo: [NSLocalizedDescriptionKey: "Compression is only supported for files in v1."])
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-kf", url.path]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "Ryddi", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: "gzip exited with status \(process.terminationStatus)."])
-        }
     }
 
     private func freeBytes() -> Int64? {

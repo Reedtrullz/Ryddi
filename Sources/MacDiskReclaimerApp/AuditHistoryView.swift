@@ -28,7 +28,7 @@ struct AuditHistoryView: View {
                     } else {
                         Text("Audit summary has not loaded yet.")
                     }
-                    Text("Pruning is never scheduled. Preview first; only known Ryddi audit JSON files are candidates, and symlinks or unknown files are skipped.")
+                    Text("Pruning is never scheduled. Preview identifies known Ryddi audit JSON candidates, but deletion remains manual Finder work.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -36,10 +36,8 @@ struct AuditHistoryView: View {
                         Button("Preview Prune") {
                             model.previewAuditPrune()
                         }
-                        Button("Delete Previewed Audit Files") {
-                            model.confirmAuditPrune()
-                        }
-                        .disabled(model.auditPrunePlan?.candidates.isEmpty != false)
+                        Label("Manual Audit Review", systemImage: "folder")
+                            .foregroundStyle(.secondary)
                     }
                     if let plan = model.auditPrunePlan {
                         Text("Preview: \(plan.candidateCount) candidate(s), \(ByteFormat.string(plan.candidateBytes)). Policy: older than \(plan.policy.olderThanDays) days, keep \(plan.policy.keepRecent) recent.")

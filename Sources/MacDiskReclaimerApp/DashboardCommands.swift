@@ -5,13 +5,11 @@ struct DashboardCommandActions {
     var canPlan: Bool
     var canDryRun: Bool
     var canExport: Bool
-    var canReclaim: Bool
     var scan: () -> Void
     var buildPlan: () -> Void
     var dryRun: () -> Void
     var exportReport: () -> Void
     var exportRedactedReport: () -> Void
-    var reclaim: () -> Void
     var openSection: (DashboardSection) -> Void
 }
 
@@ -77,14 +75,6 @@ struct DashboardCommands: Commands {
             }
             .keyboardShortcut("e", modifiers: [.command, .option, .shift])
             .disabled(actions?.canExport != true)
-
-            Divider()
-
-            Button("Reclaim Selected") {
-                actions?.reclaim()
-            }
-            .keyboardShortcut(.delete, modifiers: [.command, .option])
-            .disabled(actions?.canReclaim != true)
 
             Divider()
 

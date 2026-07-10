@@ -174,6 +174,17 @@ public struct LaunchAgentStatus: Codable, Hashable, Sendable {
     }
 }
 
+public enum LaunchAgentManagerError: Error, LocalizedError, Equatable {
+    case manualRemovalRequired(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .manualRemovalRequired(let guidance):
+            guidance
+        }
+    }
+}
+
 public final class LaunchAgentManager: @unchecked Sendable {
     public let label = "com.reidar.ryddi.agent"
     private let fileManager: FileManager
@@ -211,15 +222,20 @@ public final class LaunchAgentManager: @unchecked Sendable {
         let logs = home.appendingPathComponent("Library/Logs/mac-disk-reclaimer-agent.log")
         try fileManager.createDirectory(at: launchAgents, withIntermediateDirectories: true)
         let target = launchAgents.appendingPathComponent("\(label).plist")
-        try plist(cliPath: cliPath, logPath: logs.path, schedule: schedule).write(to: target, atomically: true, encoding: .utf8)
+        try SafeFileOutput.write(plist(cliPath: cliPath, logPath: logs.path, schedule: schedule), to: target)
         return target
     }
 
     public func uninstall(home: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
         let target = home.appendingPathComponent("Library/LaunchAgents/\(label).plist")
         if fileManager.fileExists(atPath: target.path) {
-            try fileManager.removeItem(at: target)
+            throw LaunchAgentManagerError.manualRemovalRequired(manualRemovalGuidance(home: home))
         }
+    }
+
+    public func manualRemovalGuidance(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
+        let target = installedPath(home: home)
+        return "Ryddi will not unload or remove LaunchAgent files automatically. Review \(target.path) in Finder and remove it manually; if it is loaded, run launchctl bootout gui/$(id -u)/\(label) yourself first."
     }
 
     public func installedPath(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {

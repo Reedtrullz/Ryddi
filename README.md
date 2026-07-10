@@ -58,7 +58,7 @@ Current synthetic UI proof assets are available under [docs/assets/screenshots](
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
 - hierarchical disk drill-down for scanned roots, with bounded child rows, safety/action/category hints, and explicit non-additive accounting notes
 - ownership-aware storage summaries that group findings by app/tool hints such as Codex, Docker, Colima, Xcode, Homebrew, and Chrome
-- local scan history snapshots and category growth deltas
+- local scan history snapshots and category growth deltas, retained for review rather than automatically pruned
 - exportable local Markdown growth reports comparing saved scan snapshots
 - menu bar disk-pressure status with report-only scan shortcut
 - trust readiness cockpit and `reclaimer trust --json` summary for disk pressure, scan coverage, latest plan/receipt state, report-only automation, next-action buckets, and release trust evidence
@@ -67,7 +67,7 @@ Current synthetic UI proof assets are available under [docs/assets/screenshots](
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
 - exportable local Markdown reclaim plan reports with selected actions, blocked items, safety buckets, and non-claims
 - exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
-- Recovery Center for app-held restores plus honest Trash, dry-run, skipped, native-tool, and non-recoverable receipt guidance
+- Recovery Center for manual Finder holding-record recovery plus honest Trash, dry-run, skipped, and native-tool receipt guidance
 - report privacy controls for full, home-relative, or redacted paths plus user-entered reason redaction
 - transparent rule catalog showing bundled and opt-in local user rules, safety classes, actions, categories, match hints, conditions, recovery notes, and non-claims
 - active-handle review for cleanup candidates, with process summaries and failed-check visibility
@@ -85,7 +85,7 @@ Current synthetic UI proof assets are available under [docs/assets/screenshots](
 - report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
 - report-only Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulators, protected Xcode UserData, and local audit history
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
-- app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
+- app uninstall preview and dry-run evidence for manual Finder removal, with related support files kept review-only
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, separating reclaimable cache from valuable history and protected state
 - AI-agent retention profiles that recommend old cache cleanup plans, old history compression review, and protected-state keep rules without modifying files
 - Codex cache/temp/log/session policy
@@ -93,12 +93,12 @@ Current synthetic UI proof assets are available under [docs/assets/screenshots](
 - read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
 - Remote Targets for agentless, report-only SSH/VPS storage evidence: target discovery from SSH config, safe probe, VPS scan, row-level coverage, manual command cards, native guidance, redacted Markdown export, saved remote growth diffs, and local audit history
 - redacted issue package export for local support/debug evidence without copying raw SSH config, private keys, tokens, or arbitrary audit JSON
-- native-tool command preview and execution receipts for explicitly allowlisted, preview-gated Homebrew cleanup commands, while Docker/Colima destructive commands remain guidance-only
+- native-tool command preview and execution receipts for Homebrew cleanup only when a fresh preview and one-time same-process capability are consumed together; Docker/Colima destructive commands remain guidance-only
 - Xcode DerivedData, module cache, archive, DeviceSupport, simulator, runtime, and developer-state review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
 - Browser cache versus browser profile separation
 - Stale temp/scratch review
-- App-managed holding area for reversible quarantine moves
+- Holding-record history with manual Finder recovery guidance
 - Local audit history for plans, execution receipts, native reports, native command receipts, container reports, active-file reports, and review reports
 
 ## Safety Model
@@ -111,7 +111,9 @@ Ryddi classifies findings into:
 - `preserveByDefault` - valuable data such as sessions, profiles, assets, archives, or app-managed state
 - `neverTouch` - credentials, config, memories, app bundles, active state DBs, and other protected paths
 
-Confirmed reclaim is blocked unless a clean dry-run receipt exists for the current plan. Direct delete is limited to allowlisted reproducible caches. Uncertain user-visible removals use Trash or the app-managed holding area.
+Core filesystem actions are dry-run and manual-review only in this build: a plan and receipt explain what to review in Finder but never authorize a later delete, Trash move, compression, holding move, audit prune, or issue-package replacement. Homebrew cleanup is the narrow exception: it runs a fresh bounded preview and consumes a one-time capability in the same process.
+
+Every CLI `--output` export must use a new file name in an existing directory. Ryddi binds the write to the verified parent directory and refuses to replace an existing file; issue packages similarly require a new or empty output directory.
 
 ## Build
 
@@ -200,11 +202,10 @@ swift run --scratch-path .build reclaimer receipts list
 swift run --scratch-path .build reclaimer receipts export --output ryddi-receipt-report.md
 swift run --scratch-path .build reclaimer receipts export --path-style redacted --output ryddi-receipt-report-redacted.md
 swift run --scratch-path .build reclaimer recovery list
-swift run --scratch-path .build reclaimer recovery restore HOLDING_ID --to ~/Restored-Ryddi-Item
 swift run --scratch-path .build reclaimer holding list
 ```
 
-Execution is dry-run unless `--yes` is supplied. Even with `--yes`, the executor refuses protected classes, revalidates the path, reclassifies it, and skips open files.
+Core execution is dry-run-only: `reclaimer execute --yes` is rejected and its dry-run receipt is evidence for manual Finder review. The narrow Homebrew command path is different: a `--yes` invocation runs a fresh bounded preview and consumes its one-time capability in the same process.
 
 ## Install And Release Trust
 
@@ -327,7 +328,7 @@ The permission advisor reports readable, denied, missing, and unknown scopes; re
 
 ## Native Command Receipts
 
-Native-tool findings stay review-first. `reclaimer native` builds local command guidance for Docker, Colima, Homebrew, and package-manager storage without executing those commands. `reclaimer native run --command-id brew.preview --dry-run --save-audit` and `reclaimer native homebrew cleanup --dry-run --save-audit` run Homebrew's exact bounded preview command and save its output as a native command receipt; other native dry-run selections remain synthetic and cannot authorize cleanup. `reclaimer native run --yes` and `reclaimer native homebrew cleanup --yes` both require actual successful preview evidence from the previous 15 minutes, bound to the current rule version, normalized finding path, and exact paired `brew.cleanup` invocation. Perform mode remains limited to explicitly allowlisted native commands. Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside the allowlist, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
+Native-tool findings stay review-first. `reclaimer native` builds local command guidance for Docker, Colima, Homebrew, and package-manager storage without executing those commands. `reclaimer native run --command-id brew.preview --dry-run --save-audit` and `reclaimer native homebrew cleanup --dry-run --save-audit` run Homebrew's exact bounded preview command and save its output as a native command receipt; other native dry-run selections remain synthetic and cannot authorize cleanup. `reclaimer native run --yes` and `reclaimer native homebrew cleanup --yes` run Homebrew's actual bounded preview immediately before the paired cleanup in the same process. Saved previews remain exportable evidence but can never authorize a later invocation. Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside that Homebrew lane, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
 
 Saved native command receipts can be retrieved with `reclaimer native receipts list` and exported with `reclaimer native receipts export --path-style redacted --output RECEIPT.md`. Exporting a receipt summarizes local evidence only; it does not rerun the native command or prove exact APFS reclaim.
 
@@ -351,7 +352,7 @@ swift run --scratch-path .build reclaimer overview --preset general --sort recla
 swift run --scratch-path .build reclaimer overview --preset all --sort owner --group owner --limit 40
 ```
 
-Rows include allocated size, logical size, owner/category, safety class, action, cleanup confidence, and estimated immediate reclaim. The reclaim estimate is intentionally conservative: it only counts auto-safe trash/cache-style actions before final open-file, permission, Trash, APFS, and snapshot behavior.
+Rows include allocated size, logical size, owner/category, safety class, action, cleanup confidence, and estimated immediate reclaim. The reclaim estimate is intentionally conservative: it only counts auto-safe trash/cache-style candidates before final open-file, permission, Finder Trash, APFS, and snapshot behavior.
 
 ## Review Queues
 
@@ -403,7 +404,7 @@ swift run --scratch-path .build reclaimer agents retention --profile conservativ
 swift run --scratch-path .build reclaimer agents retention --profile balanced --json --limit 40
 ```
 
-The report groups Codex, Claude, Cursor, Windsurf, and Ollama storage into reclaimable cache, quit-first data, valuable history, protected state, and manual review. It is still report-only: agent sessions, memories, credentials, config, model state, and profiles are not deleted automatically, and cache cleanup still goes through the normal plan and dry-run gates.
+The report groups Codex, Claude, Cursor, Windsurf, and Ollama storage into reclaimable cache, quit-first data, valuable history, protected state, and manual review. It is still report-only: agent sessions, memories, credentials, config, model state, and profiles are not deleted automatically, and cache candidates remain manual Finder review after normal plan and dry-run evidence.
 
 Retention profiles are also report-only. `conservative`, `balanced`, and `aggressive` change the age thresholds used to recommend old cache cleanup plans, quit-then-cleanup review, compression review for old sessions/history, and protected-state keep rules. They do not delete, compress, move, or modify agent files.
 
@@ -416,10 +417,9 @@ swift run --scratch-path .build reclaimer apps --min-size 10000000
 swift run --scratch-path .build reclaimer apps uninstall-preview --app /Applications/Example.app --output ryddi-app-uninstall-preview.md
 swift run --scratch-path .build reclaimer apps uninstall-preview --bundle-id com.example.App --json --save-audit
 swift run --scratch-path .build reclaimer apps uninstall --dry-run --app /Applications/Example.app --json --save-audit
-swift run --scratch-path .build reclaimer apps uninstall --yes --app /Applications/Example.app --json --save-audit
 ```
 
-The preview separates the app bundle from related support files. `apps uninstall --dry-run --save-audit` writes a receipt for moving only the selected app bundle to Trash. `apps uninstall --yes` requires a clean saved dry-run receipt from the previous 15 minutes that matches the current normalized path, bundle metadata, filesystem identity, type, size, and modification evidence; the executor revalidates that evidence together with open-file, user-policy, and final bundle protection checks immediately before Trash. Related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. Ryddi does not quit apps, unload helpers, run vendor uninstallers, or clean leftovers automatically.
+The preview separates the app bundle from related support files. `apps uninstall --dry-run --save-audit` writes local evidence for manual Finder removal only. Ryddi intentionally rejects `apps uninstall --yes`: macOS does not offer an identity-bound Trash operation that would let the app prove it was moving the reviewed bundle rather than a replacement. Related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. Ryddi does not quit apps, unload helpers, run vendor uninstallers, or clean leftovers automatically.
 
 ## Downloads Review
 
@@ -562,7 +562,7 @@ swift run --scratch-path .build reclaimer report --save-report
 
 Reports include scan coverage, safety buckets, top categories, top findings, local protections/exclusions, APFS/accounting notes, disk-pressure notes, and explicit non-claims. They do not execute cleanup and may include local paths.
 
-Use `--path-style home-relative` to hide the home directory prefix, `--path-style redacted` or `--redact-paths` to replace report paths with `<path redacted>`, and `--redact-user-text` to hide user-entered policy reasons. Redaction affects the exported report; saved local audit records may still contain the original paths.
+Use `--path-style home-relative` to hide the home directory prefix, `--path-style redacted` or `--redact-paths` to replace report paths with `<path redacted>`, and `--redact-user-text` to hide user-entered policy reasons. Redaction affects the exported report; saved local audit records may still contain the original paths. Every `--output` export must name a new file in an existing directory; Ryddi refuses to overwrite an existing file.
 
 Saved scan history can also be exported as a before/after growth report:
 
@@ -593,22 +593,22 @@ swift run --scratch-path .build reclaimer receipts export --output ryddi-receipt
 
 Receipt reports summarize saved dry-run or execution receipts. They include action status counts, before/after free-space fields when available, skipped/error actions, and non-claims. Exporting a receipt report does not rerun cleanup.
 
-The Recovery Center combines app-held items and saved receipts:
+The Recovery Center combines holding records and saved receipts:
 
 ```bash
 swift run --scratch-path .build reclaimer recovery list
 swift run --scratch-path .build reclaimer recovery --json
-swift run --scratch-path .build reclaimer recovery restore HOLDING_ID
 ```
 
-Ryddi can restore only items currently in its app-managed holding area. Trash actions require Finder Trash review, dry-run/skipped/error actions should not need recovery, and direct deletes or native-tool cleanup may require rebuilding caches, using the owning tool, or restoring from backup.
+Existing holding-area records require manual Finder recovery: reveal the held item, review its original path, and move it yourself without overwriting anything. Trash actions also require Finder Trash review, dry-run/skipped/error actions should not need recovery, and Homebrew cleanup may require rebuilding caches, using the owning tool, or restoring from backup. New core cleanup plans do not add items to the holding area in this build.
 
-Holding-area expiry is also dry-run unless confirmed:
+Holding-area expiry is review-only:
 
 ```bash
 swift run --scratch-path .build reclaimer holding expire --older-than-days 30
-swift run --scratch-path .build reclaimer holding expire --older-than-days 30 --yes
 ```
+
+The command lists old holding records but does not remove them; use Finder after review.
 
 ## App Bundle
 
@@ -663,6 +663,8 @@ reclaimer report --json --save-report --preset general
 
 It does not run destructive cleanup unattended, does not call `execute --yes`, and does not run Docker/Colima/Homebrew/package-manager prune commands. A scheduled scope controls where Ryddi looks; it does not make personal files auto-cleanable.
 
+Schedule installation creates a new plist only. Ryddi refuses to overwrite or remove an existing schedule plist; reveal it in Finder and make any replacement or removal yourself.
+
 ## Native Tool Reports And Receipts
 
 Ryddi treats container runtimes, package-manager stores, and project-local dependency folders as tool-owned state. Use Package Cache Review to inventory global package cache roots, Project Dependencies Review to inspect project-local dependency/build folders, and Device Backups Review to inspect local MobileSync backups before using Apple/Finder-managed backup deletion. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use native-tool reports when you want command-level guidance:
@@ -673,14 +675,14 @@ swift run --scratch-path .build reclaimer native --json --path ~/.colima
 
 The report is a preview receipt: command, purpose, risk, expected effect, and non-claims. It can be saved with `--save-audit`, and it is the safest default for Docker, Colima, package stores, and VM/container state.
 
-For explicitly allowlisted, preview-gated commands, Ryddi can also create a native command execution receipt:
+For the narrow Homebrew path, Ryddi can also create a native command execution receipt:
 
 ```bash
 swift run --scratch-path .build reclaimer native homebrew cleanup --dry-run --save-audit --finding-path ~/Library/Caches/Homebrew
 swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --finding-path ~/Library/Caches/Homebrew --path ~/Library/Caches/Homebrew --yes --save-audit
 ```
 
-`native run` executes exactly one selected command. It defaults to dry-run, requires `--yes` before performing the command, records stdout/stderr previews and before/after free-space fields, and blocks destructive commands, placeholder commands, shell metacharacters, and raw-delete paths. For Homebrew, both `native run --command-id brew.preview --dry-run --save-audit` and `native homebrew cleanup --dry-run --save-audit` capture Homebrew's actual preview output. A clean preview can authorize only the exact paired `brew.cleanup` invocation for the same normalized finding path and rule version, and expires after 15 minutes. Homebrew cleanup may remove Homebrew-managed cache and old package artifacts after that explicit saved preview. Ryddi does not run Docker/Colima prune/reset commands automatically and does not raw-delete VM disks, volumes, or package stores.
+`native run` defaults to dry-run and records bounded stdout/stderr previews. For Homebrew, both `native run --command-id brew.preview --dry-run --save-audit` and `native homebrew cleanup --dry-run --save-audit` capture Homebrew's actual preview output. A Homebrew `--yes` invocation runs a new preview and consumes its one-time same-process capability immediately before the paired cleanup; saved receipts can never authorize later cleanup. Ryddi blocks other destructive commands, placeholders, shell metacharacters, raw-delete paths, Docker/Colima prune/reset, VM disks, volumes, and package stores.
 
 ## Container Inventory
 

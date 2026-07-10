@@ -75,8 +75,8 @@ final class NativeActionAllowlistTests: XCTestCase {
         )
 
         XCTAssertEqual(executionReceipt.status, "blocked")
-        XCTAssertEqual(executionReceipt.message, "shell execution is not allowed")
-        XCTAssertTrue(executionReceipt.errors.contains("shell execution is not allowed"))
+        XCTAssertTrue(executionReceipt.message.localizedCaseInsensitiveContains("evidence only"))
+        XCTAssertTrue(executionReceipt.errors.contains { $0.localizedCaseInsensitiveContains("same-process") })
         XCTAssertTrue(runner.invocations.isEmpty)
     }
 
@@ -112,8 +112,8 @@ final class NativeActionAllowlistTests: XCTestCase {
         )
 
         XCTAssertEqual(executionReceipt.status, "blocked")
-        XCTAssertTrue(executionReceipt.message.localizedCaseInsensitiveContains("explicitly allowlisted"))
-        XCTAssertTrue(executionReceipt.errors.contains { $0.localizedCaseInsensitiveContains("guidance-only") })
+        XCTAssertTrue(executionReceipt.message.localizedCaseInsensitiveContains("evidence only"))
+        XCTAssertTrue(executionReceipt.errors.contains { $0.localizedCaseInsensitiveContains("same-process") })
         XCTAssertTrue(runner.invocations.isEmpty)
     }
 }

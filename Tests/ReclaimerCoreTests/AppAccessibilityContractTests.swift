@@ -8,7 +8,7 @@ final class AppAccessibilityContractTests: XCTestCase {
             "summary.scan-button",
             "summary.plan-button",
             "summary.dry-run-button",
-            "summary.reclaim-button",
+            "summary.manual-review-button",
             "permissions.open-full-disk-access",
             "review-queues.list",
             "remote-targets.probe-button",

@@ -75,7 +75,7 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(model.contains("@Observable"))
         XCTAssertTrue(model.contains("final class DashboardModel"))
         XCTAssertTrue(scanPlan.contains("func scan() async"))
-        XCTAssertTrue(scanPlan.contains("func reclaimSelected() async"))
+        XCTAssertFalse(scanPlan.contains("func reclaimSelected() async"))
         XCTAssertTrue(audit.contains("func loadAudit()"))
         XCTAssertTrue(audit.contains("func loadRecovery()"))
         XCTAssertTrue(reviews.contains("func reviewApps("))
@@ -192,6 +192,25 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testAutomationDoesNotExposeAutomaticScheduleRemoval() throws {
+        let automation = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardContentViews.swift"),
+            encoding: .utf8
+        )
+        let model = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+AuditAndRecovery.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(automation.contains("Label(\"Reveal Schedule\", systemImage: \"folder\")"))
+        XCTAssertFalse(automation.contains("Remove Schedule"))
+        XCTAssertTrue(model.contains("func revealScheduleInFinder()"))
+        XCTAssertTrue(model.contains("PathActions.revealInFinder"))
+        XCTAssertFalse(model.contains("LaunchAgentManager().uninstall"))
+    }
+
     func testSummaryUsesActionCenterReport() throws {
         let app = try appSource()
         let guided = try String(
@@ -273,7 +292,7 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
-    func testNativeCommandButtonsUseSavedPreviewGate() throws {
+    func testNativeCommandButtonsUseSameProcessPreviewGate() throws {
         let source = try appSource()
 
         XCTAssertTrue(
@@ -285,12 +304,14 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             "The app should use ReclaimerCore's explicit native perform allowlist check before showing Run."
         )
         XCTAssertTrue(
-            source.contains("NativeToolExecutor.performAuthorization("),
-            "The app should pass typed native preview authorization into perform mode."
+            source.contains("NativeActionExecutor()")
+                && source.contains("previewHomebrewCleanup(")
+                && source.contains("performHomebrewCleanup("),
+            "The app should mint and consume the Homebrew preview capability in the same process."
         )
         XCTAssertTrue(
-            source.contains("fresh successful brew.preview authorization receipt"),
-            "The blocked state should tell the user to create fresh actual preview evidence first."
+            source.contains("same-process capability"),
+            "The blocked state should explain that saved native receipts remain evidence only."
         )
     }
 
@@ -443,39 +464,51 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
-    func testReclaimRefreshPreservesExecutedSessionState() throws {
+    func testAppFilesystemPerformPathIsRemovedInFavorOfManualReview() throws {
         let source = try dashboardModelScanPlanSource()
-        let helperStart = try XCTUnwrap(source.range(of: "private func refreshScanAfterReclaimPreservingExecutionSession"))
-        let helperSource = String(source[helperStart.lowerBound...])
 
-        XCTAssertTrue(
-            source.contains("refreshScanAfterReclaimPreservingExecutionSession"),
-            "Post-reclaim refresh should not overwrite the executed session state shown by Summary."
-        )
         XCTAssertFalse(
-            helperSource.contains("recordScanSession"),
-            "A successful reclaim should not replace the executed session with a plain scanned session immediately after receipt recording."
+            source.contains("func reclaimSelected() async") || source.contains("mode: .perform"),
+            "The app must not expose a core filesystem perform path while identity-bound mutation is unavailable."
         )
     }
 
-    func testAppPerformReclaimPassesCurrentScanSessionToExecutor() throws {
-        let source = try dashboardModelScanPlanSource()
-        let start = try XCTUnwrap(source.range(of: "func reclaimSelected() async"))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "\n    private func refreshScanAfterReclaimPreservingExecutionSession"))
-        let reclaimSource = String(source[start.lowerBound..<end.lowerBound])
+    func testHoldingAreaDoesNotExposeAutomaticRestoreOrExpiry() throws {
+        let content = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardContentViews.swift"),
+            encoding: .utf8
+        )
+        let model = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+AuditAndRecovery.swift"),
+            encoding: .utf8
+        )
 
-        XCTAssertTrue(
-            reclaimSource.contains("let session = currentScanSession"),
-            "The app perform path should capture the current ScanSession before hopping into the detached executor task."
+        XCTAssertTrue(content.contains("Holding records stay for manual Finder recovery."))
+        XCTAssertTrue(content.contains("Label(\"Reveal in Finder\", systemImage: \"folder\")"))
+        XCTAssertFalse(content.contains("Button(\"Restore\")"))
+        XCTAssertFalse(model.contains("HoldingStore().restore("))
+        XCTAssertFalse(model.contains("func restoreHeldItem"))
+        XCTAssertFalse(model.contains("func restoreRecoveryItem"))
+    }
+
+    func testAuditHistoryDoesNotExposeConfirmedPrune() throws {
+        let view = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/AuditHistoryView.swift"),
+            encoding: .utf8
         )
-        XCTAssertTrue(
-            reclaimSource.contains("ExecutorConfiguration(userPathPolicy: policy, currentScanSession: session)"),
-            "The app perform path should pass the current ScanSession into ReclaimerExecutor just like dry-run does."
+        let model = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+AuditAndRecovery.swift"),
+            encoding: .utf8
         )
-        XCTAssertFalse(
-            reclaimSource.contains("ExecutorConfiguration(userPathPolicy: policy)\n"),
-            "Perform-mode reclaim must not drop the current ScanSession final gate."
-        )
+
+        XCTAssertTrue(view.contains("Manual Audit Review"))
+        XCTAssertFalse(view.contains("Delete Previewed Audit Files"))
+        XCTAssertFalse(model.contains("func confirmAuditPrune"))
+        XCTAssertFalse(model.contains("prune(plan: plan, dryRun: false)"))
     }
 
     func testAgentRetentionShowsPlanPreviewLane() throws {

@@ -55,7 +55,7 @@ final class AppBundleTrashFlowTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
     }
 
-    func testAppBundleTrashFlowRequiresDryRunAuthorizationForPerform() throws {
+    func testAppBundleTrashPerformIsDisabledWithoutMutatingBundle() throws {
         let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
         let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
         let app = appRoot.appendingPathComponent("Unauthorized.app", isDirectory: true)
@@ -74,14 +74,13 @@ final class AppBundleTrashFlowTests: XCTestCase {
         }
 
         XCTAssertEqual(receipt.status, "skipped")
-        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("dry-run authorization"), receipt.message)
+        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("disabled"), receipt.message)
         XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
     }
 
-    func testCleanMatchingDryRunAuthorizesOnlyExactAppBundle() throws {
+    func testCleanMatchingDryRunRemainsEvidenceOnlyAndCannotTrashAppBundle() throws {
         let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
         let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
-        let trashRoot = tempRoot.appendingPathComponent("Fixture Trash", isDirectory: true)
         let app = appRoot.appendingPathComponent("Authorized.app", isDirectory: true)
         let related = home.appendingPathComponent("Library/Caches/com.example.authorized/cache.bin")
         try createAppBundle(at: app, bundleIdentifier: "com.example.authorized", displayName: "Authorized")
@@ -104,7 +103,6 @@ final class AppBundleTrashFlowTests: XCTestCase {
             openFileChecker: NoOpenFilesChecker(),
             runningApplicationChecker: FixedRunningApplicationChecker(isRunning: false),
             configuration: AppUninstallExecutorConfiguration(allowedAppRoots: [appRoot]),
-            appBundleTrasher: FixtureAppBundleTrasher(destinationRoot: trashRoot),
             now: { now.addingTimeInterval(1) }
         ).execute(
             preview: preview,
@@ -113,14 +111,14 @@ final class AppBundleTrashFlowTests: XCTestCase {
             authorization: AppUninstallPerformAuthorization(dryRunReceipt: dryRun)
         )
 
-        XCTAssertEqual(performed.status, "done", performed.message)
-        XCTAssertEqual(performed.authorizationDigest, dryRun.authorizationDigest)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: app.path))
+        XCTAssertEqual(performed.status, "skipped", performed.message)
+        XCTAssertTrue(performed.message.localizedCaseInsensitiveContains("manual"), performed.message)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: related.path))
-        XCTAssertTrue(performed.resultingTrashPath?.hasPrefix(trashRoot.path) == true)
+        XCTAssertNil(performed.resultingTrashPath)
     }
 
-    func testDryRunAuthorizationRejectsDifferentBundle() throws {
+    func testDryRunAuthorizationForDifferentBundleRemainsEvidenceOnly() throws {
         let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
         let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
         let first = appRoot.appendingPathComponent("First.app", isDirectory: true)
@@ -146,12 +144,12 @@ final class AppBundleTrashFlowTests: XCTestCase {
         )
 
         XCTAssertEqual(receipt.status, "skipped")
-        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("different app bundle path"), receipt.message)
+        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("manual"), receipt.message)
         XCTAssertTrue(FileManager.default.fileExists(atPath: first.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: second.path))
     }
 
-    func testDryRunAuthorizationRejectsStaleReceipt() throws {
+    func testStaleDryRunReceiptRemainsEvidenceOnly() throws {
         let appRoot = tempRoot.appendingPathComponent("Applications", isDirectory: true)
         let home = tempRoot.appendingPathComponent("Home", isDirectory: true)
         let app = appRoot.appendingPathComponent("Stale.app", isDirectory: true)
@@ -178,7 +176,7 @@ final class AppBundleTrashFlowTests: XCTestCase {
         )
 
         XCTAssertEqual(receipt.status, "skipped")
-        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("stale"), receipt.message)
+        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("manual"), receipt.message)
         XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
     }
 
@@ -242,16 +240,5 @@ private struct FixedRunningApplicationChecker: RunningApplicationChecking {
 
     func isAppRunning(bundleIdentifier: String?, executableName: String?, displayName: String) -> Bool {
         isRunning
-    }
-}
-
-private struct FixtureAppBundleTrasher: AppBundleTrashing {
-    let destinationRoot: URL
-
-    func trashItem(at url: URL) throws -> URL? {
-        try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
-        let destination = destinationRoot.appendingPathComponent(url.lastPathComponent)
-        try FileManager.default.moveItem(at: url, to: destination)
-        return destination
     }
 }

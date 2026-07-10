@@ -272,39 +272,6 @@ extension DashboardModel {
         }
     }
 
-    func trashPreviewedApp() async {
-        guard canTrashPreviewedApp,
-              let preview = appUninstallPreview,
-              let dryRunReceipt = lastAppUninstallDryRunReceipt else {
-            error = "Run a clean app uninstall dry run before moving the app bundle to Trash."
-            return
-        }
-        isWorking = true
-        defer { isWorking = false }
-        do {
-            let receipt = await Task.detached {
-                let policy = UserPathPolicyStore().load()
-                let allowedRoots = AppReviewOptions().appRoots
-                return AppUninstallExecutor(
-                    openFileChecker: LsofOpenFileChecker(),
-                    configuration: AppUninstallExecutorConfiguration(userPathPolicy: policy, allowedAppRoots: allowedRoots)
-                )
-                    .execute(
-                        preview: preview,
-                        mode: .perform,
-                        userConfirmed: true,
-                        authorization: AppUninstallPerformAuthorization(dryRunReceipt: dryRunReceipt)
-                    )
-            }.value
-            lastAppUninstallReceipt = receipt
-            _ = try AuditStore().save(appUninstallReceipt: receipt)
-            loadAudit()
-            error = receipt.status == "done" ? nil : receipt.message
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
     func reviewAgentStorage() async {
         isWorking = true
         defer { isWorking = false }
@@ -381,32 +348,54 @@ extension DashboardModel {
         defer { isWorking = false }
         do {
             let includeUserRules = includeUserRulesInScans
-            let savedReceipts = recentNativeToolExecutionReceipts
             if perform, let reason = nativePerformBlockReason(receipt: receipt, command: command) {
                 error = reason
                 return
             }
-            let executionReceipt = try await Task.detached {
+            let executionReceipts = try await Task.detached {
                 let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
                 let selection = NativeToolCommandSelection(receipt: receipt, command: command)
-                let authorization = perform
-                    ? NativeToolExecutor.performAuthorization(
-                        authorizing: selection,
-                        in: savedReceipts,
-                        ruleVersion: ruleVersion
+                if perform, command.id == "brew.cleanup" {
+                    let executor = NativeActionExecutor()
+                    let preview = executor.previewHomebrewCleanup(
+                        ruleVersion: ruleVersion,
+                        findingPath: receipt.findingPath
                     )
-                    : nil
-                return NativeToolExecutor().execute(
+                    let previewReceipt = NativeActionReceiptBridge.nativeToolExecutionReceipt(
+                        from: preview.receipt,
+                        ruleVersion: ruleVersion,
+                        findingPath: receipt.findingPath,
+                        category: receipt.category,
+                        userConfirmed: false
+                    )
+                    let actionReceipt = executor.performHomebrewCleanup(
+                        using: preview,
+                        userConfirmed: true,
+                        ruleVersion: ruleVersion,
+                        findingPath: receipt.findingPath
+                    )
+                    let performedReceipt = NativeActionReceiptBridge.nativeToolExecutionReceipt(
+                        from: actionReceipt,
+                        ruleVersion: ruleVersion,
+                        findingPath: receipt.findingPath,
+                        category: receipt.category,
+                        userConfirmed: true
+                    )
+                    return [previewReceipt, performedReceipt]
+                }
+                return [NativeToolExecutor().execute(
                     selection: selection,
                     mode: perform ? .perform : .dryRun,
                     ruleVersion: ruleVersion,
-                    userConfirmed: perform,
-                    authorization: authorization
-                )
+                    userConfirmed: perform
+                )]
             }.value
-            _ = try AuditStore().save(nativeToolExecutionReceipt: executionReceipt)
+            let auditStore = AuditStore()
+            for executionReceipt in executionReceipts {
+                _ = try auditStore.save(nativeToolExecutionReceipt: executionReceipt)
+            }
             loadAudit()
-            error = executionReceipt.errors.isEmpty ? nil : executionReceipt.message
+            error = executionReceipts.last?.errors.isEmpty == true ? nil : executionReceipts.last?.message
         } catch {
             self.error = error.localizedDescription
         }

@@ -36,7 +36,18 @@ final class NativeActionReceiptTests: XCTestCase {
         XCTAssertTrue(receipt.nonClaims.contains("Homebrew decides the exact cleanup set."))
     }
 
-    func testHomebrewPerformUsesCleanupArgvWithoutShellInterpolation() {
+    func testHomebrewCleanupSelectionRequiresFreshSameProcessPreview() {
+        let selection = NativeActionReceiptBridge.homebrewCleanupSelection(
+            findingPath: tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
+        )
+
+        XCTAssertEqual(selection.receipt.status, "preview-required")
+        XCTAssertTrue(selection.receipt.message.localizedCaseInsensitiveContains("fresh preview"))
+        XCTAssertTrue(selection.receipt.message.localizedCaseInsensitiveContains("same process"))
+        XCTAssertFalse(selection.receipt.message.localizedCaseInsensitiveContains("saved"))
+    }
+
+    func testPublicReceiptAuthorizationCannotRunHomebrewCleanup() {
         let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
         let authorization = NativeToolPerformAuthorization(
             previewReceipt: actualPreviewReceipt(
@@ -57,13 +68,10 @@ final class NativeActionReceiptTests: XCTestCase {
             findingPath: findingPath
         )
 
-        XCTAssertEqual(runner.invocations.count, 1)
-        XCTAssertEqual(runner.invocations.first?.executable, "brew")
-        XCTAssertEqual(runner.invocations.first?.arguments, ["cleanup"])
-        XCTAssertFalse(runner.invocations.first?.displayCommand.contains("/bin/sh") ?? true)
+        XCTAssertTrue(runner.invocations.isEmpty)
         XCTAssertEqual(receipt.commandDisplay, ["brew", "cleanup"])
         XCTAssertEqual(receipt.mode, .perform)
-        XCTAssertNil(receipt.skippedReason)
+        XCTAssertTrue(receipt.skippedReason?.localizedCaseInsensitiveContains("same-process") ?? false)
     }
 
     func testHomebrewPerformRequiresExplicitConfirmation() {
@@ -78,7 +86,7 @@ final class NativeActionReceiptTests: XCTestCase {
         XCTAssertNil(receipt.afterDisk)
     }
 
-    func testHomebrewPerformRequiresPreviewAuthorizationEvenWhenConfirmed() {
+    func testHomebrewPerformRequiresSameProcessCapabilityEvenWhenConfirmed() {
         let runner = RecordingNativeActionReceiptRunner(stdout: "should not run\n")
         let receipt = NativeActionExecutor(
             runner: runner,
@@ -86,7 +94,7 @@ final class NativeActionReceiptTests: XCTestCase {
         ).executeHomebrewCleanup(mode: .perform, userConfirmed: true)
 
         XCTAssertTrue(runner.invocations.isEmpty)
-        XCTAssertTrue(receipt.skippedReason?.localizedCaseInsensitiveContains("preview authorization") ?? false)
+        XCTAssertTrue(receipt.skippedReason?.localizedCaseInsensitiveContains("same-process") ?? false)
         XCTAssertNil(receipt.afterDisk)
     }
 
@@ -193,7 +201,7 @@ final class NativeActionReceiptTests: XCTestCase {
         XCTAssertTrue(receipt.nonClaims.contains { $0.localizedCaseInsensitiveContains("Native command receipts") })
     }
 
-    func testOnlyActualHomebrewPreviewReceiptAuthorizesCleanupPair() throws {
+    func testPersistedHomebrewPreviewReceiptRemainsEvidenceOnly() throws {
         let findingPath = "/Users/reidar/Library/Caches/Homebrew"
         let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
         let noOutputPreview = NativeToolExecutionReceipt(
@@ -231,7 +239,7 @@ final class NativeActionReceiptTests: XCTestCase {
             userConfirmed: false
         )
 
-        XCTAssertTrue(NativeToolExecutor.savedDryRunReceipt(actualPreview, authorizes: selection, ruleVersion: "rules-v1"))
+        XCTAssertFalse(NativeToolExecutor.savedDryRunReceipt(actualPreview, authorizes: selection, ruleVersion: "rules-v1"))
     }
 
     func testSyntheticCleanupDryRunReceiptCannotAuthorizePerform() {
@@ -333,24 +341,61 @@ final class NativeActionReceiptTests: XCTestCase {
         )
 
         XCTAssertEqual(receipt.status, "blocked")
-        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("preview authorization"))
+        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("same-process"))
         XCTAssertTrue(runner.invocations.isEmpty)
     }
 
-    func testFreshActualPreviewAuthorizationAllowsOnlyMatchingPerform() throws {
+    func testExecutorMintedPreviewAuthorizesOnlyMatchingFreshCleanupOnce() {
+        let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
+        let otherPath = tempRoot.appendingPathComponent("Library/Caches/Other").path
+        let now = Date(timeIntervalSince1970: 100)
+        let runner = RecordingNativeActionReceiptRunner(stdout: "Removed old bottle\n")
+        let executor = NativeActionExecutor(
+            runner: runner,
+            configuration: NativeActionExecutionConfiguration(timeout: 3, diskStatusPath: tempRoot),
+            now: { now }
+        )
+        let preview = executor.previewHomebrewCleanup(ruleVersion: "rules-v1", findingPath: findingPath)
+
+        let wrongPath = executor.performHomebrewCleanup(
+            using: preview,
+            userConfirmed: true,
+            ruleVersion: "rules-v1",
+            findingPath: otherPath
+        )
+        XCTAssertTrue(wrongPath.skippedReason?.localizedCaseInsensitiveContains("does not match") ?? false)
+        XCTAssertEqual(runner.invocations.map(\.arguments), [["cleanup", "--dry-run"]])
+
+        let receipt = executor.performHomebrewCleanup(
+            using: preview,
+            userConfirmed: true,
+            ruleVersion: "rules-v1",
+            findingPath: findingPath
+        )
+        XCTAssertEqual(receipt.exitCode, 0)
+        XCTAssertEqual(runner.invocations.map(\.arguments), [["cleanup", "--dry-run"], ["cleanup"]])
+        XCTAssertEqual(receipt.stdoutPreview, ["Removed old bottle"])
+
+        let reused = executor.performHomebrewCleanup(
+            using: preview,
+            userConfirmed: true,
+            ruleVersion: "rules-v1",
+            findingPath: findingPath
+        )
+        XCTAssertTrue(reused.skippedReason?.localizedCaseInsensitiveContains("already been used") ?? false)
+        XCTAssertEqual(runner.invocations.map(\.arguments), [["cleanup", "--dry-run"], ["cleanup"]])
+    }
+
+    func testJSONDecodedNativePreviewReceiptCannotAuthorizePerform() throws {
         let findingPath = tempRoot.appendingPathComponent("Library/Caches/Homebrew").path
         let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
-        let preview = actualPreviewReceipt(
+        let encoded = try JSONEncoder().encode(actualPreviewReceipt(
             findingPath: findingPath,
             createdAt: Date(),
-            arguments: ["cleanup", "-n"]
-        )
-        let authorization = try XCTUnwrap(NativeToolExecutor.performAuthorization(
-            authorizing: selection,
-            in: [preview],
-            ruleVersion: "rules-v1"
+            arguments: ["cleanup", "--dry-run"]
         ))
-        let runner = RecordingNativeActionReceiptRunner(stdout: "Removed old bottle\n")
+        let decoded = try JSONDecoder().decode(NativeToolExecutionReceipt.self, from: encoded)
+        let runner = RecordingNativeActionReceiptRunner(stdout: "must not run\n")
 
         let receipt = NativeToolExecutor(
             runner: runner,
@@ -360,12 +405,12 @@ final class NativeActionReceiptTests: XCTestCase {
             mode: .perform,
             ruleVersion: "rules-v1",
             userConfirmed: true,
-            authorization: authorization
+            authorization: NativeToolPerformAuthorization(previewReceipt: decoded)
         )
 
-        XCTAssertEqual(receipt.status, "done")
-        XCTAssertEqual(runner.invocations.map(\.arguments), [["cleanup"]])
-        XCTAssertEqual(receipt.output?.stdoutPreview, ["Removed old bottle"])
+        XCTAssertEqual(receipt.status, "blocked")
+        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("evidence only"))
+        XCTAssertTrue(runner.invocations.isEmpty)
     }
 
     func testPreviewAuthorizationRejectsFailedWrongPathWrongRuleAndDigest() {

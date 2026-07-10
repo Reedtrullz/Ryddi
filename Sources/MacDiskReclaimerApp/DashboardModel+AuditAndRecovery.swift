@@ -132,20 +132,6 @@ extension DashboardModel {
         auditStoreSummary = store.summary()
     }
 
-    func confirmAuditPrune() {
-        guard let plan = auditPrunePlan else {
-            previewAuditPrune()
-            return
-        }
-        do {
-            auditPruneReceipt = try AuditStore().prune(plan: plan, dryRun: false)
-            auditPrunePlan = nil
-            loadAudit()
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
     func loadHolding() {
         heldItems = HoldingStore().list()
         loadRecovery()
@@ -207,30 +193,6 @@ extension DashboardModel {
         }
     }
 
-    func restoreHeldItem(_ item: HeldItem) {
-        do {
-            _ = try HoldingStore().restore(id: item.id)
-            loadHolding()
-            error = nil
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func restoreRecoveryItem(_ item: RecoveryCenterItem) {
-        guard let holdingID = item.holdingID else {
-            error = "Only app-held recovery items can be restored by Ryddi."
-            return
-        }
-        do {
-            _ = try HoldingStore().restore(id: holdingID)
-            loadHolding()
-            error = nil
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
     func installSchedule() {
         do {
             let bundledCLI = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/reclaimer")
@@ -253,13 +215,8 @@ extension DashboardModel {
         }
     }
 
-    func removeSchedule() {
-        do {
-            try LaunchAgentManager().uninstall()
-            refreshAutomation()
-        } catch {
-            self.error = error.localizedDescription
-        }
+    func revealScheduleInFinder() {
+        PathActions.revealInFinder(LaunchAgentManager().installedPath().path)
     }
 
     func refreshAutomation() {

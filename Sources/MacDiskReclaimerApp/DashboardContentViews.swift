@@ -7,7 +7,6 @@ import AppKit
 
 struct OverviewView: View {
     let model: DashboardModel
-    let onReclaim: () -> Void
     let navigate: (String) -> Void
 
     private var topRows: [TopOffenderRow] {
@@ -27,7 +26,6 @@ struct OverviewView: View {
                 GuidedSummaryView(
                     model: model,
                     report: model.actionCenterReport,
-                    onReclaim: onReclaim,
                     navigate: navigate
                 )
 
@@ -110,7 +108,7 @@ struct OverviewView: View {
                     OwnerStorageView(summaries: overview.ownerSummaries)
                 }
 
-                DashboardPlanPanel(model: model, onReclaim: onReclaim)
+                DashboardPlanPanel(model: model)
                 DashboardRecentExports(model: model)
             }
             .padding(24)
@@ -192,7 +190,6 @@ struct DashboardHeroView: View {
 
 struct DashboardActionStrip: View {
     let model: DashboardModel
-    let onReclaim: () -> Void
     let navigate: (String) -> Void
     @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue
     @AppStorage(RyddiAppStorageKey.redactUserTextByDefault) private var redactUserTextByDefault = false
@@ -234,10 +231,10 @@ struct DashboardActionStrip: View {
         DashboardActionButton("Export", systemImage: "square.and.arrow.up", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {
             exportEvidenceReportUsingDefaults()
         }
-        DashboardActionButton("Reclaim", systemImage: "trash", role: .destructive, disabled: !model.canReclaimSelected) {
-            onReclaim()
+        DashboardActionButton("Manual Review", systemImage: "folder", disabled: model.findings.isEmpty) {
+            navigate("Queues")
         }
-        .accessibilityIdentifier("summary.reclaim-button")
+        .accessibilityIdentifier("summary.manual-review-button")
     }
 
     private func exportEvidenceReportUsingDefaults() {
@@ -468,7 +465,6 @@ struct ReviewLaunchRow: View {
 
 struct DashboardPlanPanel: View {
     let model: DashboardModel
-    let onReclaim: () -> Void
 
     var body: some View {
         SectionBox(title: "Plan") {
@@ -477,7 +473,7 @@ struct DashboardPlanPanel: View {
                     HStack(spacing: 12) {
                         MetricTile(title: "Selected", value: "\(plan.items.filter(\.selected).count)")
                         MetricTile(title: "Expected reclaim", value: ByteFormat.string(plan.expectedImmediateReclaim))
-                        MetricTile(title: "Dry run", value: model.canReclaimSelected ? "Clear" : "Needed")
+                        MetricTile(title: "Dry run", value: model.lastDryRunReceipt?.errors.isEmpty == true ? "Recorded" : "Needed")
                         MetricTile(title: "Errors", value: "\(model.lastDryRunReceipt?.errors.count ?? 0)")
                     }
                     ForEach(plan.dryRunSummary.prefix(8), id: \.self) { line in
@@ -496,12 +492,9 @@ struct DashboardPlanPanel: View {
                         } label: {
                             Label("Export Redacted Plan", systemImage: "eye.slash")
                         }
-                        Button(role: .destructive) {
-                            onReclaim()
-                        } label: {
-                            Label("Reclaim Selected", systemImage: "trash")
-                        }
-                        .disabled(!model.canReclaimSelected)
+                        Label("Manual Finder removal required", systemImage: "hand.raised")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
             } else {
@@ -969,7 +962,7 @@ struct CapabilityMatrixView: View {
         ("Protect active files", "Plan/executor run open-file checks, active-handle review surfaces process names, and active paths are skipped."),
         ("Plan before action", "CLI and app build dry-run plans; automation is report-first."),
         ("Export receipts", "Saved dry-run and execution receipts can be exported as local Markdown reports with action counts and non-claims."),
-        ("Reclaim safely", "Executor supports Trash, direct cache delete, compression, and app-managed holding area with protected-class refusal."),
+        ("Manual cleanup evidence", "Ryddi keeps core filesystem actions report-first and opens reviewed items for manual Finder recovery."),
         ("Schedule maintenance", "Per-user LaunchAgent writes report-only plans for the selected preset, template, or saved scope set, no root helper."),
         ("Keep audit trail", "Plans and receipts are stored locally under Application Support."),
         ("Protect personal value", "Codex history, browser profiles, GarageBand/Logic assets, documents, credentials, and VM/container state are preserve/never-touch by default.")
@@ -1349,7 +1342,7 @@ struct RecoveryCenterView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Recovery Center")
                             .font(.largeTitle.bold())
-                        Text("Review what Ryddi can restore directly, what needs Finder Trash review, and what requires native tools or backups.")
+                        Text("Review prior cleanup evidence and use Finder for held-item recovery, Trash review, and other manual recovery paths.")
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -1363,9 +1356,10 @@ struct RecoveryCenterView: View {
                 }
 
                 HStack(spacing: 16) {
+                    let holdingItems = model.recoveryReport.items.filter { $0.holdingID != nil }
                     MetricTile(title: "Recovery items", value: "\(model.recoveryReport.itemCount)")
-                    MetricTile(title: "Restorable", value: "\(model.recoveryReport.restorableCount)")
-                    MetricTile(title: "Held bytes", value: ByteFormat.string(model.recoveryReport.restorableBytes))
+                    MetricTile(title: "Holding records", value: "\(holdingItems.count)")
+                    MetricTile(title: "Held bytes", value: ByteFormat.string(holdingItems.reduce(0) { $0 + $1.bytes }))
                 }
 
                 SectionBox(title: "By State") {
@@ -1386,27 +1380,25 @@ struct RecoveryCenterView: View {
                     }
                 }
 
-                SectionBox(title: "Restorable With Ryddi") {
-                    let restorable = model.recoveryReport.items.filter(\.canRestoreWithRyddi)
-                    if restorable.isEmpty {
-                        Text("No app-held items are currently restorable by Ryddi.")
+                SectionBox(title: "Holding Records") {
+                    let holdingItems = model.recoveryReport.items.filter { $0.holdingID != nil }
+                    if holdingItems.isEmpty {
+                        Text("No holding records are currently available for manual Finder recovery.")
                     } else {
-                        ForEach(restorable) { item in
-                            RecoveryItemRow(item: item) {
-                                model.restoreRecoveryItem(item)
-                            }
+                        ForEach(holdingItems) { item in
+                            RecoveryItemRow(item: item)
                             Divider()
                         }
                     }
                 }
 
                 SectionBox(title: "Receipt Guidance") {
-                    let guidanceItems = model.recoveryReport.items.filter { !$0.canRestoreWithRyddi }
+                    let guidanceItems = model.recoveryReport.items.filter { $0.holdingID == nil }
                     if guidanceItems.isEmpty {
                         Text("No saved receipt actions need recovery guidance.")
                     } else {
                         ForEach(guidanceItems.prefix(30)) { item in
-                            RecoveryItemRow(item: item, onRestore: nil)
+                            RecoveryItemRow(item: item)
                             Divider()
                         }
                     }
@@ -1432,7 +1424,6 @@ struct RecoveryCenterView: View {
 
 struct RecoveryItemRow: View {
     let item: RecoveryCenterItem
-    let onRestore: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1448,13 +1439,6 @@ struct RecoveryItemRow: View {
                 Text(ByteFormat.string(item.bytes))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if let onRestore {
-                    Button {
-                        onRestore()
-                    } label: {
-                        Label("Restore", systemImage: "arrow.uturn.backward")
-                    }
-                }
             }
             if let originalPath = item.originalPath {
                 Text("Original: \(originalPath)")
@@ -1900,7 +1884,7 @@ struct HoldingView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Holding Area")
                             .font(.largeTitle.bold())
-                        Text("Held items are reversible until restored or expired. Restore refuses to overwrite existing destinations.")
+                        Text("Holding records stay for manual Finder recovery.")
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -1910,7 +1894,7 @@ struct HoldingView: View {
                 }
 
                 if model.heldItems.isEmpty {
-                    ContentUnavailableView("No held items", systemImage: "archivebox", description: Text("Quarantine-hold actions will appear here."))
+                    ContentUnavailableView("No held items", systemImage: "archivebox", description: Text("Existing holding records appear here for manual Finder recovery."))
                 } else {
                     ForEach(model.heldItems) { item in
                         SectionBox(title: item.displayName) {
@@ -1927,9 +1911,12 @@ struct HoldingView: View {
                                 Text(ByteFormat.string(item.allocatedSize))
                                 Text(item.heldAt?.formatted() ?? "unknown date")
                                 Spacer()
-                                Button("Restore") {
-                                    model.restoreHeldItem(item)
+                                Button {
+                                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.heldPath)])
+                                } label: {
+                                    Label("Reveal in Finder", systemImage: "folder")
                                 }
+                                .help("Reveal held item in Finder")
                             }
                             .foregroundStyle(.secondary)
                         }
@@ -4140,7 +4127,6 @@ struct AppReviewGroupView: View {
 struct AppUninstallPreviewView: View {
     let preview: AppUninstallPreview
     let model: DashboardModel
-    @State private var confirmTrash = false
 
     var body: some View {
         SectionBox(title: "Uninstall Preview") {
@@ -4187,13 +4173,10 @@ struct AppUninstallPreviewView: View {
                     .disabled(model.isWorking || preview.bundleCandidate.disposition != .trashPreview)
                     .help("Create an app-uninstall receipt without moving the app bundle.")
 
-                    Button(role: .destructive) {
-                        confirmTrash = true
-                    } label: {
-                        Label("Move App To Trash", systemImage: "trash")
-                    }
-                    .disabled(model.isWorking || !model.canTrashPreviewedApp)
-                    .help("Move only the selected app bundle to Trash after a clean dry run.")
+                    Label("Manual Finder removal required", systemImage: "hand.raised")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Automatic app-bundle Trash is disabled until an identity-bound macOS primitive is available.")
                 }
 
                 if let receipt = model.currentAppUninstallReceipt {
@@ -4254,14 +4237,6 @@ struct AppUninstallPreviewView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-        }
-        .confirmationDialog("Move app bundle to Trash?", isPresented: $confirmTrash) {
-            Button("Move App To Trash", role: .destructive) {
-                Task { await model.trashPreviewedApp() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Only \(preview.selectedApp.displayName).app is moved. Related support files stay review-only.")
         }
     }
 }
@@ -4448,7 +4423,7 @@ struct FindingDetailView: View {
 	                                        Button {
 	                                            pendingNativeCommand = command
 	                                        } label: {
-	                                            Label("Run", systemImage: "terminal")
+                                            Label("Preview + Run", systemImage: "terminal")
 	                                        }
 	                                    }
 	                                }
@@ -4500,14 +4475,14 @@ struct FindingDetailView: View {
             .padding(24)
         }
         .confirmationDialog(
-            "Run native command?",
+            "Preview and run native command?",
             isPresented: Binding(
                 get: { pendingNativeCommand != nil },
                 set: { if !$0 { pendingNativeCommand = nil } }
             ),
             presenting: pendingNativeCommand
         ) { command in
-            Button("Run \(command.command)", role: .destructive) {
+            Button("Preview + Run \(command.command)", role: .destructive) {
                 if let nativeReceipt = explanation.nativeToolReceipt {
                     Task { await model.runNativeToolCommand(receipt: nativeReceipt, command: command, perform: true) }
                 }
@@ -4517,7 +4492,7 @@ struct FindingDetailView: View {
                 pendingNativeCommand = nil
             }
         } message: { command in
-            Text("Ryddi will execute exactly this native-tool command and save a local receipt: \(command.command)")
+            Text("Ryddi will run a fresh same-process preview before executing this native-tool command and save both receipts: \(command.command)")
         }
     }
 }
@@ -4570,8 +4545,10 @@ struct AutomationView: View {
                 Button("Install Current Scope Schedule") {
                     model.installSchedule()
                 }
-                Button("Remove Schedule") {
-                    model.removeSchedule()
+                Button {
+                    model.revealScheduleInFinder()
+                } label: {
+                    Label("Reveal Schedule", systemImage: "folder")
                 }
             }
 

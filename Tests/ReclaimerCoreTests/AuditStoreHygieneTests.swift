@@ -39,7 +39,7 @@ final class AuditStoreHygieneTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: scan.path))
     }
 
-    func testAuditPruneDryRunAndConfirmedDeleteOnlyKnownEligibleJSON() throws {
+    func testAuditPruneDryRunAndConfirmedPruneRemainNonDestructive() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
         let store = AuditStore(root: root)
         let oldPlan = try writeFixture("plan-old.json", bytes: 10, daysAgo: 90, root: root)
@@ -68,9 +68,10 @@ final class AuditStoreHygieneTests: XCTestCase {
 
         let receipt = try store.prune(plan: plan, dryRun: false)
         XCTAssertFalse(receipt.dryRun)
-        XCTAssertEqual(receipt.deletedCount, 2)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: oldPlan.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: oldScan.path))
+        XCTAssertEqual(receipt.deletedCount, 0)
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("disabled") }, receipt.errors.joined(separator: "\n"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oldPlan.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oldScan.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: recentProbe.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: unknown.path))
         XCTAssertNoThrow(try FileManager.default.destinationOfSymbolicLink(atPath: symlink.path))
@@ -84,7 +85,7 @@ final class AuditStoreHygieneTests: XCTestCase {
         let plan = store.prunePlan(policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 0), now: Date(timeIntervalSince1970: 2_000_000_000))
         let receipt = try store.prune(plan: plan, dryRun: false)
 
-        XCTAssertEqual(receipt.deletedFileIDs, ["plan-old.json"])
+        XCTAssertTrue(receipt.deletedFileIDs.isEmpty)
         XCTAssertTrue(receipt.deletedFileIDs.allSatisfy { !$0.contains("/") })
     }
 
@@ -120,7 +121,7 @@ final class AuditStoreHygieneTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: packageMarker.path))
     }
 
-    func testAuditPruneSkipsRegularFileModifiedAfterPlanning() throws {
+    func testAuditPruneLeavesModifiedRegularFileUntouched() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
         let store = AuditStore(root: root)
         let file = try writeFixture("plan-modified.json", bytes: 16, daysAgo: 90, root: root)
@@ -137,11 +138,11 @@ final class AuditStoreHygieneTests: XCTestCase {
         let receipt = try store.prune(plan: plan, dryRun: false)
 
         XCTAssertEqual(receipt.deletedCount, 0)
-        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("changed") }, receipt.errors.joined(separator: "\n"))
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("disabled") }, receipt.errors.joined(separator: "\n"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
-    func testAuditPruneSkipsSameMetadataReplacementAfterPlanning() throws {
+    func testAuditPruneLeavesSameMetadataReplacementUntouched() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
         let store = AuditStore(root: root)
         let file = try writeFixture("receipt-replaced.json", bytes: 12, daysAgo: 90, root: root)
@@ -160,7 +161,7 @@ final class AuditStoreHygieneTests: XCTestCase {
         let receipt = try store.prune(plan: plan, dryRun: false)
 
         XCTAssertEqual(receipt.deletedCount, 0)
-        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("identity changed") }, receipt.errors.joined(separator: "\n"))
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("disabled") }, receipt.errors.joined(separator: "\n"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
@@ -191,7 +192,7 @@ final class AuditStoreHygieneTests: XCTestCase {
         let receipt = try store.prune(plan: plan, dryRun: false)
 
         XCTAssertEqual(receipt.deletedCount, 0)
-        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("without filesystem identity") })
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("disabled") })
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 

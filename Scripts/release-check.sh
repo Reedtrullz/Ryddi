@@ -485,6 +485,11 @@ grep -q '"--scope-set"' "$scratch/schedule-scope-set-preview.json"
 grep -q '"kind" : "template"' "$scratch/schedule-template-preview.json"
 grep -q '"value" : "weekly-general"' "$scratch/schedule-template-preview.json"
 grep -q '"--template"' "$scratch/schedule-template-preview.json"
+if "$app/Contents/MacOS/reclaimer" schedule uninstall --unload >"$scratch/schedule-uninstall-manual.log" 2>&1; then
+  echo "bundled CLI unexpectedly unloaded or removed a LaunchAgent schedule" >&2
+  exit 1
+fi
+grep -q "will not unload or remove LaunchAgent files automatically" "$scratch/schedule-uninstall-manual.log"
 "$app/Contents/MacOS/reclaimer" rules >"$scratch/rules-smoke.txt"
 grep -q "Ryddi rule catalog" "$scratch/rules-smoke.txt"
 grep -q "Never Touch" "$scratch/rules-smoke.txt"
@@ -607,18 +612,17 @@ grep -q '"command" : "brew cleanup -n"' "$scratch/native-run-dry-run.json"
 grep -q "Would remove Homebrew cache fixture" "$scratch/native-run-dry-run.json"
 grep -q "only one explicitly selected native-tool command" "$scratch/native-run-dry-run.json"
 find "$scratch/audit" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
-homebrew_gate_error="requires a saved native dry-run receipt"
-if PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-no-homebrew-preview" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --yes --json \
+PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew-fresh" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --yes --save-audit --json \
   --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
-  --timeout 5 >"$scratch/native-homebrew-no-preview.json" 2>"$scratch/native-homebrew-no-preview.err"; then
-  echo "native homebrew cleanup --yes unexpectedly succeeded without preview evidence" >&2
-  exit 1
-fi
-if ! grep -q "requires a saved Homebrew dry-run receipt" "$scratch/native-homebrew-no-preview.err"; then
-  echo "expected --yes without preview to fail because it $homebrew_gate_error" >&2
-  cat "$scratch/native-homebrew-no-preview.err" >&2
-  exit 1
-fi
+  --timeout 5 >"$scratch/native-homebrew-fresh-perform.json"
+grep -q '"mode" : "perform"' "$scratch/native-homebrew-fresh-perform.json"
+grep -q "Removed Homebrew cache fixture" "$scratch/native-homebrew-fresh-perform.json"
+RYDDI_AUDIT_ROOT="$scratch/audit-homebrew-fresh" "$app/Contents/MacOS/reclaimer" native receipts list --json >"$scratch/native-homebrew-fresh-receipts.json"
+grep -q '"id" : "brew.preview"' "$scratch/native-homebrew-fresh-receipts.json"
+grep -q '"status" : "dry-run"' "$scratch/native-homebrew-fresh-receipts.json"
+grep -q '"id" : "brew.cleanup"' "$scratch/native-homebrew-fresh-receipts.json"
+grep -q '"status" : "done"' "$scratch/native-homebrew-fresh-receipts.json"
+test "$(find "$scratch/audit-homebrew-fresh" -name 'native-tool-execution-*.json' -type f | wc -l | tr -d '[:space:]')" = "2"
 PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --dry-run --save-audit --json \
   --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
   --timeout 5 >"$scratch/native-homebrew-dry-run.json"
@@ -850,6 +854,14 @@ grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 grep -q "# Ryddi Permission Walkthrough" "$scratch/permissions-guide.md"
 grep -q "Full Disk Access" "$scratch/permissions-guide.md"
 grep -q "does not grant macOS permissions" "$scratch/permissions-guide.md"
+existing_permission_guide="$scratch/permissions-guide-existing.md"
+printf 'keep existing output\n' >"$existing_permission_guide"
+if "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$existing_permission_guide" >"$scratch/permissions-guide-existing.log" 2>&1; then
+  echo "bundled CLI unexpectedly replaced existing permission guide output" >&2
+  exit 1
+fi
+grep -q "Output file already exists" "$scratch/permissions-guide-existing.log"
+grep -q '^keep existing output$' "$existing_permission_guide"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" active --json --path "$root/Tests" --min-size 1 --max-depth 1 --limit 5 --save-audit >"$scratch/active-smoke.json"
 grep -q '"candidateCount"' "$scratch/active-smoke.json"
 "$app/Contents/MacOS/reclaimer" overview --path "$root/Tests" --limit 5 --sort reclaim --group safety >"$scratch/overview-smoke.txt"
@@ -1164,12 +1176,15 @@ cat >"$holding_fixture/.reclaimer-hold.json" <<JSON
 }
 JSON
 RYDDI_AUDIT_ROOT="$scratch/audit" RYDDI_HOLDING_ROOT="$scratch/holding" "$app/Contents/MacOS/reclaimer" recovery --json --limit 20 >"$scratch/recovery-smoke.json"
-grep -q '"restorableCount" : 1' "$scratch/recovery-smoke.json"
-grep -q '"state" : "restorableFromHolding"' "$scratch/recovery-smoke.json"
+grep -q '"restorableCount" : 0' "$scratch/recovery-smoke.json"
+grep -q '"state" : "manualReview"' "$scratch/recovery-smoke.json"
 grep -q '"state" : "dryRunOnly"' "$scratch/recovery-smoke.json"
-RYDDI_HOLDING_ROOT="$scratch/holding" "$app/Contents/MacOS/reclaimer" recovery restore "2026-01-01T00-00-00Z/cache.bin" --to "$scratch/restored-cache.bin" >"$scratch/recovery-restore-smoke.txt"
-grep -q "restored:" "$scratch/recovery-restore-smoke.txt"
-test -f "$scratch/restored-cache.bin"
+if RYDDI_HOLDING_ROOT="$scratch/holding" "$app/Contents/MacOS/reclaimer" recovery restore "2026-01-01T00-00-00Z/cache.bin" --to "$scratch/restored-cache.bin" >"$scratch/recovery-restore-smoke.txt" 2>"$scratch/recovery-restore-smoke.err"; then
+  echo "recovery restore unexpectedly succeeded despite manual-only holding recovery" >&2
+  exit 1
+fi
+grep -q "manual Finder" "$scratch/recovery-restore-smoke.err"
+test -f "$holding_fixture/cache.bin"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" containers --json --timeout 2 --save-audit >"$scratch/containers-smoke.json"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy protect "$root/Tests" --reason "release smoke" >"$scratch/policy-protect-smoke.txt"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy list --json >"$scratch/policy-list-smoke.json"
@@ -1313,11 +1328,12 @@ Verification performed:
 - Scripts/app-e2e-smoke.sh with disposable fixture, app-window launch/screenshot attempt, scan, plan, dry run, and protected-path preservation
 - bundled reclaimer status --json
 - bundled reclaimer scopes --preset general and scopes --json --preset all
+- bundled reclaimer schedule preview plus manual-only schedule uninstall rejection
 - bundled reclaimer rules and rules --json
 - bundled reclaimer agents --json on disposable Codex/Claude/Cursor/Ollama fixture
 - bundled reclaimer agents retention --json on disposable Codex/Claude/Cursor/Ollama fixture
 - bundled reclaimer native --json and native run --dry-run --json on disposable Homebrew fixture
-- bundled reclaimer native homebrew cleanup --dry-run/--yes receipt-gate smoke on disposable Homebrew fixture
+- bundled reclaimer native homebrew cleanup --yes fresh-preview/perform smoke with paired preview/perform receipts on disposable Homebrew fixture
 - bundled reclaimer trash --json on disposable Trash fixture, with audit save and no emptying
 - bundled reclaimer downloads --json on disposable Downloads fixture, with audit save and no file moves/deletes
 - bundled reclaimer browsers --json on disposable browser cache/profile fixture, with audit save and no profile/cache mutation
@@ -1327,6 +1343,7 @@ Verification performed:
 - bundled reclaimer xcode --json on disposable Xcode developer fixture, with audit save and no Xcode state mutation
 - bundled reclaimer permissions --json --path Tests
 - bundled reclaimer permissions guide --path Tests --output permissions-guide.md
+- bundled reclaimer refuses to replace an existing --output file and preserves its contents
 - bundled reclaimer active --json --path Tests --save-audit with temporary audit root
 - bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
 - bundled reclaimer release-trust --json against typed disposable accepted manifest proof
@@ -1345,7 +1362,7 @@ Verification performed:
 - bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy
 - bundled reclaimer plan --save-audit on disposable fixture plus redacted plans export --output saved-plan-report.md
 - bundled reclaimer execute --dry-run --save-audit on disposable fixture plus redacted receipts export --output receipt-report.md
-- bundled reclaimer recovery --json and recovery restore with disposable audit and holding roots
+- bundled reclaimer recovery --json and manual Finder recovery-only smoke with disposable audit and holding roots
 - bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
 - bundled reclaimer policy protect/list/export/import/replace with temporary config roots
 - bundled reclaimer audit summary --json and audit prune --dry-run --json with temporary audit root

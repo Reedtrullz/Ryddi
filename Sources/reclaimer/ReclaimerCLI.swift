@@ -265,8 +265,7 @@ struct ReclaimerCLI {
         )
         if let output = options.outputPath {
             let url = URL(fileURLWithPath: output).standardizedFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+            try SafeFileOutput.write(report.markdown, to: url)
             FileHandle.standardError.write(Data("wrote dogfood report: \(url.path)\n".utf8))
         }
         if options.json {
@@ -586,8 +585,7 @@ struct ReclaimerCLI {
 
         if let output = options.outputPath {
             let url = URL(fileURLWithPath: output).standardizedFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+            try SafeFileOutput.write(report.markdown, to: url)
             FileHandle.standardError.write(Data("wrote evidence report: \(url.path)\n".utf8))
         }
         if options.saveReport {
@@ -621,8 +619,7 @@ struct ReclaimerCLI {
         let walkthrough = PermissionWalkthroughBuilder.build(report: report)
         if let output = options.outputPath {
             let url = URL(fileURLWithPath: output).standardizedFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try walkthrough.markdown.write(to: url, atomically: true, encoding: .utf8)
+            try SafeFileOutput.write(walkthrough.markdown, to: url)
             FileHandle.standardError.write(Data("wrote permission walkthrough: \(url.path)\n".utf8))
         }
         if options.json {
@@ -729,8 +726,7 @@ struct ReclaimerCLI {
             )
             if let output = options.outputPath {
                 let url = URL(fileURLWithPath: output).standardizedFileURL
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                try SafeFileOutput.write(report.markdown, to: url)
                 FileHandle.standardError.write(Data("wrote growth report: \(url.path)\n".utf8))
             }
             if options.saveReport {
@@ -1116,8 +1112,7 @@ struct ReclaimerCLI {
                 privacy: options.reportPrivacy
             )
             let url = URL(fileURLWithPath: output).standardizedFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            try SafeFileOutput.write(markdown, to: url)
             FileHandle.standardError.write(Data("wrote app uninstall preview: \(url.path)\n".utf8))
         }
         if options.json {
@@ -1129,35 +1124,13 @@ struct ReclaimerCLI {
 
     static func appUninstall(args: [String]) throws {
         let options = ParsedOptions(args)
-        if options.yes && options.noLsof && !options.dryRun {
-            throw CLIError.message("--no-lsof is only allowed for app uninstall dry runs; apps uninstall --yes requires open-file checks.")
+        guard options.dryRun else {
+            throw CLIError.message("apps uninstall is dry-run only because app-bundle Trash cannot be bound to the verified bundle. Run --dry-run for evidence, then remove the selected app manually in Finder.")
         }
         let appReviewOptions = options.appReviewOptions
         let report = try AppReviewScanner().scan(options: appReviewOptions)
         let preview = try AppUninstallPreviewBuilder.build(report: report, selector: options.appUninstallSelector)
         let auditStore = AuditStore()
-        let authorization: AppUninstallPerformAuthorization?
-        if options.dryRun {
-            authorization = nil
-        } else {
-            let expectedPath = URL(fileURLWithPath: preview.bundleCandidate.path).standardizedFileURL.path
-            guard let dryRunReceipt = auditStore.recentAppUninstallReceipts(limit: 100).first(where: { receipt in
-                receipt.mode == ExecutionMode.dryRun.rawValue
-                    && receipt.status == "dry-run"
-                    && receipt.errors.isEmpty
-                    && receipt.resultingTrashPath == nil
-                    && receipt.actionKind == .trash
-                    && receipt.disposition == .trashPreview
-                    && receipt.bundleIdentifier == preview.selectedApp.bundleIdentifier
-                    && URL(fileURLWithPath: receipt.bundlePath).standardizedFileURL.path == expectedPath
-            }) else {
-                throw CLIError.message(
-                    "apps uninstall --yes requires a saved matching app uninstall dry-run receipt. "
-                        + "Run reclaimer apps uninstall --dry-run --save-audit with the same app selector and scope first."
-                )
-            }
-            authorization = AppUninstallPerformAuthorization(dryRunReceipt: dryRunReceipt)
-        }
         let receipt = AppUninstallExecutor(
             openFileChecker: options.noLsof && options.dryRun ? NoOpenFilesChecker() : LsofOpenFileChecker(),
             configuration: AppUninstallExecutorConfiguration(
@@ -1168,8 +1141,7 @@ struct ReclaimerCLI {
             .execute(
                 preview: preview,
                 mode: options.dryRun ? .dryRun : .perform,
-                userConfirmed: options.yes,
-                authorization: authorization
+                userConfirmed: options.yes
             )
         if options.saveAudit {
             let previewURL = try auditStore.save(appUninstallPreview: preview)
@@ -1297,30 +1269,38 @@ struct ReclaimerCLI {
         let mode: SafeActionExecutionMode = options.dryRun ? .dryRun : .perform
         let ruleVersion = try options.ruleEngine().version
         let findingPath = options.nativeFindingPath ?? NativeActionReceiptBridge.defaultHomebrewFindingPath
-        let selection = NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath)
-        let authorization: NativeToolPerformAuthorization?
-        if mode == .perform {
-            guard let savedAuthorization = savedNativeAuthorization(
-                for: selection,
-                ruleVersion: ruleVersion,
-                in: AuditStore()
-            ) else {
-                throw CLIError.message("native homebrew cleanup --yes requires a saved Homebrew dry-run receipt for the same finding. Run `reclaimer native homebrew cleanup --dry-run --save-audit --finding-path \(findingPath)` first.")
-            }
-            authorization = savedAuthorization
-        } else {
-            authorization = nil
-        }
-        let receipt = NativeActionExecutor(
+        let executor = NativeActionExecutor(
             configuration: NativeActionExecutionConfiguration(timeout: options.timeoutSeconds)
-        ).executeHomebrewCleanup(
-            mode: mode,
-            userConfirmed: options.yes,
-            authorization: authorization,
-            ruleVersion: ruleVersion,
-            findingPath: findingPath
         )
+        let previewEvidence: NativeActionReceipt?
+        let receipt: NativeActionReceipt
+        if mode == .perform {
+            let preview = executor.previewHomebrewCleanup(
+                ruleVersion: ruleVersion,
+                findingPath: findingPath
+            )
+            previewEvidence = preview.receipt
+            receipt = executor.performHomebrewCleanup(
+                using: preview,
+                userConfirmed: options.yes,
+                ruleVersion: ruleVersion,
+                findingPath: findingPath
+            )
+        } else {
+            previewEvidence = nil
+            receipt = executor.executeHomebrewCleanup(mode: .dryRun, userConfirmed: false)
+        }
         if options.saveAudit {
+            if let previewEvidence {
+                let previewReceipt = NativeActionReceiptBridge.nativeToolExecutionReceipt(
+                    from: previewEvidence,
+                    ruleVersion: ruleVersion,
+                    findingPath: findingPath,
+                    userConfirmed: false
+                )
+                let previewURL = try AuditStore().save(nativeToolExecutionReceipt: previewReceipt)
+                FileHandle.standardError.write(Data("saved same-process Homebrew preview receipt: \(previewURL.path)\n".utf8))
+            }
             let executionReceipt = NativeActionReceiptBridge.nativeToolExecutionReceipt(
                 from: receipt,
                 ruleVersion: ruleVersion,
@@ -1335,6 +1315,7 @@ struct ReclaimerCLI {
         } else {
             printNativeActionReceipt(receipt)
         }
+        try requireSuccessfulHomebrewReceipt(receipt)
     }
 
     static func nativeRun(args: [String]) throws {
@@ -1351,31 +1332,54 @@ struct ReclaimerCLI {
             commandID: commandID,
             findingPath: options.nativeFindingPath
         ) else {
-            throw CLIError.message("No native-tool command matched --command-id \(commandID). Run `reclaimer native` to inspect available command ids.")
+            throw CLIError.message("No native-tool command matched --command-id \(commandID). Run reclaimer native to inspect available command ids.")
         }
-        let authorization: NativeToolPerformAuthorization?
-        if !options.dryRun {
-            guard let savedAuthorization = savedNativeAuthorization(
-                for: selection,
+        let previewEvidence: NativeToolExecutionReceipt?
+        let receipt: NativeToolExecutionReceipt
+        if !options.dryRun, commandID == "brew.cleanup" {
+            let executor = NativeActionExecutor(
+                configuration: NativeActionExecutionConfiguration(timeout: options.timeoutSeconds)
+            )
+            let preview = executor.previewHomebrewCleanup(
                 ruleVersion: ruleEngine.version,
-                in: AuditStore()
-            ) else {
-                throw CLIError.message("native run --yes requires a saved dry-run receipt for the same native command and finding. Run `reclaimer native run --command-id \(commandID) --dry-run --save-audit` first.")
-            }
-            authorization = savedAuthorization
+                findingPath: selection.receipt.findingPath
+            )
+            previewEvidence = NativeActionReceiptBridge.nativeToolExecutionReceipt(
+                from: preview.receipt,
+                ruleVersion: ruleEngine.version,
+                findingPath: selection.receipt.findingPath,
+                category: selection.receipt.category,
+                userConfirmed: false
+            )
+            let actionReceipt = executor.performHomebrewCleanup(
+                using: preview,
+                userConfirmed: options.yes,
+                ruleVersion: ruleEngine.version,
+                findingPath: selection.receipt.findingPath
+            )
+            receipt = NativeActionReceiptBridge.nativeToolExecutionReceipt(
+                from: actionReceipt,
+                ruleVersion: ruleEngine.version,
+                findingPath: selection.receipt.findingPath,
+                category: selection.receipt.category,
+                userConfirmed: options.yes
+            )
         } else {
-            authorization = nil
+            previewEvidence = nil
+            receipt = NativeToolExecutor(
+                configuration: NativeToolExecutionConfiguration(timeout: options.timeoutSeconds)
+            ).execute(
+                selection: selection,
+                mode: options.dryRun ? .dryRun : .perform,
+                ruleVersion: ruleEngine.version,
+                userConfirmed: options.yes
+            )
         }
-        let receipt = NativeToolExecutor(
-            configuration: NativeToolExecutionConfiguration(timeout: options.timeoutSeconds)
-        ).execute(
-            selection: selection,
-            mode: options.dryRun ? .dryRun : .perform,
-            ruleVersion: ruleEngine.version,
-            userConfirmed: options.yes,
-            authorization: authorization
-        )
         if options.saveAudit {
+            if let previewEvidence {
+                let previewURL = try AuditStore().save(nativeToolExecutionReceipt: previewEvidence)
+                FileHandle.standardError.write(Data("saved same-process Homebrew preview receipt: \(previewURL.path)\n".utf8))
+            }
             let url = try AuditStore().save(nativeToolExecutionReceipt: receipt)
             FileHandle.standardError.write(Data("saved native-tool execution receipt: \(url.path)\n".utf8))
         }
@@ -1384,18 +1388,28 @@ struct ReclaimerCLI {
         } else {
             printNativeToolExecutionReceipt(receipt)
         }
+        try requireSuccessfulNativeToolReceipt(receipt)
     }
 
-    private static func savedNativeAuthorization(
-        for selection: NativeToolCommandSelection,
-        ruleVersion: String,
-        in store: AuditStore
-    ) -> NativeToolPerformAuthorization? {
-        NativeToolExecutor.performAuthorization(
-            authorizing: selection,
-            in: store.recentNativeToolExecutionReceipts(limit: 500),
-            ruleVersion: ruleVersion
-        )
+    private static func requireSuccessfulHomebrewReceipt(_ receipt: NativeActionReceipt) throws {
+        guard receipt.exitCode == 0, receipt.skippedReason == nil else {
+            let reason: String
+            if let skippedReason = receipt.skippedReason {
+                reason = skippedReason
+            } else if let exitCode = receipt.exitCode {
+                reason = "Homebrew exited with status \(exitCode)."
+            } else {
+                reason = "Homebrew did not produce a successful exit status."
+            }
+            throw CLIError.message("Homebrew command failed: \(reason)")
+        }
+    }
+
+    private static func requireSuccessfulNativeToolReceipt(_ receipt: NativeToolExecutionReceipt) throws {
+        guard receipt.status != "failed" else {
+            let detail = receipt.errors.isEmpty ? receipt.message : receipt.errors.joined(separator: " ")
+            throw CLIError.message("Native command failed: \(detail)")
+        }
     }
 
     static func nativeReceipts(args: [String]) throws {
@@ -1424,8 +1438,7 @@ struct ReclaimerCLI {
             )
             if let output = options.outputPath {
                 let url = URL(fileURLWithPath: output).standardizedFileURL
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                try SafeFileOutput.write(report.markdown, to: url)
                 FileHandle.standardError.write(Data("wrote native command receipt report: \(url.path)\n".utf8))
             }
             if options.saveReport {
@@ -1469,8 +1482,8 @@ struct ReclaimerCLI {
                 printAuditSummary(summary)
             }
         case "prune":
-            guard options.dryRun || options.yes else {
-                throw CLIError.message("audit prune defaults to --dry-run; pass --yes only after reviewing the dry-run plan")
+            guard options.dryRun else {
+                throw CLIError.message("audit prune is dry-run only because unlink cannot be bound to the verified audit object. Review the plan manually instead.")
             }
             let policy = AuditRetentionPolicy(
                 olderThanDays: options.auditOlderThanDays,
@@ -1651,8 +1664,7 @@ struct ReclaimerCLI {
             )
             if let output = options.outputPath {
                 let url = URL(fileURLWithPath: output).standardizedFileURL
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                try SafeFileOutput.write(report.markdown, to: url)
                 FileHandle.standardError.write(Data("wrote plan report: \(url.path)\n".utf8))
             }
             if options.saveReport {
@@ -1694,8 +1706,7 @@ struct ReclaimerCLI {
             )
             if let output = options.outputPath {
                 let url = URL(fileURLWithPath: output).standardizedFileURL
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                try SafeFileOutput.write(report.markdown, to: url)
                 FileHandle.standardError.write(Data("wrote plan report: \(url.path)\n".utf8))
             }
             if options.saveReport {
@@ -1733,8 +1744,8 @@ struct ReclaimerCLI {
 
     static func execute(args: [String]) throws {
         let options = ParsedOptions(args)
-        if options.yes && options.noLsof && !options.dryRun {
-            throw CLIError.message("--no-lsof is only allowed for dry-run planning; execute --yes requires open-file checks.")
+        guard options.dryRun else {
+            throw CLIError.message("execute is dry-run only because automatic filesystem mutation cannot be bound to the verified object. Review the plan and remove selected items manually in Finder.")
         }
         let evidence = try buildPlanCommandEvidence(options: options)
         let plan = evidence.plan
@@ -1811,8 +1822,7 @@ struct ReclaimerCLI {
             )
             if let output = options.outputPath {
                 let url = URL(fileURLWithPath: output).standardizedFileURL
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                try SafeFileOutput.write(report.markdown, to: url)
                 FileHandle.standardError.write(Data("wrote receipt report: \(url.path)\n".utf8))
             }
             if options.saveReport {
@@ -1844,12 +1854,7 @@ struct ReclaimerCLI {
             guard args.indices.contains(1), !args[1].hasPrefix("-") else {
                 throw CLIError.message("recovery restore requires a holding item id")
             }
-            let rawID = args[1].hasPrefix("holding:")
-                ? String(args[1].dropFirst("holding:".count))
-                : args[1]
-            let destination = options.value(after: "--to").map { URL(fileURLWithPath: $0).standardizedFileURL }
-            let restored = try HoldingStore().restore(id: rawID, to: destination)
-            print("restored: \(restored.path)")
+            throw CLIError.message("recovery restore is manual Finder work because macOS cannot bind the final path move to the verified held item. Reveal the holding record and move it manually after review.")
         default:
             throw CLIError.message("Unknown recovery subcommand: \(subcommand)")
         }
@@ -1870,8 +1875,7 @@ struct ReclaimerCLI {
         )
         if let output = options.outputPath {
             let url = URL(fileURLWithPath: output).standardizedFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+            try SafeFileOutput.write(report.markdown, to: url)
             FileHandle.standardError.write(Data("wrote archive review: \(url.path)\n".utf8))
         }
         if options.saveReport {
@@ -1918,10 +1922,10 @@ struct ReclaimerCLI {
             }
         case "uninstall":
             if args.contains("--unload") {
-                try? manager.unload()
+                throw CLIError.message(manager.manualRemovalGuidance())
             }
             try manager.uninstall()
-            print("removed launch agent plist if present")
+            print("no launch agent plist exists; nothing changed")
         case "status":
             let options = ParsedOptions(Array(args.dropFirst()))
             let status = manager.status(cliPath: URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path)
@@ -1937,7 +1941,7 @@ struct ReclaimerCLI {
 
     static func holding(args: [String]) throws {
         guard let subcommand = args.first else {
-            throw CLIError.message("holding requires list, restore, or expire")
+            throw CLIError.message("holding requires list or expire")
         }
         let options = ParsedOptions(args)
         let store = HoldingStore()
@@ -1953,22 +1957,19 @@ struct ReclaimerCLI {
             guard args.indices.contains(1), !args[1].hasPrefix("-") else {
                 throw CLIError.message("holding restore requires a held item id")
             }
-            let destination = options.value(after: "--to").map { URL(fileURLWithPath: $0).standardizedFileURL }
-            let restored = try store.restore(id: args[1], to: destination)
-            print("restored: \(restored.path)")
+            throw CLIError.message("holding restore is manual Finder work because macOS cannot bind the final path move to the verified held item. Reveal the holding record and move it manually after review.")
         case "expire":
+            guard !options.yes else {
+                throw CLIError.message("holding expire is dry-run only because delete cannot be bound to the verified held item. Review the list manually in Finder.")
+            }
             let days = Double(options.value(after: "--older-than-days") ?? "") ?? 30
             guard days >= 0 else {
                 throw CLIError.message("--older-than-days must be zero or greater")
             }
             let cutoff = Date().addingTimeInterval(-days * 24 * 60 * 60)
-            let expired = try store.expire(olderThan: cutoff, dryRun: !options.yes)
-            if options.yes {
-                print("expired \(expired.count) held item(s)")
-            } else {
-                print("would expire \(expired.count) held item(s); pass --yes to remove")
-                printHeldItems(expired)
-            }
+            let expired = try store.expire(olderThan: cutoff, dryRun: true)
+            print("would expire \(expired.count) held item(s); Holding-area recovery is manual Finder work and Ryddi will not remove them automatically")
+            printHeldItems(expired)
         default:
             throw CLIError.message("Unknown holding subcommand: \(subcommand)")
         }
@@ -2028,8 +2029,8 @@ struct ReclaimerCLI {
               permissions guide [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--output PATH] [--include-missing-scopes]
               active [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N] [--save-audit] [--include-user-rules]
               audit summary [--json]
-              audit prune [--dry-run|--yes] [--older-than-days N] [--keep-recent N] [--json]
-              issue package --output DIR [--path-style redacted|home-relative] [--include-remote] [--replace] [--json]
+              audit prune --dry-run [--older-than-days N] [--keep-recent N] [--json]
+              issue package --output DIR [--path-style redacted|home-relative] [--include-remote] [--json]
               history record [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
               history list [--json] [--limit N]
               history diff [--json] [--group category|safety|scope] [--limit N]
@@ -2057,7 +2058,7 @@ struct ReclaimerCLI {
               apps uninstall-preview [--json] (--app PATH | --bundle-id ID | --name NAME)
                    [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--limit N] [--output PATH]
                    [--save-audit] [--path-style full|home-relative|redacted] [--redact-user-text]
-              apps uninstall [--dry-run|--yes] [--json] (--app PATH | --bundle-id ID | --name NAME)
+              apps uninstall --dry-run [--json] (--app PATH | --bundle-id ID | --name NAME)
                    [--path APP_ROOT ...] [--home HOME] [--min-size BYTES] [--save-audit] [--ignore-user-policy]
               agents [--json] [--path PATH ...] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--limit N]
                      [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
@@ -2101,12 +2102,10 @@ struct ReclaimerCLI {
                            [--path-style full|home-relative|redacted] [--redact-user-text]
               explain PATH [--json] [--include-user-rules]
               execute --dry-run [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--save-audit] [--ignore-user-policy] [--include-user-rules]
-              execute --yes [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--review-all] [--save-audit] [--ignore-user-policy] [--include-user-rules]
               receipts list [--json] [--limit N]
               receipts export [--json] [--id ID] [--output PATH] [--save-report] [--title TEXT]
                               [--path-style full|home-relative|redacted] [--redact-user-text]
               recovery [list] [--json] [--limit N]
-              recovery restore HOLDING_ID [--to PATH]
               archive [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
                       [--min-size BYTES] [--max-depth N] [--large-threshold BYTES] [--old-days N]
                       [--review large|old|all] [--sort size|logical|age|category|owner|safety] [--limit N]
@@ -2115,16 +2114,18 @@ struct ReclaimerCLI {
                       [--include-missing-scopes] [--include-open-files] [--ignore-user-policy] [--include-user-rules]
               schedule preview [--json] [--kind plan|evidence] [--preset developer|general|all] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID] [--hour H] [--minute M] [--limit N] [--include-user-rules] [--cli-path PATH]
               schedule install [--kind plan|evidence] [--preset developer|general|all] [--template TEMPLATE_ID] [--scope-set NAME_OR_ID] [--hour H] [--minute M] [--limit N] [--include-user-rules] [--load]
-              schedule uninstall [--unload]
+              schedule uninstall
               schedule status [--json]
               holding list [--json]
-              holding restore ID [--to PATH]
-              holding expire [--older-than-days N] [--yes]
+              holding expire [--older-than-days N]
 
             Defaults use --preset developer. Use --preset general for ordinary Mac cleanup review roots
             or --preset all for general plus developer/agent storage. Use templates for guided cleanup modes, or saved scope sets for repeatable
             custom roots. User rule packs are local and opt-in
-            per scan with --include-user-rules. Execution is dry-run unless --yes is supplied.
+            per scan with --include-user-rules. Core execution is dry-run-only; `execute --yes` is rejected.
+            Homebrew cleanup is the narrow exception and requires a fresh preview plus one-time same-process capability.
+            Holding-area recovery is manual Finder work; Ryddi does not restore or expire held items automatically.
+            Every --output export must name a new file in an existing directory; Ryddi refuses to overwrite an existing file.
             """
         )
     }
@@ -2607,7 +2608,7 @@ func scanSessionBlockedReasons(_ session: ScanSession) -> [String] {
             reasons.append("Dry-run receipt evidence is missing.")
         }
     case .reclaimReady:
-        break
+        reasons.append("Core filesystem cleanup is manual-only; review the selected paths in Finder.")
     case .executed:
         reasons.append("Cleanup already executed for this session.")
     case .recoveryAvailable:
@@ -2629,7 +2630,7 @@ func nextScanSessionCommand(_ session: ScanSession) -> String {
     case .planReady:
         return "run `reclaimer execute --dry-run --preset \(session.preset.rawValue) --save-audit`"
     case .dryRunReady, .reclaimReady:
-        return "review the dry-run receipt before running `reclaimer execute --yes --preset \(session.preset.rawValue) --save-audit`"
+        return "review the dry-run receipt and selected paths in Finder; core filesystem cleanup is manual-only"
     case .executed, .recoveryAvailable:
         return "run `reclaimer recovery list` to review recovery state"
     }
@@ -2666,18 +2667,15 @@ func printAuditSummary(_ summary: AuditStoreSummary) {
 }
 
 func printAuditPruneResult(plan: AuditPrunePlan, receipt: AuditPruneReceipt) {
-    print("Ryddi audit prune \(receipt.dryRun ? "dry run" : "receipt")")
+    print("Ryddi audit retention preview")
     print("Root: \(plan.rootPath)")
     print("Policy: older than \(plan.policy.olderThanDays) days, keep \(plan.policy.keepRecent) recent known files")
     print("Candidates: \(plan.candidateCount) (\(ByteFormat.string(plan.candidateBytes)))")
-    print("Deleted: \(receipt.deletedCount) (\(ByteFormat.string(receipt.deletedBytes)))")
+    print("Automatic deletion: disabled")
     print("Unknown files skipped: \(plan.skippedUnknownPaths.count)")
     print("Symlinks skipped: \(plan.skippedSymlinkPaths.count)")
-    if !receipt.deletedFileIDs.isEmpty {
-        print("Deleted file IDs: \(receipt.deletedFileIDs.joined(separator: ", "))")
-    }
-    if receipt.dryRun, !plan.candidates.isEmpty {
-        print("\nDry-run only. Re-run with --yes after reviewing the candidate list.")
+    if receipt.dryRun {
+        print("\nManual review only. Ryddi does not delete audit JSON; review candidates in Finder.")
     }
     if !plan.candidates.isEmpty {
         print("\nCandidates")
@@ -4783,7 +4781,7 @@ func printRecoveryCenter(_ report: RecoveryCenterReport) {
     print("Ryddi recovery center")
     print("Generated: \(report.generatedAt.formatted())")
     print("Items: \(report.itemCount)")
-    print("Restorable with Ryddi: \(report.restorableCount) item(s), \(ByteFormat.string(report.restorableBytes))")
+    print("Automatic restores: disabled; holding records require manual Finder recovery.")
 
     if !report.stateSummaries.isEmpty {
         print("\nBy recovery state")
@@ -4801,9 +4799,6 @@ func printRecoveryCenter(_ report: RecoveryCenterReport) {
             let action = item.actionKind?.label ?? "-"
             let path = item.originalPath ?? item.currentPath ?? "-"
             print("\(pad(item.state.label, 26)) \(pad(ByteFormat.string(item.bytes), 11)) \(pad(action, 16)) \(path)")
-            if let holdingID = item.holdingID {
-                print("  Restore: reclaimer recovery restore \(holdingID)")
-            }
             for guidance in item.guidance.prefix(2) {
                 print("  - \(guidance)")
             }

@@ -117,7 +117,7 @@ public enum NativeActionReceiptBridge {
             safetyClass: .safeAfterCondition,
             actionKind: .nativeToolCommand,
             status: "preview-required",
-            message: "Homebrew cleanup requires saved preview evidence for this path.",
+            message: "Homebrew cleanup requires a fresh preview and one-time capability in the same process for this path.",
             commands: [command],
             nonClaims: NativeToolExecutor.nonClaims
         )
@@ -235,6 +235,32 @@ public struct NativeActionExecutionConfiguration: Hashable, Sendable {
     }
 }
 
+public struct NativeHomebrewCleanupPreview: @unchecked Sendable {
+    public let receipt: NativeActionReceipt
+    fileprivate let capability: NativeHomebrewCleanupCapability?
+
+    fileprivate init(receipt: NativeActionReceipt, capability: NativeHomebrewCleanupCapability?) {
+        self.receipt = receipt
+        self.capability = capability
+    }
+}
+
+fileprivate final class NativeHomebrewCleanupCapability: @unchecked Sendable {
+    let id: UUID
+    let executorID: UUID
+    let issuedAt: Date
+    let ruleVersion: String
+    let findingPath: String
+
+    init(executorID: UUID, issuedAt: Date, ruleVersion: String, findingPath: String) {
+        self.id = UUID()
+        self.executorID = executorID
+        self.issuedAt = issuedAt
+        self.ruleVersion = ruleVersion
+        self.findingPath = findingPath
+    }
+}
+
 public final class NativeActionExecutor: @unchecked Sendable {
     public static let homebrewCleanupNonClaims = [
         "Homebrew decides the exact cleanup set.",
@@ -246,6 +272,9 @@ public final class NativeActionExecutor: @unchecked Sendable {
     private let diskStatusReader: DiskStatusReader
     private let configuration: NativeActionExecutionConfiguration
     private let now: @Sendable () -> Date
+    private let executorID = UUID()
+    private let capabilityLock = NSLock()
+    private var outstandingCapabilities: [UUID: NativeHomebrewCleanupCapability] = [:]
 
     public init(
         runner: any ToolCommandRunning = ProcessToolCommandRunner(),
@@ -266,12 +295,10 @@ public final class NativeActionExecutor: @unchecked Sendable {
         ruleVersion: String = "source",
         findingPath: String = NativeActionReceiptBridge.defaultHomebrewFindingPath
     ) -> NativeActionReceipt {
+        _ = authorization
+        _ = ruleVersion
+        _ = findingPath
         let invocation = homebrewCleanupInvocation(mode: mode)
-        let command = NativeActionCommand(
-            kind: .homebrewCleanup,
-            executable: invocation.executable,
-            arguments: invocation.arguments
-        )
         let before = diskStatusReader.snapshot(for: configuration.diskStatusPath)
 
         if mode == .perform, !userConfirmed {
@@ -282,48 +309,95 @@ public final class NativeActionExecutor: @unchecked Sendable {
                 reason: "Homebrew cleanup requires explicit confirmation."
             )
         }
-
-        if let reason = NativeActionAllowlist.validate(command).blockedReason {
+        if mode == .perform {
             return skippedHomebrewReceipt(
                 mode: mode,
                 commandDisplay: displayCommandParts(for: invocation),
                 before: before,
-                reason: reason
+                reason: "Homebrew cleanup requires an executor-minted same-process preview capability. Saved receipts and digests are evidence only."
             )
         }
+        return runHomebrewCleanup(mode: .dryRun, before: before)
+    }
 
-        if mode == .perform,
-           let reason = NativeToolExecutor.authorizationBlockReason(
-               authorization: authorization,
-               selection: NativeActionReceiptBridge.homebrewCleanupSelection(findingPath: findingPath),
-               ruleVersion: ruleVersion,
-               now: now(),
-               maximumAge: configuration.previewAuthorizationAge
-           ) {
-            return skippedHomebrewReceipt(
-                mode: mode,
-                commandDisplay: displayCommandParts(for: invocation),
-                before: before,
-                reason: reason
-            )
+    public func previewHomebrewCleanup(
+        ruleVersion: String = "source",
+        findingPath: String = NativeActionReceiptBridge.defaultHomebrewFindingPath
+    ) -> NativeHomebrewCleanupPreview {
+        let receipt = executeHomebrewCleanup(mode: .dryRun, userConfirmed: false)
+        guard receipt.exitCode == 0, receipt.skippedReason == nil else {
+            return NativeHomebrewCleanupPreview(receipt: receipt, capability: nil)
         }
 
-        let output = runner.run(invocation, timeout: configuration.timeout)
-        let snapshot = ToolCommandSnapshot(output: output, previewLineLimit: configuration.previewLineLimit)
-        let after = output.succeeded && mode == .perform ? diskStatusReader.snapshot(for: configuration.diskStatusPath) : nil
-
-        return NativeActionReceipt(
-            kind: .homebrewCleanup,
-            mode: mode,
-            commandDisplay: displayCommandParts(for: invocation),
-            exitCode: output.exitCode,
-            stdoutPreview: snapshot.stdoutPreview,
-            stderrPreview: snapshot.stderrPreview,
-            beforeDisk: before,
-            afterDisk: after,
-            skippedReason: output.launchError,
-            nonClaims: Self.homebrewCleanupNonClaims
+        let capability = NativeHomebrewCleanupCapability(
+            executorID: executorID,
+            issuedAt: now(),
+            ruleVersion: ruleVersion,
+            findingPath: URL(fileURLWithPath: findingPath).standardizedFileURL.path
         )
+        capabilityLock.lock()
+        outstandingCapabilities[capability.id] = capability
+        capabilityLock.unlock()
+        return NativeHomebrewCleanupPreview(receipt: receipt, capability: capability)
+    }
+
+    public func performHomebrewCleanup(
+        using preview: NativeHomebrewCleanupPreview,
+        userConfirmed: Bool,
+        ruleVersion: String = "source",
+        findingPath: String = NativeActionReceiptBridge.defaultHomebrewFindingPath
+    ) -> NativeActionReceipt {
+        let invocation = homebrewCleanupInvocation(mode: .perform)
+        let before = diskStatusReader.snapshot(for: configuration.diskStatusPath)
+        guard userConfirmed else {
+            return skippedHomebrewReceipt(
+                mode: .perform,
+                commandDisplay: displayCommandParts(for: invocation),
+                before: before,
+                reason: "Homebrew cleanup requires explicit confirmation."
+            )
+        }
+        guard let capability = preview.capability else {
+            return skippedHomebrewReceipt(
+                mode: .perform,
+                commandDisplay: displayCommandParts(for: invocation),
+                before: before,
+                reason: "Homebrew cleanup requires a successful same-process preview from this executor."
+            )
+        }
+        let normalizedPath = URL(fileURLWithPath: findingPath).standardizedFileURL.path
+        guard capability.executorID == executorID,
+              capability.ruleVersion == ruleVersion,
+              capability.findingPath == normalizedPath else {
+            return skippedHomebrewReceipt(
+                mode: .perform,
+                commandDisplay: displayCommandParts(for: invocation),
+                before: before,
+                reason: "Homebrew preview capability does not match this cleanup request."
+            )
+        }
+        let age = now().timeIntervalSince(capability.issuedAt)
+        guard age >= 0, age <= configuration.previewAuthorizationAge else {
+            return skippedHomebrewReceipt(
+                mode: .perform,
+                commandDisplay: displayCommandParts(for: invocation),
+                before: before,
+                reason: "Homebrew preview capability is stale; run a new preview."
+            )
+        }
+
+        capabilityLock.lock()
+        let mintedCapability = outstandingCapabilities.removeValue(forKey: capability.id)
+        capabilityLock.unlock()
+        guard mintedCapability === capability else {
+            return skippedHomebrewReceipt(
+                mode: .perform,
+                commandDisplay: displayCommandParts(for: invocation),
+                before: before,
+                reason: "Homebrew preview capability has already been used or does not belong to this executor."
+            )
+        }
+        return runHomebrewCleanup(mode: .perform, before: before)
     }
 
     private func homebrewCleanupInvocation(mode: SafeActionExecutionMode) -> ToolCommandInvocation {
@@ -351,6 +425,25 @@ public final class NativeActionExecutor: @unchecked Sendable {
             beforeDisk: before,
             afterDisk: nil,
             skippedReason: reason,
+            nonClaims: Self.homebrewCleanupNonClaims
+        )
+    }
+
+    private func runHomebrewCleanup(mode: SafeActionExecutionMode, before: DiskStatusSnapshot) -> NativeActionReceipt {
+        let invocation = homebrewCleanupInvocation(mode: mode)
+        let output = runner.run(invocation, timeout: configuration.timeout)
+        let snapshot = ToolCommandSnapshot(output: output, previewLineLimit: configuration.previewLineLimit)
+        let after = output.succeeded && mode == .perform ? diskStatusReader.snapshot(for: configuration.diskStatusPath) : nil
+        return NativeActionReceipt(
+            kind: .homebrewCleanup,
+            mode: mode,
+            commandDisplay: displayCommandParts(for: invocation),
+            exitCode: output.exitCode,
+            stdoutPreview: snapshot.stdoutPreview,
+            stderrPreview: snapshot.stderrPreview,
+            beforeDisk: before,
+            afterDisk: after,
+            skippedReason: output.launchError,
             nonClaims: Self.homebrewCleanupNonClaims
         )
     }

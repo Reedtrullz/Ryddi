@@ -3,6 +3,7 @@ import Foundation
 public enum SafeActionKind: String, Codable, Hashable, Sendable {
     case homebrewCleanup
     case auditPrune
+    // Retained for decoding historical candidates; the planner now emits Finder review instead.
     case trashAppBundle
     case packageCacheGuidance
     case openFinderReview
@@ -64,10 +65,10 @@ public struct SafeActionPlanner: Sendable {
             let policy = Self.defaultAuditRetention
             candidates.append(
                 SafeActionCandidate(
-                    id: "audit-prune:\(auditSummary.rootPath)",
+                    id: "audit-review:\(auditSummary.rootPath)",
                     kind: .auditPrune,
-                    title: "Prune old Ryddi audit receipts",
-                    detail: "Review a dry-run plan for old Ryddi audit JSON under the local audit store.",
+                    title: "Review old Ryddi audit receipts",
+                    detail: "Preview an audit-retention plan, then review candidates manually in Finder. Ryddi does not delete audit JSON.",
                     estimatedBytes: auditSummary.totalKnownBytes,
                     requiredConditions: [.manualReviewRequired, .finalClassificationRequired],
                     commandPreview: [
@@ -80,7 +81,7 @@ public struct SafeActionPlanner: Sendable {
                         "--keep-recent",
                         "\(policy.keepRecent)"
                     ],
-                    destructive: true,
+                    destructive: false,
                     reviewRequired: true
                 )
             )
@@ -120,16 +121,16 @@ public struct SafeActionPlanner: Sendable {
             )
         }
 
-        if isAppBundleTrashCandidate(finding) {
+        if isAppBundleReviewCandidate(finding) {
             return SafeActionCandidate(
-                id: "trash-app-bundle:\(finding.path)",
-                kind: .trashAppBundle,
-                title: "Move app bundle to Trash",
-                detail: "Trash the selected app bundle only; related support data stays review-only.",
+                id: "app-bundle-review:\(finding.path)",
+                kind: .openFinderReview,
+                title: "Review app bundle in Finder",
+                detail: "Review the selected app bundle in Finder; Ryddi does not move it to Trash. Related support data stays review-only.",
                 estimatedBytes: finding.allocatedSize,
                 requiredConditions: [.manualReviewRequired, .appQuitRequired, .notSymbolicLink, .finalClassificationRequired],
-                commandPreview: ["Move to Trash", finding.path],
-                destructive: true,
+                commandPreview: ["open", finding.path],
+                destructive: false,
                 reviewRequired: true
             )
         }
@@ -176,7 +177,7 @@ public struct SafeActionPlanner: Sendable {
         return nil
     }
 
-    private func isAppBundleTrashCandidate(_ finding: Finding) -> Bool {
+    private func isAppBundleReviewCandidate(_ finding: Finding) -> Bool {
         guard finding.actionKind == .trash,
               finding.isDirectory,
               finding.path.hasSuffix(".app") else {

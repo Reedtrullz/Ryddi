@@ -145,7 +145,7 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
         XCTAssertFalse(script.contains("- swift test --scratch-path \"$root/.build\""))
     }
 
-    func testReleaseCheckSmokesActualHomebrewReceiptGate() throws {
+    func testReleaseCheckSmokesFreshSameProcessHomebrewPreview() throws {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 
         XCTAssertTrue(script.contains("fake-brew-bin"))
@@ -166,11 +166,39 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
         XCTAssertTrue(script.contains("native receipts list --json"))
         XCTAssertTrue(script.contains("native receipts export"))
         XCTAssertTrue(script.contains("native homebrew cleanup --yes"))
-        XCTAssertTrue(script.contains("requires a saved native dry-run receipt"))
+        XCTAssertTrue(script.contains("native-homebrew-fresh-perform.json"))
+        XCTAssertTrue(script.contains("native-homebrew-fresh-receipts.json"))
+        XCTAssertTrue(script.contains("grep -q '\"id\" : \"brew.preview\"' \"$scratch/native-homebrew-fresh-receipts.json\""))
+        XCTAssertTrue(script.contains("grep -q '\"id\" : \"brew.cleanup\"' \"$scratch/native-homebrew-fresh-receipts.json\""))
+        XCTAssertTrue(script.contains("grep -q '\"status\" : \"dry-run\"' \"$scratch/native-homebrew-fresh-receipts.json\""))
+        XCTAssertTrue(script.contains("grep -q '\"status\" : \"done\"' \"$scratch/native-homebrew-fresh-receipts.json\""))
+        XCTAssertTrue(script.contains("audit-homebrew-fresh\" -name 'native-tool-execution-*.json' -type f | wc -l"))
+        XCTAssertTrue(script.contains("Removed Homebrew cache fixture"))
+        XCTAssertTrue(script.contains("recovery restore \"2026-01-01T00-00-00Z/cache.bin\""))
+        XCTAssertTrue(script.contains("unexpectedly succeeded"))
+        XCTAssertTrue(script.contains("manual Finder recovery-only smoke"))
+        XCTAssertFalse(script.contains("requires a saved native dry-run receipt"))
+        XCTAssertFalse(script.contains("requires a saved Homebrew dry-run receipt"))
         XCTAssertTrue(
-            script.contains("bundled reclaimer native homebrew cleanup --dry-run/--yes receipt-gate smoke"),
-            "The public manifest should record the stronger Homebrew preview/perform gate proof."
+            script.contains("bundled reclaimer native homebrew cleanup --yes fresh-preview/perform smoke"),
+            "The public manifest should record the same-process Homebrew preview/perform proof."
         )
+    }
+
+    func testReleaseCheckRefusesToReplaceExistingCLIOutput() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("permissions-guide-existing.md"))
+        XCTAssertTrue(script.contains("existing permission guide output"))
+        XCTAssertTrue(script.contains("keep existing output"))
+    }
+
+    func testReleaseCheckSmokesManualOnlyScheduleRemovalBoundary() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("schedule uninstall --unload"))
+        XCTAssertTrue(script.contains("schedule-uninstall-manual.log"))
+        XCTAssertTrue(script.contains("will not unload or remove LaunchAgent files automatically"))
     }
 
     private func repoRoot() -> URL {

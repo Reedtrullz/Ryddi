@@ -128,31 +128,20 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertTrue(receipt.actions.contains { $0.status == "dry-run" })
     }
 
-    func testExecuteYesWithoutDryRunSkipsAsStaleAndDoesNotDeleteFixture() throws {
+    func testExecuteYesIsRejectedAndDoesNotDeleteFixture() throws {
         let cache = try writeCodexCacheFixture()
 
-        let output = try captureStandardOutput {
-            try ReclaimerCLI.run(arguments: scanFixtureArguments(command: "execute") + [
+        XCTAssertThrowsError(try ReclaimerCLI.run(arguments: scanFixtureArguments(command: "execute") + [
                 "--yes",
                 "--save-audit",
                 "--json"
-            ])
+            ])) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("dry-run only"), String(describing: error))
         }
-
-        let receipt = try JSONDecoder.ryddi.decode(ExecutionReceipt.self, from: Data(output.utf8))
         XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
-        XCTAssertTrue(receipt.actions.contains { action in
-            action.status == "skipped"
-                && action.message.localizedCaseInsensitiveContains("stale scan session")
-        })
-        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("stale scan session") })
-
-        let session = try XCTUnwrap(try AuditStore(root: auditRoot).latestScanSession())
-        XCTAssertEqual(session.stage, .scanned)
-        XCTAssertNil(session.dryRunReceiptID)
     }
 
-    func testExecuteYesAfterSavedDryRunDeletesFixtureAndRecordsExecution() throws {
+    func testExecuteYesAfterSavedDryRunIsRejectedAndPreservesFixture() throws {
         let cache = try writeCodexCacheFixture()
 
         _ = try captureStandardOutput {
@@ -163,22 +152,138 @@ final class ReclaimerCLITests: XCTestCase {
             ])
         }
 
-        let output = try captureStandardOutput {
-            try ReclaimerCLI.run(arguments: scanFixtureArguments(command: "execute") + [
+        XCTAssertThrowsError(try ReclaimerCLI.run(arguments: scanFixtureArguments(command: "execute") + [
                 "--yes",
                 "--save-audit",
                 "--json"
-            ])
+            ])) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("dry-run only"), String(describing: error))
         }
-
-        let receipt = try JSONDecoder.ryddi.decode(ExecutionReceipt.self, from: Data(output.utf8))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.path))
-        XCTAssertTrue(receipt.actions.contains { $0.status == "done" && $0.action == .deleteCache })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
 
         let session = try XCTUnwrap(try AuditStore(root: auditRoot).latestScanSession())
-        XCTAssertEqual(session.stage, .executed)
-        XCTAssertEqual(session.executionReceiptID, receipt.id)
-        XCTAssertNil(session.invalidationReasons.first)
+        XCTAssertEqual(session.stage, .dryRunReady)
+        XCTAssertNotNil(session.dryRunReceiptID)
+    }
+
+    func testScheduleUninstallWithUnloadIsRejectedBeforeAnyLaunchctlMutation() throws {
+        XCTAssertThrowsError(try ReclaimerCLI.run(arguments: ["schedule", "uninstall", "--unload"])) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("will not unload or remove"), error.localizedDescription)
+        }
+    }
+
+    func testHelpAdvertisesCoreExecutionAsDryRunOnly() throws {
+        let output = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: ["help"])
+        }
+
+        XCTAssertTrue(output.contains("execute --dry-run"))
+        XCTAssertFalse(output.contains("\n              execute --yes "))
+        XCTAssertTrue(output.contains("Core execution is dry-run-only"))
+        XCTAssertFalse(output.contains("recovery restore HOLDING_ID [--to PATH]"))
+        XCTAssertFalse(output.contains("holding restore ID [--to PATH]"))
+        XCTAssertFalse(output.contains("holding expire [--older-than-days N] [--yes]"))
+        XCTAssertTrue(output.contains("Holding-area recovery is manual Finder work"))
+    }
+
+    func testDryRunReadySessionGuidanceDoesNotSuggestRejectedCoreExecuteYes() {
+        let session = makeSession(
+            id: "session-dry-run-ready",
+            updatedAt: Date(timeIntervalSince1970: 1_000),
+            stage: .dryRunReady,
+            planDigest: "plan-fixture",
+            dryRunReceiptID: "receipt-fixture"
+        )
+
+        let guidance = nextScanSessionCommand(session)
+
+        XCTAssertFalse(guidance.contains("execute --yes"), guidance)
+        XCTAssertTrue(guidance.localizedCaseInsensitiveContains("manual"), guidance)
+    }
+
+    func testAuditPruneTextStaysManualPreviewOnly() throws {
+        let plan = AuditPrunePlan(
+            id: "audit-plan",
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            rootPath: auditRoot.path,
+            policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 10),
+            candidates: [
+                AuditPruneCandidate(
+                    path: auditRoot.appendingPathComponent("receipt-old.json").path,
+                    kind: "receipt",
+                    bytes: 1_024,
+                    modifiedAt: Date(timeIntervalSince1970: 1)
+                )
+            ],
+            skippedUnknownPaths: [],
+            skippedSymlinkPaths: []
+        )
+        let receipt = AuditPruneReceipt(
+            id: "audit-receipt",
+            createdAt: Date(timeIntervalSince1970: 1_001),
+            dryRun: true,
+            planID: plan.id,
+            deletedCount: 0,
+            deletedBytes: 0,
+            errors: []
+        )
+
+        let output = try captureStandardOutput {
+            printAuditPruneResult(plan: plan, receipt: receipt)
+        }
+
+        XCTAssertTrue(output.contains("Ryddi audit retention preview"), output)
+        XCTAssertTrue(output.localizedCaseInsensitiveContains("does not delete"), output)
+        XCTAssertFalse(output.contains("Deleted:"), output)
+        XCTAssertFalse(output.contains("--yes"), output)
+    }
+
+    func testPermissionGuideOutputRefusesExistingFileWithoutOverwritingIt() throws {
+        let output = readableScope.appendingPathComponent("permission-guide.md")
+        try "keep this file".write(to: output, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(
+            try ReclaimerCLI.run(arguments: [
+                "permissions",
+                "guide",
+                "--path", readableScope.path,
+                "--output", output.path
+            ])
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("already exists"), error.localizedDescription)
+        }
+
+        XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "keep this file")
+    }
+
+    func testRecoveryTextGuidesHeldItemsToFinderWithoutRestoreCommand() throws {
+        let holdingRoot = readableScope.appendingPathComponent("holding", isDirectory: true)
+        let heldDirectory = holdingRoot.appendingPathComponent("2026-01-01T00-00-00Z", isDirectory: true)
+        let heldFile = heldDirectory.appendingPathComponent("cache.bin")
+        try FileManager.default.createDirectory(at: heldDirectory, withIntermediateDirectories: true)
+        try Data("held cache".utf8).write(to: heldFile)
+        try """
+        {
+          "originalPath": "\(readableScope.appendingPathComponent("original-cache.bin").path)",
+          "heldAt": "2026-01-01T00:00:00Z",
+          "allocatedSize": 10,
+          "isDirectory": false
+        }
+        """.write(
+            to: heldDirectory.appendingPathComponent(".reclaimer-hold.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        setenv("RYDDI_HOLDING_ROOT", holdingRoot.path, 1)
+        defer { unsetenv("RYDDI_HOLDING_ROOT") }
+
+        let output = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: ["recovery", "--limit", "5"])
+        }
+
+        XCTAssertTrue(output.localizedCaseInsensitiveContains("manual review"), output)
+        XCTAssertTrue(output.localizedCaseInsensitiveContains("Finder"), output)
+        XCTAssertFalse(output.contains("Restore: reclaimer recovery restore"), output)
     }
 
     func testSessionExplainPrintsCurrentStateAndBlockedReasons() throws {
@@ -285,18 +390,21 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("does not execute cleanup") })
     }
 
-    func testNativeRunYesRequiresSavedDryRunReceipt() throws {
+    func testNativeRunPreviewCommandWithYesRemainsBlocked() throws {
         try writeHomebrewCacheFixture()
 
-        XCTAssertThrowsError(try ReclaimerCLI.run(arguments: [
+        let output = try captureStandardOutput {
+            try ReclaimerCLI.run(arguments: [
             "native",
             "run",
             "--command-id", "brew.preview",
             "--yes",
             "--json"
-        ] + nativeFixtureOptions())) { error in
-            XCTAssertTrue(error.localizedDescription.contains("requires a saved dry-run receipt"), String(describing: error))
+            ] + nativeFixtureOptions())
         }
+        let receipt = try JSONDecoder.ryddi.decode(NativeToolExecutionReceipt.self, from: Data(output.utf8))
+        XCTAssertEqual(receipt.status, "blocked")
+        XCTAssertTrue(receipt.message.localizedCaseInsensitiveContains("same-process"))
     }
 
     func testNativeHomebrewDryRunSaveAuditCreatesExportableNativeReceipt() throws {
@@ -340,22 +448,10 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertFalse(report.markdown.contains(homebrewCache.path))
     }
 
-    func testNativeRunCleanupCanUseSavedHomebrewPreviewReceiptForSameFinding() throws {
+    func testNativeRunCleanupCreatesFreshSameProcessPreview() throws {
         let homebrewCache = try writeHomebrewCacheFixture()
 
         try withFakeBrew(stdout: "Homebrew fake output\n") {
-            _ = try captureStandardOutput {
-                try ReclaimerCLI.run(arguments: [
-                    "native",
-                    "homebrew",
-                    "cleanup",
-                    "--dry-run",
-                    "--save-audit",
-                    "--finding-path", homebrewCache.path,
-                    "--json"
-                ])
-            }
-
             let output = try captureStandardOutput {
                 try ReclaimerCLI.run(arguments: [
                     "native",
@@ -376,53 +472,47 @@ final class ReclaimerCLITests: XCTestCase {
         }
     }
 
-    func testNativeRunCleanupRejectsSyntheticCleanupDryRunReceipt() throws {
+    func testNativeRunCleanupDoesNotRequirePersistedPreviewReceipt() throws {
         let homebrewCache = try writeHomebrewCacheFixture()
 
-        _ = try captureStandardOutput {
-            try ReclaimerCLI.run(arguments: [
-                "native",
-                "run",
-                "--command-id", "brew.cleanup",
-                "--finding-path", homebrewCache.path,
-                "--dry-run",
-                "--save-audit",
-                "--json"
-            ] + nativeFixtureOptions())
-        }
-
-        try withFakeBrew(stdout: "should not execute\n") {
-            XCTAssertThrowsError(try ReclaimerCLI.run(arguments: [
+        try withFakeBrew(stdout: "fresh same-process output\n") {
+            let output = try captureStandardOutput {
+                try ReclaimerCLI.run(arguments: [
                 "native",
                 "run",
                 "--command-id", "brew.cleanup",
                 "--finding-path", homebrewCache.path,
                 "--yes",
                 "--json"
-            ] + nativeFixtureOptions())) { error in
-                XCTAssertTrue(error.localizedDescription.contains("requires a saved dry-run receipt"), String(describing: error))
+                ] + nativeFixtureOptions())
             }
+            let receipt = try JSONDecoder.ryddi.decode(NativeToolExecutionReceipt.self, from: Data(output.utf8))
+            XCTAssertEqual(receipt.status, "done")
+            XCTAssertEqual(receipt.output?.stdoutPreview, ["fresh same-process output"])
         }
     }
 
-    func testNativeHomebrewPerformRequiresSavedPreviewReceipt() throws {
+    func testNativeHomebrewPerformCreatesFreshSameProcessPreview() throws {
         let homebrewCache = try writeHomebrewCacheFixture()
 
-        try withFakeBrew(stdout: "should not execute\n") {
-            XCTAssertThrowsError(try ReclaimerCLI.run(arguments: [
+        try withFakeBrew(stdout: "fresh homebrew output\n") {
+            let output = try captureStandardOutput {
+                try ReclaimerCLI.run(arguments: [
                 "native",
                 "homebrew",
                 "cleanup",
                 "--yes",
                 "--finding-path", homebrewCache.path,
                 "--json"
-            ])) { error in
-                XCTAssertTrue(error.localizedDescription.contains("requires a saved Homebrew dry-run receipt"), String(describing: error))
+                ])
             }
+            let receipt = try JSONDecoder.ryddi.decode(NativeActionReceipt.self, from: Data(output.utf8))
+            XCTAssertEqual(receipt.mode, .perform)
+            XCTAssertNil(receipt.skippedReason)
         }
     }
 
-    func testNativeHomebrewPerformUsesSavedMatchingPreviewReceipt() throws {
+    func testNativeHomebrewPerformIgnoresPersistedPreviewEvidence() throws {
         let homebrewCache = try writeHomebrewCacheFixture()
 
         try withFakeBrew(stdout: "Homebrew fake output\n") {
@@ -455,6 +545,57 @@ final class ReclaimerCLITests: XCTestCase {
             XCTAssertEqual(receipt.exitCode, 0)
             XCTAssertNil(receipt.skippedReason)
         }
+    }
+
+    func testNativeHomebrewFailureThrowsAfterSavingFailedReceipt() throws {
+        let homebrewCache = try writeHomebrewCacheFixture()
+
+        try withFakeBrew(stdout: "Homebrew failed\n", exitCode: 23) {
+            XCTAssertThrowsError(
+                try captureStandardOutput {
+                    try ReclaimerCLI.run(arguments: [
+                        "native",
+                        "homebrew",
+                        "cleanup",
+                        "--dry-run",
+                        "--save-audit",
+                        "--finding-path", homebrewCache.path,
+                        "--json"
+                    ])
+                }
+            ) { error in
+                XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("homebrew command failed"), error.localizedDescription)
+            }
+        }
+
+        let receipt = try XCTUnwrap(AuditStore(root: auditRoot).recentNativeToolExecutionReceipts(limit: 1).first)
+        XCTAssertEqual(receipt.status, "failed")
+        XCTAssertEqual(receipt.output?.exitCode, 23)
+    }
+
+    func testNativeRunHomebrewPreviewFailureThrowsAfterSavingFailedReceipt() throws {
+        try writeHomebrewCacheFixture()
+
+        try withFakeBrew(stdout: "Homebrew preview failed\n", exitCode: 24) {
+            XCTAssertThrowsError(
+                try captureStandardOutput {
+                    try ReclaimerCLI.run(arguments: [
+                        "native",
+                        "run",
+                        "--command-id", "brew.preview",
+                        "--dry-run",
+                        "--save-audit",
+                        "--json"
+                    ] + nativeFixtureOptions())
+                }
+            ) { error in
+                XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("native command failed"), error.localizedDescription)
+            }
+        }
+
+        let receipt = try XCTUnwrap(AuditStore(root: auditRoot).recentNativeToolExecutionReceipts(limit: 1).first)
+        XCTAssertEqual(receipt.status, "failed")
+        XCTAssertEqual(receipt.output?.exitCode, 24)
     }
 
     func testActionsJSONIncludesSavedNativeReceiptReviewAction() throws {
@@ -495,7 +636,7 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertTrue(nativeAction.sourceIDs.contains("brew.preview"))
     }
 
-    func testAppUninstallYesWithoutSavedMatchingDryRunIsBlocked() throws {
+    func testAppUninstallYesIsRejectedAsDryRunOnly() throws {
         let appRoot = readableScope.appendingPathComponent("Applications", isDirectory: true)
         let home = readableScope.appendingPathComponent("Home", isDirectory: true)
         let app = appRoot.appendingPathComponent("No Authorization.app", isDirectory: true)
@@ -518,14 +659,13 @@ final class ReclaimerCLITests: XCTestCase {
                 ])
             }
         ) { error in
-            XCTAssertTrue(error.localizedDescription.contains("saved matching app uninstall dry-run receipt"), String(describing: error))
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("dry-run only"), String(describing: error))
             XCTAssertTrue(error.localizedDescription.contains("--dry-run"), String(describing: error))
-            XCTAssertTrue(error.localizedDescription.contains("--save-audit"), String(describing: error))
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
     }
 
-    func testAppUninstallYesUsesSavedStableDryRunAcrossFreshPreviewID() throws {
+    func testAppUninstallYesCannotConsumePersistedDryRunEvidence() throws {
         let appRoot = readableScope.appendingPathComponent("Applications", isDirectory: true)
         let home = readableScope.appendingPathComponent("Home", isDirectory: true)
         let app = appRoot.appendingPathComponent("Authorized CLI.app", isDirectory: true)
@@ -554,23 +694,13 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertEqual(dryRun.status, "dry-run")
         XCTAssertNotNil(dryRun.authorizationDigest)
 
-        let performOutput = try captureStandardOutput {
-            try ReclaimerCLI.run(arguments: [
+        XCTAssertThrowsError(try ReclaimerCLI.run(arguments: [
                 "apps", "uninstall",
                 "--yes"
-            ] + commonArguments)
+            ] + commonArguments)) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("dry-run only"), String(describing: error))
         }
-        let performed = try JSONDecoder.ryddi.decode(AppUninstallExecutionReceipt.self, from: Data(performOutput.utf8))
-        defer {
-            if let resultingTrashPath = performed.resultingTrashPath {
-                try? FileManager.default.removeItem(atPath: resultingTrashPath)
-            }
-        }
-
-        XCTAssertEqual(performed.status, "done", performed.message)
-        XCTAssertNotEqual(performed.previewID, dryRun.previewID)
-        XCTAssertEqual(performed.authorizationDigest, dryRun.authorizationDigest)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: app.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: app.path))
     }
 
     private func makeSession(
@@ -649,7 +779,7 @@ final class ReclaimerCLITests: XCTestCase {
         ]
     }
 
-    private func withFakeBrew(stdout: String, _ body: () throws -> Void) throws {
+    private func withFakeBrew(stdout: String, exitCode: Int32 = 0, _ body: () throws -> Void) throws {
         let bin = auditRoot.deletingLastPathComponent().appendingPathComponent("fake-bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let brew = bin.appendingPathComponent("brew")
@@ -657,7 +787,7 @@ final class ReclaimerCLITests: XCTestCase {
         try """
         #!/bin/sh
         printf '%s' '\(escaped)'
-        exit 0
+        exit \(exitCode)
         """.write(to: brew, atomically: true, encoding: .utf8)
         XCTAssertEqual(chmod(brew.path, S_IRWXU), 0)
 

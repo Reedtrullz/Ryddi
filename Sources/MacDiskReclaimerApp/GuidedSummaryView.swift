@@ -4,7 +4,6 @@ import ReclaimerCore
 struct GuidedSummaryView: View {
     let model: DashboardModel
     let report: ActionCenterReport
-    let onReclaim: () -> Void
     let navigate: (String) -> Void
 
     var body: some View {
@@ -89,21 +88,14 @@ struct GuidedSummaryView: View {
 
     private var reclaimBlockedReasons: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(canExecuteCoreReclaim ? "Reclaim Ready" : "Reclaim Blocked")
+            Text("Manual Removal Only")
                 .font(.headline)
 
-            if canExecuteCoreReclaim {
-                Text("Action Center has an execute-safe-plan action, and the current model has a matching clean dry run.")
+            ForEach(reclaimBlockReasons, id: \.self) { reason in
+                Label(reason, systemImage: "hand.raised")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else {
-                ForEach(reclaimBlockReasons, id: \.self) { reason in
-                    Label(reason, systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
         }
         .padding(12)
@@ -160,6 +152,24 @@ struct GuidedSummaryView: View {
             .controlSize(.regular)
             .disabled(isCommandDisabled(command))
             .help(command.reason)
+            .accessibilityIdentifier(accessibilityIdentifier(for: command))
+        }
+    }
+
+    private func accessibilityIdentifier(for command: SummaryCommand) -> String {
+        switch command.command {
+        case .scan:
+            "summary.scan-button"
+        case .plan:
+            "summary.plan-button"
+        case .dryRun:
+            "summary.dry-run-button"
+        case .openReviewQueue, .reclaim, .actionCenter:
+            "summary.manual-review-button"
+        case .openPermissions:
+            "summary.permissions-button"
+        case .exportReport:
+            "summary.export-button"
         }
     }
 
@@ -231,11 +241,12 @@ struct GuidedSummaryView: View {
     }
 
     private var canExecuteCoreReclaim: Bool {
-        report.actions.contains { $0.kind == .executeSafePlan } && model.canReclaimSelected
+        false
     }
 
     private var reclaimBlockReasons: [String] {
-        var reasons = report.actions
+        var reasons = ["Automatic filesystem mutation is disabled in this build. Use the reviewed plan as evidence, then remove selected items manually in Finder."]
+        reasons += report.actions
             .filter { $0.kind != .executeSafePlan }
             .map(\.reason)
             .filter { !$0.isEmpty }
@@ -246,8 +257,6 @@ struct GuidedSummaryView: View {
             reasons.append("Create a plan before reclaiming.")
         } else if model.lastDryRunReceipt == nil {
             reasons.append("Run a dry run against the current plan before reclaiming.")
-        } else if !model.canReclaimSelected {
-            reasons.append("The current dry-run receipt is stale, errored, or does not match selected safe plan items.")
         }
 
         return uniqueStrings(reasons).prefix(4).map { $0 }
@@ -267,7 +276,7 @@ struct GuidedSummaryView: View {
         case .reviewed: return "Reviewed"
         case .planReady: return "Plan ready"
         case .dryRunReady: return "Dry run ready"
-        case .reclaimReady: return "Reclaim ready"
+        case .reclaimReady: return "Manual review ready"
         case .executed: return "Executed"
         case .recoveryAvailable: return "Recovery available"
         case .invalidated: return "Invalidated"
@@ -304,7 +313,7 @@ struct GuidedSummaryView: View {
         case .dryRun:
             Task { await model.runDryRun() }
         case .reclaim:
-            onReclaim()
+            navigate("Queues")
         case .openReviewQueue:
             navigate("Queues")
         case .openPermissions:
@@ -325,7 +334,7 @@ struct GuidedSummaryView: View {
         case .runDryRun:
             Task { await model.runDryRun() }
         case .executeSafePlan:
-            onReclaim()
+            navigate("Queues")
         case .quitApp:
             navigate(action.id.hasPrefix("browser-cache.") ? "Browsers" : "Active")
         case .useNativeTool:

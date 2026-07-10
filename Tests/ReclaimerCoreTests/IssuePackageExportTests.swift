@@ -64,7 +64,7 @@ final class IssuePackageExportTests: XCTestCase {
         XCTAssertThrowsError(
             try IssuePackageExporter.export(to: output, store: AuditStore(root: root))
         ) { error in
-            XCTAssertTrue(error.localizedDescription.contains("--replace"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("empty output directory"), error.localizedDescription)
         }
     }
 
@@ -85,7 +85,7 @@ final class IssuePackageExportTests: XCTestCase {
                 options: IssuePackageExportOptions(replaceExisting: true)
             )
         ) { error in
-            XCTAssertTrue(error.localizedDescription.contains("manifest.json"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("disabled"), error.localizedDescription)
         }
 
         XCTAssertEqual(
@@ -115,7 +115,7 @@ final class IssuePackageExportTests: XCTestCase {
         }
     }
 
-    func testIssuePackageReplaceOverwritesOnlyOwnedFilesWithoutReplacingDirectory() throws {
+    func testIssuePackageReplaceIsRefusedAndPreservesOwnedPackage() throws {
         let root = tempDirectory("issue-package-audit")
         let output = tempDirectory("issue-package-output")
         defer {
@@ -127,24 +127,76 @@ final class IssuePackageExportTests: XCTestCase {
             store: AuditStore(root: root),
             options: IssuePackageExportOptions(appVersion: "old")
         )
-        let directoryDescriptor = open(output.path, O_RDONLY)
-        XCTAssertGreaterThanOrEqual(directoryDescriptor, 0)
-        defer { close(directoryDescriptor) }
-        var originalDirectoryStat = stat()
-        XCTAssertEqual(fstat(directoryDescriptor, &originalDirectoryStat), 0)
+        let originalManifest = try Data(contentsOf: output.appendingPathComponent("manifest.json"))
 
-        let manifest = try IssuePackageExporter.export(
+        XCTAssertThrowsError(
+            try IssuePackageExporter.export(
+                to: output,
+                store: AuditStore(root: root),
+                options: IssuePackageExportOptions(replaceExisting: true, appVersion: "new")
+            )
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("disabled"), error.localizedDescription)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: output.appendingPathComponent("manifest.json")), originalManifest)
+    }
+
+    func testIssuePackageWritesStayBoundToVerifiedDirectoryAfterVisiblePathSwap() throws {
+        let root = tempDirectory("issue-package-audit")
+        let output = tempDirectory("issue-package-output")
+        let movedOutput = tempDirectory("issue-package-moved-output")
+        let unrelated = tempDirectory("issue-package-unrelated")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: output)
+            try? FileManager.default.removeItem(at: movedOutput)
+            try? FileManager.default.removeItem(at: unrelated)
+        }
+        try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
+
+        _ = try IssuePackageExporter.export(
             to: output,
             store: AuditStore(root: root),
-            options: IssuePackageExportOptions(replaceExisting: true, appVersion: "new")
+            beforeFirstWrite: {
+                try FileManager.default.moveItem(at: output, to: movedOutput)
+                try FileManager.default.createSymbolicLink(at: output, withDestinationURL: unrelated)
+            }
         )
-        var replacementDirectoryStat = stat()
-        XCTAssertEqual(lstat(output.path, &replacementDirectoryStat), 0)
 
-        XCTAssertEqual(manifest.appVersion, "new")
-        XCTAssertEqual(originalDirectoryStat.st_dev, replacementDirectoryStat.st_dev)
-        XCTAssertEqual(originalDirectoryStat.st_ino, replacementDirectoryStat.st_ino)
-        XCTAssertTrue(manifest.includedFiles.contains("manifest.json"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: movedOutput.appendingPathComponent("manifest.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: unrelated.appendingPathComponent("manifest.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: unrelated.appendingPathComponent("report.md").path))
+    }
+
+    func testIssuePackageRefusesPostValidationFileCollisionWithoutOverwritingIt() throws {
+        let root = tempDirectory("issue-package-audit")
+        let output = tempDirectory("issue-package-output")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: output)
+        }
+
+        XCTAssertThrowsError(
+            try IssuePackageExporter.export(
+                to: output,
+                store: AuditStore(root: root),
+                beforeFirstWrite: {
+                    try "unrelated".write(
+                        to: output.appendingPathComponent("report.md"),
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                }
+            )
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("already exists"), error.localizedDescription)
+        }
+
+        XCTAssertEqual(
+            try String(contentsOf: output.appendingPathComponent("report.md"), encoding: .utf8),
+            "unrelated"
+        )
     }
 
     private func scanSession(id: String) -> ScanSession {

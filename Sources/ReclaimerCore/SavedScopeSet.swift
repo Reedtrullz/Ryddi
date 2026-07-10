@@ -247,9 +247,7 @@ public final class SavedScopeSetStore: @unchecked Sendable {
 
     @discardableResult
     public func writeExport(_ document: SavedScopeSetDocument, to url: URL) throws -> URL {
-        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try encoder.encode(document).write(to: url, options: .atomic)
-        return url
+        try SafeFileOutput.write(encoder.encode(document), to: url)
     }
 
     @discardableResult

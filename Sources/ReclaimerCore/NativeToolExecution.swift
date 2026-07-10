@@ -188,13 +188,12 @@ public final class NativeToolExecutor: @unchecked Sendable {
         now: Date = Date(),
         maximumAge: TimeInterval = NativeToolExecutionConfiguration.maximumPreviewAuthorizationAge
     ) -> Bool {
-        authorizationBlockReason(
-            authorization: NativeToolPerformAuthorization(previewReceipt: receipt),
-            selection: selection,
-            ruleVersion: ruleVersion,
-            now: now,
-            maximumAge: maximumAge
-        ) == nil
+        _ = receipt
+        _ = selection
+        _ = ruleVersion
+        _ = now
+        _ = maximumAge
+        return false
     }
 
     public static func savedDryRunReceiptExists(
@@ -204,13 +203,12 @@ public final class NativeToolExecutor: @unchecked Sendable {
         now: Date = Date(),
         maximumAge: TimeInterval = NativeToolExecutionConfiguration.maximumPreviewAuthorizationAge
     ) -> Bool {
-        performAuthorization(
-            authorizing: selection,
-            in: receipts,
-            ruleVersion: ruleVersion,
-            now: now,
-            maximumAge: maximumAge
-        ) != nil
+        _ = selection
+        _ = receipts
+        _ = ruleVersion
+        _ = now
+        _ = maximumAge
+        return false
     }
 
     public static func performAuthorization(
@@ -220,17 +218,12 @@ public final class NativeToolExecutor: @unchecked Sendable {
         now: Date = Date(),
         maximumAge: TimeInterval = NativeToolExecutionConfiguration.maximumPreviewAuthorizationAge
     ) -> NativeToolPerformAuthorization? {
-        receipts.lazy
-            .map(NativeToolPerformAuthorization.init(previewReceipt:))
-            .first {
-                authorizationBlockReason(
-                    authorization: $0,
-                    selection: selection,
-                    ruleVersion: ruleVersion,
-                    now: now,
-                    maximumAge: maximumAge
-                ) == nil
-            }
+        _ = selection
+        _ = receipts
+        _ = ruleVersion
+        _ = now
+        _ = maximumAge
+        return nil
     }
 
     public func execute(
@@ -313,45 +306,6 @@ public final class NativeToolExecutor: @unchecked Sendable {
             )
         }
 
-        guard let actionCommand = Self.nativeActionCommand(for: command, invocation: invocation) else {
-            let error = "Native command perform is only available for explicitly allowlisted commands; this command remains guidance-only."
-            return NativeToolExecutionReceipt(
-                ruleVersion: ruleVersion,
-                mode: mode,
-                status: "blocked",
-                findingPath: receipt.findingPath,
-                category: receipt.category,
-                command: command,
-                invocation: invocation,
-                beforeFreeBytes: before,
-                afterFreeBytes: before,
-                output: nil,
-                userConfirmed: userConfirmed,
-                message: error,
-                errors: [error],
-                nonClaims: Self.nonClaims
-            )
-        }
-
-        if let reason = NativeActionAllowlist.validate(actionCommand).blockedReason {
-            return NativeToolExecutionReceipt(
-                ruleVersion: ruleVersion,
-                mode: mode,
-                status: "blocked",
-                findingPath: receipt.findingPath,
-                category: receipt.category,
-                command: command,
-                invocation: invocation,
-                beforeFreeBytes: before,
-                afterFreeBytes: before,
-                output: nil,
-                userConfirmed: userConfirmed,
-                message: reason,
-                errors: [reason],
-                nonClaims: Self.nonClaims
-            )
-        }
-
         guard userConfirmed else {
             let error = "Native command execution requires explicit confirmation."
             return NativeToolExecutionReceipt(
@@ -372,54 +326,22 @@ public final class NativeToolExecutor: @unchecked Sendable {
             )
         }
 
-        if let reason = Self.authorizationBlockReason(
-            authorization: authorization,
-            selection: selection,
-            ruleVersion: ruleVersion,
-            now: now(),
-            maximumAge: configuration.previewAuthorizationAge
-        ) {
-            return NativeToolExecutionReceipt(
-                ruleVersion: ruleVersion,
-                mode: mode,
-                status: "blocked",
-                findingPath: receipt.findingPath,
-                category: receipt.category,
-                command: command,
-                invocation: invocation,
-                beforeFreeBytes: before,
-                afterFreeBytes: before,
-                output: nil,
-                userConfirmed: true,
-                message: reason,
-                errors: [reason],
-                nonClaims: Self.nonClaims
-            )
-        }
-
-        let output = runner.run(invocation, timeout: configuration.timeout)
-        let after = diskStatusReader.snapshot(for: configuration.diskStatusPath).displayFreeBytes
-        let snapshot = ToolCommandSnapshot(output: output)
-        let status = output.succeeded ? "done" : "failed"
-        let message = output.succeeded
-            ? "Native command completed: \(invocation.displayCommand)"
-            : "Native command did not complete successfully: \(invocation.displayCommand)"
-        let errors = output.succeeded ? [] : errorMessages(from: output)
-
+        _ = authorization
+        let error = "Saved native-tool receipts are evidence only. Confirmed native execution requires an executor-minted same-process capability."
         return NativeToolExecutionReceipt(
             ruleVersion: ruleVersion,
             mode: mode,
-            status: status,
+            status: "blocked",
             findingPath: receipt.findingPath,
             category: receipt.category,
             command: command,
             invocation: invocation,
             beforeFreeBytes: before,
-            afterFreeBytes: after,
-            output: snapshot,
+            afterFreeBytes: before,
+            output: nil,
             userConfirmed: userConfirmed,
-            message: message,
-            errors: errors,
+            message: error,
+            errors: [error],
             nonClaims: Self.nonClaims
         )
     }
