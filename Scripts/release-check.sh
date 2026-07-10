@@ -579,23 +579,12 @@ grep -q "does not delete, compress, move, or modify agent files" "$scratch/agent
 grep -q '"command" : "brew cleanup -n"' "$scratch/native-smoke.json"
 grep -q '"command" : "brew cleanup"' "$scratch/native-smoke.json"
 grep -q "No native cleanup command was executed" "$scratch/native-smoke.json"
-RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" native run --dry-run --json \
-  --path "$scratch/native-fixture/Library/Caches/Homebrew" \
-  --command-id brew.preview \
-  --min-size 1 \
-  --max-depth 3 \
-  --save-audit >"$scratch/native-run-dry-run.json"
-grep -q '"status" : "dry-run"' "$scratch/native-run-dry-run.json"
-grep -q '"command" : "brew cleanup -n"' "$scratch/native-run-dry-run.json"
-grep -q "Dry run only" "$scratch/native-run-dry-run.json"
-grep -q "only one explicitly selected native-tool command" "$scratch/native-run-dry-run.json"
-find "$scratch/audit" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
 fake_brew_bin="$scratch/fake-brew-bin"
 mkdir -p "$fake_brew_bin"
 cat >"$fake_brew_bin/brew" <<'BREW'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == "cleanup" && "${2:-}" == "--dry-run" && $# -eq 2 ]]; then
+if [[ "${1:-}" == "cleanup" && ( "${2:-}" == "--dry-run" || "${2:-}" == "-n" ) && $# -eq 2 ]]; then
   printf 'Would remove Homebrew cache fixture\n'
   exit 0
 fi
@@ -607,6 +596,17 @@ printf 'unsupported fake brew command: %s\n' "$*" >&2
 exit 64
 BREW
 chmod +x "$fake_brew_bin/brew"
+PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" native run --dry-run --json \
+  --path "$scratch/native-fixture/Library/Caches/Homebrew" \
+  --command-id brew.preview \
+  --min-size 1 \
+  --max-depth 3 \
+  --save-audit >"$scratch/native-run-dry-run.json"
+grep -q '"status" : "dry-run"' "$scratch/native-run-dry-run.json"
+grep -q '"command" : "brew cleanup -n"' "$scratch/native-run-dry-run.json"
+grep -q "Would remove Homebrew cache fixture" "$scratch/native-run-dry-run.json"
+grep -q "only one explicitly selected native-tool command" "$scratch/native-run-dry-run.json"
+find "$scratch/audit" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
 homebrew_gate_error="requires a saved native dry-run receipt"
 if PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-no-homebrew-preview" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --yes --json \
   --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \

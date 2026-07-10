@@ -149,6 +149,19 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 
         XCTAssertTrue(script.contains("fake-brew-bin"))
+        let fakeBrewSetup = try XCTUnwrap(script.range(of: "fake_brew_bin=\"$scratch/fake-brew-bin\""))
+        let explicitPreview = try XCTUnwrap(script.range(of: "native run --dry-run --json"))
+        XCTAssertLessThan(
+            fakeBrewSetup.lowerBound,
+            explicitPreview.lowerBound,
+            "The explicit brew.preview smoke must install its disposable brew runner before invoking the now-real preview."
+        )
+        XCTAssertTrue(
+            script.contains("grep -q \"Would remove Homebrew cache fixture\" \"$scratch/native-run-dry-run.json\"")
+        )
+        XCTAssertFalse(
+            script.contains("grep -q \"Dry run only\" \"$scratch/native-run-dry-run.json\"")
+        )
         XCTAssertTrue(script.contains("native homebrew cleanup --dry-run --save-audit"))
         XCTAssertTrue(script.contains("native receipts list --json"))
         XCTAssertTrue(script.contains("native receipts export"))
