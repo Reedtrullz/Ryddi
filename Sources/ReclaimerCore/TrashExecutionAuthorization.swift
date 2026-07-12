@@ -206,7 +206,7 @@ public actor TrashExecutionAuthorizationRegistry {
         guard !hasProtectedRuleEvidence(finding) else {
             throw TrashExecutionAuthorizationError.protectedRuleEvidence(item.id)
         }
-        guard !hasProtectedPathEvidence(finding.path) else {
+        guard !isProtectedTrashPath(finding.path) else {
             throw TrashExecutionAuthorizationError.protectedPath(item.id)
         }
         guard item.conditions.allSatisfy(\.isSatisfied) else {
@@ -219,24 +219,6 @@ public actor TrashExecutionAuthorizationRegistry {
             match.ruleID == "user.path.protected"
                 || match.safetyClass == .preserveByDefault
                 || match.safetyClass == .neverTouch
-        }
-    }
-
-    private func hasProtectedPathEvidence(_ path: String) -> Bool {
-        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path.lowercased()
-        let protectedCodexDirectories = [
-            "/.codex/sessions",
-            "/.codex/archived_sessions",
-            "/.codex/memories"
-        ]
-        let protectedCodexFiles = [
-            "/.codex/auth.json",
-            "/.codex/config.toml"
-        ]
-        return protectedCodexDirectories.contains {
-            normalized.hasSuffix($0) || normalized.contains($0 + "/")
-        } || protectedCodexFiles.contains {
-            normalized.hasSuffix($0)
         }
     }
 
@@ -267,6 +249,24 @@ public actor TrashExecutionAuthorizationRegistry {
 
     private func standardizedPath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+}
+
+func isProtectedTrashPath(_ path: String) -> Bool {
+    let normalized = URL(fileURLWithPath: path).standardizedFileURL.path.lowercased()
+    let protectedCodexDirectories = [
+        "/.codex/sessions",
+        "/.codex/archived_sessions",
+        "/.codex/memories"
+    ]
+    let protectedCodexFiles = [
+        "/.codex/auth.json",
+        "/.codex/config.toml"
+    ]
+    return protectedCodexDirectories.contains {
+        normalized.hasSuffix($0) || normalized.contains($0 + "/")
+    } || protectedCodexFiles.contains {
+        normalized.hasSuffix($0)
     }
 }
 

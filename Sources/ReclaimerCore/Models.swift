@@ -611,19 +611,81 @@ public struct ReclaimPlan: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public enum TrashExecutionSkipReason: String, Codable, Hashable, Sendable {
+    case authorizationExpired
+    case authorizationUnavailable
+    case authorizationMismatch
+    case confirmationRequired
+    case ineligibleAction
+    case conditionsChanged
+    case pathContainment
+    case pathUnavailable
+    case identityMismatch
+    case typeChanged
+    case symbolicLink
+    case unsupportedFileType
+    case userExcluded
+    case userProtected
+    case protectedPath
+    case classificationChanged
+    case protectedClassification
+    case gateFailed
+    case openFile
+    case recursiveOpenFile
+    case trashFailed
+}
+
 public struct ExecutionActionReceipt: Codable, Hashable, Sendable {
     public let path: String
     public let action: ActionKind
     public let status: String
     public let message: String
     public let reclaimedBytes: Int64
+    public let resultingPath: String?
+    public let fileIdentity: FileIdentity?
+    public let skipReason: TrashExecutionSkipReason?
 
-    public init(path: String, action: ActionKind, status: String, message: String, reclaimedBytes: Int64 = 0) {
+    public init(
+        path: String,
+        action: ActionKind,
+        status: String,
+        message: String,
+        reclaimedBytes: Int64 = 0,
+        resultingPath: String? = nil,
+        fileIdentity: FileIdentity? = nil,
+        skipReason: TrashExecutionSkipReason? = nil
+    ) {
         self.path = path
         self.action = action
         self.status = status
         self.message = message
         self.reclaimedBytes = reclaimedBytes
+        self.resultingPath = resultingPath
+        self.fileIdentity = fileIdentity
+        self.skipReason = skipReason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case action
+        case status
+        case message
+        case reclaimedBytes
+        case resultingPath
+        case fileIdentity
+        case skipReason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.action = try container.decode(ActionKind.self, forKey: .action)
+        self.status = try container.decode(String.self, forKey: .status)
+        self.message = try container.decode(String.self, forKey: .message)
+        self.reclaimedBytes = try container.decodeIfPresent(Int64.self, forKey: .reclaimedBytes) ?? 0
+        self.resultingPath = try container.decodeIfPresent(String.self, forKey: .resultingPath)
+        self.fileIdentity = try container.decodeIfPresent(FileIdentity.self, forKey: .fileIdentity)
+        self.skipReason = try container.decodeIfPresent(TrashExecutionSkipReason.self, forKey: .skipReason)
     }
 }
 
