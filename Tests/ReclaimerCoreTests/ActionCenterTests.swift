@@ -56,8 +56,9 @@ final class ActionCenterTests: XCTestCase {
 
         let primary = try XCTUnwrap(report.primaryAction)
         XCTAssertEqual(primary.kind, .reviewQueue)
+        XCTAssertEqual(primary.title, "Review Unknown")
         XCTAssertFalse(primary.isDestructive)
-        XCTAssertEqual(primary.estimatedReclaimBytes, 1_500)
+        XCTAssertEqual(primary.estimatedReclaimBytes, 0)
         XCTAssertEqual(primary.count, 1)
         XCTAssertTrue(primary.sourceIDs.contains(ReviewQueueID.unknown.rawValue))
     }

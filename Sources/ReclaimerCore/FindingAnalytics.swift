@@ -466,7 +466,14 @@ public struct TopOffenderTable: Codable, Hashable, Sendable {
     }
 }
 
-public enum ReviewQueueID: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+public protocol CleanupFlowPrioritizable {
+    var cleanupFlowStage: CleanupFlowStage { get }
+    var actionPriority: Int { get }
+}
+
+public enum ReviewQueueID: String, Codable, CaseIterable, Hashable, Identifiable, Sendable,
+    CleanupFlowPrioritizable
+{
     case safeMaintenance
     case quitAppFirst
     case useNativeTool
@@ -484,6 +491,17 @@ public enum ReviewQueueID: String, Codable, CaseIterable, Hashable, Identifiable
             .needsAction
         case .valuableHistory, .personalAppAssets, .unknown:
             .keepOrInspect
+        }
+    }
+
+    public var actionPriority: Int {
+        switch self {
+        case .safeMaintenance: 600
+        case .quitAppFirst: 500
+        case .useNativeTool: 400
+        case .unknown: 300
+        case .valuableHistory: 200
+        case .personalAppAssets: 100
         }
     }
 
@@ -546,6 +564,14 @@ public enum CleanupFlowStage: String, Codable, CaseIterable, Hashable, Identifia
     case keepOrInspect
 
     public var id: String { rawValue }
+
+    public var sortPriority: Int {
+        switch self {
+        case .safeCleanup: 0
+        case .needsAction: 1
+        case .keepOrInspect: 2
+        }
+    }
 
     public var title: String {
         switch self {

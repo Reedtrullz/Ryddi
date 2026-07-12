@@ -466,15 +466,23 @@ public enum ActionCenterBuilder {
             title: "Review \(queue.title)",
             reason: queue.guidance,
             priority: 500,
-            estimatedReclaimBytes: queue.allocatedSize,
+            estimatedReclaimBytes: queue.estimatedImmediateReclaim,
             count: queue.count,
             sourceIDs: [queue.queueID.rawValue]
         )
     }
 
     private static func compareReviewQueues(_ lhs: ReviewQueueSummary, _ rhs: ReviewQueueSummary) -> Bool {
-        if lhs.allocatedSize != rhs.allocatedSize {
-            return lhs.allocatedSize > rhs.allocatedSize
+        let lhsQueue = lhs.queueID
+        let rhsQueue = rhs.queueID
+        if lhsQueue.cleanupFlowStage != rhsQueue.cleanupFlowStage {
+            return lhsQueue.cleanupFlowStage.sortPriority < rhsQueue.cleanupFlowStage.sortPriority
+        }
+        if lhsQueue.actionPriority != rhsQueue.actionPriority {
+            return lhsQueue.actionPriority > rhsQueue.actionPriority
+        }
+        if lhs.estimatedImmediateReclaim != rhs.estimatedImmediateReclaim {
+            return lhs.estimatedImmediateReclaim > rhs.estimatedImmediateReclaim
         }
         if lhs.count != rhs.count {
             return lhs.count > rhs.count
