@@ -120,7 +120,9 @@ On remote targets, Ryddi should never automatically remove databases, backups, D
 
 ## Telemetry
 
-Ryddi has no telemetry in the MVP. If telemetry is ever proposed, it should be opt-in, documented, and unnecessary for local cleanup.
+Ryddi has no telemetry in the MVP. The app writes local macOS unified-log events for typed operation names, durations, counts, workflow stages, preset, and coarse error kinds. These events do not intentionally include paths, filenames, SSH targets, aliases, usernames, rule text, command output, or file contents. The optional **Export Diagnostic Summary** command writes the same bounded metadata to a new local JSON file; it is never uploaded automatically. macOS controls unified-log retention independently of Ryddi.
+
+If telemetry is ever proposed, it should be opt-in, documented, and unnecessary for local cleanup.
 
 ## Removing Local Ryddi Data
 

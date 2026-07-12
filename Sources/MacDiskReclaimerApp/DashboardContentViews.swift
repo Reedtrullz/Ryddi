@@ -524,7 +524,8 @@ struct DashboardRecentExports: View {
             ("Evidence report", model.lastReportExportURL),
             ("Growth report", model.lastGrowthReportExportURL),
             ("Archive review", model.lastArchiveReviewExportURL),
-            ("Plan report", model.lastPlanReportExportURL)
+            ("Plan report", model.lastPlanReportExportURL),
+            ("Diagnostic summary", model.lastDiagnosticExportURL)
         ].compactMap { label, url in
             url.map { (label, $0) }
         }
@@ -3984,4 +3985,3 @@ struct TopOffendersView: View {
         }
     }
 }
-

@@ -382,4 +382,12 @@ public final class ReportStore: @unchecked Sendable {
         try encoder.encode(document).write(to: url, options: .atomic)
         return url
     }
+
+    @discardableResult
+    public func save(diagnosticMetadata metadata: DiagnosticMetadata) throws -> URL {
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("diagnostic-summary-\(metadata.id).json")
+        try SafeFileOutput.write(encoder.encode(metadata), to: url)
+        return url
+    }
 }

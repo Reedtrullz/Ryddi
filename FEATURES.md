@@ -57,6 +57,7 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Package for direct distribution | Build unsigned previews for testing, or fail-closed signed release artifacts that require Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and typed manifest proof. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, `reclaimer release-trust`, release-preview and signed-release workflows |
 | Verify the packaged app safely | Launch the packaged app against a temporary fixture, expose stable accessibility identifiers, prove scan/plan/dry-run/explicit-confirmation/Trash flow, capture three window sizes, clean the receipt-identified test Trash artifact, and verify protected fixtures remain byte-identical. | `Scripts/make-app-e2e-fixture.sh`, `Scripts/app-e2e-smoke.sh`, `Scripts/run-packaged-app-e2e.sh`, `RyddiAXHarness`, `AppAccessibilityContractTests`, `AppE2EFixtureTests`, `AppLayoutContractTests` |
 | Stay private | No telemetry, cloud upload, or remote AI analysis. | architecture and README policy |
+| Diagnose slow workflows locally | Record privacy-safe unified-log timings/counts and explicitly export a bounded local JSON summary without paths, command output, file contents, or automatic upload. | `DiagnosticMetadata`, `RyddiLog`, `Export Diagnostic Summary`, redaction tests |
 
 ## MVP Feature Boundaries
 

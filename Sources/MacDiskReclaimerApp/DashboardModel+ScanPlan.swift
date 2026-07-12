@@ -15,6 +15,8 @@ extension DashboardModel {
 
     func refreshPresentationSnapshot(now: Date = Date()) async {
         guard !findings.isEmpty else { return }
+        let diagnosticSpan = diagnostics.begin(.presentation)
+        defer { diagnostics.end(diagnosticSpan) }
         presentationRevision += 1
         let revision = presentationRevision
         isUpdatingPresentation = true
@@ -130,6 +132,8 @@ extension DashboardModel {
         )
     }
     func scan() async {
+        let diagnosticSpan = diagnostics.begin(.scan)
+        defer { diagnostics.end(diagnosticSpan) }
         let scopePlan = selectedScopePlan
         let includeUserRules = includeUserRulesInScans
         let policy = UserPathPolicyStore().load()
@@ -217,7 +221,10 @@ extension DashboardModel {
                 )
                 return (scopePlan.label, scopes, findings, presentation, drillDown, policy, permissions, scanResult.coverage, session, generatedAt)
             }.value
-            guard scanRequestCoordinator.accepts(request) else { return }
+            guard scanRequestCoordinator.accepts(request) else {
+                diagnostics.record(.staleScanRejected)
+                return
+            }
             lastScannedScopeLabel = result.0
             scanScopes = result.1
             findings = result.2
@@ -225,6 +232,9 @@ extension DashboardModel {
             overview = result.3.overview
             diskDrillDown = result.4
             userPathPolicy = result.5
+            if permissionReport.coverageLevel != result.6.coverageLevel {
+                diagnostics.record(.permissionCoverageChanged)
+            }
             permissionReport = result.6
             scanCoverage = result.7
             reviewQueueReport = result.3.reviewQueues
@@ -240,7 +250,11 @@ extension DashboardModel {
             try AuditStore().saveScanSession(result.8)
             error = nil
         } catch {
-            guard scanRequestCoordinator.accepts(request) else { return }
+            guard scanRequestCoordinator.accepts(request) else {
+                diagnostics.record(.staleScanRejected)
+                return
+            }
+            diagnostics.record(error: .scanFailed)
             self.error = error.localizedDescription
         }
     }
@@ -252,6 +266,8 @@ extension DashboardModel {
     }
 
     private func buildPlanWithoutChangingWorkingState() async {
+        let diagnosticSpan = diagnostics.begin(.plan)
+        defer { diagnostics.end(diagnosticSpan) }
         let currentFindings = findings
         let builtPlan = await Task.detached {
             let builder = PlanBuilder(openFileChecker: LsofOpenFileChecker())
@@ -263,6 +279,7 @@ extension DashboardModel {
         do {
             try recordPlanSession(builtPlan)
         } catch {
+            diagnostics.record(error: .planAuditFailed)
             self.error = "The plan was built, but its audit state could not be saved: \(error.localizedDescription)"
             return
         }
@@ -271,6 +288,8 @@ extension DashboardModel {
     }
 
     func runDryRun() async {
+        let diagnosticSpan = diagnostics.begin(.dryRun)
+        defer { diagnostics.end(diagnosticSpan) }
         isWorking = true
         defer { isWorking = false }
         do {
@@ -303,6 +322,7 @@ extension DashboardModel {
             loadRecovery()
             await refreshPresentationSnapshot()
         } catch {
+            diagnostics.record(error: .dryRunFailed)
             self.error = error.localizedDescription
         }
     }
@@ -357,7 +377,9 @@ extension DashboardModel {
         }
 
         isWorking = true
+        let diagnosticSpan = diagnostics.begin(.trashExecution)
         defer { isWorking = false }
+        defer { diagnostics.end(diagnosticSpan) }
         let includeUserRules = includeUserRulesInScans
         let policy = UserPathPolicyStore().load()
         let registry = trashExecutionAuthorizationRegistry
@@ -395,6 +417,7 @@ extension DashboardModel {
             await refreshPresentationSnapshot()
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
         } catch {
+            diagnostics.record(error: .trashExecutionFailed)
             self.error = error.localizedDescription
         }
     }

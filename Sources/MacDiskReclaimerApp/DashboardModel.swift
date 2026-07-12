@@ -81,6 +81,7 @@ final class DashboardModel {
     var lastRemoteDogfoodReportExportURL: URL?
     var lastPolicyExportURL: URL?
     var lastScopeSetExportURL: URL?
+    var lastDiagnosticExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
     var diskStatus: DiskStatusSnapshot = DiskStatusReader().snapshot()
     var permissionReport: PermissionAdvisorReport = {
@@ -113,6 +114,7 @@ final class DashboardModel {
     var hasAppliedStoredSettings = false
     var scanRequestCoordinator = ScanRequestCoordinator()
     let trashExecutionAuthorizationRegistry = TrashExecutionAuthorizationRegistry()
+    let diagnostics = RyddiDiagnosticRecorder()
     private var e2eScopeRoot: URL?
     var presentationRevision = 0
 

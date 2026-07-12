@@ -97,6 +97,7 @@ struct StatusMenuView: View {
                 }
 
                 Button {
+                    RyddiLog.scan.info("source=status_menu event=scan_requested")
                     Task { await scanAction() }
                 } label: {
                     Label("Scan", systemImage: "magnifyingglass")

@@ -152,11 +152,17 @@ extension DashboardModel {
     }
 
     func refreshPermissions() {
+        let previousCoverage = permissionReport.coverageLevel
+        let refreshed: PermissionAdvisorReport
         if let overview {
-            permissionReport = PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries)
+            refreshed = PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries)
         } else {
-            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            refreshed = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
         }
+        if previousCoverage != refreshed.coverageLevel {
+            diagnostics.record(.permissionCoverageChanged)
+        }
+        permissionReport = refreshed
     }
 
     func addUserPathRule(path: String, kind: UserPathPolicyKind, reason: String) async {

@@ -733,6 +733,10 @@ Use `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` for the manual scr
 
 The release-only lane runs `Scripts/run-packaged-app-e2e.sh` through macOS Accessibility against the packaged app. It drives Scan, Plan, Dry Run, explicit Trash confirmation, and recovery-result presentation; checks protected fixture hashes; captures minimum, regular, and wide window screenshots; and removes only the receipt-identified fixture artifact from Trash afterward. Run it from an Accessibility-approved terminal or self-hosted runner. Ordinary hosted CI intentionally uses the non-destructive fixture smoke because it cannot be assumed to have Accessibility approval.
 
+## Local Diagnostics
+
+Ryddi records privacy-safe macOS unified-log events for typed workflow operations, timings, counts, stages, and coarse error kinds. It does not intentionally put paths, filenames, SSH targets, aliases, usernames, rule text, command output, or file contents in those events. **More > Export Diagnostic Summary** writes a bounded JSON summary locally and never uploads it. Inspect recent events with `log show --predicate 'subsystem == "com.reidar.ryddi"' --last 5m`.
+
 ## Repository Layout
 
 ```text

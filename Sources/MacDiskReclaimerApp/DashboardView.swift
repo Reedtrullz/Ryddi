@@ -226,6 +226,11 @@ struct DashboardView: View {
                     Label("Export Redacted", systemImage: "eye.slash")
                 }
                 .disabled(model.overview == nil || model.findings.isEmpty)
+                Button {
+                    Task { await model.exportDiagnosticSummary() }
+                } label: {
+                    Label("Export Diagnostic Summary", systemImage: "waveform.path.ecg")
+                }
                 Divider()
                 Button {
                     selectSection(.queues)
@@ -289,8 +294,11 @@ struct DashboardView: View {
     }
 
     private func selectSection(_ section: DashboardSection) {
+        let diagnosticSpan = model.diagnostics.begin(.navigation)
         selectedFinding = nil
         selectedSectionID = section.rawValue
+        model.diagnostics.end(diagnosticSpan)
+        RyddiLog.window.info("section=\(section.rawValue, privacy: .public)")
     }
 
     private func selectLegacySection(_ sectionID: String) {

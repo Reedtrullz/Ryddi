@@ -153,4 +153,25 @@ extension DashboardModel {
         }
     }
 
+    func exportDiagnosticSummary() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let metadata = diagnostics.metadata(
+                appVersion: actionCenterAppVersion,
+                preset: actionCenterPreset,
+                stage: currentScanSession?.stage,
+                findingCount: findings.count,
+                permissionReport: permissionReport
+            )
+            lastDiagnosticExportURL = try await Task.detached {
+                try ReportStore().save(diagnosticMetadata: metadata)
+            }.value
+            error = nil
+        } catch {
+            diagnostics.record(error: .exportFailed)
+            self.error = error.localizedDescription
+        }
+    }
+
 }

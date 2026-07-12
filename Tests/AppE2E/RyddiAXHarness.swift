@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
+import OSLog
 
 struct HarnessResult: Codable {
     struct Checkpoint: Codable {
@@ -56,6 +57,8 @@ enum HarnessError: Error, CustomStringConvertible {
 
 @main
 enum RyddiAXHarness {
+    private static let logger = Logger(subsystem: "com.reidar.ryddi", category: "e2e")
+
     static func main() {
         do {
             try run()
@@ -336,7 +339,9 @@ enum RyddiAXHarness {
         operation: () throws -> Void
     ) rethrows {
         try operation()
-        checkpoints.append(.init(name: name, elapsedMilliseconds: elapsed(started)))
+        let milliseconds = elapsed(started)
+        checkpoints.append(.init(name: name, elapsedMilliseconds: milliseconds))
+        logger.info("checkpoint=\(name, privacy: .public) elapsed_ms=\(milliseconds, privacy: .public)")
     }
 
     private static func elapsed(_ started: Date) -> Int {
