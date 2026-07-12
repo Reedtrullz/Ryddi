@@ -596,7 +596,9 @@ struct TrustReadinessCardsView: View {
                 MetricTile(title: "Quit First", value: countActions(.quitAppFirst))
                 MetricTile(title: "Native Tool", value: countActions(.useNativeTool))
                 MetricTile(title: "Valuable History", value: countActions(.protectByDefault))
-                MetricTile(title: "Release Trust", value: report.releaseTrustEvidence.state.label)
+                MetricTile(title: "Signature", value: report.runtimeReleaseTrustReport?.signatureSummary ?? "Loading...")
+                MetricTile(title: "Gatekeeper", value: report.runtimeReleaseTrustReport?.gatekeeperSummary ?? "Loading...")
+                MetricTile(title: "External Manifest", value: report.runtimeReleaseTrustReport?.externalManifestSummary ?? "Loading...")
             }
 
             VStack(alignment: .leading, spacing: 6) {

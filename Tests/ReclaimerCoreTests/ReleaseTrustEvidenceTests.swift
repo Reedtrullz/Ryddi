@@ -112,7 +112,7 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
             releaseTrustEvidence: falsePositive
         )
 
-        let releaseAction = try XCTUnwrap(report.recommendedActions.first { $0.id == "release.trust" })
+        let releaseAction = try XCTUnwrap(report.recommendedActions.first { $0.id == "release.external-manifest" })
         XCTAssertEqual(releaseAction.severity, .warning)
         XCTAssertEqual(report.releaseTrustEvidence.state, .signedOnly)
     }
@@ -124,7 +124,8 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
         XCTAssertTrue(script.contains("codesign_verified=$codesign_verified"))
         XCTAssertTrue(script.contains("hardened_runtime=$hardened_runtime"))
         XCTAssertTrue(script.contains("notarization_status=$notarization_status"))
-        XCTAssertTrue(script.contains("stapled=$stapled"))
+        XCTAssertTrue(script.contains("stapler_validated=$stapler_validated"))
+        XCTAssertTrue(script.contains("stapled=$stapler_validated"))
         XCTAssertTrue(script.contains("gatekeeper=$gatekeeper_status"))
     }
 
@@ -135,10 +136,10 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
             script.contains("assert_public_manifest_has_no_local_paths"),
             "release-check should fail if the public manifest leaks local build paths."
         )
-        XCTAssertTrue(script.contains("Bundle: dist/Ryddi.app"))
-        XCTAssertTrue(script.contains("Artifact: dist/$(basename \"$zip_path\")"))
-        XCTAssertTrue(script.contains("Checksum: $artifact_sha  dist/$(basename \"$zip_path\")"))
-        XCTAssertTrue(script.contains("- swift test --scratch-path .build"))
+        XCTAssertTrue(script.contains("Artifact directory: $artifact_basename"))
+        XCTAssertTrue(script.contains("App payload SHA-256: $app_payload_sha"))
+        XCTAssertTrue(script.contains("printf '%s  %s\\n' \"$app_payload_sha\" \"Ryddi.app\""))
+        XCTAssertTrue(script.contains("/usr/bin/ditto -c -k --keepParent \"$stage_dir\" \"$zip_path\""))
         XCTAssertFalse(script.contains("Bundle: $app"))
         XCTAssertFalse(script.contains("Artifact: $zip_path"))
         XCTAssertFalse(script.contains("$(cat \"$checksum_path\")"))
@@ -176,12 +177,11 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
         XCTAssertTrue(script.contains("Removed Homebrew cache fixture"))
         XCTAssertTrue(script.contains("recovery restore \"2026-01-01T00-00-00Z/cache.bin\""))
         XCTAssertTrue(script.contains("unexpectedly succeeded"))
-        XCTAssertTrue(script.contains("manual Finder recovery-only smoke"))
         XCTAssertFalse(script.contains("requires a saved native dry-run receipt"))
         XCTAssertFalse(script.contains("requires a saved Homebrew dry-run receipt"))
         XCTAssertTrue(
-            script.contains("bundled reclaimer native homebrew cleanup --yes fresh-preview/perform smoke"),
-            "The public manifest should record the same-process Homebrew preview/perform proof."
+            script.contains("native homebrew cleanup --yes --save-audit"),
+            "The release gate should still run the same-process Homebrew preview/perform proof."
         )
     }
 

@@ -56,7 +56,6 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
         run: Scripts/release-check.sh
 
       - name: Upload signed release artifact

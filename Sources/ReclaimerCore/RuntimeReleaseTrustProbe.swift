@@ -70,6 +70,14 @@ public struct RuntimeReleaseTrustReport: Codable, Hashable, Sendable {
         self.claims = claims
         self.nonClaims = nonClaims
     }
+
+    public var signatureSummary: String { signature.label }
+
+    public var gatekeeperSummary: String { gatekeeper.label }
+
+    public var externalManifestSummary: String {
+        externalManifest?.state.label ?? "Not provided"
+    }
 }
 
 public struct RuntimeReleaseTrustProbe: Sendable {

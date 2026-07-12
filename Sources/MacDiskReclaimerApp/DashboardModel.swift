@@ -98,6 +98,7 @@ final class DashboardModel {
     var lastScanDate: Date?
     var launchAgentInstalled = false
     var launchAgentStatus: LaunchAgentStatus = LaunchAgentManager().status()
+    var runtimeReleaseTrustReport: RuntimeReleaseTrustReport?
     var error: String?
     var currentScanSession: ScanSession?
     var reviewedQueueID: ReviewQueueID?
@@ -117,6 +118,13 @@ final class DashboardModel {
     init() {
         Task { [weak self] in
             await self?.loadActionCenterAuditHistory()
+        }
+        Task { [weak self] in
+            let report = await Task.detached(priority: .utility) {
+                RuntimeReleaseTrustProbe().inspect()
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.runtimeReleaseTrustReport = report
         }
     }
 
@@ -192,7 +200,7 @@ final class DashboardModel {
             latestReceipt: evidence.executionReceipt ?? evidence.dryRunReceipt,
             automationInstalled: launchAgentStatus.installed,
             signingState: "App runtime; verify signed and notarized releases with the manifest",
-            releaseTrustEvidence: ReleaseTrustEvidenceLoader.load(),
+            runtimeReleaseTrustReport: runtimeReleaseTrustReport,
             scanCoverage: scanCoverage
         )
     }

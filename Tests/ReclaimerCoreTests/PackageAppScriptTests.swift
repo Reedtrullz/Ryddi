@@ -58,6 +58,44 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("artifact_basename=\"Ryddi-developer-preview\""))
     }
 
+    func testReleaseCheckStagesProofBesideAppBeforeZippingDirectory() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("stage_dir=\"$dist/$artifact_basename\""))
+        XCTAssertTrue(script.contains("$stage_dir/Ryddi.app"))
+        XCTAssertTrue(script.contains("$stage_dir/Ryddi-release-manifest.txt"))
+        XCTAssertTrue(script.contains("$stage_dir/Ryddi-checksums.sha256"))
+        XCTAssertTrue(script.contains("archive_staged_release"))
+    }
+
+    func testReleaseManifestCarriesExactTrustEvidenceFields() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
+
+        for field in [
+            "version=$bundle_version",
+            "build=$bundle_build",
+            "source_commit=$commit",
+            "signing_identity=$signing_identity",
+            "notarization_submission_id=$notary_submission",
+            "notarization_status=$notarization_status",
+            "stapler_validated=$stapler_validated",
+            "gatekeeper=$gatekeeper_status",
+            "sha256=$app_payload_sha",
+        ] {
+            XCTAssertTrue(script.contains(field), "Missing manifest field: \(field)")
+        }
+    }
+
+    func testReleaseWorkflowUploadsStagedDirectoryArtifactAndKeepsPreviewUnsigned() throws {
+        let workflow = try String(contentsOf: repoRoot().appendingPathComponent(".github/workflows/release-preview.yml"), encoding: .utf8)
+
+        XCTAssertTrue(workflow.contains("Build unsigned developer preview"))
+        XCTAssertTrue(workflow.contains("name: Ryddi-developer-preview"))
+        XCTAssertTrue(workflow.contains("dist/Ryddi-developer-preview.zip"))
+        XCTAssertTrue(workflow.contains("dist/Ryddi-v0.3.0.zip"))
+        XCTAssertFalse(workflow.contains("NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}"))
+    }
+
     private func repoRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
