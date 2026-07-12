@@ -828,6 +828,7 @@ public struct ScanOverview: Codable, Hashable, Sendable {
     public let topFindings: [Finding]
     public let topOffenderTable: TopOffenderTable
     public let accountingNotes: [String]
+    public let scanCoverage: ScanCoverage?
 
     public init(
         generatedAt: Date,
@@ -845,7 +846,8 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         ownerSummaries: [OwnerStorageSummary],
         topFindings: [Finding],
         topOffenderTable: TopOffenderTable? = nil,
-        accountingNotes: [String]
+        accountingNotes: [String],
+        scanCoverage: ScanCoverage? = nil
     ) {
         self.generatedAt = generatedAt
         self.findingCount = findingCount
@@ -863,6 +865,31 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         self.topFindings = topFindings
         self.topOffenderTable = topOffenderTable ?? TopOffenderTable.empty(generatedAt: generatedAt)
         self.accountingNotes = accountingNotes
+        self.scanCoverage = scanCoverage
+    }
+}
+
+public extension ScanOverview {
+    func withScanCoverage(_ coverage: ScanCoverage) -> ScanOverview {
+        ScanOverview(
+            generatedAt: generatedAt,
+            findingCount: findingCount,
+            totalLogicalSize: totalLogicalSize,
+            totalAllocatedSize: totalAllocatedSize,
+            expectedAutoSafeBytes: expectedAutoSafeBytes,
+            reviewBytes: reviewBytes,
+            protectedBytes: protectedBytes,
+            safetySummaries: safetySummaries,
+            categorySummaries: categorySummaries,
+            scopeSizeSummaries: scopeSizeSummaries,
+            scopeSummaries: scopeSummaries,
+            mapNodes: mapNodes,
+            ownerSummaries: ownerSummaries,
+            topFindings: topFindings,
+            topOffenderTable: topOffenderTable,
+            accountingNotes: accountingNotes,
+            scanCoverage: coverage
+        )
     }
 }
 

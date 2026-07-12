@@ -245,8 +245,10 @@ struct ReclaimerCLI {
         let preset = try options.scopePreset()
         let scopes = try options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: NoOpenFilesChecker())
-        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
+        let result = scanner.scanWithCoverage(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
+        let findings = result.findings
         let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+            .withScanCoverage(result.coverage)
         let queues = FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: options.limit)
         let plan = PlanBuilder(openFileChecker: LsofOpenFileChecker()).buildPlan(from: findings, mode: .autoSafeOnly)
         let activeReport = ActiveFileReviewScanner(openFileChecker: LsofOpenFileChecker()).review(
@@ -279,14 +281,14 @@ struct ReclaimerCLI {
         let options = ParsedOptions(args)
         let scopes = try options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
+        let result = scanner.scanWithCoverage(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
         let overview = FindingAnalytics.overview(
-            findings: findings,
+            findings: result.findings,
             scopes: scopes,
             topLimit: options.limit,
             offenderSort: try options.topOffenderSort(),
             offenderGroup: try options.topOffenderGroup()
-        )
+        ).withScanCoverage(result.coverage)
         if options.saveHistory {
             let url = try ScanHistoryStore().save(overview: overview)
             FileHandle.standardError.write(Data("saved scan snapshot: \(url.path)\n".utf8))
@@ -1997,13 +1999,13 @@ struct ReclaimerCLI {
               scopes saved remove NAME_OR_ID [--json]
               scopes saved export [--json] [--output PATH]
               scopes saved import PATH [--json] [--replace]
-              scan [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--include-open-files]
+              scan [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--min-size BYTES] [--max-depth N] [--measurement-depth N] [--measurement-budget N] [--no-deduplicate-hardlinks] [--include-open-files]
                    [--sort size|logical|age|risk|category|scope] [--group category|safety|scope]
                    [--review large|old|all] [--limit N] [--include-missing-scopes] [--ignore-user-policy] [--include-user-rules]
               session latest [--json]
               session explain [--json]
               actions [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID]
-              overview [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N]
+              overview [--json] [--preset developer|general|all] [--template TEMPLATE_ID] [--path PATH ...] [--scope-set NAME_OR_ID] [--limit N] [--measurement-depth N] [--measurement-budget N] [--no-deduplicate-hardlinks]
                        [--sort size|logical|reclaim|age|risk|category|safety|scope|owner|action]
                        [--group none|category|safety|owner|scope|action]
                        [--save-history] [--ignore-user-policy] [--include-user-rules]
@@ -2171,6 +2173,9 @@ struct ParsedOptions {
     var review: String { value(after: "--review") ?? "all" }
     var largeThreshold: Int64 { Int64(value(after: "--large-threshold") ?? "") ?? 5_000_000_000 }
     var oldDays: Int { Int(value(after: "--old-days") ?? "") ?? 180 }
+    var measurementBudget: Int { max(1, Int(value(after: "--measurement-budget") ?? "") ?? 25_000) }
+    var measurementDepth: Int? { value(after: "--measurement-depth").flatMap(Int.init).map { max(0, $0) } }
+    var deduplicateHardLinks: Bool { !args.contains("--no-deduplicate-hardlinks") }
     var auditOlderThanDays: Int { max(0, Int(value(after: "--older-than-days") ?? value(after: "--old-days") ?? "") ?? SafeActionPlanner.defaultAuditRetention.olderThanDays) }
     var keepRecent: Int { max(0, Int(value(after: "--keep-recent") ?? "") ?? SafeActionPlanner.defaultAuditRetention.keepRecent) }
     var maxFilesToHash: Int { max(1, Int(value(after: "--max-files") ?? "") ?? 5_000) }
@@ -2386,11 +2391,13 @@ struct ParsedOptions {
         return ScanOptions(
             minimumFindingSize: minSize,
             maximumFindingDepth: maxDepth,
-            measurementDepth: maxDepth + 4,
+            measurementDepth: measurementDepth ?? (maxDepth + 4),
             includeOpenFileStatus: includeOpenFiles,
             largeFileThreshold: largeThreshold,
             oldFileAgeDays: oldDays,
-            userPathPolicy: userPathPolicy
+            userPathPolicy: userPathPolicy,
+            measurementItemBudget: measurementBudget,
+            deduplicateHardLinks: deduplicateHardLinks
         )
     }
 
@@ -2926,6 +2933,10 @@ func printFindingRows(_ findings: [Finding]) {
 func printOverview(_ overview: ScanOverview) {
     print("Ryddi overview")
     print("Generated: \(overview.generatedAt.formatted())")
+    if let coverage = overview.scanCoverage {
+        print("Scan coverage: \(coverage.state.label) (\(coverage.measuredItemCount)/\(coverage.requestedItemBudget) measured, \(coverage.skippedItemCount) skipped)")
+        print("Coverage note: \(coverage.nonClaim)")
+    }
     print("Findings: \(overview.findingCount)")
     print("Allocated scanned: \(ByteFormat.string(overview.totalAllocatedSize))")
     print("Logical scanned: \(ByteFormat.string(overview.totalLogicalSize))")
