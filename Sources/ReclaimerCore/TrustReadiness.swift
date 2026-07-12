@@ -80,6 +80,7 @@ public struct TrustReadinessReport: Codable, Hashable, Sendable {
     public let signingState: String
     public let releaseTrustEvidence: ReleaseTrustEvidence
     public let nextActionCounts: [String: Int]
+    public let scanCoverage: ScanCoverage?
     public let recommendedActions: [TrustReadinessAction]
     public let nonClaims: [String]
 
@@ -93,6 +94,7 @@ public struct TrustReadinessReport: Codable, Hashable, Sendable {
         signingState: String,
         releaseTrustEvidence: ReleaseTrustEvidence = .missingManifest(path: nil),
         nextActionCounts: [String: Int] = [:],
+        scanCoverage: ScanCoverage? = nil,
         recommendedActions: [TrustReadinessAction],
         nonClaims: [String]
     ) {
@@ -105,6 +107,7 @@ public struct TrustReadinessReport: Codable, Hashable, Sendable {
         self.signingState = signingState
         self.releaseTrustEvidence = releaseTrustEvidence
         self.nextActionCounts = nextActionCounts
+        self.scanCoverage = scanCoverage
         self.recommendedActions = recommendedActions
         self.nonClaims = nonClaims
     }
@@ -120,6 +123,7 @@ public enum TrustReadinessBuilder {
         automationInstalled: Bool = false,
         signingState: String = "Unsigned local debug or source build",
         releaseTrustEvidence: ReleaseTrustEvidence = .missingManifest(path: nil),
+        scanCoverage: ScanCoverage? = nil,
         now: Date = Date()
     ) -> TrustReadinessReport {
         var actions: [TrustReadinessAction] = []
@@ -161,6 +165,15 @@ public enum TrustReadinessBuilder {
                 title: "Review Full Disk Access",
                 detail: permissionSummary.coverageSummary,
                 severity: permissionSummary.coverageLevel == .blocked ? .blocked : .warning
+            ))
+        }
+
+        if let scanCoverage, scanCoverage.state != .complete {
+            actions.append(TrustReadinessAction(
+                id: "scan.coverage-\(scanCoverage.state.rawValue)",
+                title: scanCoverage.state == .bounded ? "Targeted rescan recommended" : "Scan coverage is degraded",
+                detail: scanCoverage.nonClaim,
+                severity: scanCoverage.state == .degraded ? .warning : .info
             ))
         }
 
@@ -226,6 +239,7 @@ public enum TrustReadinessBuilder {
             releaseTrustEvidence: releaseTrustEvidence,
             nextActionCounts: Dictionary(grouping: findings, by: { $0.reviewNextAction.rawValue })
                 .mapValues(\.count),
+            scanCoverage: scanCoverage,
             recommendedActions: actions,
             nonClaims: [
                 "Trust readiness is a local summary of current evidence; it is not a cleanup action.",

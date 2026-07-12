@@ -588,7 +588,7 @@ struct TrustReadinessCardsView: View {
         SectionBox(title: "Trust Readiness") {
             LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
                 MetricTile(title: "Disk Pressure", value: report.diskStatus.pressure.label)
-                MetricTile(title: "Scan Coverage", value: report.permissionSummary.coverageLevel.label)
+                MetricTile(title: "Scan Coverage", value: report.scanCoverage?.state.label ?? report.permissionSummary.coverageLevel.label)
                 MetricTile(title: "Safe Reclaim", value: ByteFormat.string(report.latestPlanSummary?.expectedImmediateReclaim ?? 0))
                 MetricTile(title: "Automation", value: report.automationInstalled ? "Report-only" : "Off")
                 MetricTile(title: "Quit First", value: countActions(.quitAppFirst))

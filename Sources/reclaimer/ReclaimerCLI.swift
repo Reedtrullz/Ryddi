@@ -219,7 +219,8 @@ struct ReclaimerCLI {
         let options = ParsedOptions(args)
         let scopes = try options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: NoOpenFilesChecker())
-        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
+        let result = scanner.scanWithCoverage(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
+        let findings = result.findings
         let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
         let store = AuditStore()
         let report = TrustReadinessBuilder.build(
@@ -230,7 +231,8 @@ struct ReclaimerCLI {
             latestReceipt: store.recentReceipts(limit: 1).first,
             automationInstalled: FileManager.default.fileExists(atPath: LaunchAgentManager().installedPath().path),
             signingState: ProcessInfo.processInfo.environment["RYDDI_SIGNING_STATE"] ?? "CLI/source runtime; verify distributed app with release manifest",
-            releaseTrustEvidence: ReleaseTrustEvidenceLoader.load(path: options.releaseManifestPath)
+            releaseTrustEvidence: ReleaseTrustEvidenceLoader.load(path: options.releaseManifestPath),
+            scanCoverage: result.coverage
         )
         if options.json {
             printJSON(report)

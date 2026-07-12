@@ -75,13 +75,15 @@ extension DashboardModel {
                     ruleEngine: try RuleEngine.bundled(includingUserRules: includeUserRules),
                     openFileChecker: NoOpenFilesChecker()
                 )
-                let findings = scanner.scan(
+                let scanResult = scanner.scanWithCoverage(
                     scopes: scopes,
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
                 )
+                let findings = scanResult.findings
                 let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
+                    .withScanCoverage(scanResult.coverage)
                 let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
-                return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries))
+                return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries), scanResult.coverage)
             }.value
             lastScannedScopeLabel = result.0
             scanScopes = result.1
@@ -90,6 +92,7 @@ extension DashboardModel {
             diskDrillDown = result.4
             userPathPolicy = result.5
             permissionReport = result.6
+            scanCoverage = result.7
             diskStatus = DiskStatusReader().snapshot()
             _ = try ScanHistoryStore().save(overview: result.3)
             loadHistory()

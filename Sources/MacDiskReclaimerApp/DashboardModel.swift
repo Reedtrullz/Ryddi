@@ -14,6 +14,7 @@ final class DashboardModel {
     var includeUserRulesInScans = false
     var lastScannedScopeLabel: String?
     var overview: ScanOverview?
+    var scanCoverage: ScanCoverage?
     var diskDrillDown: DiskDrillDownReport?
     var plan: ReclaimPlan?
     var lastDryRunReceipt: ExecutionReceipt?
@@ -157,7 +158,8 @@ final class DashboardModel {
             latestReceipt: lastExecutionReceipt ?? lastDryRunReceipt ?? recentReceipts.first,
             automationInstalled: launchAgentStatus.installed,
             signingState: "App runtime; verify signed and notarized releases with the manifest",
-            releaseTrustEvidence: ReleaseTrustEvidenceLoader.load()
+            releaseTrustEvidence: ReleaseTrustEvidenceLoader.load(),
+            scanCoverage: scanCoverage
         )
     }
 
@@ -371,6 +373,7 @@ final class DashboardModel {
         findings = []
         scanScopes = []
         overview = nil
+        scanCoverage = nil
         diskDrillDown = nil
         plan = nil
         agentStorageReview = nil
@@ -432,6 +435,12 @@ final class DashboardModel {
     }
 
     private func nativePerformBlockReason(selection: NativeToolCommandSelection) -> String? {
+        if let maintenanceAction = NativeMaintenanceAction(rawValue: selection.command.id) {
+            guard selection.command.command == maintenanceAction.performInvocation.displayCommand else {
+                return "This native maintenance command does not match Ryddi's exact allowlisted invocation."
+            }
+            return nil
+        }
         if let reason = NativeToolExecutor.performBlockReason(for: selection.command) {
             return reason
         }

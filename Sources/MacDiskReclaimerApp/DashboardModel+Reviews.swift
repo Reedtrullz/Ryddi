@@ -383,6 +383,40 @@ extension DashboardModel {
                     )
                     return [previewReceipt, performedReceipt]
                 }
+                if let maintenanceAction = NativeMaintenanceAction(rawValue: command.id) {
+                    let executor = NativeMaintenanceExecutor()
+                    let preview = executor.preview(
+                        action: maintenanceAction,
+                        findingPath: receipt.findingPath,
+                        ruleVersion: ruleVersion
+                    )
+                    let previewReceipt = NativeMaintenanceReceiptBridge.nativeToolExecutionReceipt(
+                        from: preview.receipt,
+                        action: maintenanceAction,
+                        ruleVersion: ruleVersion,
+                        findingPath: receipt.findingPath,
+                        category: receipt.category,
+                        userConfirmed: false
+                    )
+                    if perform {
+                        let actionReceipt = executor.perform(
+                            using: preview,
+                            userConfirmed: true,
+                            findingPath: receipt.findingPath,
+                            ruleVersion: ruleVersion
+                        )
+                        let performedReceipt = NativeMaintenanceReceiptBridge.nativeToolExecutionReceipt(
+                            from: actionReceipt,
+                            action: maintenanceAction,
+                            ruleVersion: ruleVersion,
+                            findingPath: receipt.findingPath,
+                            category: receipt.category,
+                            userConfirmed: true
+                        )
+                        return [previewReceipt, performedReceipt]
+                    }
+                    return [previewReceipt]
+                }
                 return [NativeToolExecutor().execute(
                     selection: selection,
                     mode: perform ? .perform : .dryRun,
