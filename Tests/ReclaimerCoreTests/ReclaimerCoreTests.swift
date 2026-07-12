@@ -5750,7 +5750,11 @@ final class ReclaimerCoreTests: XCTestCase {
             actionKind: action,
             ruleMatches: matches,
             evidence: matches.flatMap { $0.evidence.map { Evidence(kind: "fixture", message: $0) } },
-            openFileStatus: OpenFileStatus(isOpen: open, processSummary: open ? ["fixture"] : [])
+            openFileStatus: OpenFileStatus(
+                isOpen: open,
+                processSummary: open ? ["fixture"] : [],
+                checkedRecursively: isDirectory
+            )
         )
     }
 

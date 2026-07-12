@@ -239,6 +239,8 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
     public let checkFailed: String?
     public let checkedRecursively: Bool
     public let checkedPath: String?
+    public let openHits: [OpenFileHit]
+    public let linkEvidence: FilesystemLinkEvidence?
 
     public init(
         isOpen: Bool,
@@ -246,7 +248,9 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
         checkedAt: Date = Date(),
         checkFailed: String? = nil,
         checkedRecursively: Bool = false,
-        checkedPath: String? = nil
+        checkedPath: String? = nil,
+        openHits: [OpenFileHit] = [],
+        linkEvidence: FilesystemLinkEvidence? = nil
     ) {
         self.isOpen = isOpen
         self.processSummary = processSummary
@@ -254,6 +258,8 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
         self.checkFailed = checkFailed
         self.checkedRecursively = checkedRecursively
         self.checkedPath = checkedPath
+        self.openHits = openHits
+        self.linkEvidence = linkEvidence
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -263,6 +269,8 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
         case checkFailed
         case checkedRecursively
         case checkedPath
+        case openHits
+        case linkEvidence
     }
 
     public init(from decoder: Decoder) throws {
@@ -273,6 +281,23 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
         self.checkFailed = try container.decodeIfPresent(String.self, forKey: .checkFailed)
         self.checkedRecursively = try container.decodeIfPresent(Bool.self, forKey: .checkedRecursively) ?? false
         self.checkedPath = try container.decodeIfPresent(String.self, forKey: .checkedPath)
+        self.openHits = try container.decodeIfPresent([OpenFileHit].self, forKey: .openHits) ?? []
+        self.linkEvidence = try container.decodeIfPresent(FilesystemLinkEvidence.self, forKey: .linkEvidence)
+    }
+}
+
+public extension OpenFileStatus {
+    func withLinkEvidence(_ evidence: FilesystemLinkEvidence, isOpen: Bool? = nil) -> OpenFileStatus {
+        OpenFileStatus(
+            isOpen: isOpen ?? self.isOpen,
+            processSummary: processSummary,
+            checkedAt: checkedAt,
+            checkFailed: checkFailed,
+            checkedRecursively: checkedRecursively,
+            checkedPath: checkedPath,
+            openHits: openHits,
+            linkEvidence: evidence
+        )
     }
 }
 
@@ -461,6 +486,29 @@ public extension Finding {
             openFileStatus: status,
             storageAccounting: storageAccounting,
             measurementCoverage: measurementCoverage
+        )
+    }
+
+    func withMeasurementCoverage(_ coverage: String) -> Finding {
+        Finding(
+            id: id,
+            scopeName: scopeName,
+            path: path,
+            displayName: displayName,
+            logicalSize: logicalSize,
+            allocatedSize: allocatedSize,
+            isDirectory: isDirectory,
+            isSymbolicLink: isSymbolicLink,
+            modificationDate: modificationDate,
+            filesystemIdentity: filesystemIdentity,
+            ownerHint: ownerHint,
+            safetyClass: safetyClass,
+            actionKind: actionKind,
+            ruleMatches: ruleMatches,
+            evidence: evidence,
+            openFileStatus: openFileStatus,
+            storageAccounting: storageAccounting,
+            measurementCoverage: coverage
         )
     }
 }

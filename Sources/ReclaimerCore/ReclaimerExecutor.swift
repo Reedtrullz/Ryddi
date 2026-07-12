@@ -79,8 +79,16 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             )
         }
 
+        let selectedPaths = plan.items.filter(\.selected).map { $0.finding.path }
+        let knownPaths = plan.items.map { $0.finding.path }
         for item in plan.items where item.selected {
-            let action = execute(item: item, mode: mode, userConfirmed: userConfirmed)
+            let action = execute(
+                item: item,
+                mode: mode,
+                userConfirmed: userConfirmed,
+                selectedPaths: selectedPaths,
+                knownPaths: knownPaths
+            )
             if action.status == "error" {
                 errors.append("\(item.finding.path): \(action.message)")
             }
@@ -118,7 +126,13 @@ public final class ReclaimerExecutor: @unchecked Sendable {
         return nil
     }
 
-    private func execute(item: ReclaimPlanItem, mode: ExecutionMode, userConfirmed: Bool) -> ExecutionActionReceipt {
+    private func execute(
+        item: ReclaimPlanItem,
+        mode: ExecutionMode,
+        userConfirmed: Bool,
+        selectedPaths: [String],
+        knownPaths: [String]
+    ) -> ExecutionActionReceipt {
         let finding = item.finding
         let url = URL(fileURLWithPath: finding.path)
 
@@ -142,13 +156,24 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             return validationFailure
         }
 
-        let openStatus = openFileChecker.status(for: url)
-        guard !openStatus.isOpen, openStatus.checkFailed == nil else {
-            let scope = openStatus.checkedRecursively ? "Recursive open-file check" : "Open-file check"
-            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "\(scope) blocked action.")
+        let preflightOpenStatus = finalOpenFileStatus(
+            for: finding,
+            selectedPaths: selectedPaths,
+            knownPaths: knownPaths
+        )
+        if let failure = openFileBlockReason(for: finding, status: preflightOpenStatus) {
+            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: failure)
         }
 
         guard mode == .perform else {
+            let openStatus = finalOpenFileStatus(
+                for: finding,
+                selectedPaths: selectedPaths,
+                knownPaths: knownPaths
+            )
+            if let failure = openFileBlockReason(for: finding, status: openStatus) {
+                return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: failure)
+            }
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "dry-run", message: "Would perform \(item.proposedAction.label).", reclaimedBytes: item.estimatedImmediateReclaim)
         }
         guard userConfirmed else {
@@ -159,6 +184,15 @@ public final class ReclaimerExecutor: @unchecked Sendable {
         }
         if let identityFailure = validateFilesystemIdentity(for: item) {
             return identityFailure
+        }
+
+        let openStatus = finalOpenFileStatus(
+            for: finding,
+            selectedPaths: selectedPaths,
+            knownPaths: knownPaths
+        )
+        if let failure = openFileBlockReason(for: finding, status: openStatus) {
+            return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: failure)
         }
 
         switch item.proposedAction {
@@ -172,6 +206,32 @@ public final class ReclaimerExecutor: @unchecked Sendable {
         case .nativeToolCommand, .openGuidance, .reportOnly:
             return ExecutionActionReceipt(path: finding.path, action: item.proposedAction, status: "skipped", message: "Action is guidance/report-only.")
         }
+    }
+
+    private func finalOpenFileStatus(
+        for finding: Finding,
+        selectedPaths: [String],
+        knownPaths: [String]
+    ) -> OpenFileStatus {
+        let url = URL(fileURLWithPath: finding.path)
+        if let linkAwareChecker = openFileChecker as? LinkAwareOpenFileChecking {
+            return linkAwareChecker.status(for: url, selectedPaths: selectedPaths, knownPaths: knownPaths)
+        }
+        return openFileChecker.status(for: url)
+    }
+
+    private func openFileBlockReason(for finding: Finding, status: OpenFileStatus) -> String? {
+        if let linkFailure = status.linkEvidence?.blockReason {
+            return linkFailure
+        }
+        if finding.isDirectory && !status.checkedRecursively {
+            return "Recursive open-file check blocked action."
+        }
+        guard !status.isOpen, status.checkFailed == nil else {
+            let scope = status.checkedRecursively ? "Recursive open-file check" : "Open-file check"
+            return "\(scope) blocked action."
+        }
+        return nil
     }
 
     private func validateCurrentState(for item: ReclaimPlanItem) -> ExecutionActionReceipt? {

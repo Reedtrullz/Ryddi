@@ -14,15 +14,17 @@ public final class PlanBuilder: @unchecked Sendable {
     }
 
     public func buildPlan(from findings: [Finding], mode: PlanMode = .autoSafeOnly) -> ReclaimPlan {
+        let knownPaths = findings.map(\.path)
+        let potentialSelectedPaths = findings
+            .filter { isSelectionCandidate($0, mode: mode) }
+            .map(\.path)
         let initialItems = findings.map { finding -> ReclaimPlanItem in
-            let findingWithOpenStatus: Finding
-            if let openStatus = finding.openFileStatus {
-                findingWithOpenStatus = finding.withOpenFileStatus(openStatus)
-            } else if requiresOpenFileCheck(finding, mode: mode) {
-                findingWithOpenStatus = finding.withOpenFileStatus(openFileChecker.status(for: URL(fileURLWithPath: finding.path)))
-            } else {
-                findingWithOpenStatus = finding
-            }
+            let findingWithOpenStatus = finding.withOpenFileStatusIfNeeded(
+                openFileChecker: openFileChecker,
+                selectedPaths: potentialSelectedPaths,
+                knownPaths: knownPaths,
+                requiresOpenFileCheck: requiresOpenFileCheck(finding, mode: mode)
+            )
             let conditions = conditions(for: findingWithOpenStatus)
             let selected = shouldSelect(findingWithOpenStatus, mode: mode, conditions: conditions)
             let reclaim = selected ? estimatedReclaim(for: findingWithOpenStatus) : 0
@@ -59,6 +61,16 @@ public final class PlanBuilder: @unchecked Sendable {
         }
     }
 
+    private func isSelectionCandidate(_ finding: Finding, mode: PlanMode) -> Bool {
+        switch mode {
+        case .autoSafeOnly:
+            return finding.safetyClass == .autoSafe && [.deleteCache, .trash].contains(finding.actionKind)
+        case .reviewAll:
+            return [.autoSafe, .safeAfterCondition].contains(finding.safetyClass)
+                && [.deleteCache, .trash, .compress, .quarantineHold].contains(finding.actionKind)
+        }
+    }
+
     private func shouldSelect(_ finding: Finding, mode: PlanMode, conditions: [PlanCondition]) -> Bool {
         guard conditions.allSatisfy(\.isSatisfied) else { return false }
         switch mode {
@@ -73,13 +85,27 @@ public final class PlanBuilder: @unchecked Sendable {
     private func conditions(for finding: Finding) -> [PlanCondition] {
         var conditions: [PlanCondition] = []
         if let open = finding.openFileStatus {
+            let requiresRecursiveCheck = finding.isDirectory
+            let openConditionKind: PlanConditionKind = requiresRecursiveCheck ? .recursiveOpenFileClear : .openFileClear
+            let recursiveEvidenceSatisfied = !requiresRecursiveCheck || open.checkedRecursively
             conditions.append(PlanCondition(
-                kind: open.checkedRecursively ? .recursiveOpenFileClear : .openFileClear,
-                message: open.checkedRecursively ? "No active open file handle in directory tree" : "No active open file handle",
-                isSatisfied: !open.isOpen && open.checkFailed == nil
+                kind: openConditionKind,
+                message: requiresRecursiveCheck ? "No active open file handle in directory tree" : "No active open file handle",
+                isSatisfied: !open.isOpen && open.checkFailed == nil && recursiveEvidenceSatisfied
             ))
             if let failure = open.checkFailed {
-                conditions.append(PlanCondition(kind: .openFileClear, message: "Open-file check failed: \(failure)", isSatisfied: false))
+                conditions.append(PlanCondition(kind: openConditionKind, message: "Open-file check failed: \(failure)", isSatisfied: false))
+            }
+            if let linkFailure = open.linkEvidence?.blockReason {
+                conditions.append(PlanCondition(kind: openConditionKind, message: "Link-aware open-file check failed: \(linkFailure)", isSatisfied: false))
+            }
+            if requiresRecursiveCheck && !open.checkedRecursively {
+                conditions.append(PlanCondition(kind: openConditionKind, message: "Recursive open-file evidence is required for directories", isSatisfied: false))
+            }
+            if let hardLinkCount = finding.filesystemIdentity?.hardLinkCount,
+               hardLinkCount > 1,
+               open.linkEvidence == nil {
+                conditions.append(PlanCondition(kind: openConditionKind, message: "Hard-link identity evidence is missing", isSatisfied: false))
             }
         }
         if finding.safetyClass == .neverTouch || finding.safetyClass == .preserveByDefault {
@@ -233,7 +259,34 @@ public final class PlanBuilder: @unchecked Sendable {
         }
     }
 
-    private func stablePlanID(mode: PlanMode, items: [ReclaimPlanItem]) -> String {
+}
+
+private extension Finding {
+    func withOpenFileStatusIfNeeded(
+        openFileChecker: OpenFileChecking,
+        selectedPaths: [String],
+        knownPaths: [String],
+        requiresOpenFileCheck: Bool
+    ) -> Finding {
+        let url = URL(fileURLWithPath: path)
+        if let linkAwareChecker = openFileChecker as? LinkAwareOpenFileChecking,
+           let existingStatus = openFileStatus,
+           (existingStatus.linkEvidence == nil || (isDirectory && !existingStatus.checkedRecursively)) {
+            return withOpenFileStatus(linkAwareChecker.status(for: url, selectedPaths: selectedPaths, knownPaths: knownPaths))
+        }
+        if let openFileStatus {
+            return withOpenFileStatus(openFileStatus)
+        }
+        guard requiresOpenFileCheck else { return self }
+        if let linkAwareChecker = openFileChecker as? LinkAwareOpenFileChecking {
+            return withOpenFileStatus(linkAwareChecker.status(for: url, selectedPaths: selectedPaths, knownPaths: knownPaths))
+        }
+        return withOpenFileStatus(openFileChecker.status(for: url))
+    }
+}
+
+private extension PlanBuilder {
+    func stablePlanID(mode: PlanMode, items: [ReclaimPlanItem]) -> String {
         let payload = StablePlanPayload(
             mode: mode.rawValue,
             items: items.map(StablePlanItem.init(item:)).sorted()
