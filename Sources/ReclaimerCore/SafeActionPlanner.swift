@@ -2,6 +2,8 @@ import Foundation
 
 public enum SafeActionKind: String, Codable, Hashable, Sendable {
     case homebrewCleanup
+    case dockerBuilderPrune
+    case npmCacheClean
     case auditPrune
     // Retained for decoding historical candidates; the planner now emits Finder review instead.
     case trashAppBundle
@@ -268,6 +270,26 @@ public enum NativeActionAllowlist {
             }
             return .allowed
 
+        case .dockerBuilderPrune:
+            guard isDockerExecutable(command.executable) else {
+                return .blocked("unexpected executable for dockerBuilderPrune")
+            }
+            guard command.arguments == ["builder", "prune", "--force"]
+                || command.arguments == ["system", "df", "-v"] else {
+                return .blocked("unexpected arguments for dockerBuilderPrune")
+            }
+            return .allowed
+
+        case .npmCacheClean:
+            guard isNpmExecutable(command.executable) else {
+                return .blocked("unexpected executable for npmCacheClean")
+            }
+            guard command.arguments == ["cache", "verify"]
+                || command.arguments == ["cache", "clean", "--force"] else {
+                return .blocked("unexpected arguments for npmCacheClean")
+            }
+            return .allowed
+
         case .auditPrune, .trashAppBundle, .packageCacheGuidance, .openFinderReview:
             return .blocked("native command execution is not implemented for \(command.kind.rawValue)")
         }
@@ -276,6 +298,16 @@ public enum NativeActionAllowlist {
     private static func isBrewExecutable(_ executable: String) -> Bool {
         let last = URL(fileURLWithPath: executable).lastPathComponent
         return executable == "brew" || last == "brew"
+    }
+
+    private static func isDockerExecutable(_ executable: String) -> Bool {
+        let last = URL(fileURLWithPath: executable).lastPathComponent
+        return executable == "docker" || last == "docker"
+    }
+
+    private static func isNpmExecutable(_ executable: String) -> Bool {
+        let last = URL(fileURLWithPath: executable).lastPathComponent
+        return executable == "npm" || last == "npm"
     }
 
     private static func isShellExecutable(_ executable: String) -> Bool {

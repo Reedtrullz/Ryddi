@@ -118,6 +118,11 @@
       },
       "evidence": ["Rotated Codex desktop logs are diagnostic noise compared with transcript history."],
       "conditions": ["Skip current-day and open log files; keep a recent retention window."],
+      "conditionGates": ["openFileClear", "minimumAgeRequired", "finalClassificationRequired"],
+      "gateEvidence": {
+        "minimumAgeDays": 3,
+        "retentionPolicy": "Keep the most recent three days of desktop logs."
+      },
       "recovery": "Logs are not generally recoverable after deletion."
     },
     {
@@ -139,6 +144,24 @@
       "recovery": "Codex can regenerate these caches."
     },
     {
+      "id": "chrome.code-sign-clone.review",
+      "title": "Chrome code-sign clone group",
+      "category": "Browser cache",
+      "priority": 780,
+      "safetyClass": "reviewRequired",
+      "actionKind": "openGuidance",
+      "match": {
+        "containsAny": ["/x/com.google.chrome.code_sign_clone"],
+        "suffixAny": [],
+        "basenameAny": [],
+        "pathExtensionAny": []
+      },
+      "evidence": ["Chrome code-sign clones can share hard-linked executable storage; apparent folder size is not an independent reclaim promise."],
+      "conditions": ["Review the clone group, active Chrome handles, and preserved sibling paths before any manual removal."],
+      "conditionGates": ["manualReviewRequired", "finalClassificationRequired"],
+      "recovery": "Keep one verified active helper and restore removed siblings from Chrome's updater if necessary."
+    },
+    {
       "id": "docker.colima.native",
       "title": "Docker or Colima runtime state",
       "category": "Containers",
@@ -154,6 +177,28 @@
       "evidence": ["Container runtime data may include images, volumes, local databases, and VM disks."],
       "conditions": ["Use Docker/Colima prune/reset commands after reviewing project dependencies."],
       "recovery": "Rebuild images/volumes only if source data exists elsewhere."
+    },
+    {
+      "id": "docker.build-cache.native",
+      "title": "Docker build cache",
+      "category": "Containers",
+      "priority": 795,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "nativeToolCommand",
+      "match": {
+        "containsAny": ["docker build cache", "/.colima/docker", "/library/containers/com.docker.docker"],
+        "suffixAny": [],
+        "basenameAny": ["build cache"],
+        "pathExtensionAny": []
+      },
+      "evidence": ["Docker's native inventory can identify reclaimable build cache without touching VM disks, volumes, containers, or images."],
+      "conditions": ["Use the Docker builder preview and review the active Docker context before cleanup."],
+      "conditionGates": ["nativeToolRequired", "finalClassificationRequired"],
+      "gateEvidence": {
+        "nativeToolName": "docker builder prune",
+        "nativePreviewAvailable": true
+      },
+      "recovery": "Docker can rebuild cache layers from project source, but builds may become slower."
     },
     {
       "id": "xcode.derived-data.auto",
@@ -257,6 +302,46 @@
       "evidence": ["Package-manager caches are usually rebuildable, but native prune commands know their stores best."],
       "conditions": ["Prefer native cleanup commands; skip active installs/builds."],
       "recovery": "Packages can be re-downloaded when online."
+    },
+    {
+      "id": "package.npm-cache.native",
+      "title": "npm shared cache",
+      "category": "Developer cache",
+      "priority": 675,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "nativeToolCommand",
+      "match": {
+        "containsAny": ["/.npm/_cacache", "library/caches/npm", "/.npm/_npx"],
+        "suffixAny": [],
+        "basenameAny": ["_cacache", "_npx"],
+        "pathExtensionAny": []
+      },
+      "evidence": ["npm cache and npx sandboxes are shared download state; npm's own verify/clean commands know their layout."],
+      "conditions": ["Finish active installs and npx processes; preview npm cache state before clearing it."],
+      "conditionGates": ["nativeToolRequired", "openFileClear", "finalClassificationRequired"],
+      "gateEvidence": {
+        "nativeToolName": "npm cache clean",
+        "nativePreviewAvailable": true
+      },
+      "recovery": "npm re-downloads packages later; project node_modules, lockfiles, and configuration are not part of this rule."
+    },
+    {
+      "id": "stremio.named-cache.safe-condition",
+      "title": "Stremio server cache",
+      "category": "Application cache",
+      "priority": 640,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "deleteCache",
+      "match": {
+        "containsAny": ["/application support/stremio-server/stremio-cache"],
+        "suffixAny": [],
+        "basenameAny": ["stremio-cache"],
+        "pathExtensionAny": []
+      },
+      "evidence": ["The named Stremio cache leaf can be rebuilt; nearby server state and configuration remain protected by their own paths."],
+      "conditions": ["Quit Stremio server and skip open cache files."],
+      "conditionGates": ["openFileClear", "finalClassificationRequired"],
+      "recovery": "Stremio recreates cache data as media is indexed or played."
     },
     {
       "id": "package.node-modules.review",

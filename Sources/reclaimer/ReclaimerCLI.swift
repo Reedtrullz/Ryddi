@@ -1336,6 +1336,43 @@ struct ReclaimerCLI {
         ) else {
             throw CLIError.message("No native-tool command matched --command-id \(commandID). Run reclaimer native to inspect available command ids.")
         }
+        if let maintenanceAction = NativeMaintenanceAction(rawValue: commandID) {
+            let executor = NativeMaintenanceExecutor(
+                configuration: NativeActionExecutionConfiguration(timeout: options.timeoutSeconds)
+            )
+            let preview = executor.preview(
+                action: maintenanceAction,
+                findingPath: selection.receipt.findingPath,
+                ruleVersion: ruleEngine.version
+            )
+            let maintenanceReceipt = options.dryRun
+                ? preview.receipt
+                : executor.perform(
+                    using: preview,
+                    userConfirmed: options.yes,
+                    findingPath: selection.receipt.findingPath,
+                    ruleVersion: ruleEngine.version
+                )
+            if options.saveAudit {
+                let canonical = NativeMaintenanceReceiptBridge.nativeToolExecutionReceipt(
+                    from: maintenanceReceipt,
+                    action: maintenanceAction,
+                    ruleVersion: ruleEngine.version,
+                    findingPath: selection.receipt.findingPath,
+                    category: selection.receipt.category,
+                    userConfirmed: options.yes
+                )
+                let url = try AuditStore().save(nativeToolExecutionReceipt: canonical)
+                FileHandle.standardError.write(Data("saved native maintenance receipt: \(url.path)\n".utf8))
+            }
+            if options.json {
+                printJSON(maintenanceReceipt)
+            } else {
+                printNativeActionReceipt(maintenanceReceipt)
+            }
+            try requireSuccessfulNativeMaintenanceReceipt(maintenanceReceipt)
+            return
+        }
         let previewEvidence: NativeToolExecutionReceipt?
         let receipt: NativeToolExecutionReceipt
         if !options.dryRun, commandID == "brew.cleanup" {
@@ -1411,6 +1448,13 @@ struct ReclaimerCLI {
         guard receipt.status != "failed" else {
             let detail = receipt.errors.isEmpty ? receipt.message : receipt.errors.joined(separator: " ")
             throw CLIError.message("Native command failed: \(detail)")
+        }
+    }
+
+    private static func requireSuccessfulNativeMaintenanceReceipt(_ receipt: NativeActionReceipt) throws {
+        guard receipt.exitCode == 0, receipt.skippedReason == nil else {
+            let detail = receipt.skippedReason ?? "Command exited with status \(receipt.exitCode.map(String.init) ?? "unknown")."
+            throw CLIError.message("Native maintenance command failed: \(detail)")
         }
     }
 
