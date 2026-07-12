@@ -67,7 +67,7 @@ final class BoundedScanTests: XCTestCase {
         XCTAssertEqual(result.findings.first?.measurementCoverage, ScanCoverageState.complete.rawValue)
     }
 
-    func testMissingRootProducesDegradedCoverage() throws {
+    func testMissingOptionalRootIsReportedWithoutDegradingCoverage() throws {
         let missing = root.appendingPathComponent("does-not-exist")
         let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
         let result = scanner.scanWithCoverage(
@@ -75,10 +75,12 @@ final class BoundedScanTests: XCTestCase {
             options: ScanOptions(measurementItemBudget: 10)
         )
 
-        XCTAssertEqual(result.coverage.state, .degraded)
+        XCTAssertEqual(result.coverage.state, .complete)
         XCTAssertEqual(result.coverage.rootsVisited, 1)
-        XCTAssertEqual(result.coverage.rootsDenied, 1)
-        XCTAssertTrue(result.coverage.evidence.joined(separator: " ").localizedCaseInsensitiveContains("unreadable"))
+        XCTAssertEqual(result.coverage.rootsMissing, 1)
+        XCTAssertEqual(result.coverage.rootsPermissionDenied, 0)
+        XCTAssertEqual(result.coverage.rootsDenied, 0)
+        XCTAssertTrue(result.coverage.evidence.joined(separator: " ").localizedCaseInsensitiveContains("not present"))
     }
 
     func testHardLinksAreMeasuredOnceWhenDeduplicationEnabled() throws {

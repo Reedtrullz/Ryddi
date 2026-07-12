@@ -45,7 +45,8 @@ private final class ScanMeasurementContext {
     private(set) var measuredItemCount = 0
     private(set) var skippedItemCount = 0
     private(set) var rootsVisited = 0
-    private(set) var rootsDenied = 0
+    private(set) var rootsMissing = 0
+    private(set) var rootsPermissionDenied = 0
     private(set) var hardLinkIdentityKeys: Set<String> = []
 
     init(requestedBudget: Int) {
@@ -56,15 +57,16 @@ private final class ScanMeasurementContext {
         measuredItemCount >= requestedBudget
     }
 
-    func visitRoot(denied: Bool = false) {
+    func visitRoot() {
         rootsVisited += 1
-        if denied {
-            rootsDenied += 1
-        }
     }
 
-    func recordDeniedRoot() {
-        rootsDenied += 1
+    func recordMissingRoot() {
+        rootsMissing += 1
+    }
+
+    func recordPermissionDeniedRoot() {
+        rootsPermissionDenied += 1
     }
 
     func reserveItem() -> Bool {
@@ -90,7 +92,7 @@ private final class ScanMeasurementContext {
 
     func coverage(maximumMeasurementDepth: Int) -> ScanCoverage {
         let state: ScanCoverageState
-        if rootsDenied > 0 {
+        if rootsPermissionDenied > 0 {
             state = .degraded
         } else if skippedItemCount > 0 || budgetExhausted {
             state = .bounded
@@ -98,8 +100,11 @@ private final class ScanMeasurementContext {
             state = .complete
         }
         var evidence = [String]()
-        if rootsDenied > 0 {
-            evidence.append("\(rootsDenied) scan root(s) were unreadable or missing.")
+        if rootsMissing > 0 {
+            evidence.append("\(rootsMissing) optional scan root(s) were not present on this Mac.")
+        }
+        if rootsPermissionDenied > 0 {
+            evidence.append("\(rootsPermissionDenied) scan root(s) could not be read because permission was denied.")
         }
         if skippedItemCount > 0 || budgetExhausted {
             evidence.append("Measurement stopped at \(requestedBudget) item(s); run a targeted rescan for exact local evidence.")
@@ -110,8 +115,10 @@ private final class ScanMeasurementContext {
             measuredItemCount: measuredItemCount,
             skippedItemCount: skippedItemCount,
             rootsVisited: rootsVisited,
-            rootsDenied: rootsDenied,
+            rootsDenied: rootsPermissionDenied,
             maximumMeasurementDepth: maximumMeasurementDepth,
+            rootsMissing: rootsMissing,
+            rootsPermissionDenied: rootsPermissionDenied,
             evidence: evidence
         )
     }
@@ -121,15 +128,33 @@ public final class FileScanner: @unchecked Sendable {
     private let fileManager: FileManager
     private let ruleEngine: RuleEngine
     private let openFileChecker: OpenFileChecking
+    private let scopeReadabilityProvider: (URL, FileManager) -> ScopeReadability
 
-    public init(
+    public convenience init(
         fileManager: FileManager = .default,
         ruleEngine: RuleEngine? = nil,
         openFileChecker: OpenFileChecking = LsofOpenFileChecker()
     ) throws {
+        try self.init(
+            fileManager: fileManager,
+            ruleEngine: ruleEngine,
+            openFileChecker: openFileChecker,
+            scopeReadabilityProvider: { root, fileManager in
+                PermissionAdvisor.scopeReadability(at: root, fileManager: fileManager)
+            }
+        )
+    }
+
+    init(
+        fileManager: FileManager = .default,
+        ruleEngine: RuleEngine? = nil,
+        openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
+        scopeReadabilityProvider: @escaping (URL, FileManager) -> ScopeReadability
+    ) throws {
         self.fileManager = fileManager
         self.ruleEngine = try ruleEngine ?? RuleEngine.bundled()
         self.openFileChecker = openFileChecker
+        self.scopeReadabilityProvider = scopeReadabilityProvider
     }
 
     public func scan(scopes: [ScanScope], options: ScanOptions = ScanOptions()) -> [Finding] {
@@ -157,32 +182,38 @@ public final class FileScanner: @unchecked Sendable {
             return []
         }
 
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) else {
-            context.recordDeniedRoot()
+        switch scopeReadabilityProvider(root, fileManager) {
+        case .missing:
+            context.recordMissingRoot()
             return [
                 permissionFinding(scope: scope, state: .missing, message: "Path does not exist.")
             ]
-        }
-
-        guard fileManager.isReadableFile(atPath: root.path) else {
-            context.recordDeniedRoot()
+        case .permissionDenied, .unknown:
+            context.recordPermissionDeniedRoot()
             return [
                 permissionFinding(scope: scope, state: .denied, message: "Path is not readable with current permissions.")
             ]
+        case .readable:
+            break
         }
+
+        var isDirectory: ObjCBool = false
+        _ = fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory)
 
         if !isDirectory.boolValue {
             return [makeFinding(scope: scope, url: root, depth: 0, options: options, context: context)]
         }
 
         var findings = [makeFinding(scope: scope, url: root, depth: 0, options: options, context: context)]
-        guard let children = try? fileManager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: resourceKeys,
-            options: [.skipsPackageDescendants]
-        ) else {
-            context.recordDeniedRoot()
+        let children: [URL]
+        do {
+            children = try fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: resourceKeys,
+                options: [.skipsPackageDescendants]
+            )
+        } catch {
+            context.recordPermissionDeniedRoot()
             findings.append(permissionFinding(scope: scope, state: .denied, message: "Could not list directory contents."))
             return findings
         }

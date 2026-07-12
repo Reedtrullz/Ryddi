@@ -21,6 +21,8 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
     public let skippedItemCount: Int
     public let rootsVisited: Int
     public let rootsDenied: Int
+    public let rootsMissing: Int
+    public let rootsPermissionDenied: Int
     public let maximumMeasurementDepth: Int
     public let evidence: [String]
 
@@ -32,16 +34,62 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         rootsVisited: Int,
         rootsDenied: Int,
         maximumMeasurementDepth: Int,
+        rootsMissing: Int = 0,
+        rootsPermissionDenied: Int? = nil,
         evidence: [String] = []
     ) {
+        let permissionDenied = rootsPermissionDenied ?? rootsDenied
         self.state = state
         self.requestedItemBudget = requestedItemBudget
         self.measuredItemCount = measuredItemCount
         self.skippedItemCount = skippedItemCount
         self.rootsVisited = rootsVisited
-        self.rootsDenied = rootsDenied
+        self.rootsDenied = permissionDenied
+        self.rootsMissing = rootsMissing
+        self.rootsPermissionDenied = permissionDenied
         self.maximumMeasurementDepth = maximumMeasurementDepth
         self.evidence = evidence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case state
+        case requestedItemBudget
+        case measuredItemCount
+        case skippedItemCount
+        case rootsVisited
+        case rootsDenied
+        case rootsMissing
+        case rootsPermissionDenied
+        case maximumMeasurementDepth
+        case evidence
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        state = try container.decode(ScanCoverageState.self, forKey: .state)
+        requestedItemBudget = try container.decode(Int.self, forKey: .requestedItemBudget)
+        measuredItemCount = try container.decode(Int.self, forKey: .measuredItemCount)
+        skippedItemCount = try container.decode(Int.self, forKey: .skippedItemCount)
+        rootsVisited = try container.decode(Int.self, forKey: .rootsVisited)
+        rootsDenied = try container.decode(Int.self, forKey: .rootsDenied)
+        rootsMissing = try container.decodeIfPresent(Int.self, forKey: .rootsMissing) ?? 0
+        rootsPermissionDenied = try container.decodeIfPresent(Int.self, forKey: .rootsPermissionDenied) ?? 0
+        maximumMeasurementDepth = try container.decode(Int.self, forKey: .maximumMeasurementDepth)
+        evidence = try container.decodeIfPresent([String].self, forKey: .evidence) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(state, forKey: .state)
+        try container.encode(requestedItemBudget, forKey: .requestedItemBudget)
+        try container.encode(measuredItemCount, forKey: .measuredItemCount)
+        try container.encode(skippedItemCount, forKey: .skippedItemCount)
+        try container.encode(rootsVisited, forKey: .rootsVisited)
+        try container.encode(rootsPermissionDenied, forKey: .rootsDenied)
+        try container.encode(rootsMissing, forKey: .rootsMissing)
+        try container.encode(rootsPermissionDenied, forKey: .rootsPermissionDenied)
+        try container.encode(maximumMeasurementDepth, forKey: .maximumMeasurementDepth)
+        try container.encode(evidence, forKey: .evidence)
     }
 
     public var nonClaim: String {

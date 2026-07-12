@@ -4666,14 +4666,14 @@ struct PermissionOnboardingView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Permissions")
                     .font(.largeTitle.bold())
-                Text("Ryddi can still scan in degraded mode. This page shows what macOS currently lets it read and what evidence is missing.")
+                Text("Permission-required scopes limit scan coverage. Optional paths unavailable on this Mac are reported separately and do not require permission changes.")
                     .foregroundStyle(.secondary)
 
                 LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
                     MetricTile(title: "Coverage", value: model.permissionReport.coverageLevel.label)
                     MetricTile(title: "Readable", value: "\(model.permissionReport.readableCount)")
-                    MetricTile(title: "Denied", value: "\(model.permissionReport.deniedCount)")
-                    MetricTile(title: "Optional Missing", value: "\(model.permissionReport.missingCount)")
+                    MetricTile(title: "Permission required", value: "\(model.permissionReport.deniedCount)")
+                    MetricTile(title: "Unavailable on this Mac", value: "\(model.permissionReport.missingCount)")
                 }
 
                 PermissionAccessHelperPanel(
@@ -4685,12 +4685,17 @@ struct PermissionOnboardingView: View {
                     ForEach(model.permissionReport.recommendedActions, id: \.self) { action in
                         Text(action)
                     }
-                    Button {
-                        PathActions.openFullDiskAccessSettings()
-                    } label: {
-                        Label("Open Full Disk Access Settings", systemImage: "lock.shield")
+                    if model.permissionReport.needsFullDiskAccessReview {
+                        Button {
+                            PathActions.openFullDiskAccessSettings()
+                        } label: {
+                            Label("Open Full Disk Access Settings", systemImage: "lock.shield")
+                        }
+                        .help("Open macOS Privacy & Security settings for Full Disk Access")
+                    } else if model.permissionReport.missingCount > 0 {
+                        Text("Unavailable optional paths need no System Settings change.")
+                            .foregroundStyle(.secondary)
                     }
-                    .help("Open macOS Privacy & Security settings for Full Disk Access")
                 }
 
                 SectionBox(title: "First-run Walkthrough") {
@@ -4705,10 +4710,10 @@ struct PermissionOnboardingView: View {
                 SectionBox(title: "Scope Readback") {
                     ForEach(model.permissionReport.scopeSummaries) { scope in
                         HStack(alignment: .firstTextBaseline) {
-                            Text(scope.permissionState.rawValue)
+                            Text(scopeStatusLabel(scope.permissionState))
                                 .font(.caption.bold())
                                 .foregroundStyle(scope.permissionState == .readable ? .green : .orange)
-                                .frame(width: 78, alignment: .leading)
+                                .frame(width: 142, alignment: .leading)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(scope.name)
                                     .font(.headline)
@@ -4733,6 +4738,15 @@ struct PermissionOnboardingView: View {
                 }
             }
             .padding(24)
+        }
+    }
+
+    private func scopeStatusLabel(_ state: PermissionState) -> String {
+        switch state {
+        case .readable: "Readable"
+        case .missing: "Unavailable on this Mac"
+        case .denied: "Permission required"
+        case .unknown: "Not checked"
         }
     }
 }

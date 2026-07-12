@@ -1,5 +1,37 @@
 import Foundation
 
+public enum ScopeReadability: Hashable, Sendable {
+    case readable
+    case missing
+    case permissionDenied
+    case unknown
+
+    public static func classify(error: Error) -> ScopeReadability {
+        let error = error as NSError
+        if error.domain == NSPOSIXErrorDomain {
+            switch Int32(error.code) {
+            case ENOENT, ENOTDIR:
+                return .missing
+            case EACCES, EPERM:
+                return .permissionDenied
+            default:
+                return .unknown
+            }
+        }
+        if error.domain == NSCocoaErrorDomain {
+            switch CocoaError.Code(rawValue: error.code) {
+            case .fileNoSuchFile:
+                return .missing
+            case .fileReadNoPermission, .fileWriteNoPermission:
+                return .permissionDenied
+            default:
+                return .unknown
+            }
+        }
+        return .unknown
+    }
+}
+
 public enum PermissionCoverageLevel: String, Codable, CaseIterable, Hashable, Sendable {
     case complete
     case degraded
@@ -111,6 +143,14 @@ public enum PermissionAdvisor {
         report(scopeSummaries: scopeSummaries(scopes: scopes, fileManager: fileManager), now: now)
     }
 
+    public static func scopeReadability(at root: URL, fileManager: FileManager = .default) -> ScopeReadability {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) else {
+            return .missing
+        }
+        return fileManager.isReadableFile(atPath: root.path) ? .readable : .permissionDenied
+    }
+
     public static func report(
         scopeSummaries: [ScopeAccessSummary],
         now: Date = Date()
@@ -198,29 +238,37 @@ public enum PermissionAdvisor {
         scopes.map { scope in
             var isDirectory: ObjCBool = false
             let root = scope.root.standardizedFileURL
-            let exists = fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory)
-            if !exists {
+            _ = fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory)
+            switch scopeReadability(at: root, fileManager: fileManager) {
+            case .missing:
                 return ScopeAccessSummary(
                     name: scope.name,
                     path: root.path,
                     permissionState: .missing,
                     message: "Path is not present on this Mac."
                 )
-            }
-            if !fileManager.isReadableFile(atPath: root.path) {
+            case .permissionDenied:
                 return ScopeAccessSummary(
                     name: scope.name,
                     path: root.path,
                     permissionState: .denied,
                     message: "Path exists but is not readable with current permissions."
                 )
+            case .unknown:
+                return ScopeAccessSummary(
+                    name: scope.name,
+                    path: root.path,
+                    permissionState: .unknown,
+                    message: "Path readability could not be determined."
+                )
+            case .readable:
+                return ScopeAccessSummary(
+                    name: scope.name,
+                    path: root.path,
+                    permissionState: .readable,
+                    message: isDirectory.boolValue ? "Directory is readable." : "File is readable."
+                )
             }
-            return ScopeAccessSummary(
-                name: scope.name,
-                path: root.path,
-                permissionState: .readable,
-                message: isDirectory.boolValue ? "Directory is readable." : "File is readable."
-            )
         }
     }
 }
