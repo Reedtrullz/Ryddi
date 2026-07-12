@@ -1,5 +1,5 @@
 {
-  "version": "2026.07.05-mvp1",
+  "version": "2026.07.12-v0.3-trash1",
   "rules": [
     {
       "id": "system.app-bundles.never",
@@ -131,7 +131,7 @@
       "category": "Codex",
       "priority": 700,
       "safetyClass": "autoSafe",
-      "actionKind": "deleteCache",
+      "actionKind": "trash",
       "match": {
         "containsAny": ["/library/caches/codex", "/.codex/.tmp", "/.codex/cache"],
         "suffixAny": [],
@@ -468,7 +468,7 @@
       "category": "Temporary files",
       "priority": 710,
       "safetyClass": "autoSafe",
-      "actionKind": "deleteCache",
+      "actionKind": "trash",
       "match": {
         "containsAny": ["/private/tmp/vifty", "/private/tmp/codex", "/private/tmp/swift-package", "/private/tmp/xcode"],
         "suffixAny": [],

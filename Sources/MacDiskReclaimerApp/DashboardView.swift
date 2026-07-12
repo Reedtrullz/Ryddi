@@ -93,6 +93,16 @@ struct DashboardView: View {
             }
         }
         .focusedSceneValue(\.dashboardCommandActions, commandActions)
+        .sheet(item: $model.pendingTrashConfirmation, onDismiss: {
+            Task { await model.cancelPendingTrashExecution() }
+        }) { request in
+            TrashConfirmationView(
+                request: request,
+                isExecuting: model.isWorking,
+                onCancel: { Task { await model.cancelPendingTrashExecution() } },
+                onConfirm: { Task { await model.executeConfirmedTrash() } }
+            )
+        }
         .toolbar {
             Picker("Scan Mode", selection: Binding(
                 get: { model.scanPreset },

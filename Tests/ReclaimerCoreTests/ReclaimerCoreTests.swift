@@ -41,7 +41,7 @@ final class ReclaimerCoreTests: XCTestCase {
             isSymbolicLink: false
         )
         XCTAssertEqual(cache.safetyClass, .autoSafe)
-        XCTAssertEqual(cache.actionKind, .deleteCache)
+        XCTAssertEqual(cache.actionKind, .trash)
     }
 
     func testRuleEngineLocatesRulesInSignedAppResourceLayout() throws {
@@ -195,7 +195,7 @@ final class ReclaimerCoreTests: XCTestCase {
     func testRuleCatalogExplainsSafetyBucketsAndNeverTouchRules() throws {
         let catalog = try RuleEngine.bundled().catalog(generatedAt: Date(timeIntervalSince1970: 0))
 
-        XCTAssertEqual(catalog.ruleVersion, "2026.07.05-mvp1")
+        XCTAssertEqual(catalog.ruleVersion, "2026.07.12-v0.3-trash1")
         XCTAssertGreaterThan(catalog.ruleCount, 10)
         XCTAssertEqual(catalog.userRuleCount, 0)
         XCTAssertTrue(catalog.safetySummaries.contains { $0.name == SafetyClass.neverTouch.label && $0.count > 0 })
@@ -5102,7 +5102,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: cacheRoot.path))
         XCTAssertTrue(receipt.actions.contains {
             $0.status == "skipped"
-                && $0.action == .deleteCache
+                && $0.action == .trash
                 && $0.message.localizedCaseInsensitiveContains("identity-bound")
         })
     }
@@ -5178,7 +5178,7 @@ final class ReclaimerCoreTests: XCTestCase {
         let plannedFinding = finding(
             path: cache.path,
             safety: .autoSafe,
-            action: .deleteCache,
+            action: .trash,
             open: false,
             conditionGates: [.openFileClear],
             allocatedSize: 128,
@@ -5190,7 +5190,7 @@ final class ReclaimerCoreTests: XCTestCase {
                 ReclaimPlanItem(
                     finding: plannedFinding,
                     selected: true,
-                    proposedAction: .deleteCache,
+                    proposedAction: .trash,
                     conditions: [PlanCondition(kind: .openFileClear, message: "fixture", isSatisfied: true)],
                     estimatedImmediateReclaim: 128
                 )
@@ -5329,7 +5329,14 @@ final class ReclaimerCoreTests: XCTestCase {
             beforeFreeBytes: nil,
             afterFreeBytes: nil,
             actions: [
-                ExecutionActionReceipt(path: "/tmp/trashed-cache", action: .trash, status: "done", message: "Moved to Trash.", reclaimedBytes: 20),
+                ExecutionActionReceipt(
+                    path: "/tmp/trashed-cache",
+                    action: .trash,
+                    status: "done",
+                    message: "Moved to Trash.",
+                    reclaimedBytes: 0,
+                    resultingPath: "/Users/example/.Trash/trashed-cache"
+                ),
                 ExecutionActionReceipt(path: "/tmp/deleted-cache", action: .deleteCache, status: "done", message: "Deleted cache.", reclaimedBytes: 30),
                 ExecutionActionReceipt(path: "/tmp/native-cache", action: .nativeToolCommand, status: "done", message: "Use native cleanup.", reclaimedBytes: 40),
                 ExecutionActionReceipt(path: "/tmp/skipped-cache", action: .deleteCache, status: "skipped", message: "Open file.", reclaimedBytes: 0)
@@ -5372,6 +5379,7 @@ final class ReclaimerCoreTests: XCTestCase {
             .dryRunOnly
         ])
         XCTAssertTrue(report.items.contains { $0.state == .trashReview && $0.guidance.contains { $0.contains("Finder Trash") } })
+        XCTAssertTrue(report.items.contains { $0.state == .trashReview && $0.currentPath == "/Users/example/.Trash/trashed-cache" })
         XCTAssertTrue(report.items.contains { $0.state == .notRecoverableByRyddi && $0.guidance.contains { $0.contains("rebuild the cache") } })
 
         XCTAssertThrowsError(try store.restore(id: heldID)) { error in

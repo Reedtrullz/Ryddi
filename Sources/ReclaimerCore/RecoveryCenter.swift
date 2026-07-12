@@ -213,7 +213,7 @@ public enum RecoveryCenter {
             state: state,
             title: URL(fileURLWithPath: action.path).lastPathComponent,
             originalPath: action.path,
-            currentPath: nil,
+            currentPath: action.resultingPath,
             receiptID: receipt.id,
             receiptCreatedAt: receipt.createdAt,
             receiptMode: receipt.mode,

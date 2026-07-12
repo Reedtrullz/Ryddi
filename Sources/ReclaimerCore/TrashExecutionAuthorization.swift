@@ -119,6 +119,99 @@ public enum TrashExecutionAuthorizationError: Error, Equatable, Sendable {
     case authorizationUnavailable
 }
 
+public enum TrashExecutionReadinessState: String, Codable, Hashable, Sendable {
+    case ready
+    case missingEvidence
+    case staleEvidence
+    case uncleanDryRun
+    case ineligibleSelection
+}
+
+public struct TrashExecutionReadiness: Codable, Hashable, Sendable {
+    public let state: TrashExecutionReadinessState
+    public let reason: String
+    public let itemCount: Int
+    public let estimatedBytes: Int64
+
+    public var isReady: Bool { state == .ready }
+
+    public static func evaluate(
+        session: ScanSession?,
+        plan: ReclaimPlan?,
+        dryRunReceipt: ExecutionReceipt?
+    ) -> TrashExecutionReadiness {
+        guard let session, let plan, let dryRunReceipt else {
+            return result(.missingEvidence, "Scan, plan, and dry-run evidence are required.")
+        }
+        guard [.dryRunReady, .reclaimReady].contains(session.stage),
+              session.invalidationReasons.isEmpty,
+              session.planDigest == plan.id,
+              session.dryRunReceiptID == dryRunReceipt.id else {
+            return result(.staleEvidence, "The plan or dry-run evidence is no longer current.")
+        }
+        guard dryRunReceipt.mode == ExecutionMode.dryRun.rawValue,
+              dryRunReceipt.errors.isEmpty,
+              !dryRunReceipt.userConfirmed else {
+            return result(.uncleanDryRun, "Run a clean dry run before moving anything to Trash.")
+        }
+        let selected = plan.items.filter(\.selected)
+        guard !selected.isEmpty,
+              selected.allSatisfy({ item in
+                  item.finding.safetyClass == .autoSafe
+                      && item.finding.actionKind == .trash
+                      && item.proposedAction == .trash
+                      && item.conditions.allSatisfy(\.isSatisfied)
+                      && !item.finding.ruleMatches.contains(where: {
+                          $0.safetyClass == .preserveByDefault || $0.safetyClass == .neverTouch
+                      })
+                      && !isProtectedTrashPath(item.finding.path)
+              }) else {
+            return result(.ineligibleSelection, "Only selected auto-safe, recoverable Trash actions can run here.")
+        }
+        let expectedActions = selected.map {
+            "\(URL(fileURLWithPath: $0.finding.path).standardizedFileURL.path)\u{0}\($0.proposedAction.rawValue)\u{0}dry-run"
+        }.sorted()
+        let actualActions = dryRunReceipt.actions.map {
+            "\(URL(fileURLWithPath: $0.path).standardizedFileURL.path)\u{0}\($0.action.rawValue)\u{0}\($0.status)"
+        }.sorted()
+        guard expectedActions.count == actualActions.count,
+              expectedActions == actualActions else {
+            return result(.staleEvidence, "The dry-run actions do not match the selected plan.")
+        }
+        return TrashExecutionReadiness(
+            state: .ready,
+            reason: "A matching clean dry run is ready for explicit Trash confirmation.",
+            itemCount: selected.count,
+            estimatedBytes: selected.reduce(0) { $0 + $1.finding.allocatedSize }
+        )
+    }
+
+    private static func result(_ state: TrashExecutionReadinessState, _ reason: String) -> TrashExecutionReadiness {
+        TrashExecutionReadiness(state: state, reason: reason, itemCount: 0, estimatedBytes: 0)
+    }
+}
+
+extension TrashExecutionAuthorizationError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .sessionNotReclaimReady: "The current scan session is not ready for reclaim."
+        case .sessionInvalidated: "The current scan session was invalidated."
+        case .planMismatch: "The current plan no longer matches the scan session."
+        case .dryRunReceiptMismatch: "The dry-run receipt no longer matches the plan."
+        case .uncleanDryRunReceipt: "A clean dry run is required."
+        case .dryRunActionsMismatch: "The dry-run actions no longer match the selected items."
+        case .noSelectedTrashItems: "No selected Trash items are available."
+        case .ineligibleFinding: "A selected item is not eligible for recoverable Trash execution."
+        case .unsatisfiedConditions: "A selected item's safety conditions are not satisfied."
+        case .protectedRuleEvidence: "A selected item has protected rule evidence."
+        case .protectedPath: "A selected path is protected by Ryddi's never-touch policy."
+        case .duplicateFindingID: "The plan contains a duplicate finding identifier."
+        case .authorizationExpired: "The one-time Trash authorization expired."
+        case .authorizationUnavailable: "The one-time Trash authorization is unavailable or already used."
+        }
+    }
+}
+
 public actor TrashExecutionAuthorizationRegistry {
     public static let validityDuration: TimeInterval = 15 * 60
 
@@ -194,6 +287,10 @@ public actor TrashExecutionAuthorizationRegistry {
             throw TrashExecutionAuthorizationError.authorizationExpired
         }
         return authorization
+    }
+
+    public func revoke(id: UUID) {
+        authorizations.removeValue(forKey: id)
     }
 
     private func validate(_ item: ReclaimPlanItem) throws {

@@ -88,8 +88,16 @@ struct GuidedSummaryView: View {
 
     private var reclaimBlockedReasons: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Final removal stays manual")
+            Text(canExecuteCoreReclaim ? "Recoverable cleanup is ready" : "Cleanup safety checks")
                 .font(.headline)
+
+            if let message = model.trashExecutionMessage {
+                Label(message, systemImage: "checkmark.circle")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.green)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("trash-execution.result")
+            }
 
             ForEach(reclaimBlockReasons, id: \.self) { reason in
                 Label(reason, systemImage: "hand.raised")
@@ -164,7 +172,11 @@ struct GuidedSummaryView: View {
             "summary.plan-button"
         case .dryRun:
             "summary.dry-run-button"
-        case .openReviewQueue, .reclaim, .actionCenter:
+        case .reclaim:
+            "summary.reclaim-button"
+        case .actionCenter(let action) where action.kind == .executeSafePlan:
+            "summary.reclaim-button"
+        case .openReviewQueue, .actionCenter:
             "summary.manual-review-button"
         case .openPermissions:
             "summary.permissions-button"
@@ -241,11 +253,17 @@ struct GuidedSummaryView: View {
     }
 
     private var canExecuteCoreReclaim: Bool {
-        false
+        model.trashExecutionReadiness.isReady
     }
 
     private var reclaimBlockReasons: [String] {
-        var reasons = ["Ryddi verifies and explains candidates, but final file removal remains an explicit Finder action in this build."]
+        if canExecuteCoreReclaim {
+            return [
+                model.trashExecutionReadiness.reason,
+                "Nothing moves until you review every selected path and confirm the one-time Trash action."
+            ]
+        }
+        var reasons = [model.trashExecutionReadiness.reason]
         reasons += report.actions
             .filter { $0.kind != .executeSafePlan }
             .map(\.reason)
@@ -313,7 +331,7 @@ struct GuidedSummaryView: View {
         case .dryRun:
             Task { await model.runDryRun() }
         case .reclaim:
-            navigate("Queues")
+            Task { await model.prepareTrashExecution() }
         case .openReviewQueue:
             navigate("Queues")
         case .openPermissions:
@@ -337,7 +355,7 @@ struct GuidedSummaryView: View {
         case .runDryRun:
             Task { await model.runDryRun() }
         case .executeSafePlan:
-            navigate("Queues")
+            Task { await model.prepareTrashExecution() }
         case .quitApp:
             navigate(action.id.hasPrefix("browser-cache.") ? "Browsers" : "Active")
         case .useNativeTool:

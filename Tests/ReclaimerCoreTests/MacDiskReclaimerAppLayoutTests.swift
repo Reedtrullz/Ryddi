@@ -75,12 +75,34 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(model.contains("@Observable"))
         XCTAssertTrue(model.contains("final class DashboardModel"))
         XCTAssertTrue(scanPlan.contains("func scan() async"))
-        XCTAssertFalse(scanPlan.contains("func reclaimSelected() async"))
+        XCTAssertTrue(scanPlan.contains("func prepareTrashExecution() async"))
+        XCTAssertTrue(scanPlan.contains("func executeConfirmedTrash() async"))
         XCTAssertTrue(audit.contains("func loadAudit()"))
         XCTAssertTrue(audit.contains("func loadRecovery()"))
         XCTAssertTrue(reviews.contains("func reviewApps("))
         XCTAssertTrue(remote.contains("func probeRemoteTarget("))
         XCTAssertTrue(exports.contains("func exportEvidenceReport("))
+    }
+
+    func testRecoverableTrashUsesExplicitConfirmationSheet() throws {
+        let appSourceDirectory = repoRoot().appendingPathComponent("Sources/MacDiskReclaimerApp")
+        let confirmation = try String(
+            contentsOf: appSourceDirectory.appendingPathComponent("TrashConfirmationView.swift"),
+            encoding: .utf8
+        )
+        let summary = try String(
+            contentsOf: appSourceDirectory.appendingPathComponent("GuidedSummaryView.swift"),
+            encoding: .utf8
+        )
+        let dashboard = try dashboardViewSource()
+
+        XCTAssertTrue(confirmation.contains("struct TrashConfirmationView: View"))
+        XCTAssertTrue(confirmation.contains("I reviewed every item above"))
+        XCTAssertTrue(confirmation.contains("trash-confirmation.confirm"))
+        XCTAssertTrue(confirmation.contains("trash-confirmation.cancel"))
+        XCTAssertTrue(dashboard.contains("pendingTrashConfirmation"))
+        XCTAssertTrue(summary.contains("prepareTrashExecution"))
+        XCTAssertFalse(summary.contains("private var canExecuteCoreReclaim: Bool {\n        false"))
     }
 
     func testDashboardNavigationUsesTypedSectionsAndSceneStorage() throws {
@@ -546,13 +568,13 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
-    func testAppFilesystemPerformPathIsRemovedInFavorOfManualReview() throws {
+    func testAppFilesystemPerformPathIsCapabilityBoundTrashOnly() throws {
         let source = try dashboardModelScanPlanSource()
 
-        XCTAssertFalse(
-            source.contains("func reclaimSelected() async") || source.contains("mode: .perform"),
-            "The app must not expose a core filesystem perform path while identity-bound mutation is unavailable."
-        )
+        XCTAssertTrue(source.contains("executeAuthorizedTrash"))
+        XCTAssertTrue(source.contains("trashExecutionAuthorizationRegistry"))
+        XCTAssertTrue(source.contains("userConfirmed: true"))
+        XCTAssertFalse(source.contains("mode: .perform"))
     }
 
     func testHoldingAreaDoesNotExposeAutomaticRestoreOrExpiry() throws {

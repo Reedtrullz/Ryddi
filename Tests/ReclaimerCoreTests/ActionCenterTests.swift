@@ -78,7 +78,7 @@ final class ActionCenterTests: XCTestCase {
         XCTAssertEqual(primary.estimatedReclaimBytes, 2_000)
     }
 
-    func testCleanDryRunWithSafeBytesSelectsManualSafePlanReview() throws {
+    func testCleanDryRunWithRecoverableTrashSelectsExplicitExecution() throws {
         let plan = ReclaimPlan.fixture(expectedReclaim: 3_000)
         let receipt = ExecutionReceipt.fixture(mode: ExecutionMode.dryRun.rawValue, status: "dry-run", reclaimedBytes: 3_000)
 
@@ -89,10 +89,10 @@ final class ActionCenterTests: XCTestCase {
         ))
 
         let primary = try XCTUnwrap(report.primaryAction)
-        XCTAssertEqual(primary.kind, .reviewQueue)
-        XCTAssertEqual(primary.title, "Review Safe Plan")
-        XCTAssertFalse(primary.isDestructive)
-        XCTAssertEqual(primary.estimatedReclaimBytes, 3_000)
+        XCTAssertEqual(primary.kind, .executeSafePlan)
+        XCTAssertEqual(primary.title, "Move 1 Item to Trash")
+        XCTAssertTrue(primary.isDestructive)
+        XCTAssertEqual(primary.estimatedReclaimBytes, 0)
         XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("apfs") })
     }
 
@@ -278,7 +278,13 @@ final class ActionCenterTests: XCTestCase {
             allocatedSize: 4_000
         )
         let plan = ReclaimPlan.fixture(finding: safeFinding, selected: true, proposedAction: .trash, estimatedReclaim: 4_000)
-        let receipt = ExecutionReceipt.fixture(id: "receipt-current", mode: ExecutionMode.dryRun.rawValue, status: "dry-run", reclaimedBytes: 4_000)
+        let receipt = ExecutionReceipt.fixture(
+            id: "receipt-current",
+            mode: ExecutionMode.dryRun.rawValue,
+            status: "dry-run",
+            reclaimedBytes: 4_000,
+            path: safeFinding.path
+        )
 
         let report = ActionCenterBuilder.build(input: .fixture(
             latestScanSession: .fixture(stage: .dryRunReady, findingDigest: "findings-v1", planDigest: plan.id, dryRunReceiptID: receipt.id),
@@ -286,7 +292,64 @@ final class ActionCenterTests: XCTestCase {
             latestExecutionReceipt: receipt
         ))
 
-        XCTAssertTrue(report.actions.contains { $0.id.contains("manual-review") && $0.kind == .reviewQueue })
+        XCTAssertTrue(report.actions.contains { $0.id.contains("trash-confirmation") && $0.kind == .executeSafePlan })
+    }
+
+    func testDeleteCacheDryRunDoesNotCreateExecutableAction() throws {
+        let finding = Finding.fixture(
+            path: "/Users/example/Library/Caches/irreversible-cache",
+            safetyClass: .autoSafe,
+            actionKind: .deleteCache,
+            allocatedSize: 4_000
+        )
+        let plan = ReclaimPlan.fixture(
+            finding: finding,
+            selected: true,
+            proposedAction: .deleteCache,
+            estimatedReclaim: 4_000
+        )
+        let receipt = ExecutionReceipt.fixture(
+            id: "receipt-current",
+            mode: ExecutionMode.dryRun.rawValue,
+            status: "dry-run",
+            reclaimedBytes: 4_000
+        )
+
+        let report = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(
+                stage: .dryRunReady,
+                findingDigest: "findings-v1",
+                planDigest: plan.id,
+                dryRunReceiptID: receipt.id
+            ),
+            currentPlan: plan,
+            latestExecutionReceipt: receipt
+        ))
+
+        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+    }
+
+    func testMismatchedDryRunActionsDoNotCreateExecutableAction() {
+        let plan = ReclaimPlan.fixture(expectedReclaim: 4_000)
+        let receipt = ExecutionReceipt.fixture(
+            id: "receipt-current",
+            mode: ExecutionMode.dryRun.rawValue,
+            status: "dry-run",
+            reclaimedBytes: 4_000,
+            path: "/Users/example/Library/Caches/different-item"
+        )
+        let report = ActionCenterBuilder.build(input: .fixture(
+            latestScanSession: .fixture(
+                stage: .dryRunReady,
+                findingDigest: "findings-v1",
+                planDigest: plan.id,
+                dryRunReceiptID: receipt.id
+            ),
+            currentPlan: plan,
+            latestExecutionReceipt: receipt
+        ))
+
+        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
     }
 
     func testCodexMemoriesPathRemainsNonDestructive() throws {
@@ -520,7 +583,13 @@ private extension ReclaimPlanItem {
 }
 
 private extension ExecutionReceipt {
-    static func fixture(id: String, mode: String, status: String, reclaimedBytes: Int64) -> ExecutionReceipt {
+    static func fixture(
+        id: String,
+        mode: String,
+        status: String,
+        reclaimedBytes: Int64,
+        path: String = "/Users/example/Library/Caches/Ryddi-fixture"
+    ) -> ExecutionReceipt {
         ExecutionReceipt(
             id: id,
             createdAt: Date(timeIntervalSince1970: 3),
@@ -530,7 +599,7 @@ private extension ExecutionReceipt {
             afterFreeBytes: nil,
             actions: [
                 ExecutionActionReceipt(
-                    path: "/Users/example/Library/Caches/Ryddi-fixture",
+                    path: path,
                     action: .trash,
                     status: status,
                     message: "Fixture receipt",

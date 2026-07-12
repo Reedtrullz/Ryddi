@@ -1453,12 +1453,22 @@ struct RecoveryItemRow: View {
                     .textSelection(.enabled)
             }
             if let currentPath = item.currentPath {
-                Text("Current: \(currentPath)")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
+                HStack {
+                    Text("Current: \(currentPath)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        PathActions.revealInFinder(currentPath)
+                    } label: {
+                        Label("Reveal in Trash", systemImage: "folder")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Reveal the moved item in Finder")
+                }
             }
             if let receiptID = item.receiptID {
                 Text("Receipt: \(receiptID)")

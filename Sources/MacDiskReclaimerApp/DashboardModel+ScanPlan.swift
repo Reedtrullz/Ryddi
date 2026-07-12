@@ -296,4 +296,96 @@ extension DashboardModel {
         }
     }
 
+    func prepareTrashExecution() async {
+        let evidence = currentEvidence
+        let readiness = TrashExecutionReadiness.evaluate(
+            session: evidence.session,
+            plan: evidence.plan,
+            dryRunReceipt: evidence.dryRunReceipt
+        )
+        guard readiness.isReady,
+              let session = evidence.session,
+              let plan = evidence.plan,
+              let receipt = evidence.dryRunReceipt else {
+            error = readiness.reason
+            return
+        }
+
+        do {
+            let readySession = session.markReclaimReady()
+            let authorization = try await trashExecutionAuthorizationRegistry.issue(
+                session: readySession,
+                plan: plan,
+                dryRunReceipt: receipt
+            )
+            currentScanSession = readySession
+            pendingTrashConfirmation = TrashConfirmationRequest(
+                authorization: authorization,
+                plan: plan
+            )
+            try AuditStore().saveScanSession(readySession)
+            await refreshPresentationSnapshot()
+            error = nil
+        } catch {
+            self.error = "Trash authorization failed: \(error.localizedDescription)"
+        }
+    }
+
+    func cancelPendingTrashExecution() async {
+        guard let pendingTrashConfirmation else { return }
+        await trashExecutionAuthorizationRegistry.revoke(id: pendingTrashConfirmation.authorizationID)
+        self.pendingTrashConfirmation = nil
+    }
+
+    func executeConfirmedTrash() async {
+        guard let request = pendingTrashConfirmation,
+              let plan,
+              let session = currentScanSession else {
+            error = "The Trash confirmation is no longer current. Run a new dry run."
+            return
+        }
+
+        isWorking = true
+        defer { isWorking = false }
+        let includeUserRules = includeUserRulesInScans
+        let policy = UserPathPolicyStore().load()
+        let registry = trashExecutionAuthorizationRegistry
+        do {
+            let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
+            let receipt = await Task.detached(priority: .userInitiated) {
+                await ReclaimerExecutor(
+                    openFileChecker: LsofOpenFileChecker(),
+                    configuration: ExecutorConfiguration(
+                        userPathPolicy: policy,
+                        currentScanSession: session
+                    )
+                ).executeAuthorizedTrash(
+                    plan: plan,
+                    authorizationID: request.authorizationID,
+                    authorizationRegistry: registry,
+                    ruleVersion: ruleVersion,
+                    userConfirmed: true
+                )
+            }.value
+
+            lastExecutionReceipt = receipt
+            recordExecutionSession(receipt)
+            pendingTrashConfirmation = nil
+            _ = try AuditStore().save(receipt: receipt)
+            if let currentScanSession {
+                try AuditStore().saveScanSession(currentScanSession)
+            }
+            loadAudit()
+            loadRecovery()
+            diskStatus = DiskStatusReader().snapshot()
+            let moved = receipt.actions.filter { $0.status == "done" }.count
+            let blocked = receipt.actions.count - moved
+            trashExecutionMessage = "Moved \(moved) item\(moved == 1 ? "" : "s") to Trash. \(blocked) skipped."
+            await refreshPresentationSnapshot()
+            error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
 }

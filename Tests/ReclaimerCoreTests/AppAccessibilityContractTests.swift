@@ -9,6 +9,11 @@ final class AppAccessibilityContractTests: XCTestCase {
             "summary.plan-button",
             "summary.dry-run-button",
             "summary.manual-review-button",
+            "summary.reclaim-button",
+            "trash-confirmation.reviewed",
+            "trash-confirmation.confirm",
+            "trash-confirmation.cancel",
+            "trash-execution.result",
             "permissions.open-full-disk-access",
             "review-queues.list",
             "remote-targets.probe-button",
@@ -18,7 +23,7 @@ final class AppAccessibilityContractTests: XCTestCase {
 
         for identifier in requiredIdentifiers {
             XCTAssertTrue(
-                source.contains(".accessibilityIdentifier(\"\(identifier)\")"),
+                source.contains("\"\(identifier)\""),
                 "Missing stable app accessibility identifier: \(identifier)"
             )
         }

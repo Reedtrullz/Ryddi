@@ -19,6 +19,8 @@ final class DashboardModel {
     var plan: ReclaimPlan?
     var lastDryRunReceipt: ExecutionReceipt?
     var lastExecutionReceipt: ExecutionReceipt?
+    var pendingTrashConfirmation: TrashConfirmationRequest?
+    var trashExecutionMessage: String?
     var recentPlans: [ReclaimPlan] = []
     var recentReceipts: [ExecutionReceipt] = []
     var auditStoreSummary: AuditStoreSummary?
@@ -112,6 +114,7 @@ final class DashboardModel {
     var auditHistoryState = AuditStoreScanSessionListResult(sessions: [], warnings: [])
     var hasAppliedStoredSettings = false
     var scanRequestCoordinator = ScanRequestCoordinator()
+    let trashExecutionAuthorizationRegistry = TrashExecutionAuthorizationRegistry()
     private var e2eScopeRoot: URL?
     var presentationRevision = 0
 
@@ -187,6 +190,15 @@ final class DashboardModel {
             plan: plan,
             dryRunReceipt: lastDryRunReceipt,
             executionReceipt: lastExecutionReceipt
+        )
+    }
+
+    var trashExecutionReadiness: TrashExecutionReadiness {
+        let evidence = currentEvidence
+        return TrashExecutionReadiness.evaluate(
+            session: evidence.session,
+            plan: evidence.plan,
+            dryRunReceipt: evidence.dryRunReceipt
         )
     }
 

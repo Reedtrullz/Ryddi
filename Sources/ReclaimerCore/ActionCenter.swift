@@ -5,7 +5,7 @@ public enum ActionCenterActionKind: String, Codable, CaseIterable, Hashable, Sen
     case runScan
     case reviewQueue
     case runDryRun
-    // Retained for decoding historical reports; new action-center reports never emit it.
+    // Emitted only for a current, recoverable, one-time Trash confirmation flow.
     case executeSafePlan
     case quitApp
     case useNativeTool
@@ -112,7 +112,7 @@ public enum ActionCenterBuilder {
         "Building the action center does not perform cleanup or modify files.",
         "Estimated bytes are not a promise of exact APFS free-space gain.",
         "Protected data remains review-only.",
-        "Core filesystem mutation is disabled; a clean dry run is evidence for manual review, not permission to delete files."
+        "Direct cache deletion remains disabled; only current identity-bound Trash actions can be explicitly confirmed."
     ]
 
     public static func build(input: ActionCenterInput) -> ActionCenterReport {
@@ -354,30 +354,24 @@ public enum ActionCenterBuilder {
             return dryRunAction(for: plan, reason: "The current plan selection needs a fresh dry-run receipt.")
         }
 
+        let readiness = TrashExecutionReadiness.evaluate(
+            session: session,
+            plan: plan,
+            dryRunReceipt: receipt
+        )
+        guard readiness.isReady else {
+            return nil
+        }
         let selectedItems = plan.items.filter(\.selected)
-        guard !selectedItems.isEmpty, selectedItems.allSatisfy(isSafeExecutablePlanItem) else {
-            return nil
-        }
-        let safeBytes = selectedItems.reduce(Int64(0)) { $0 + $1.estimatedImmediateReclaim }
-        guard safeBytes > 0 else {
-            return nil
-        }
-        let dryRunBytes = receipt.actions
-            .filter { $0.status == "dry-run" }
-            .reduce(Int64(0)) { $0 + $1.reclaimedBytes }
-        guard dryRunBytes > 0 else {
-            return nil
-        }
-
         return ActionCenterAction(
-            id: "plan.\(plan.id).manual-review",
-            kind: .reviewQueue,
-            title: "Review Safe Plan",
-            reason: "A clean dry-run receipt exists, but automatic filesystem mutation is disabled. Review the selected items and remove them manually in Finder.",
+            id: "plan.\(plan.id).trash-confirmation",
+            kind: .executeSafePlan,
+            title: "Move \(selectedItems.count) Item\(selectedItems.count == 1 ? "" : "s") to Trash",
+            reason: "Review the exact recoverable items, then explicitly confirm a one-time move to Finder Trash.",
             priority: 600,
-            estimatedReclaimBytes: min(safeBytes, dryRunBytes),
+            estimatedReclaimBytes: 0,
             count: selectedItems.count,
-            isDestructive: false,
+            isDestructive: true,
             sourceIDs: [plan.id, receipt.id]
         )
     }
@@ -413,39 +407,6 @@ public enum ActionCenterBuilder {
             return false
         }
         return true
-    }
-
-    private static func isSafeExecutablePlanItem(_ item: ReclaimPlanItem) -> Bool {
-        guard item.selected else {
-            return false
-        }
-        guard item.finding.safetyClass == .autoSafe else {
-            return false
-        }
-        guard [.deleteCache, .trash].contains(item.proposedAction) else {
-            return false
-        }
-        guard !hasProtectedRuleEvidence(item.finding) else {
-            return false
-        }
-        guard !hasProtectedPathGuardrail(item.finding) else {
-            return false
-        }
-        return item.conditions.allSatisfy(\.isSatisfied)
-    }
-
-    private static func hasProtectedRuleEvidence(_ finding: Finding) -> Bool {
-        finding.ruleMatches.contains { match in
-            [.preserveByDefault, .neverTouch].contains(match.safetyClass)
-        }
-    }
-
-    private static func hasProtectedPathGuardrail(_ finding: Finding) -> Bool {
-        let path = URL(fileURLWithPath: finding.path).standardizedFileURL.path.lowercased()
-        return path.contains("/.codex/sessions/")
-            || path.hasSuffix("/.codex/sessions")
-            || path.contains("/.codex/memories/")
-            || path.hasSuffix("/.codex/memories")
     }
 
     private static func reviewAction(input: ActionCenterInput) -> ActionCenterAction? {
