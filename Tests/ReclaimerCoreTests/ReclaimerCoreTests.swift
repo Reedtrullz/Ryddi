@@ -41,7 +41,7 @@ final class ReclaimerCoreTests: XCTestCase {
             isSymbolicLink: false
         )
         XCTAssertEqual(cache.safetyClass, .autoSafe)
-        XCTAssertEqual(cache.actionKind, .deleteCache)
+        XCTAssertEqual(cache.actionKind, .trash)
     }
 
     func testRuleEngineLocatesRulesInSignedAppResourceLayout() throws {
@@ -195,7 +195,7 @@ final class ReclaimerCoreTests: XCTestCase {
     func testRuleCatalogExplainsSafetyBucketsAndNeverTouchRules() throws {
         let catalog = try RuleEngine.bundled().catalog(generatedAt: Date(timeIntervalSince1970: 0))
 
-        XCTAssertEqual(catalog.ruleVersion, "2026.07.05-mvp1")
+        XCTAssertEqual(catalog.ruleVersion, "2026.07.12-v0.3-trash1")
         XCTAssertGreaterThan(catalog.ruleCount, 10)
         XCTAssertEqual(catalog.userRuleCount, 0)
         XCTAssertTrue(catalog.safetySummaries.contains { $0.name == SafetyClass.neverTouch.label && $0.count > 0 })
@@ -2214,8 +2214,8 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.whyMatched.contains { $0.contains("Fixture evidence") })
         XCTAssertTrue(report.riskSummary.contains("Low-risk"))
         XCTAssertTrue(report.cleanupPermission.contains("Eligible for dry-run planning"))
-        XCTAssertTrue(report.exactAction.contains("Delete cache"))
-        XCTAssertTrue(report.removalEffect.contains("owning app/tool may recreate"))
+        XCTAssertTrue(report.exactAction.contains("Cache candidate"))
+        XCTAssertTrue(report.removalEffect.contains("owning app/tool may rebuild"))
         XCTAssertTrue(report.recovery.contains { $0.contains("Rebuild or re-download cache") })
         XCTAssertTrue(report.conditions.contains { $0.contains("Skip active processes") })
         XCTAssertTrue(report.conditions.contains { $0.contains("No active open file handle") })
@@ -2808,6 +2808,26 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(store.snapshot(id: "older")?.id, "older")
     }
 
+    func testScanHistoryStoreDoesNotAutomaticallyPruneOlderSnapshots() throws {
+        let historyRoot = tempRoot.appendingPathComponent("HistoryNoPrune", isDirectory: true)
+        let store = ScanHistoryStore(root: historyRoot)
+        let older = snapshot(
+            id: "older-no-prune",
+            createdAt: Date(timeIntervalSince1970: 10),
+            category: [BucketSummary(name: "Codex", count: 1, logicalSize: 100, allocatedSize: 100)]
+        )
+        let newer = snapshot(
+            id: "newer-no-prune",
+            createdAt: Date(timeIntervalSince1970: 20),
+            category: [BucketSummary(name: "Codex", count: 1, logicalSize: 120, allocatedSize: 120)]
+        )
+
+        try store.save(snapshot: older, keepLimit: 1)
+        try store.save(snapshot: newer, keepLimit: 1)
+
+        XCTAssertEqual(Set(store.recent(limit: 10).map(\.id)), Set([older.id, newer.id]))
+    }
+
     func testGrowthReportIncludesDeltasNonClaimsAndRedactedPaths() {
         let previous = ScanSnapshot(
             id: "previous",
@@ -2967,6 +2987,25 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(report.recommendedActions.contains { $0.contains("missing roots") })
     }
 
+    func testPermissionAdvisorCoverageSummaryKeepsOptionalMissingRootsOutOfAccessWarning() {
+        let report = PermissionAdvisor.report(
+            scopeSummaries: [
+                ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Homebrew cache", path: "/fixture/Library/Caches/Homebrew", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Ollama models", path: "/fixture/.ollama", permissionState: .missing, message: "Path is not present."),
+                ScopeAccessSummary(name: "Colima", path: "/fixture/.colima", permissionState: .missing, message: "Path is not present.")
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.coverageLevel, .complete)
+        XCTAssertFalse(report.needsFullDiskAccessReview)
+        XCTAssertEqual(report.blockingUnavailableScopes.map(\.name), [])
+        XCTAssertEqual(report.optionalUnavailableScopes.map(\.name), ["Ollama models", "Colima"])
+        XCTAssertEqual(report.coverageSummary, "2 readable; 2 optional roots not present")
+        XCTAssertFalse(report.coverageSummary.localizedCaseInsensitiveContains("configured scopes are readable"))
+    }
+
     func testTrustReadinessRecommendsFullDiskAccessAndDryRunWhenCoverageIsDegraded() {
         let permissionReport = PermissionAdvisor.report(
             scopeSummaries: [
@@ -3045,7 +3084,7 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertTrue(report.recommendedActions.contains { $0.id == "receipt.dry-run-only" })
         XCTAssertEqual(report.latestReceiptSummary?.dryRunCount, 1)
-        XCTAssertEqual(report.recommendedActions.first { $0.id == "release.trust" }?.severity, .warning)
+        XCTAssertEqual(report.recommendedActions.first { $0.id == "release.external-manifest" }?.severity, .warning)
     }
 
     func testPermissionWalkthroughGuidesDegradedCoverageWithoutGrantingPermission() {
@@ -3078,7 +3117,8 @@ final class ReclaimerCoreTests: XCTestCase {
         let report = PermissionAdvisor.report(
             scopeSummaries: [
                 ScopeAccessSummary(name: "Codex", path: "/fixture/.codex", permissionState: .readable, message: "Directory is readable."),
-                ScopeAccessSummary(name: "Caches", path: "/fixture/Library/Caches", permissionState: .readable, message: "Directory is readable.")
+                ScopeAccessSummary(name: "Caches", path: "/fixture/Library/Caches", permissionState: .readable, message: "Directory is readable."),
+                ScopeAccessSummary(name: "Ollama models", path: "/fixture/.ollama", permissionState: .missing, message: "Path is not present.")
             ],
             now: Date(timeIntervalSince1970: 20)
         )
@@ -3089,7 +3129,9 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(walkthrough.steps.first { $0.id == "open-full-disk-access" }?.status, .optional)
         XCTAssertEqual(walkthrough.steps.first { $0.id == "keep-degraded-mode-visible" }?.status, .done)
         XCTAssertTrue(walkthrough.markdown.contains("Coverage: Complete"))
-        XCTAssertTrue(walkthrough.markdown.contains("Readable scopes: 2/2"))
+        XCTAssertTrue(walkthrough.markdown.contains("Scope summary: 2 readable; 1 optional root not present"))
+        XCTAssertTrue(walkthrough.markdown.contains("Readable scopes: 2/3"))
+        XCTAssertFalse(walkthrough.steps.first { $0.id == "review-coverage" }?.detail.localizedCaseInsensitiveContains("configured scopes") == true)
     }
 
     func testDuplicateReviewGroupsOnlySameContent() throws {
@@ -4217,7 +4259,10 @@ final class ReclaimerCoreTests: XCTestCase {
             selector: AppUninstallSelector(appPath: app.path),
             generatedAt: Date(timeIntervalSince1970: 0)
         )
-        let receipt = AppUninstallExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = AppUninstallExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: AppUninstallExecutorConfiguration(allowedAppRoots: [appRoot])
+        )
             .execute(preview: preview, mode: .dryRun, userConfirmed: false)
 
         XCTAssertEqual(receipt.status, "dry-run")
@@ -4253,7 +4298,10 @@ final class ReclaimerCoreTests: XCTestCase {
             selector: AppUninstallSelector(appPath: app.path),
             generatedAt: Date(timeIntervalSince1970: 0)
         )
-        let receipt = AppUninstallExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = AppUninstallExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: AppUninstallExecutorConfiguration(allowedAppRoots: [appRoot])
+        )
             .execute(preview: preview, mode: .perform, userConfirmed: true)
 
         XCTAssertEqual(preview.bundleCandidate.disposition, .protectedAppBlocked)
@@ -4284,7 +4332,10 @@ final class ReclaimerCoreTests: XCTestCase {
             selector: AppUninstallSelector(appPath: app.path),
             generatedAt: Date(timeIntervalSince1970: 0)
         )
-        let receipt = AppUninstallExecutor(openFileChecker: StaticOpenFileChecker(openPaths: [app.path]))
+        let receipt = AppUninstallExecutor(
+            openFileChecker: StaticOpenFileChecker(openPaths: [app.path]),
+            configuration: AppUninstallExecutorConfiguration(allowedAppRoots: [appRoot])
+        )
             .execute(preview: preview, mode: .perform, userConfirmed: true)
 
         XCTAssertEqual(receipt.status, "skipped")
@@ -4443,29 +4494,42 @@ final class ReclaimerCoreTests: XCTestCase {
             category: "Developer cache"
         )
         let report = NativeToolGuidance.report(for: [homebrew], ruleVersion: "test")
-        let selection = try XCTUnwrap(NativeToolExecutor.selection(in: report, commandID: "brew.preview"))
+        let previewSelection = try XCTUnwrap(NativeToolExecutor.selection(in: report, commandID: "brew.preview"))
+        let cleanupSelection = try XCTUnwrap(NativeToolExecutor.selection(in: report, commandID: "brew.cleanup"))
         let runner = FakeToolRunner(outputs: [
-            fakeOutput("brew", ["cleanup", "-n"], stdout: "Would remove old bottles\n")
+            fakeOutput("brew", ["cleanup", "-n"], stdout: "Would remove old bottles\n"),
+            fakeOutput("brew", ["cleanup"], stdout: "Removed old bottles\n")
         ])
         let executor = NativeToolExecutor(
             runner: runner,
             configuration: NativeToolExecutionConfiguration(timeout: 1, diskStatusPath: tempRoot)
         )
 
-        let dryRun = executor.execute(selection: selection, mode: .dryRun, ruleVersion: "test", userConfirmed: false)
+        let dryRun = executor.execute(selection: previewSelection, mode: .dryRun, ruleVersion: "test", userConfirmed: false)
         XCTAssertEqual(dryRun.status, "dry-run")
         XCTAssertEqual(dryRun.invocation?.displayCommand, "brew cleanup -n")
-        XCTAssertNil(dryRun.output)
-        XCTAssertTrue(runner.commands.isEmpty)
+        XCTAssertEqual(dryRun.output?.stdoutPreview, ["Would remove old bottles"])
+        XCTAssertEqual(runner.commands, ["brew cleanup -n"])
         XCTAssertTrue(dryRun.nonClaims.contains { $0.contains("only one explicitly selected") })
 
-        let performed = executor.execute(selection: selection, mode: .perform, ruleVersion: "test", userConfirmed: true)
-        XCTAssertEqual(performed.status, "done")
-        XCTAssertEqual(performed.output?.stdoutPreview.first, "Would remove old bottles")
+        XCTAssertNil(NativeToolExecutor.performAuthorization(
+            authorizing: cleanupSelection,
+            in: [dryRun],
+            ruleVersion: "test"
+        ))
+        let performed = executor.execute(
+            selection: cleanupSelection,
+            mode: .perform,
+            ruleVersion: "test",
+            userConfirmed: true,
+            authorization: nil
+        )
+        XCTAssertEqual(performed.status, "blocked")
+        XCTAssertTrue(performed.message.localizedCaseInsensitiveContains("evidence only"))
         XCTAssertEqual(runner.commands, ["brew cleanup -n"])
         XCTAssertNotNil(performed.beforeFreeBytes)
-        XCTAssertNotNil(performed.afterFreeBytes)
-        XCTAssertTrue(performed.errors.isEmpty)
+        XCTAssertEqual(performed.afterFreeBytes, performed.beforeFreeBytes)
+        XCTAssertFalse(performed.errors.isEmpty)
     }
 
     func testNativeToolExecutionBlocksDestructiveAndPlaceholderCommands() throws {
@@ -4765,7 +4829,10 @@ final class ReclaimerCoreTests: XCTestCase {
 
         let receipt = ReclaimerExecutor(
             openFileChecker: NoOpenFilesChecker(),
-            configuration: ExecutorConfiguration(userPathPolicy: policy)
+            configuration: ExecutorConfiguration(
+                userPathPolicy: policy,
+                currentScanSession: authorizedSession(for: plan)
+            )
         )
         .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
@@ -5015,7 +5082,7 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertTrue(receipt.actions.allSatisfy { $0.status == "dry-run" })
     }
 
-    func testExecutorPerformsDirectDeleteForAutoSafeCacheFixture() throws {
+    func testExecutorConfirmedDirectDeleteFailsClosedWithoutMutatingCache() throws {
         let cacheRoot = tempRoot.appendingPathComponent("Library/Caches/Codex", isDirectory: true)
         let cacheFile = cacheRoot.appendingPathComponent("cache.bin")
         try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
@@ -5026,12 +5093,18 @@ final class ReclaimerCoreTests: XCTestCase {
             options: ScanOptions(minimumFindingSize: 0, maximumFindingDepth: 1, includeOpenFileStatus: false)
         )
         let plan = PlanBuilder(openFileChecker: NoOpenFilesChecker()).buildPlan(from: scan, mode: .autoSafeOnly)
-        let receipt = ReclaimerExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = ReclaimerExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan))
+        )
             .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheRoot.path))
-        XCTAssertTrue(receipt.actions.contains { $0.status == "done" && $0.action == .deleteCache })
-        XCTAssertTrue(receipt.errors.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheRoot.path))
+        XCTAssertTrue(receipt.actions.contains {
+            $0.status == "skipped"
+                && $0.action == .trash
+                && $0.message.localizedCaseInsensitiveContains("identity-bound")
+        })
     }
 
     func testExecutorDirectDeleteRefusesPreserveByDefault() throws {
@@ -5052,7 +5125,10 @@ final class ReclaimerCoreTests: XCTestCase {
             dryRunSummary: []
         )
 
-        let receipt = ReclaimerExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = ReclaimerExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan))
+        )
             .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
@@ -5084,7 +5160,10 @@ final class ReclaimerCoreTests: XCTestCase {
         try FileManager.default.removeItem(at: cache)
         try FileManager.default.createSymbolicLink(at: cache, withDestinationURL: target)
 
-        let receipt = ReclaimerExecutor(openFileChecker: NoOpenFilesChecker())
+        let receipt = ReclaimerExecutor(
+            openFileChecker: NoOpenFilesChecker(),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan))
+        )
             .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: target.appendingPathComponent("valuable.bin").path))
@@ -5099,7 +5178,7 @@ final class ReclaimerCoreTests: XCTestCase {
         let plannedFinding = finding(
             path: cache.path,
             safety: .autoSafe,
-            action: .deleteCache,
+            action: .trash,
             open: false,
             conditionGates: [.openFileClear],
             allocatedSize: 128,
@@ -5111,7 +5190,7 @@ final class ReclaimerCoreTests: XCTestCase {
                 ReclaimPlanItem(
                     finding: plannedFinding,
                     selected: true,
-                    proposedAction: .deleteCache,
+                    proposedAction: .trash,
                     conditions: [PlanCondition(kind: .openFileClear, message: "fixture", isSatisfied: true)],
                     estimatedImmediateReclaim: 128
                 )
@@ -5129,7 +5208,8 @@ final class ReclaimerCoreTests: XCTestCase {
                         checkedPath: cache.path
                     )
                 ]
-            )
+            ),
+            configuration: ExecutorConfiguration(currentScanSession: authorizedSession(for: plan))
         )
         .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
@@ -5142,7 +5222,13 @@ final class ReclaimerCoreTests: XCTestCase {
         let file = tempRoot.appendingPathComponent("cache.bin")
         try Data(repeating: 4, count: 128).write(to: file)
         let holdRoot = tempRoot.appendingPathComponent("Holding", isDirectory: true)
-        let candidate = finding(path: file.path, safety: .safeAfterCondition, action: .quarantineHold, open: false)
+        let candidate = finding(
+            path: file.path,
+            safety: .safeAfterCondition,
+            action: .quarantineHold,
+            open: false,
+            filesystemIdentity: try FilesystemIdentity.capture(at: file)
+        )
         let engine = RuleEngine(
             version: "test",
             rules: [
@@ -5174,28 +5260,24 @@ final class ReclaimerCoreTests: XCTestCase {
 
         let receipt = ReclaimerExecutor(
             openFileChecker: NoOpenFilesChecker(),
-            configuration: ExecutorConfiguration(holdingRoot: holdRoot),
+            configuration: ExecutorConfiguration(
+                holdingRoot: holdRoot,
+                currentScanSession: authorizedSession(for: plan)
+            ),
             ruleEngine: engine
         )
         .execute(plan: plan, mode: .perform, ruleVersion: "test", userConfirmed: true)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
-        XCTAssertEqual(receipt.actions.first?.status, "done")
-        XCTAssertTrue((try FileManager.default.subpathsOfDirectory(atPath: holdRoot.path)).contains("cache.bin") == false)
-        XCTAssertTrue((try FileManager.default.subpathsOfDirectory(atPath: holdRoot.path)).contains { $0.hasSuffix("cache.bin") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertEqual(receipt.actions.first?.status, "skipped")
+        XCTAssertTrue(receipt.actions.first?.message.localizedCaseInsensitiveContains("identity-bound") ?? false)
 
         let store = HoldingStore(root: holdRoot)
-        let held = store.list()
-        XCTAssertEqual(held.count, 1)
-        XCTAssertEqual(held.first?.originalPath, file.path)
-
-        let restored = try store.restore(id: try XCTUnwrap(held.first?.id))
-        XCTAssertEqual(restored.path, file.path)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
         XCTAssertTrue(store.list().isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
-    func testHoldingStoreExpireDryRunAndConfirmedRemoval() throws {
+    func testHoldingStoreExpireDryRunAndConfirmedExpiryRemainNonDestructive() throws {
         let heldRoot = tempRoot.appendingPathComponent("Holding", isDirectory: true)
         let source = tempRoot.appendingPathComponent("source.bin")
         try Data(repeating: 5, count: 128).write(to: source)
@@ -5214,12 +5296,14 @@ final class ReclaimerCoreTests: XCTestCase {
         XCTAssertEqual(dryRunExpired.count, 1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: heldFile.path))
 
-        let removed = try store.expire(olderThan: Date().addingTimeInterval(1), dryRun: false)
-        XCTAssertEqual(removed.count, 1)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: heldDirectory.path))
+        XCTAssertThrowsError(try store.expire(olderThan: Date().addingTimeInterval(1), dryRun: false)) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("disabled"), String(describing: error))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldFile.path))
     }
 
-    func testRecoveryCenterSeparatesRestorableItemsFromReceiptGuidance() throws {
+    func testRecoveryCenterSurfacesHoldingItemsForManualFinderRecovery() throws {
         let heldRoot = tempRoot.appendingPathComponent("Holding", isDirectory: true)
         let source = tempRoot.appendingPathComponent("Library/Caches/Ryddi/held-cache.bin")
         try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -5245,7 +5329,14 @@ final class ReclaimerCoreTests: XCTestCase {
             beforeFreeBytes: nil,
             afterFreeBytes: nil,
             actions: [
-                ExecutionActionReceipt(path: "/tmp/trashed-cache", action: .trash, status: "done", message: "Moved to Trash.", reclaimedBytes: 20),
+                ExecutionActionReceipt(
+                    path: "/tmp/trashed-cache",
+                    action: .trash,
+                    status: "done",
+                    message: "Moved to Trash.",
+                    reclaimedBytes: 0,
+                    resultingPath: "/Users/example/.Trash/trashed-cache"
+                ),
                 ExecutionActionReceipt(path: "/tmp/deleted-cache", action: .deleteCache, status: "done", message: "Deleted cache.", reclaimedBytes: 30),
                 ExecutionActionReceipt(path: "/tmp/native-cache", action: .nativeToolCommand, status: "done", message: "Use native cleanup.", reclaimedBytes: 40),
                 ExecutionActionReceipt(path: "/tmp/skipped-cache", action: .deleteCache, status: "skipped", message: "Open file.", reclaimedBytes: 0)
@@ -5272,13 +5363,15 @@ final class ReclaimerCoreTests: XCTestCase {
             generatedAt: Date(timeIntervalSince1970: 30)
         )
 
-        XCTAssertEqual(report.restorableCount, 1)
-        XCTAssertEqual(report.restorableBytes, 128)
-        XCTAssertTrue(report.nonClaims.contains { $0.contains("Ryddi can restore only items currently held") })
-        XCTAssertEqual(report.items.first?.state, .restorableFromHolding)
+        XCTAssertEqual(report.restorableCount, 0)
+        XCTAssertEqual(report.restorableBytes, 0)
+        XCTAssertTrue(report.nonClaims.contains { $0.localizedCaseInsensitiveContains("manual Finder") })
+        XCTAssertEqual(report.items.first?.state, .manualReview)
         XCTAssertEqual(report.items.first?.holdingID, heldID)
+        XCTAssertEqual(report.items.first?.canRestoreWithRyddi, false)
+        XCTAssertTrue(report.items.first?.guidance.contains { $0.localizedCaseInsensitiveContains("Finder") } ?? false)
         XCTAssertEqual(Set(report.items.map(\.state)), [
-            .restorableFromHolding,
+            .manualReview,
             .trashReview,
             .notRecoverableByRyddi,
             .guidanceOnly,
@@ -5286,15 +5379,19 @@ final class ReclaimerCoreTests: XCTestCase {
             .dryRunOnly
         ])
         XCTAssertTrue(report.items.contains { $0.state == .trashReview && $0.guidance.contains { $0.contains("Finder Trash") } })
+        XCTAssertTrue(report.items.contains { $0.state == .trashReview && $0.currentPath == "/Users/example/.Trash/trashed-cache" })
         XCTAssertTrue(report.items.contains { $0.state == .notRecoverableByRyddi && $0.guidance.contains { $0.contains("rebuild the cache") } })
 
-        let restored = try store.restore(id: heldID)
-        XCTAssertEqual(restored.path, source.path)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertThrowsError(try store.restore(id: heldID)) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("manual"), String(describing: error))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldFile.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
 
         let refreshed = RecoveryCenter.build(heldItems: store.list(), receipts: [], limit: 20)
         XCTAssertEqual(refreshed.restorableCount, 0)
-        XCTAssertTrue(refreshed.items.isEmpty)
+        XCTAssertEqual(refreshed.items.count, 1)
+        XCTAssertEqual(refreshed.items.first?.state, .manualReview)
     }
 
     func testLaunchAgentPlistContainsReportOnlyScan() {
@@ -5632,6 +5729,7 @@ final class ReclaimerCoreTests: XCTestCase {
         conditionGates: [PlanConditionKind] = [],
         allocatedSize: Int64 = 128,
         isDirectory: Bool = false,
+        filesystemIdentity: FilesystemIdentity? = nil,
         category: String = "Fixture",
         ownerHint: String? = nil
     ) -> Finding {
@@ -5654,12 +5752,31 @@ final class ReclaimerCoreTests: XCTestCase {
             logicalSize: allocatedSize,
             allocatedSize: allocatedSize,
             isDirectory: isDirectory,
+            filesystemIdentity: filesystemIdentity,
             ownerHint: ownerHint,
             safetyClass: safety,
             actionKind: action,
             ruleMatches: matches,
             evidence: matches.flatMap { $0.evidence.map { Evidence(kind: "fixture", message: $0) } },
-            openFileStatus: OpenFileStatus(isOpen: open, processSummary: open ? ["fixture"] : [])
+            openFileStatus: OpenFileStatus(
+                isOpen: open,
+                processSummary: open ? ["fixture"] : [],
+                checkedRecursively: isDirectory
+            )
+        )
+    }
+
+    private func authorizedSession(for plan: ReclaimPlan) -> ScanSession {
+        ScanSession(
+            appVersion: "0.3.0",
+            ruleVersion: "test",
+            preset: .developer,
+            scopeDigest: "scope",
+            policyDigest: "policy",
+            findingDigest: "findings",
+            planDigest: plan.id,
+            dryRunReceiptID: "dry-run-receipt",
+            stage: .reclaimReady
         )
     }
 
@@ -5706,8 +5823,9 @@ final class ReclaimerCoreTests: XCTestCase {
         try runGit(["init", "-q"], cwd: url)
         try runGit(["config", "user.name", "Ryddi Tests"], cwd: url)
         try runGit(["config", "user.email", "ryddi-tests@example.invalid"], cwd: url)
+        try runGit(["config", "commit.gpgsign", "false"], cwd: url)
         try runGit(["add", ".gitignore", "package.json", "package-lock.json", "src/index.ts"], cwd: url)
-        try runGit(["commit", "-qm", "fixture"], cwd: url)
+        try runGit(["-c", "commit.gpgsign=false", "commit", "-qm", "fixture"], cwd: url)
     }
 
     private func runGit(_ arguments: [String], cwd: URL) throws {

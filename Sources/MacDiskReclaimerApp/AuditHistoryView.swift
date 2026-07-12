@@ -28,7 +28,7 @@ struct AuditHistoryView: View {
                     } else {
                         Text("Audit summary has not loaded yet.")
                     }
-                    Text("Pruning is never scheduled. Preview first; only known Ryddi audit JSON files are candidates, and symlinks or unknown files are skipped.")
+                    Text("Pruning is never scheduled. Preview identifies known Ryddi audit JSON candidates, but deletion remains manual Finder work.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -36,10 +36,8 @@ struct AuditHistoryView: View {
                         Button("Preview Prune") {
                             model.previewAuditPrune()
                         }
-                        Button("Delete Previewed Audit Files") {
-                            model.confirmAuditPrune()
-                        }
-                        .disabled(model.auditPrunePlan?.candidates.isEmpty != false)
+                        Label("Manual Audit Review", systemImage: "folder")
+                            .foregroundStyle(.secondary)
                     }
                     if let plan = model.auditPrunePlan {
                         Text("Preview: \(plan.candidateCount) candidate(s), \(ByteFormat.string(plan.candidateBytes)). Policy: older than \(plan.policy.olderThanDays) days, keep \(plan.policy.keepRecent) recent.")
@@ -129,6 +127,74 @@ struct AuditHistoryView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
+                                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                                    GridRow {
+                                        Text("Command")
+                                            .foregroundStyle(.secondary)
+                                        Text(receipt.command.command)
+                                            .font(.caption.monospaced())
+                                            .textSelection(.enabled)
+                                    }
+                                    GridRow {
+                                        Text("Path")
+                                            .foregroundStyle(.secondary)
+                                        Text(receipt.findingPath)
+                                            .font(.caption.monospaced())
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .textSelection(.enabled)
+                                    }
+                                    GridRow {
+                                        Text("Risk")
+                                            .foregroundStyle(.secondary)
+                                        Text(receipt.command.risk.label)
+                                    }
+                                    if let before = receipt.beforeFreeBytes {
+                                        GridRow {
+                                            Text("Before")
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(before))
+                                                .monospacedDigit()
+                                        }
+                                    }
+                                    if receipt.mode == .perform, let after = receipt.afterFreeBytes {
+                                        GridRow {
+                                            Text("After")
+                                                .foregroundStyle(.secondary)
+                                            Text(ByteFormat.string(after))
+                                                .monospacedDigit()
+                                        }
+                                    }
+                                }
+                                .font(.caption)
+                                if let output = receipt.output {
+                                    if !output.stdoutPreview.isEmpty {
+                                        Text("stdout: \(output.stdoutPreview.prefix(3).joined(separator: " | "))")
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                            .textSelection(.enabled)
+                                    }
+                                    if !output.stderrPreview.isEmpty {
+                                        Text("stderr: \(output.stderrPreview.prefix(3).joined(separator: " | "))")
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                                if !receipt.errors.isEmpty {
+                                    Text("Errors: \(receipt.errors.joined(separator: " | "))")
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                if let note = receipt.nonClaims.first {
+                                    Text("Non-claim: \(note)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                         }
                     }

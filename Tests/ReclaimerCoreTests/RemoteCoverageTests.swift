@@ -74,6 +74,78 @@ final class RemoteCoverageTests: XCTestCase {
 
         XCTAssertEqual(coverage.level, .unsupported)
         XCTAssertTrue(coverage.explanation.localizedCaseInsensitiveContains("linux"))
+        XCTAssertEqual(coverage.row("Linux detected")?.status, .failed)
+    }
+
+    func testHostKeyMissingCreatesCoverageWarningRow() throws {
+        let commands = [
+            RemoteCoverageFixtures.command(id: "scan.df", exitCode: 0, timedOut: false)
+        ]
+        let target = RemoteTargetReference(input: "prod-vps", knownHostsState: "missing")
+
+        let coverage = RemoteScanCoverageBuilder.build(commands: commands, osSummary: "Linux", target: target)
+
+        XCTAssertEqual(coverage.row("Host key verified")?.status, .warning)
+        XCTAssertTrue(coverage.row("Host key verified")?.detail.contains("StrictHostKeyChecking=yes") == true)
+    }
+
+    func testSSHTimeoutCreatesFailedConnectedRow() throws {
+        let commands = [
+            RemoteCoverageFixtures.command(id: "scan.df", exitCode: nil, timedOut: true)
+        ]
+
+        let coverage = RemoteScanCoverageBuilder.build(commands: commands, osSummary: nil)
+
+        XCTAssertEqual(coverage.level, .unreachable)
+        XCTAssertEqual(coverage.timedOutCommandIDs, ["scan.df"])
+        XCTAssertEqual(coverage.row("Connected")?.status, .failed)
+        XCTAssertTrue(coverage.row("Connected")?.detail.localizedCaseInsensitiveContains("timed out") == true)
+    }
+
+    func testPermissionDeniedCreatesWarningCoverageRow() throws {
+        let commands = [
+            RemoteCoverageFixtures.command(
+                id: "scan.docker-df",
+                exitCode: 1,
+                timedOut: false,
+                stderr: ["permission denied while connecting to Docker socket"]
+            )
+        ]
+
+        let coverage = RemoteScanCoverageBuilder.build(commands: commands, osSummary: "Linux")
+
+        XCTAssertEqual(coverage.permissionDeniedCommandIDs, ["scan.docker-df"])
+        XCTAssertEqual(coverage.row("Docker inventory readable")?.status, .warning)
+        XCTAssertTrue(coverage.row("Docker inventory readable")?.detail.localizedCaseInsensitiveContains("permissions") == true)
+    }
+
+    func testUnavailableDockerAndJournaldCreateWarningRows() throws {
+        let commands = [
+            RemoteCoverageFixtures.command(
+                id: "scan.docker-df",
+                exitCode: 127,
+                timedOut: false,
+                stderr: ["docker: command not found"]
+            ),
+            RemoteCoverageFixtures.command(
+                id: "scan.journal",
+                exitCode: 127,
+                timedOut: false,
+                stderr: ["journalctl: command not found"]
+            ),
+            RemoteCoverageFixtures.command(
+                id: "scan.apt",
+                exitCode: 127,
+                timedOut: false,
+                stderr: ["du: cannot access '/var/cache/apt/archives': No such file or directory"]
+            )
+        ]
+
+        let coverage = RemoteScanCoverageBuilder.build(commands: commands, osSummary: "Linux")
+
+        XCTAssertEqual(coverage.row("Docker inventory readable")?.status, .warning)
+        XCTAssertEqual(coverage.row("Journald readable")?.status, .warning)
+        XCTAssertEqual(coverage.row("Apt cache readable")?.status, .warning)
     }
 
     func testRemoteScanReportDecodesOldAuditWithoutCoverage() throws {
@@ -154,6 +226,7 @@ final class RemoteCoverageTests: XCTestCase {
 
         XCTAssertTrue(markdown.contains("## Coverage"))
         XCTAssertTrue(markdown.contains("- Level: unreachable"))
+        XCTAssertTrue(markdown.contains("| Check | Status | Detail |"))
         XCTAssertTrue(markdown.contains("## Target Continuity"))
         XCTAssertTrue(markdown.contains("fingerprint"))
     }
@@ -249,6 +322,12 @@ final class RemoteCoverageTests: XCTestCase {
         )
 
         XCTAssertEqual(previous?.id, reachableOld.id)
+    }
+}
+
+private extension RemoteScanCoverage {
+    func row(_ label: String) -> RemoteCoverageRow? {
+        rows.first { $0.label == label }
     }
 }
 

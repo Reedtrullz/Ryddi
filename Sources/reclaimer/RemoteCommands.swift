@@ -8,7 +8,7 @@ extension ReclaimerCLI {
         }
         let rest = Array(args.dropFirst())
         switch subcommand {
-        case "execute", "prune", "reset":
+        case "execute", "prune", "reset", "delete", "clean", "vacuum":
             throw CLIError.message("Remote \(subcommand) is not available in v1; Remote Targets are report-only and never run destructive cleanup.")
         case "targets":
             try remoteTargets(args: rest)
@@ -70,6 +70,7 @@ extension ReclaimerCLI {
         guard let targetInput = remoteTargetArgument(args) else {
             throw CLIError.message("remote \(mode) requires TARGET")
         }
+        let store = AuditStore()
         let target = try RemoteTargetResolver().resolve(targetInput)
         let report = RemoteScanBuilder(target: target, timeout: options.timeoutSeconds).scan(
             preset: try options.remoteScanPreset(),
@@ -79,20 +80,29 @@ extension ReclaimerCLI {
             throw CLIError.message("Remote \(mode) for \(targetInput) is unreachable; no audit record was saved. Use --output FILE to export an explicit degraded report.")
         }
         if options.saveAudit {
-            let url = try AuditStore().save(remoteScanReport: report)
+            let url = try store.save(remoteScanReport: report)
             FileHandle.standardError.write(Data("saved remote scan report: \(url.path)\n".utf8))
         }
         if let output = options.outputPath {
-            let markdown = RemoteReportBuilder.build(report: report, privacy: options.reportPrivacy).markdown
+            let markdown = RemoteReportBuilder.build(
+                report: report,
+                privacy: options.reportPrivacy,
+                includeCommandCards: options.includeCommandCards
+            ).markdown
             let url = URL(fileURLWithPath: output).standardizedFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            try SafeFileOutput.write(markdown, to: url)
             FileHandle.standardError.write(Data("wrote remote report: \(url.path)\n".utf8))
         }
         if options.json {
             printJSON(report)
         } else if options.outputPath == nil {
-            printRemoteScanReport(report, title: mode == "plan" ? "Remote Report-Only Plan" : "Remote Scan Report")
+            let previous = store.latestPreviousRemoteScanReport(forConcreteTarget: report.target, excludingReportID: report.id)
+            let growthSummary = RemoteGrowthSummaryBuilder.build(previous: previous, current: report)
+            printRemoteScanReport(
+                report,
+                title: mode == "plan" ? "Remote Report-Only Plan" : "Remote Scan Report",
+                growthSummary: growthSummary
+            )
         }
     }
 
@@ -150,8 +160,7 @@ extension ReclaimerCLI {
         }
         if let output = options.outputPath {
             let url = URL(fileURLWithPath: output).standardizedFileURL
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+            try SafeFileOutput.write(report.markdown, to: url)
             FileHandle.standardError.write(Data("wrote remote dogfood report: \(url.path)\n".utf8))
         }
         if options.json {
@@ -172,6 +181,8 @@ extension ReclaimerCLI {
             printJSON(report.nativeGuidance)
         } else {
             printRemoteNativeGuidance(report.nativeGuidance, target: report.target)
+            print("\nManual command cards")
+            printRemoteCommandCards(report.commandCards)
         }
     }
 
@@ -199,8 +210,7 @@ extension ReclaimerCLI {
             )
             if subcommand == "report", let output = options.outputPath {
                 let url = URL(fileURLWithPath: output).standardizedFileURL
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+                try SafeFileOutput.write(report.markdown, to: url)
                 FileHandle.standardError.write(Data("wrote remote growth report: \(url.path)\n".utf8))
             }
             if options.json {
@@ -298,7 +308,7 @@ func printRemoteProbeReport(_ report: RemoteProbeReport) {
     }
 }
 
-func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
+func printRemoteScanReport(_ report: RemoteScanReport, title: String, growthSummary: RemoteGrowthSummary? = nil) {
     print("\(title) \(report.id)")
     print("Generated: \(report.createdAt.formatted())")
     print("Target: \(report.target.alias ?? report.target.input)")
@@ -306,6 +316,13 @@ func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
     print("Preset: \(report.preset.rawValue)")
     print("Coverage: \(report.coverage.level.rawValue)")
     print(report.coverage.explanation)
+    if !report.coverage.rows.isEmpty {
+        print("\nCoverage rows")
+        print("\(pad("Check", 28)) \(pad("Status", 9)) Detail")
+        for row in report.coverage.rows {
+            print("\(pad(row.label, 28)) \(pad(row.status.rawValue, 9)) \(row.detail)")
+        }
+    }
     if !report.continuityWarnings.isEmpty {
         print("\nTarget continuity warnings")
         for warning in report.continuityWarnings {
@@ -342,6 +359,31 @@ func printRemoteScanReport(_ report: RemoteScanReport, title: String) {
             print("  \(item.summary)")
         }
     }
+    if !report.commandCards.isEmpty {
+        print("\nManual command cards")
+        let grouped = Dictionary(grouping: report.commandCards, by: remoteCommandCardGroup)
+        for group in grouped.keys.sorted() {
+            print("\(group)")
+            for card in grouped[group] ?? [] {
+                print("- \(card.title) [\(card.kind.label), \(card.risk.label)]")
+                print("  \(card.displayCommand)")
+                print("  \(card.explanation)")
+            }
+        }
+    }
+    if let growthSummary {
+        print("\nSaved bucket changes")
+        if let reason = growthSummary.unavailableReason {
+            print(reason)
+        } else if growthSummary.changedBuckets.isEmpty {
+            print("No saved bucket changes compared with the latest comparable scan.")
+        } else {
+            print("\(pad("Delta", 12)) \(pad("Current", 12)) \(pad("Previous", 12)) Bucket")
+            for bucket in growthSummary.changedBuckets.prefix(8) {
+                print("\(pad(bucket.deltaBytes.map(signedBytes) ?? "-", 12)) \(pad(bucket.currentBytes.map(ByteFormat.string) ?? "-", 12)) \(pad(bucket.previousBytes.map(ByteFormat.string) ?? "-", 12)) \(bucket.bucket)")
+            }
+        }
+    }
     print("\nRead-only commands")
     for command in report.commands.prefix(40) {
         let code = command.exitCode.map(String.init) ?? "blocked"
@@ -373,6 +415,43 @@ func printRemoteNativeGuidance(_ guidance: [RemoteNativeGuidance], target: Remot
     for note in RemoteScanReport.defaultNonClaims {
         print("- \(note)")
     }
+}
+
+func printRemoteCommandCards(_ cards: [RemoteManualCommandCard]) {
+    if cards.isEmpty {
+        print("No remote manual command cards generated.")
+        return
+    }
+    for card in cards {
+        print("\n\(card.title)")
+        print("Kind: \(card.kind.label)")
+        print("Risk: \(card.risk.label)")
+        print("Command: \(card.displayCommand)")
+        print(card.explanation)
+        if !card.prerequisites.isEmpty {
+            print("Before running:")
+            for prerequisite in card.prerequisites {
+                print("- \(prerequisite)")
+            }
+        }
+    }
+}
+
+func remoteCommandCardGroup(_ card: RemoteManualCommandCard) -> String {
+    let command = card.displayCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+    if command.hasPrefix("sudo journalctl") || command.hasPrefix("journalctl") {
+        return "journald"
+    }
+    if command.hasPrefix("sudo apt-get") || command.hasPrefix("apt-get") {
+        return "apt"
+    }
+    if command.hasPrefix("docker") {
+        return "docker"
+    }
+    if command.hasPrefix("find ") || command.hasPrefix("ls ") {
+        return "deploy releases"
+    }
+    return "manual"
 }
 
 func printRemoteScanHistory(_ reports: [RemoteScanReport]) {

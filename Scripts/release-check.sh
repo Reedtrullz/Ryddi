@@ -4,13 +4,23 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dist="$root/dist"
 app="$dist/Ryddi.app"
-artifact_basename="${RYDDI_ARTIFACT_BASENAME:-Ryddi-developer-preview}"
+signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
+release_version="${RYDDI_VERSION:-0.3.0}"
+release_build="${RYDDI_BUILD_NUMBER:-3}"
+if [[ -n "${RYDDI_ARTIFACT_BASENAME:-}" ]]; then
+  artifact_basename="$RYDDI_ARTIFACT_BASENAME"
+elif [[ "$signing_required" == "required" ]]; then
+  artifact_basename="Ryddi-v$release_version"
+else
+  artifact_basename="Ryddi-developer-preview"
+fi
 zip_path="$dist/$artifact_basename.zip"
 checksum_path="$zip_path.sha256"
 manifest_path="$dist/Ryddi-release-manifest.txt"
-signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
+stage_dir="$dist/$artifact_basename"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/ryddi-release-check.XXXXXX")"
 hidden_build_dir=""
+packaged_ax_e2e_status="not-required"
 
 cleanup() {
   if [[ -n "$hidden_build_dir" && -d "$hidden_build_dir" ]]; then
@@ -31,6 +41,101 @@ hide_build_dir_for_packaged_smokes() {
     mv "$root/.build" "$hidden_build_dir"
   fi
 }
+
+assert_public_manifest_has_no_local_paths() {
+  local manifest="$1"
+  if [[ -n "${HOME:-}" ]] && grep -F "$HOME" "$manifest" >/dev/null 2>&1; then
+    echo "release manifest leaks HOME path: $HOME" >&2
+    exit 1
+  fi
+  if [[ -n "$root" ]] && grep -F "$root" "$manifest" >/dev/null 2>&1; then
+    echo "release manifest leaks repository path: $root" >&2
+    exit 1
+  fi
+  if grep -Eq '/Users/[^[:space:]]+' "$manifest"; then
+    echo "release manifest leaks a /Users absolute path" >&2
+    exit 1
+  fi
+}
+
+archive_staged_release() {
+  local staged_manifest="$stage_dir/Ryddi-release-manifest.txt"
+  local staged_checksums="$stage_dir/Ryddi-checksums.sha256"
+  if [[ ! -d "$stage_dir/Ryddi.app" || ! -f "$staged_manifest" || ! -f "$staged_checksums" ]]; then
+    echo "staged release is incomplete: $stage_dir" >&2
+    return 1
+  fi
+  rm -f "$zip_path" "$checksum_path"
+  /usr/bin/ditto -c -k --keepParent "$stage_dir" "$zip_path"
+  shasum -a 256 "$zip_path" >"$checksum_path"
+  cp "$staged_manifest" "$manifest_path"
+}
+
+stage_release_artifact() {
+  if [[ "$signing_required" == "required" ]]; then
+    if [[ "$artifact_basename" != Ryddi-v* ]]; then
+      echo "signed releases require a versioned Ryddi-v* artifact name" >&2
+      return 1
+    fi
+    release_kind="signed-notarized-release"
+  else
+    if [[ "$artifact_basename" == Ryddi-v* ]]; then
+      echo "unsigned previews cannot use a versioned release artifact name" >&2
+      return 1
+    fi
+    release_kind="unsigned-preview"
+    signing_identity="unsigned"
+  fi
+
+  rm -rf "$stage_dir"
+  mkdir -p "$stage_dir"
+  /usr/bin/ditto "$app" "$stage_dir/Ryddi.app"
+  if [[ "$packaged_ax_e2e_status" == "passed" ]]; then
+    /usr/bin/ditto "$dist/e2e-proof" "$stage_dir/Packaged-App-E2E"
+  fi
+
+  local payload_probe="$dist/.Ryddi-app-payload.zip"
+  rm -f "$payload_probe"
+  /usr/bin/ditto -c -k --keepParent "$app" "$payload_probe"
+  app_payload_sha="$(shasum -a 256 "$payload_probe" | awk '{print $1}')"
+  rm -f "$payload_probe"
+
+  cat >"$stage_dir/Ryddi-release-manifest.txt" <<MANIFEST
+manifest_schema=ryddi.release-trust.v1
+release_kind=$release_kind
+version=$bundle_version
+build=$bundle_build
+source_commit=$commit
+signing_identity=$signing_identity
+codesign_verified=$codesign_verified
+hardened_runtime=$hardened_runtime
+notarization_submission_id=$notary_submission
+notarization_status=$notarization_status
+stapler_validated=$stapler_validated
+stapled=$stapler_validated
+gatekeeper=$gatekeeper_status
+packaged_ax_e2e=$packaged_ax_e2e_status
+packaged_ax_e2e_proof=$([[ "$packaged_ax_e2e_status" == "passed" ]] && echo included || echo not-included)
+sha256=$app_payload_sha
+
+Ryddi release evidence
+Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+Artifact directory: $artifact_basename
+App payload SHA-256: $app_payload_sha
+
+Non-claims:
+- The app payload hash is distinct from the external archive checksum.
+- Gatekeeper acceptance does not by itself prove that a notarization ticket is stapled.
+- Packaging does not grant Full Disk Access or execute cleanup.
+MANIFEST
+  printf '%s  %s\n' "$app_payload_sha" "Ryddi.app" >"$stage_dir/Ryddi-checksums.sha256"
+  assert_public_manifest_has_no_local_paths "$stage_dir/Ryddi-release-manifest.txt"
+  archive_staged_release
+}
+
+if [[ "${RYDDI_RELEASE_CHECK_LIBRARY_ONLY:-0}" == "1" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 cd "$root"
 rm -f "$zip_path" "$checksum_path" "$manifest_path"
@@ -89,8 +194,19 @@ if [[ "$bundle_id" != "com.reidar.ryddi" ]]; then
   exit 1
 fi
 
-if [[ "$signing_required" == "required" && "$bundle_version" != "${RYDDI_VERSION:-0.2.0}" ]]; then
+bundle_icon="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$plist")"
+if [[ "$bundle_icon" != "Ryddi" || ! -s "$app/Contents/Resources/Ryddi.icns" ]]; then
+  echo "packaged app icon metadata or resource is missing" >&2
+  exit 1
+fi
+
+if [[ "$signing_required" == "required" && "$bundle_version" != "$release_version" ]]; then
   echo "unexpected release CFBundleShortVersionString: $bundle_version" >&2
+  exit 1
+fi
+
+if [[ "$signing_required" == "required" && "$bundle_build" != "$release_build" ]]; then
+  echo "unexpected release CFBundleVersion: $bundle_build" >&2
   exit 1
 fi
 
@@ -98,6 +214,23 @@ rules_path="$(find "$app/Contents/Resources" -type f -name rules.json -print -qu
 if [[ -z "$rules_path" ]]; then
   echo "missing bundled rules.json" >&2
   exit 1
+fi
+
+echo "==> Running fixture-backed app E2E"
+RYDDI_E2E_APP_PATH="$app" \
+  RYDDI_E2E_REQUIRE_SCREENSHOT="${RYDDI_E2E_REQUIRE_SCREENSHOT:-0}" \
+  "$root/Scripts/app-e2e-smoke.sh"
+
+if [[ "${RYDDI_REQUIRE_PACKAGED_AX_E2E:-0}" == "1" ]]; then
+  echo "==> Running packaged-app Accessibility E2E"
+  RYDDI_E2E_APP_PATH="$app" \
+    RYDDI_E2E_OUTPUT="$dist/e2e-proof" \
+    "$root/Scripts/run-packaged-app-e2e.sh"
+  jq -e '.executionResultVisible == true and .originalCandidateMissing == true and .trashArtifactCleaned == true' \
+    "$dist/e2e-proof/e2e-result.json" >/dev/null
+  packaged_ax_e2e_status="passed"
+else
+  rm -rf "$dist/e2e-proof"
 fi
 
 echo "==> Smoke testing bundled CLI"
@@ -184,8 +317,9 @@ printf 'web build\n' >"$project_web/dist/app.js"
 git -C "$project_web" init -q
 git -C "$project_web" config user.name "Ryddi Release Check"
 git -C "$project_web" config user.email "ryddi-release-check@example.invalid"
+git -C "$project_web" config commit.gpgsign false
 git -C "$project_web" add .gitignore package.json package-lock.json src/index.ts
-git -C "$project_web" commit -qm "fixture"
+git -C "$project_web" -c commit.gpgsign=false commit -qm "fixture"
 printf 'source should remain protected after dirty change\n' >"$project_web/src/index.ts"
 printf 'local untracked evidence\n' >"$project_web/local-note.md"
 printf '[project]\nname = "fixture"\n' >"$project_python/pyproject.toml"
@@ -450,6 +584,11 @@ grep -q '"--scope-set"' "$scratch/schedule-scope-set-preview.json"
 grep -q '"kind" : "template"' "$scratch/schedule-template-preview.json"
 grep -q '"value" : "weekly-general"' "$scratch/schedule-template-preview.json"
 grep -q '"--template"' "$scratch/schedule-template-preview.json"
+if "$app/Contents/MacOS/reclaimer" schedule uninstall --unload >"$scratch/schedule-uninstall-manual.log" 2>&1; then
+  echo "bundled CLI unexpectedly unloaded or removed a LaunchAgent schedule" >&2
+  exit 1
+fi
+grep -q "will not unload or remove LaunchAgent files automatically" "$scratch/schedule-uninstall-manual.log"
 "$app/Contents/MacOS/reclaimer" rules >"$scratch/rules-smoke.txt"
 grep -q "Ryddi rule catalog" "$scratch/rules-smoke.txt"
 grep -q "Never Touch" "$scratch/rules-smoke.txt"
@@ -544,7 +683,24 @@ grep -q "does not delete, compress, move, or modify agent files" "$scratch/agent
 grep -q '"command" : "brew cleanup -n"' "$scratch/native-smoke.json"
 grep -q '"command" : "brew cleanup"' "$scratch/native-smoke.json"
 grep -q "No native cleanup command was executed" "$scratch/native-smoke.json"
-RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" native run --dry-run --json \
+fake_brew_bin="$scratch/fake-brew-bin"
+mkdir -p "$fake_brew_bin"
+cat >"$fake_brew_bin/brew" <<'BREW'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "cleanup" && ( "${2:-}" == "--dry-run" || "${2:-}" == "-n" ) && $# -eq 2 ]]; then
+  printf 'Would remove Homebrew cache fixture\n'
+  exit 0
+fi
+if [[ "${1:-}" == "cleanup" && $# -eq 1 ]]; then
+  printf 'Removed Homebrew cache fixture\n'
+  exit 0
+fi
+printf 'unsupported fake brew command: %s\n' "$*" >&2
+exit 64
+BREW
+chmod +x "$fake_brew_bin/brew"
+PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" native run --dry-run --json \
   --path "$scratch/native-fixture/Library/Caches/Homebrew" \
   --command-id brew.preview \
   --min-size 1 \
@@ -552,9 +708,38 @@ RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" native run --d
   --save-audit >"$scratch/native-run-dry-run.json"
 grep -q '"status" : "dry-run"' "$scratch/native-run-dry-run.json"
 grep -q '"command" : "brew cleanup -n"' "$scratch/native-run-dry-run.json"
-grep -q "Dry run only" "$scratch/native-run-dry-run.json"
+grep -q "Would remove Homebrew cache fixture" "$scratch/native-run-dry-run.json"
 grep -q "only one explicitly selected native-tool command" "$scratch/native-run-dry-run.json"
 find "$scratch/audit" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
+PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew-fresh" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --yes --save-audit --json \
+  --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
+  --timeout 5 >"$scratch/native-homebrew-fresh-perform.json"
+grep -q '"mode" : "perform"' "$scratch/native-homebrew-fresh-perform.json"
+grep -q "Removed Homebrew cache fixture" "$scratch/native-homebrew-fresh-perform.json"
+RYDDI_AUDIT_ROOT="$scratch/audit-homebrew-fresh" "$app/Contents/MacOS/reclaimer" native receipts list --json >"$scratch/native-homebrew-fresh-receipts.json"
+grep -q '"id" : "brew.preview"' "$scratch/native-homebrew-fresh-receipts.json"
+grep -q '"status" : "dry-run"' "$scratch/native-homebrew-fresh-receipts.json"
+grep -q '"id" : "brew.cleanup"' "$scratch/native-homebrew-fresh-receipts.json"
+grep -q '"status" : "done"' "$scratch/native-homebrew-fresh-receipts.json"
+test "$(find "$scratch/audit-homebrew-fresh" -name 'native-tool-execution-*.json' -type f | wc -l | tr -d '[:space:]')" = "2"
+PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --dry-run --save-audit --json \
+  --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
+  --timeout 5 >"$scratch/native-homebrew-dry-run.json"
+grep -q '"mode" : "dryRun"' "$scratch/native-homebrew-dry-run.json"
+grep -q "Would remove Homebrew cache fixture" "$scratch/native-homebrew-dry-run.json"
+find "$scratch/audit-homebrew" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
+RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native receipts list --json >"$scratch/native-receipts-list.json"
+grep -q '"id" : "brew.preview"' "$scratch/native-receipts-list.json"
+RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native receipts export \
+  --path-style redacted \
+  --output "$scratch/native-receipt-report.md" >"$scratch/native-receipt-export.txt"
+grep -q "Ryddi Native Command Receipt Report" "$scratch/native-receipt-report.md"
+grep -q "Homebrew dry run completed" "$scratch/native-receipt-report.md"
+PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --yes --save-audit --json \
+  --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
+  --timeout 5 >"$scratch/native-homebrew-perform.json"
+grep -q '"mode" : "perform"' "$scratch/native-homebrew-perform.json"
+grep -q "Removed Homebrew cache fixture" "$scratch/native-homebrew-perform.json"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" trash --json \
   --path "$trash_fixture" \
   --limit 20 \
@@ -768,6 +953,14 @@ grep -q '"coverageLevel"' "$scratch/permissions-smoke.json"
 grep -q "# Ryddi Permission Walkthrough" "$scratch/permissions-guide.md"
 grep -q "Full Disk Access" "$scratch/permissions-guide.md"
 grep -q "does not grant macOS permissions" "$scratch/permissions-guide.md"
+existing_permission_guide="$scratch/permissions-guide-existing.md"
+printf 'keep existing output\n' >"$existing_permission_guide"
+if "$app/Contents/MacOS/reclaimer" permissions guide --path "$root/Tests" --output "$existing_permission_guide" >"$scratch/permissions-guide-existing.log" 2>&1; then
+  echo "bundled CLI unexpectedly replaced existing permission guide output" >&2
+  exit 1
+fi
+grep -q "Output file already exists" "$scratch/permissions-guide-existing.log"
+grep -q '^keep existing output$' "$existing_permission_guide"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" active --json --path "$root/Tests" --min-size 1 --max-depth 1 --limit 5 --save-audit >"$scratch/active-smoke.json"
 grep -q '"candidateCount"' "$scratch/active-smoke.json"
 "$app/Contents/MacOS/reclaimer" overview --path "$root/Tests" --limit 5 --sort reclaim --group safety >"$scratch/overview-smoke.txt"
@@ -781,9 +974,9 @@ grep -q '"estimatedImmediateReclaim"' "$scratch/overview-smoke.json"
 grep -q '"group" : "safety"' "$scratch/overview-smoke.json"
 cat >"$scratch/release-trust-fixture.txt" <<'TRUST'
 manifest_schema=ryddi.release-trust.v1
-version=0.2.0
-build=2
-artifact=Ryddi-v0.2.0.zip
+version=0.3.0
+build=3
+artifact=Ryddi-v0.3.0.zip
 sha256=fixture-sha
 source_commit=fixture-commit
 codesign_verified=true
@@ -1082,12 +1275,15 @@ cat >"$holding_fixture/.reclaimer-hold.json" <<JSON
 }
 JSON
 RYDDI_AUDIT_ROOT="$scratch/audit" RYDDI_HOLDING_ROOT="$scratch/holding" "$app/Contents/MacOS/reclaimer" recovery --json --limit 20 >"$scratch/recovery-smoke.json"
-grep -q '"restorableCount" : 1' "$scratch/recovery-smoke.json"
-grep -q '"state" : "restorableFromHolding"' "$scratch/recovery-smoke.json"
+grep -q '"restorableCount" : 0' "$scratch/recovery-smoke.json"
+grep -q '"state" : "manualReview"' "$scratch/recovery-smoke.json"
 grep -q '"state" : "dryRunOnly"' "$scratch/recovery-smoke.json"
-RYDDI_HOLDING_ROOT="$scratch/holding" "$app/Contents/MacOS/reclaimer" recovery restore "2026-01-01T00-00-00Z/cache.bin" --to "$scratch/restored-cache.bin" >"$scratch/recovery-restore-smoke.txt"
-grep -q "restored:" "$scratch/recovery-restore-smoke.txt"
-test -f "$scratch/restored-cache.bin"
+if RYDDI_HOLDING_ROOT="$scratch/holding" "$app/Contents/MacOS/reclaimer" recovery restore "2026-01-01T00-00-00Z/cache.bin" --to "$scratch/restored-cache.bin" >"$scratch/recovery-restore-smoke.txt" 2>"$scratch/recovery-restore-smoke.err"; then
+  echo "recovery restore unexpectedly succeeded despite manual-only holding recovery" >&2
+  exit 1
+fi
+grep -q "manual Finder" "$scratch/recovery-restore-smoke.err"
+test -f "$holding_fixture/cache.bin"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" containers --json --timeout 2 --save-audit >"$scratch/containers-smoke.json"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy protect "$root/Tests" --reason "release smoke" >"$scratch/policy-protect-smoke.txt"
 RYDDI_CONFIG_ROOT="$scratch/config" "$app/Contents/MacOS/reclaimer" policy list --json >"$scratch/policy-list-smoke.json"
@@ -1128,12 +1324,15 @@ spctl_state="not assessed"
 codesign_verified="false"
 hardened_runtime="false"
 notarization_status="not requested"
-stapled="false"
+stapler_validated="false"
 gatekeeper_status="not assessed"
+signing_identity="unsigned"
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   codesign --verify --deep --strict --verbose=2 "$app"
   codesign_verified="true"
   signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
+  signing_identity="$(sed -n 's/^Authority=\(Developer ID Application:.*\)$/\1/p' <<<"$signing_details" | head -n 1)"
+  signing_identity="${signing_identity:-$CODESIGN_IDENTITY}"
   if ! grep -qi "runtime" <<<"$signing_details"; then
     echo "signed app does not report Hardened Runtime in codesign details" >&2
     exit 1
@@ -1147,6 +1346,8 @@ elif codesign --verify --deep --strict --verbose=2 "$app" >"$scratch/codesign-ve
   if grep -qi "runtime" <<<"$signing_details"; then
     hardened_runtime="true"
   fi
+  signing_identity="$(sed -n 's/^Authority=\(Developer ID Application:.*\)$/\1/p' <<<"$signing_details" | head -n 1)"
+  signing_identity="${signing_identity:-pre-signed}"
 else
   if [[ "$signing_required" == "required" ]]; then
     echo "RYDDI_RELEASE_SIGNING=required but app is unsigned." >&2
@@ -1167,7 +1368,7 @@ if [[ "$signing_required" == "required" ]]; then
   notary_submission="$(cat "$notary_submission_file" 2>/dev/null || true)"
   notarization_state="accepted and stapled"
   notarization_status="Accepted"
-  stapled="true"
+  stapler_validated="true"
   spctl --assess --type execute --verbose "$app"
   spctl_state="accepted"
   gatekeeper_status="accepted"
@@ -1177,100 +1378,18 @@ else
   notary_submission=""
 fi
 
-echo "==> Creating zip artifact and checksum"
-(
-  cd "$dist"
-  /usr/bin/zip -qry -X "$zip_path" "Ryddi.app"
-)
-shasum -a 256 "$zip_path" | tee "$checksum_path"
-artifact_sha="$(awk '{print $1}' "$checksum_path")"
-
 commit="unknown"
 if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   commit="$(git -C "$root" rev-parse HEAD)"
 fi
+notary_status_manifest="not applicable"
+if [[ -n "$notary_status_file" ]]; then
+  notary_status_manifest="dist/$(basename "$notary_status_file")"
+fi
 
-cat >"$manifest_path" <<MANIFEST
-manifest_schema=ryddi.release-trust.v1
-version=$bundle_version
-build=$bundle_build
-artifact=$(basename "$zip_path")
-sha256=$artifact_sha
-source_commit=$commit
-codesign_verified=$codesign_verified
-hardened_runtime=$hardened_runtime
-notarization_status=$notarization_status
-stapled=$stapled
-gatekeeper=$gatekeeper_status
-
-Ryddi release check
-Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
-Commit: $commit
-Bundle: $app
-Bundle name: $bundle_name
-Bundle id: $bundle_id
-Bundle version: $bundle_version
-Bundle build: $bundle_build
-Rules: ${rules_path#$app/}
-Signing state: $signing_state
-Notarization state: $notarization_state
-Notarization submission: ${notary_submission:-not applicable}
-Notarization status JSON: ${notary_status_file:-not applicable}
-Gatekeeper assessment: $spctl_state
-Artifact: $zip_path
-Checksum: $(cat "$checksum_path")
-
-Verification performed:
-- swift test --scratch-path "$root/.build"
-- Scripts/package-app.sh
-- bundle executable/resource checks
-- bundled reclaimer status --json
-- bundled reclaimer scopes --preset general and scopes --json --preset all
-- bundled reclaimer rules and rules --json
-- bundled reclaimer agents --json on disposable Codex/Claude/Cursor/Ollama fixture
-- bundled reclaimer agents retention --json on disposable Codex/Claude/Cursor/Ollama fixture
-- bundled reclaimer native --json and native run --dry-run --json on disposable Homebrew fixture
-- bundled reclaimer trash --json on disposable Trash fixture, with audit save and no emptying
-- bundled reclaimer downloads --json on disposable Downloads fixture, with audit save and no file moves/deletes
-- bundled reclaimer browsers --json on disposable browser cache/profile fixture, with audit save and no profile/cache mutation
-- bundled reclaimer packages --json on disposable package cache/config fixture, with audit save and no cache/config mutation
-- bundled reclaimer projects --json on disposable project dependency/build fixture, with audit save and no source/dependency mutation
-- bundled reclaimer device-backups --json on disposable MobileSync backup fixture, with audit save and no backup mutation
-- bundled reclaimer xcode --json on disposable Xcode developer fixture, with audit save and no Xcode state mutation
-- bundled reclaimer permissions --json --path Tests
-- bundled reclaimer permissions guide --path Tests --output permissions-guide.md
-- bundled reclaimer active --json --path Tests --save-audit with temporary audit root
-- bundled reclaimer overview --path Tests --limit 5 --sort reclaim --group safety
-- bundled reclaimer release-trust --json against typed disposable accepted manifest proof
-- bundled reclaimer trust --json --path Tests
-- bundled reclaimer dogfood --path Tests --path-style redacted --output dogfood-smoke.md
-- bundled reclaimer explain on disposable Codex cache fixture with text and JSON explanation output
-- bundled reclaimer queues --path Tests --limit 5, queues --json, and queues --queue unknown
-- bundled reclaimer large --path disposable fixture with text and JSON review output
-- bundled reclaimer archive --path disposable fixture with text, JSON, and redacted Markdown review output
-- bundled reclaimer drilldown --json on disposable nested fixture
-- bundled reclaimer apps uninstall-preview and apps uninstall --dry-run on a disposable app fixture, with redacted Markdown and saved JSON audit
-- bundled reclaimer history record twice on a disposable fixture plus redacted history report --output growth-report.md
-- bundled reclaimer remote history list/diff/report on disposable saved remote scan audit records, with redacted remote growth Markdown
-- bundled reclaimer remote dogfood --from-audit on disposable saved remote audit records, with redacted Markdown and no SSH connection
-- bundled reclaimer report --path Tests --limit 5 --output evidence-report.md with redacted path privacy
-- bundled reclaimer plan --path disposable fixture --output plan-report.md with redacted path privacy
-- bundled reclaimer plan --save-audit on disposable fixture plus redacted plans export --output saved-plan-report.md
-- bundled reclaimer execute --dry-run --save-audit on disposable fixture plus redacted receipts export --output receipt-report.md
-- bundled reclaimer recovery --json and recovery restore with disposable audit and holding roots
-- bundled reclaimer containers --json --timeout 2 --save-audit with temporary audit root
-- bundled reclaimer policy protect/list/export/import/replace with temporary config roots
-- bundled reclaimer audit summary --json and audit prune --dry-run --json with temporary audit root
-- codesign verification when CODESIGN_IDENTITY is set
-- notarization, stapling, spctl assessment, and strict codesign verification when RYDDI_RELEASE_SIGNING=required
-- zip artifact and SHA-256 checksum generation
-
-Non-claims:
-- This manifest is not a notarization receipt unless Notarization state says submitted, accepted, and stapled.
-- Unsigned developer preview artifacts may trigger Gatekeeper warnings.
-- Packaging does not grant Full Disk Access.
-- Packaging does not execute cleanup, install a LaunchAgent, or verify real disk reclaim.
-MANIFEST
+echo "==> Staging release artifact and trust evidence"
+stage_release_artifact
+artifact_sha="$(awk '{print $1}' "$checksum_path")"
 
 echo "==> Release check complete"
 echo "$zip_path"

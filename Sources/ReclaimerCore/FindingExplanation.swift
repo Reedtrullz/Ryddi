@@ -155,13 +155,13 @@ public enum FindingExplanationBuilder {
         case .reportOnly:
             return "Report only: leave the path untouched and record evidence."
         case .trash:
-            return "Move to Trash: use macOS Trash for a user-visible, recoverable removal path after dry-run and confirmation."
+            return "Trash candidate: review this user-visible path in Finder; Ryddi does not move it automatically."
         case .deleteCache:
-            return "Delete cache: direct-delete only allowlisted reproducible cache data after dry-run, confirmation, and final checks."
+            return "Cache candidate: review the rebuildable cache path in Finder or with its owning tool; Ryddi does not delete it automatically."
         case .compress:
-            return "Compress: create a compressed copy for reviewed cold files or history; v1 compression uses gzip for files."
+            return "Compression candidate: review this cold file or history in Finder; Ryddi does not compress it automatically."
         case .quarantineHold:
-            return "Hold aside: move the item into Ryddi's app-managed holding area with restore metadata."
+            return "Holding candidate: review the item in Finder; Ryddi does not move it into the holding area automatically."
         case .nativeToolCommand:
             return "Use native tool: inspect and run the owning tool's cleanup command yourself; Ryddi only records guidance."
         case .openGuidance:
@@ -174,13 +174,13 @@ public enum FindingExplanationBuilder {
         case .reportOnly:
             return "No removal effect; this row exists for evidence and safety review."
         case .trash:
-            return "Moves the item to Trash; free-space gain may wait until Trash is emptied and APFS accounting settles."
+            return "No Ryddi filesystem mutation; use Finder Trash manually after review if appropriate."
         case .deleteCache:
-            return "Removes cache contents directly; the owning app/tool may recreate them and may run slower next time."
+            return "No Ryddi filesystem mutation; the owning app/tool may rebuild this cache if you remove it manually."
         case .compress:
-            return "Keeps the original file and writes a compressed copy in v1; free-space gain is not guaranteed unless a later reviewed action removes the original."
+            return "No Ryddi filesystem mutation; compression remains a manual archive decision."
         case .quarantineHold:
-            return "Moves the item into Ryddi holding so it can be restored or expired later."
+            return "No Ryddi filesystem mutation; holding records are retained for manual Finder recovery only."
         case .nativeToolCommand:
             return "No Ryddi filesystem mutation; effect depends on the native command the user chooses to run."
         case .openGuidance:
@@ -201,7 +201,7 @@ public enum FindingExplanationBuilder {
         case .compress:
             return ["Keep the compressed copy and restore from backup if the original is later removed."]
         case .quarantineHold:
-            return ["Use Ryddi's Holding Area or recovery restore command while the held item remains available."]
+            return ["Reveal any existing holding record in Finder and move it manually after review."]
         case .nativeToolCommand:
             return ["Use the native tool's rebuild, pull, install, or backup restore path as appropriate."]
         case .reportOnly, .openGuidance:

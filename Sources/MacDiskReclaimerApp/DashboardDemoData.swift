@@ -30,12 +30,14 @@ enum DashboardDemoData {
             generatedAt: now
         )
         let packageReport = packageCacheReview(home: home, now: now)
+        let appReviewReport = appReview(home: home, now: now)
         let remote = remoteReports(now: now)
 
         model.scanPreset = .developer
         model.selectedScopeTemplateID = nil
         model.selectedSavedScopeSetID = nil
         model.findings = findings
+        model.refreshReviewQueueReport()
         model.scanScopes = scopes
         model.overview = overview
         model.diskDrillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
@@ -44,6 +46,19 @@ enum DashboardDemoData {
         model.lastExecutionReceipt = nil
         model.lastScannedScopeLabel = "Screenshot demo"
         model.lastScanDate = now
+        model.currentScanSession = ScanSession(
+            id: "demo-session",
+            createdAt: now,
+            updatedAt: now,
+            appVersion: model.actionCenterAppVersion,
+            ruleVersion: model.actionCenterRuleVersion,
+            preset: model.actionCenterPreset,
+            scopeDigest: model.actionCenterScopeDigest,
+            policyDigest: model.actionCenterPolicyDigest,
+            findingDigest: model.actionCenterFindingDigest,
+            planDigest: plan.id,
+            stage: .planReady
+        )
         model.diskStatus = DiskStatusSnapshot(
             createdAt: now,
             path: "/System/Volumes/Data",
@@ -59,6 +74,8 @@ enum DashboardDemoData {
         model.agentStorageReview = agentReview
         model.agentRetentionReport = retentionReport
         model.packageCacheReview = packageReport
+        model.appReview = appReviewReport
+        model.appUninstallPreview = nil
         model.recentPackageCacheReviewReports = [packageReport]
         model.remoteTargets = [remote.target]
         model.remoteTargetInput = remote.target.input
@@ -264,6 +281,130 @@ enum DashboardDemoData {
                 "Native tools may report different reclaim after their own accounting.",
                 "Protected package-manager config and auth paths remain out of scope."
             ]
+        )
+    }
+
+    private static func appReview(home: URL, now: Date) -> AppReviewReport {
+        let vivaldi = InstalledApp(
+            id: "demo-vivaldi",
+            displayName: "Vivaldi",
+            bundleIdentifier: "com.vivaldi.Vivaldi",
+            version: "7.3",
+            executableName: "Vivaldi",
+            path: "/Applications/Vivaldi.app",
+            modificationDate: now.addingTimeInterval(-18 * 86_400)
+        )
+        let arc = InstalledApp(
+            id: "demo-arc",
+            displayName: "Arc",
+            bundleIdentifier: "company.thebrowser.Browser",
+            version: "1.95",
+            executableName: "Arc",
+            path: "/Applications/Arc.app",
+            modificationDate: now.addingTimeInterval(-29 * 86_400)
+        )
+        let codex = InstalledApp(
+            id: "demo-codex",
+            displayName: "Codex",
+            bundleIdentifier: "com.openai.codex",
+            version: "0.9",
+            executableName: "Codex",
+            path: "/Applications/Codex.app",
+            modificationDate: now.addingTimeInterval(-4 * 86_400)
+        )
+
+        let installedGroups = [
+            AppReviewGroup(
+                id: "demo-vivaldi-group",
+                ownerName: "Vivaldi",
+                bundleIdentifier: vivaldi.bundleIdentifier,
+                appPath: vivaldi.path,
+                isInstalled: true,
+                items: [
+                    appReviewItem(owner: "vivaldi", path: home.appendingPathComponent("Library/Application Support/Vivaldi").path, name: "Vivaldi state", bytes: gb(4) + mb(300), category: "App state", safety: .preserveByDefault, action: .reportOnly, now: now),
+                    appReviewItem(owner: "vivaldi", path: home.appendingPathComponent("Library/Caches/Vivaldi").path, name: "Vivaldi cache", bytes: gb(2) + mb(130), category: "App cache", safety: .safeAfterCondition, action: .deleteCache, now: now)
+                ],
+                notes: ["Installed-app support data may include preferences, profiles, extensions, and state."]
+            ),
+            AppReviewGroup(
+                id: "demo-arc-group",
+                ownerName: "Arc",
+                bundleIdentifier: arc.bundleIdentifier,
+                appPath: arc.path,
+                isInstalled: true,
+                items: [
+                    appReviewItem(owner: "arc", path: home.appendingPathComponent("Library/Caches/Arc").path, name: "Arc cache", bytes: gb(2) + mb(710), category: "App cache", safety: .safeAfterCondition, action: .deleteCache, now: now),
+                    appReviewItem(owner: "arc", path: home.appendingPathComponent("Library/Application Support/Arc").path, name: "Arc state", bytes: gb(2) + mb(430), category: "App state", safety: .preserveByDefault, action: .reportOnly, now: now)
+                ],
+                notes: ["Browser state is preserve-first unless profiles and sync behavior are reviewed."]
+            ),
+            AppReviewGroup(
+                id: "demo-codex-group",
+                ownerName: "Codex",
+                bundleIdentifier: codex.bundleIdentifier,
+                appPath: codex.path,
+                isInstalled: true,
+                items: [
+                    appReviewItem(owner: "codex", path: home.appendingPathComponent("Library/Logs/com.openai.codex").path, name: "Codex logs", bytes: gb(3) + mb(40), category: "App logs", safety: .reviewRequired, action: .reportOnly, now: now),
+                    appReviewItem(owner: "codex", path: home.appendingPathComponent("Library/Caches/Codex").path, name: "Codex cache", bytes: mb(887), category: "App cache", safety: .safeAfterCondition, action: .deleteCache, now: now),
+                    appReviewItem(owner: "codex", path: home.appendingPathComponent("Library/Application Support/Codex").path, name: "Codex state", bytes: mb(508), category: "App state", safety: .preserveByDefault, action: .reportOnly, now: now)
+                ],
+                notes: ["AI-agent app state can contain session context and remains preserve-first."]
+            )
+        ]
+
+        let orphanGroups = [
+            AppReviewGroup(
+                id: "demo-old-helper-group",
+                ownerName: "Old Helper",
+                bundleIdentifier: nil,
+                appPath: nil,
+                isInstalled: false,
+                items: [
+                    appReviewItem(owner: "old-helper", path: home.appendingPathComponent("Library/Application Support/Old Helper").path, name: "Old Helper support", bytes: gb(1) + mb(240), category: "App state", safety: .reviewRequired, action: .reportOnly, now: now),
+                    appReviewItem(owner: "old-helper", path: home.appendingPathComponent("Library/Caches/Old Helper").path, name: "Old Helper cache", bytes: mb(620), category: "App cache", safety: .safeAfterCondition, action: .deleteCache, now: now)
+                ],
+                notes: ["Orphan candidates are heuristic app-owned-looking files with no discovered app match."]
+            )
+        ]
+
+        return AppReviewReport(
+            createdAt: now,
+            appRoots: ["/Applications", home.appendingPathComponent("Applications").path],
+            installedApps: [vivaldi, arc, codex],
+            installedAppGroups: installedGroups,
+            orphanGroups: orphanGroups,
+            skipped: [home.appendingPathComponent("Library/Containers/com.example.protected").path],
+            notes: [
+                "Apps & Leftovers is review-only. Ryddi does not uninstall apps or delete related files from this report.",
+                "Installed-app support data can include preferences, licenses, projects, plugins, and state; review before removal.",
+                "Orphan candidates are heuristic app-owned-looking files with no currently discovered app match, not proof that the app is gone."
+            ]
+        )
+    }
+
+    private static func appReviewItem(
+        owner: String,
+        path: String,
+        name: String,
+        bytes: Int64,
+        category: String,
+        safety: SafetyClass,
+        action: ActionKind,
+        now: Date
+    ) -> AppReviewItem {
+        AppReviewItem(
+            ownerKey: owner,
+            path: path,
+            displayName: name,
+            logicalSize: bytes,
+            allocatedSize: bytes,
+            isDirectory: true,
+            modificationDate: now.addingTimeInterval(-14 * 86_400),
+            category: category,
+            safetyClass: safety,
+            actionKind: action,
+            evidence: [Evidence(kind: "demo", message: "Synthetic screenshot app review path.")]
         )
     }
 

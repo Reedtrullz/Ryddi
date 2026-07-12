@@ -1,4 +1,8 @@
+import CryptoKit
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 public struct AppUninstallSelector: Codable, Hashable, Sendable {
     public let appPath: String?
@@ -76,6 +80,7 @@ public struct AppUninstallPreview: Codable, Hashable, Identifiable, Sendable {
     public let selectedApp: InstalledApp
     public let selector: AppUninstallSelector
     public let bundleCandidate: AppUninstallCandidate
+    public let bundleAuthorizationDigest: String?
     public let relatedItems: [AppReviewItem]
     public let relatedReviewBytes: Int64
     public let explicitTrashPreviewBytes: Int64
@@ -89,6 +94,7 @@ public struct AppUninstallPreview: Codable, Hashable, Identifiable, Sendable {
         selectedApp: InstalledApp,
         selector: AppUninstallSelector,
         bundleCandidate: AppUninstallCandidate,
+        bundleAuthorizationDigest: String? = nil,
         relatedItems: [AppReviewItem],
         notes: [String],
         nonClaims: [String]
@@ -98,6 +104,7 @@ public struct AppUninstallPreview: Codable, Hashable, Identifiable, Sendable {
         self.selectedApp = selectedApp
         self.selector = selector
         self.bundleCandidate = bundleCandidate
+        self.bundleAuthorizationDigest = bundleAuthorizationDigest
         self.relatedItems = relatedItems.sorted { lhs, rhs in
             if lhs.allocatedSize == rhs.allocatedSize {
                 return lhs.path < rhs.path
@@ -178,6 +185,11 @@ public enum AppUninstallPreviewBuilder {
             }?
             .items ?? []
         let bundleCandidate = bundleCandidate(for: app)
+        let bundleURL = URL(fileURLWithPath: app.path).standardizedFileURL
+        let bundleAuthorizationDigest = try? AppUninstallAuthorizationDigest.capture(
+            app: app,
+            bundleURL: bundleURL
+        )
         let protected = bundleCandidate.disposition != .trashPreview
         let notes = [
             protected
@@ -198,6 +210,7 @@ public enum AppUninstallPreviewBuilder {
             selectedApp: app,
             selector: selector,
             bundleCandidate: bundleCandidate,
+            bundleAuthorizationDigest: bundleAuthorizationDigest,
             relatedItems: related,
             notes: notes,
             nonClaims: nonClaims
@@ -323,6 +336,58 @@ public enum AppUninstallPreviewBuilder {
     }
 }
 
+private enum AppUninstallAuthorizationDigest {
+    static func capture(app: InstalledApp, bundleURL: URL) throws -> String {
+        let normalizedURL = bundleURL.standardizedFileURL
+        let bundleIdentity = try FilesystemIdentity.capture(at: normalizedURL)
+        guard bundleIdentity.isDirectory,
+              !bundleIdentity.isSymbolicLink,
+              !bundleIdentity.isVolume else {
+            throw FilesystemIdentityError.missingStableIdentifier(normalizedURL.path)
+        }
+
+        let infoURL = normalizedURL.appendingPathComponent("Contents/Info.plist")
+        let infoIdentity = try FilesystemIdentity.capture(at: infoURL)
+        guard infoIdentity.isRegularFile,
+              !infoIdentity.isSymbolicLink,
+              !infoIdentity.isPackage,
+              !infoIdentity.isVolume else {
+            throw FilesystemIdentityError.missingStableIdentifier(infoURL.path)
+        }
+
+        let executableIdentity: String
+        if let executableName = app.executableName, !executableName.isEmpty {
+            let executableURL = normalizedURL.appendingPathComponent("Contents/MacOS/\(executableName)")
+            let identity = try FilesystemIdentity.capture(at: executableURL)
+            guard identity.isRegularFile,
+                  !identity.isSymbolicLink,
+                  !identity.isPackage,
+                  !identity.isVolume else {
+                throw FilesystemIdentityError.missingStableIdentifier(executableURL.path)
+            }
+            executableIdentity = identity.digestComponent
+        } else {
+            executableIdentity = "no-executable"
+        }
+
+        let payload = [
+            "ryddi.app-uninstall.authorization.v1",
+            normalizedURL.path,
+            app.bundleIdentifier ?? "no-bundle-identifier",
+            app.displayName,
+            app.version ?? "no-version",
+            app.executableName ?? "no-executable-name",
+            app.modificationDate.map { String($0.timeIntervalSince1970) } ?? "no-app-mtime",
+            bundleIdentity.digestComponent,
+            infoIdentity.digestComponent,
+            executableIdentity
+        ].joined(separator: "\u{001e}")
+        return SHA256.hash(data: Data(payload.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+}
+
 public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let createdAt: Date
@@ -339,6 +404,7 @@ public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sen
     public let status: String
     public let message: String
     public let resultingTrashPath: String?
+    public let authorizationDigest: String?
     public let errors: [String]
     public let nonClaims: [String]
 
@@ -358,6 +424,7 @@ public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sen
         status: String,
         message: String,
         resultingTrashPath: String? = nil,
+        authorizationDigest: String? = nil,
         errors: [String] = [],
         nonClaims: [String]
     ) {
@@ -376,38 +443,99 @@ public struct AppUninstallExecutionReceipt: Codable, Hashable, Identifiable, Sen
         self.status = status
         self.message = message
         self.resultingTrashPath = resultingTrashPath
+        self.authorizationDigest = authorizationDigest
         self.errors = errors
         self.nonClaims = nonClaims
     }
 }
 
-public struct AppUninstallExecutorConfiguration: Sendable {
-    public let userPathPolicy: UserPathPolicy
+public struct AppUninstallPerformAuthorization: Codable, Hashable, Sendable {
+    public let dryRunReceipt: AppUninstallExecutionReceipt
 
-    public init(userPathPolicy: UserPathPolicy = .empty) {
+    public init(dryRunReceipt: AppUninstallExecutionReceipt) {
+        self.dryRunReceipt = dryRunReceipt
+    }
+}
+
+public struct AppUninstallExecutorConfiguration: Sendable {
+    /// App-uninstall dry-run authorization is never valid for more than 15 minutes.
+    public static let maximumDryRunAuthorizationAge: TimeInterval = 15 * 60
+
+    public let userPathPolicy: UserPathPolicy
+    public let allowedAppRoots: [URL]
+    public let dryRunAuthorizationAge: TimeInterval
+
+    public init(
+        userPathPolicy: UserPathPolicy = .empty,
+        allowedAppRoots: [URL] = [
+            URL(fileURLWithPath: "/Applications"),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+        ],
+        dryRunAuthorizationAge: TimeInterval = Self.maximumDryRunAuthorizationAge
+    ) {
         self.userPathPolicy = userPathPolicy
+        self.allowedAppRoots = allowedAppRoots.map(\.standardizedFileURL)
+        self.dryRunAuthorizationAge = max(
+            1,
+            min(dryRunAuthorizationAge, Self.maximumDryRunAuthorizationAge)
+        )
+    }
+}
+
+public protocol RunningApplicationChecking: Sendable {
+    func isAppRunning(bundleIdentifier: String?, executableName: String?, displayName: String) -> Bool
+}
+
+public struct SystemRunningApplicationChecker: RunningApplicationChecking {
+    public init() {}
+
+    public func isAppRunning(bundleIdentifier: String?, executableName: String?, displayName: String) -> Bool {
+        #if canImport(AppKit)
+        if let bundleIdentifier, !bundleIdentifier.isEmpty,
+           !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty {
+            return true
+        }
+        let executable = executableName?.lowercased()
+        let display = displayName.lowercased()
+        return NSWorkspace.shared.runningApplications.contains { application in
+            let localized = application.localizedName?.lowercased()
+            if let executable, localized == executable {
+                return true
+            }
+            return localized == display
+        }
+        #else
+        return false
+        #endif
     }
 }
 
 public final class AppUninstallExecutor: @unchecked Sendable {
     private let fileManager: FileManager
     private let openFileChecker: OpenFileChecking
+    private let runningApplicationChecker: RunningApplicationChecking
     private let configuration: AppUninstallExecutorConfiguration
+    private let now: @Sendable () -> Date
 
     public init(
         fileManager: FileManager = .default,
         openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
-        configuration: AppUninstallExecutorConfiguration = AppUninstallExecutorConfiguration()
+        runningApplicationChecker: RunningApplicationChecking = SystemRunningApplicationChecker(),
+        configuration: AppUninstallExecutorConfiguration = AppUninstallExecutorConfiguration(),
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.fileManager = fileManager
         self.openFileChecker = openFileChecker
+        self.runningApplicationChecker = runningApplicationChecker
         self.configuration = configuration
+        self.now = now
     }
 
     public func execute(
         preview: AppUninstallPreview,
         mode: ExecutionMode,
-        userConfirmed: Bool
+        userConfirmed: Bool,
+        authorization: AppUninstallPerformAuthorization? = nil
     ) -> AppUninstallExecutionReceipt {
         let candidate = preview.bundleCandidate
         let url = URL(fileURLWithPath: candidate.path).standardizedFileURL
@@ -430,6 +558,9 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         guard url.pathExtension.lowercased() == "app" else {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Only .app bundles can use app uninstall Trash execution.")
         }
+        guard isInAllowedAppRoot(url) else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle is outside the allowed app roots for Trash execution.")
+        }
         guard fileManager.fileExists(atPath: url.path) else {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle no longer exists.")
         }
@@ -438,6 +569,13 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         }
         if let protection = AppUninstallProtection.reason(for: current) {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: protection)
+        }
+        if runningApplicationChecker.isAppRunning(
+            bundleIdentifier: current.bundleIdentifier,
+            executableName: current.executableName,
+            displayName: current.displayName
+        ) {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App appears to be running; quit it before moving the bundle to Trash.")
         }
         guard !isSymbolicLink(url) else {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle path changed into a symbolic link.")
@@ -451,40 +589,48 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         if let checkFailed = openStatus.checkFailed {
             return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Open-file check failed: \(checkFailed)")
         }
-        guard mode == .perform else {
-            return receipt(
-                preview: preview,
-                mode: mode,
-                userConfirmed: userConfirmed,
-                status: "dry-run",
-                message: "Would move selected app bundle to Trash. Related support files would remain untouched."
-            )
-        }
-        guard userConfirmed else {
-            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Moving an app bundle to Trash requires explicit --yes/user confirmation.")
-        }
-
+        let currentAuthorizationDigest: String
         do {
-            var trashedURL: NSURL?
-            try fileManager.trashItem(at: url, resultingItemURL: &trashedURL)
-            return receipt(
-                preview: preview,
-                mode: mode,
-                userConfirmed: userConfirmed,
-                status: "done",
-                message: "Moved selected app bundle to Trash. Related support files were not touched.",
-                resultingTrashPath: trashedURL?.path
+            currentAuthorizationDigest = try AppUninstallAuthorizationDigest.capture(
+                app: current,
+                bundleURL: url
             )
         } catch {
             return receipt(
                 preview: preview,
                 mode: mode,
                 userConfirmed: userConfirmed,
-                status: "error",
-                message: error.localizedDescription,
-                errors: [error.localizedDescription]
+                status: "skipped",
+                message: "Could not capture stable app-bundle identity and metadata for authorization: \(error.localizedDescription)"
             )
         }
+        guard let previewAuthorizationDigest = preview.bundleAuthorizationDigest else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App uninstall preview lacks stable bundle authorization evidence; rebuild the preview.")
+        }
+        guard previewAuthorizationDigest == currentAuthorizationDigest else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "App bundle identity or metadata changed since preview; rebuild the preview and dry run.")
+        }
+        guard mode == .perform else {
+            return receipt(
+                preview: preview,
+                mode: mode,
+                userConfirmed: userConfirmed,
+                status: "dry-run",
+                message: "Would move selected app bundle to Trash. Related support files would remain untouched.",
+                authorizationDigest: currentAuthorizationDigest
+            )
+        }
+        guard userConfirmed else {
+            return receipt(preview: preview, mode: mode, userConfirmed: userConfirmed, status: "skipped", message: "Moving an app bundle to Trash requires explicit --yes/user confirmation.")
+        }
+        return receipt(
+            preview: preview,
+            mode: mode,
+            userConfirmed: userConfirmed,
+            status: "skipped",
+            message: "Automatic app-bundle Trash is disabled because macOS cannot bind this final path mutation to the verified bundle. The dry-run receipt is evidence only; remove the selected app manually in Finder.",
+            authorizationDigest: currentAuthorizationDigest
+        )
     }
 
     private func receipt(
@@ -494,9 +640,11 @@ public final class AppUninstallExecutor: @unchecked Sendable {
         status: String,
         message: String,
         resultingTrashPath: String? = nil,
+        authorizationDigest: String? = nil,
         errors: [String] = []
     ) -> AppUninstallExecutionReceipt {
         AppUninstallExecutionReceipt(
+            createdAt: now(),
             previewID: preview.id,
             mode: mode.rawValue,
             appDisplayName: preview.selectedApp.displayName,
@@ -510,14 +658,53 @@ public final class AppUninstallExecutor: @unchecked Sendable {
             status: status,
             message: message,
             resultingTrashPath: resultingTrashPath,
+            authorizationDigest: authorizationDigest,
             errors: errors,
             nonClaims: [
                 "Only the selected app bundle is in scope for this receipt; related support files were not moved or deleted.",
+                "If the app bundle was moved to Trash, restore it from Finder Trash before emptying Trash.",
                 "Trash does not guarantee immediate free-space recovery until the user empties Trash and APFS accounting settles.",
                 "Ryddi did not quit the app, unload helpers, remove launch agents, revoke login items, or run vendor uninstallers.",
                 "Preferences, licenses, app support data, containers, saved state, user documents, and creative assets remain review-only/manual."
             ]
         )
+    }
+
+    private func authorizationBlockReason(
+        authorization: AppUninstallPerformAuthorization?,
+        preview: AppUninstallPreview,
+        currentApp: InstalledApp,
+        currentAuthorizationDigest: String,
+        now: Date
+    ) -> String? {
+        guard let authorization else {
+            return "App uninstall perform requires a fresh matching dry-run authorization receipt. Run app uninstall dry run with audit saving first."
+        }
+        let dryRun = authorization.dryRunReceipt
+        guard dryRun.mode == ExecutionMode.dryRun.rawValue,
+              dryRun.status == "dry-run",
+              dryRun.errors.isEmpty,
+              dryRun.resultingTrashPath == nil,
+              dryRun.actionKind == .trash,
+              dryRun.disposition == .trashPreview else {
+            return "App uninstall authorization is not a clean dry-run receipt."
+        }
+        let expectedPath = URL(fileURLWithPath: preview.bundleCandidate.path).standardizedFileURL.path
+        let authorizedPath = URL(fileURLWithPath: dryRun.bundlePath).standardizedFileURL.path
+        guard authorizedPath == expectedPath else {
+            return "App uninstall dry-run authorization belongs to a different app bundle path."
+        }
+        guard dryRun.bundleIdentifier == currentApp.bundleIdentifier else {
+            return "App uninstall dry-run authorization belongs to different bundle metadata."
+        }
+        let age = now.timeIntervalSince(dryRun.createdAt)
+        guard age >= 0, age <= configuration.dryRunAuthorizationAge else {
+            return "App uninstall dry-run authorization is stale; run the dry run again."
+        }
+        guard dryRun.authorizationDigest == currentAuthorizationDigest else {
+            return "App uninstall dry-run authorization does not match the current bundle identity or metadata."
+        }
+        return nil
     }
 
     private func currentInstalledApp(at url: URL) -> InstalledApp? {
@@ -546,6 +733,14 @@ public final class AppUninstallExecutor: @unchecked Sendable {
 
     private func isSymbolicLink(_ url: URL) -> Bool {
         (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
+    private func isInAllowedAppRoot(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return configuration.allowedAppRoots.contains { root in
+            let rootPath = root.standardizedFileURL.path
+            return path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")
+        }
     }
 }
 

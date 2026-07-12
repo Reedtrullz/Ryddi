@@ -239,6 +239,8 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
     public let checkFailed: String?
     public let checkedRecursively: Bool
     public let checkedPath: String?
+    public let openHits: [OpenFileHit]
+    public let linkEvidence: FilesystemLinkEvidence?
 
     public init(
         isOpen: Bool,
@@ -246,7 +248,9 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
         checkedAt: Date = Date(),
         checkFailed: String? = nil,
         checkedRecursively: Bool = false,
-        checkedPath: String? = nil
+        checkedPath: String? = nil,
+        openHits: [OpenFileHit] = [],
+        linkEvidence: FilesystemLinkEvidence? = nil
     ) {
         self.isOpen = isOpen
         self.processSummary = processSummary
@@ -254,6 +258,8 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
         self.checkFailed = checkFailed
         self.checkedRecursively = checkedRecursively
         self.checkedPath = checkedPath
+        self.openHits = openHits
+        self.linkEvidence = linkEvidence
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -263,6 +269,8 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
         case checkFailed
         case checkedRecursively
         case checkedPath
+        case openHits
+        case linkEvidence
     }
 
     public init(from decoder: Decoder) throws {
@@ -273,6 +281,23 @@ public struct OpenFileStatus: Codable, Hashable, Sendable {
         self.checkFailed = try container.decodeIfPresent(String.self, forKey: .checkFailed)
         self.checkedRecursively = try container.decodeIfPresent(Bool.self, forKey: .checkedRecursively) ?? false
         self.checkedPath = try container.decodeIfPresent(String.self, forKey: .checkedPath)
+        self.openHits = try container.decodeIfPresent([OpenFileHit].self, forKey: .openHits) ?? []
+        self.linkEvidence = try container.decodeIfPresent(FilesystemLinkEvidence.self, forKey: .linkEvidence)
+    }
+}
+
+public extension OpenFileStatus {
+    func withLinkEvidence(_ evidence: FilesystemLinkEvidence, isOpen: Bool? = nil) -> OpenFileStatus {
+        OpenFileStatus(
+            isOpen: isOpen ?? self.isOpen,
+            processSummary: processSummary,
+            checkedAt: checkedAt,
+            checkFailed: checkFailed,
+            checkedRecursively: checkedRecursively,
+            checkedPath: checkedPath,
+            openHits: openHits,
+            linkEvidence: evidence
+        )
     }
 }
 
@@ -286,12 +311,15 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
     public let isDirectory: Bool
     public let isSymbolicLink: Bool
     public let modificationDate: Date?
+    public let filesystemIdentity: FilesystemIdentity?
     public let ownerHint: String?
     public let safetyClass: SafetyClass
     public let actionKind: ActionKind
     public let ruleMatches: [RuleMatch]
     public let evidence: [Evidence]
     public let openFileStatus: OpenFileStatus?
+    public let storageAccounting: StorageAccounting?
+    public let measurementCoverage: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -303,12 +331,15 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
         isDirectory: Bool,
         isSymbolicLink: Bool = false,
         modificationDate: Date? = nil,
+        filesystemIdentity: FilesystemIdentity? = nil,
         ownerHint: String? = nil,
         safetyClass: SafetyClass,
         actionKind: ActionKind,
         ruleMatches: [RuleMatch],
         evidence: [Evidence],
-        openFileStatus: OpenFileStatus? = nil
+        openFileStatus: OpenFileStatus? = nil,
+        storageAccounting: StorageAccounting? = nil,
+        measurementCoverage: String? = nil
     ) {
         self.id = id
         self.scopeName = scopeName
@@ -319,12 +350,81 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
         self.isDirectory = isDirectory
         self.isSymbolicLink = isSymbolicLink
         self.modificationDate = modificationDate
+        self.filesystemIdentity = filesystemIdentity
         self.ownerHint = ownerHint
         self.safetyClass = safetyClass
         self.actionKind = actionKind
         self.ruleMatches = ruleMatches
         self.evidence = evidence
         self.openFileStatus = openFileStatus
+        self.storageAccounting = storageAccounting
+        self.measurementCoverage = measurementCoverage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case scopeName
+        case path
+        case displayName
+        case logicalSize
+        case allocatedSize
+        case isDirectory
+        case isSymbolicLink
+        case modificationDate
+        case filesystemIdentity
+        case ownerHint
+        case safetyClass
+        case actionKind
+        case ruleMatches
+        case evidence
+        case openFileStatus
+        case storageAccounting
+        case measurementCoverage
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.scopeName = try container.decode(String.self, forKey: .scopeName)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.displayName = try container.decode(String.self, forKey: .displayName)
+        self.logicalSize = try container.decode(Int64.self, forKey: .logicalSize)
+        self.allocatedSize = try container.decode(Int64.self, forKey: .allocatedSize)
+        self.isDirectory = try container.decode(Bool.self, forKey: .isDirectory)
+        self.isSymbolicLink = try container.decodeIfPresent(Bool.self, forKey: .isSymbolicLink) ?? false
+        self.modificationDate = try container.decodeIfPresent(Date.self, forKey: .modificationDate)
+        self.filesystemIdentity = try container.decodeIfPresent(FilesystemIdentity.self, forKey: .filesystemIdentity)
+        self.ownerHint = try container.decodeIfPresent(String.self, forKey: .ownerHint)
+        self.safetyClass = try container.decode(SafetyClass.self, forKey: .safetyClass)
+        self.actionKind = try container.decode(ActionKind.self, forKey: .actionKind)
+        self.ruleMatches = try container.decodeIfPresent([RuleMatch].self, forKey: .ruleMatches) ?? []
+        self.evidence = try container.decodeIfPresent([Evidence].self, forKey: .evidence) ?? []
+        self.openFileStatus = try container.decodeIfPresent(OpenFileStatus.self, forKey: .openFileStatus)
+        self.storageAccounting = try container.decodeIfPresent(StorageAccounting.self, forKey: .storageAccounting)
+            ?? StorageAccounting.legacyEstimate(logicalBytes: logicalSize, allocatedBytes: allocatedSize)
+        self.measurementCoverage = try container.decodeIfPresent(String.self, forKey: .measurementCoverage)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(scopeName, forKey: .scopeName)
+        try container.encode(path, forKey: .path)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(logicalSize, forKey: .logicalSize)
+        try container.encode(allocatedSize, forKey: .allocatedSize)
+        try container.encode(isDirectory, forKey: .isDirectory)
+        try container.encode(isSymbolicLink, forKey: .isSymbolicLink)
+        try container.encodeIfPresent(modificationDate, forKey: .modificationDate)
+        try container.encodeIfPresent(filesystemIdentity, forKey: .filesystemIdentity)
+        try container.encodeIfPresent(ownerHint, forKey: .ownerHint)
+        try container.encode(safetyClass, forKey: .safetyClass)
+        try container.encode(actionKind, forKey: .actionKind)
+        try container.encode(ruleMatches, forKey: .ruleMatches)
+        try container.encode(evidence, forKey: .evidence)
+        try container.encodeIfPresent(openFileStatus, forKey: .openFileStatus)
+        try container.encodeIfPresent(storageAccounting, forKey: .storageAccounting)
+        try container.encodeIfPresent(measurementCoverage, forKey: .measurementCoverage)
     }
 }
 
@@ -341,13 +441,29 @@ public extension Finding {
     }
 
     var storageAccountingNote: String {
-        if allocatedSize == logicalSize {
-            return "Allocated and logical size are currently the same for this item."
+        guard let storageAccounting else {
+            if allocatedSize == logicalSize {
+                return "Allocated and logical size are currently the same for this item; physical reclaim is not directly observed."
+            }
+            if allocatedSize < logicalSize {
+                return "Allocated size is lower than logical size; this is an estimate and does not promise exact physical reclaim."
+            }
+            return "Allocated size is higher than logical size because filesystem blocks and metadata can consume extra physical space; physical reclaim is not directly observed."
         }
-        if allocatedSize < logicalSize {
-            return "Allocated size is lower than logical size, which can happen with sparse files, compression, clones, or APFS accounting."
+
+        switch storageAccounting.physicalReclaimStatus {
+        case .unknown:
+            return "Physical reclaim is unknown; logical and allocated sizes are evidence only."
+        case .sharedCloneBacked:
+            return "Storage may be backed by shared clone or hard-link extents; deleting this path does not prove those bytes are reclaimable."
+        case .observedDelta:
+            if let physicalReclaimBytes = storageAccounting.physicalReclaimBytes, physicalReclaimBytes > 0 {
+                return "Observed free-space increase: \(ByteFormat.string(physicalReclaimBytes)); this is a measurement for that action, not a promise for future cleanup."
+            }
+            return "No positive free-space increase was observed; logical and allocated sizes remain estimates."
+        case .estimated:
+            return "Estimated immediate reclaim: \(ByteFormat.string(storageAccounting.estimatedImmediateReclaimBytes)); allocated and logical sizes do not promise exact physical reclaim."
         }
-        return "Allocated size is higher than logical size because filesystem blocks and metadata can consume extra physical space."
     }
 
     func withOpenFileStatus(_ status: OpenFileStatus) -> Finding {
@@ -361,12 +477,38 @@ public extension Finding {
             isDirectory: isDirectory,
             isSymbolicLink: isSymbolicLink,
             modificationDate: modificationDate,
+            filesystemIdentity: filesystemIdentity,
             ownerHint: ownerHint,
             safetyClass: safetyClass,
             actionKind: actionKind,
             ruleMatches: ruleMatches,
             evidence: evidence,
-            openFileStatus: status
+            openFileStatus: status,
+            storageAccounting: storageAccounting,
+            measurementCoverage: measurementCoverage
+        )
+    }
+
+    func withMeasurementCoverage(_ coverage: String) -> Finding {
+        Finding(
+            id: id,
+            scopeName: scopeName,
+            path: path,
+            displayName: displayName,
+            logicalSize: logicalSize,
+            allocatedSize: allocatedSize,
+            isDirectory: isDirectory,
+            isSymbolicLink: isSymbolicLink,
+            modificationDate: modificationDate,
+            filesystemIdentity: filesystemIdentity,
+            ownerHint: ownerHint,
+            safetyClass: safetyClass,
+            actionKind: actionKind,
+            ruleMatches: ruleMatches,
+            evidence: evidence,
+            openFileStatus: openFileStatus,
+            storageAccounting: storageAccounting,
+            measurementCoverage: coverage
         )
     }
 }
@@ -469,19 +611,81 @@ public struct ReclaimPlan: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public enum TrashExecutionSkipReason: String, Codable, Hashable, Sendable {
+    case authorizationExpired
+    case authorizationUnavailable
+    case authorizationMismatch
+    case confirmationRequired
+    case ineligibleAction
+    case conditionsChanged
+    case pathContainment
+    case pathUnavailable
+    case identityMismatch
+    case typeChanged
+    case symbolicLink
+    case unsupportedFileType
+    case userExcluded
+    case userProtected
+    case protectedPath
+    case classificationChanged
+    case protectedClassification
+    case gateFailed
+    case openFile
+    case recursiveOpenFile
+    case trashFailed
+}
+
 public struct ExecutionActionReceipt: Codable, Hashable, Sendable {
     public let path: String
     public let action: ActionKind
     public let status: String
     public let message: String
     public let reclaimedBytes: Int64
+    public let resultingPath: String?
+    public let fileIdentity: FileIdentity?
+    public let skipReason: TrashExecutionSkipReason?
 
-    public init(path: String, action: ActionKind, status: String, message: String, reclaimedBytes: Int64 = 0) {
+    public init(
+        path: String,
+        action: ActionKind,
+        status: String,
+        message: String,
+        reclaimedBytes: Int64 = 0,
+        resultingPath: String? = nil,
+        fileIdentity: FileIdentity? = nil,
+        skipReason: TrashExecutionSkipReason? = nil
+    ) {
         self.path = path
         self.action = action
         self.status = status
         self.message = message
         self.reclaimedBytes = reclaimedBytes
+        self.resultingPath = resultingPath
+        self.fileIdentity = fileIdentity
+        self.skipReason = skipReason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case action
+        case status
+        case message
+        case reclaimedBytes
+        case resultingPath
+        case fileIdentity
+        case skipReason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.action = try container.decode(ActionKind.self, forKey: .action)
+        self.status = try container.decode(String.self, forKey: .status)
+        self.message = try container.decode(String.self, forKey: .message)
+        self.reclaimedBytes = try container.decodeIfPresent(Int64.self, forKey: .reclaimedBytes) ?? 0
+        self.resultingPath = try container.decodeIfPresent(String.self, forKey: .resultingPath)
+        self.fileIdentity = try container.decodeIfPresent(FileIdentity.self, forKey: .fileIdentity)
+        self.skipReason = try container.decodeIfPresent(TrashExecutionSkipReason.self, forKey: .skipReason)
     }
 }
 

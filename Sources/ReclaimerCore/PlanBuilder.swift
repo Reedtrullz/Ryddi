@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public enum PlanMode: String, Sendable {
@@ -13,15 +14,17 @@ public final class PlanBuilder: @unchecked Sendable {
     }
 
     public func buildPlan(from findings: [Finding], mode: PlanMode = .autoSafeOnly) -> ReclaimPlan {
+        let knownPaths = findings.map(\.path)
+        let potentialSelectedPaths = findings
+            .filter { isSelectionCandidate($0, mode: mode) }
+            .map(\.path)
         let initialItems = findings.map { finding -> ReclaimPlanItem in
-            let findingWithOpenStatus: Finding
-            if let openStatus = finding.openFileStatus {
-                findingWithOpenStatus = finding.withOpenFileStatus(openStatus)
-            } else if requiresOpenFileCheck(finding, mode: mode) {
-                findingWithOpenStatus = finding.withOpenFileStatus(openFileChecker.status(for: URL(fileURLWithPath: finding.path)))
-            } else {
-                findingWithOpenStatus = finding
-            }
+            let findingWithOpenStatus = finding.withOpenFileStatusIfNeeded(
+                openFileChecker: openFileChecker,
+                selectedPaths: potentialSelectedPaths,
+                knownPaths: knownPaths,
+                requiresOpenFileCheck: requiresOpenFileCheck(finding, mode: mode)
+            )
             let conditions = conditions(for: findingWithOpenStatus)
             let selected = shouldSelect(findingWithOpenStatus, mode: mode, conditions: conditions)
             let reclaim = selected ? estimatedReclaim(for: findingWithOpenStatus) : 0
@@ -40,10 +43,25 @@ public final class PlanBuilder: @unchecked Sendable {
             return "\(marker) \(item.finding.displayName): \(item.finding.safetyClass.label), \(item.proposedAction.label), \(ByteFormat.string(item.finding.allocatedSize))"
         }
 
-        return ReclaimPlan(mode: mode.rawValue, items: items, dryRunSummary: summary)
+        return ReclaimPlan(
+            id: stablePlanID(mode: mode, items: items),
+            mode: mode.rawValue,
+            items: items,
+            dryRunSummary: summary
+        )
     }
 
     private func requiresOpenFileCheck(_ finding: Finding, mode: PlanMode) -> Bool {
+        switch mode {
+        case .autoSafeOnly:
+            return finding.safetyClass == .autoSafe && [.deleteCache, .trash].contains(finding.actionKind)
+        case .reviewAll:
+            return [.autoSafe, .safeAfterCondition].contains(finding.safetyClass)
+                && [.deleteCache, .trash, .compress, .quarantineHold].contains(finding.actionKind)
+        }
+    }
+
+    private func isSelectionCandidate(_ finding: Finding, mode: PlanMode) -> Bool {
         switch mode {
         case .autoSafeOnly:
             return finding.safetyClass == .autoSafe && [.deleteCache, .trash].contains(finding.actionKind)
@@ -67,13 +85,27 @@ public final class PlanBuilder: @unchecked Sendable {
     private func conditions(for finding: Finding) -> [PlanCondition] {
         var conditions: [PlanCondition] = []
         if let open = finding.openFileStatus {
+            let requiresRecursiveCheck = finding.isDirectory
+            let openConditionKind: PlanConditionKind = requiresRecursiveCheck ? .recursiveOpenFileClear : .openFileClear
+            let recursiveEvidenceSatisfied = !requiresRecursiveCheck || open.checkedRecursively
             conditions.append(PlanCondition(
-                kind: open.checkedRecursively ? .recursiveOpenFileClear : .openFileClear,
-                message: open.checkedRecursively ? "No active open file handle in directory tree" : "No active open file handle",
-                isSatisfied: !open.isOpen && open.checkFailed == nil
+                kind: openConditionKind,
+                message: requiresRecursiveCheck ? "No active open file handle in directory tree" : "No active open file handle",
+                isSatisfied: !open.isOpen && open.checkFailed == nil && recursiveEvidenceSatisfied
             ))
             if let failure = open.checkFailed {
-                conditions.append(PlanCondition(kind: .openFileClear, message: "Open-file check failed: \(failure)", isSatisfied: false))
+                conditions.append(PlanCondition(kind: openConditionKind, message: "Open-file check failed: \(failure)", isSatisfied: false))
+            }
+            if let linkFailure = open.linkEvidence?.blockReason {
+                conditions.append(PlanCondition(kind: openConditionKind, message: "Link-aware open-file check failed: \(linkFailure)", isSatisfied: false))
+            }
+            if requiresRecursiveCheck && !open.checkedRecursively {
+                conditions.append(PlanCondition(kind: openConditionKind, message: "Recursive open-file evidence is required for directories", isSatisfied: false))
+            }
+            if let hardLinkCount = finding.filesystemIdentity?.hardLinkCount,
+               hardLinkCount > 1,
+               open.linkEvidence == nil {
+                conditions.append(PlanCondition(kind: openConditionKind, message: "Hard-link identity evidence is missing", isSatisfied: false))
             }
         }
         if finding.safetyClass == .neverTouch || finding.safetyClass == .preserveByDefault {
@@ -225,5 +257,114 @@ public final class PlanBuilder: @unchecked Sendable {
         case .nativeToolCommand, .openGuidance, .reportOnly:
             0
         }
+    }
+
+}
+
+private extension Finding {
+    func withOpenFileStatusIfNeeded(
+        openFileChecker: OpenFileChecking,
+        selectedPaths: [String],
+        knownPaths: [String],
+        requiresOpenFileCheck: Bool
+    ) -> Finding {
+        let url = URL(fileURLWithPath: path)
+        if let linkAwareChecker = openFileChecker as? LinkAwareOpenFileChecking,
+           let existingStatus = openFileStatus,
+           (existingStatus.linkEvidence == nil || (isDirectory && !existingStatus.checkedRecursively)) {
+            return withOpenFileStatus(linkAwareChecker.status(for: url, selectedPaths: selectedPaths, knownPaths: knownPaths))
+        }
+        if let openFileStatus {
+            return withOpenFileStatus(openFileStatus)
+        }
+        guard requiresOpenFileCheck else { return self }
+        if let linkAwareChecker = openFileChecker as? LinkAwareOpenFileChecking {
+            return withOpenFileStatus(linkAwareChecker.status(for: url, selectedPaths: selectedPaths, knownPaths: knownPaths))
+        }
+        return withOpenFileStatus(openFileChecker.status(for: url))
+    }
+}
+
+private extension PlanBuilder {
+    func stablePlanID(mode: PlanMode, items: [ReclaimPlanItem]) -> String {
+        let payload = StablePlanPayload(
+            mode: mode.rawValue,
+            items: items.map(StablePlanItem.init(item:)).sorted()
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = (try? encoder.encode(payload)) ?? Data(payload.canonicalString.utf8)
+        return "plan-\(data.sha256Hex)"
+    }
+
+    private struct StablePlanPayload: Codable, Hashable {
+        let mode: String
+        let items: [StablePlanItem]
+
+        var canonicalString: String {
+            ([mode] + items.map(\.canonicalString)).joined(separator: "\u{001e}")
+        }
+    }
+
+    private struct StablePlanItem: Codable, Hashable, Comparable {
+        let path: String
+        let selected: Bool
+        let actionKind: String
+        let safetyClass: String
+        let logicalSize: Int64
+        let allocatedSize: Int64
+        let estimatedImmediateReclaim: Int64
+        let isDirectory: Bool
+        let isSymbolicLink: Bool
+        let modificationTimestamp: TimeInterval?
+        let filesystemIdentity: FilesystemIdentity?
+        let conditionStates: [String]
+
+        init(item: ReclaimPlanItem) {
+            self.path = URL(fileURLWithPath: item.finding.path).standardizedFileURL.path
+            self.selected = item.selected
+            self.actionKind = item.proposedAction.rawValue
+            self.safetyClass = item.finding.safetyClass.rawValue
+            self.logicalSize = item.finding.logicalSize
+            self.allocatedSize = item.finding.allocatedSize
+            self.estimatedImmediateReclaim = item.estimatedImmediateReclaim
+            self.isDirectory = item.finding.isDirectory
+            self.isSymbolicLink = item.finding.isSymbolicLink
+            self.modificationTimestamp = item.finding.modificationDate?.timeIntervalSince1970
+            self.filesystemIdentity = item.finding.filesystemIdentity
+            self.conditionStates = item.conditions
+                .map { "\($0.kind.rawValue)=\($0.isSatisfied ? "true" : "false")" }
+                .sorted()
+        }
+
+        var canonicalString: String {
+            var parts: [String] = []
+            parts.append(path)
+            parts.append(selected ? "selected" : "review")
+            parts.append(actionKind)
+            parts.append(safetyClass)
+            parts.append(String(logicalSize))
+            parts.append(String(allocatedSize))
+            parts.append(String(estimatedImmediateReclaim))
+            parts.append(isDirectory ? "directory" : "file")
+            parts.append(isSymbolicLink ? "symlink" : "not-symlink")
+            parts.append(modificationTimestamp.map { String($0) } ?? "no-mtime")
+            parts.append(filesystemIdentity?.digestComponent ?? "no-filesystem-identity")
+            parts.append(conditionStates.joined(separator: "\u{001f}"))
+            return parts.joined(separator: "\u{001f}")
+        }
+
+        static func < (lhs: StablePlanItem, rhs: StablePlanItem) -> Bool {
+            if lhs.path != rhs.path { return lhs.path < rhs.path }
+            if lhs.actionKind != rhs.actionKind { return lhs.actionKind < rhs.actionKind }
+            if lhs.selected != rhs.selected { return !lhs.selected && rhs.selected }
+            return lhs.canonicalString < rhs.canonicalString
+        }
+    }
+}
+
+private extension Data {
+    var sha256Hex: String {
+        SHA256.hash(data: self).map { String(format: "%02x", $0) }.joined()
     }
 }

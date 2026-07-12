@@ -23,7 +23,7 @@ Ryddi treats cleanup as evidence review:
 
 ## Current Status
 
-Ryddi `v0.2.0` is the first trust release: a shared Swift core, a CLI, and a SwiftUI app cockpit distributed outside the Mac App Store as a Developer ID signed and Apple-notarized app when installed from the GitHub release assets. The safest path today is scan, review, dry run, then reclaim only selected auto-safe items.
+Ryddi `v0.3.0` is the current trust-release target: a shared Swift core, a CLI, and a SwiftUI app cockpit distributed outside the Mac App Store as a Developer ID signed and Apple-notarized app only when the GitHub release assets pass the signed gate. The safest path today is scan, review, dry run, then reclaim only selected auto-safe items.
 
 The release manifest is the source of truth for signed/notarized claims. It must prove Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification before a build is treated as trusted. Local SwiftPM builds and unsigned preview artifacts are useful for testing, but they are not the trust release.
 
@@ -36,7 +36,8 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 1. Build or download Ryddi, then open the Summary screen.
 2. Grant Full Disk Access only after reviewing the in-app permission guidance.
 3. Run a scan and review the Next Safe Action, Review Queues, and protected buckets.
-4. Create a dry-run plan before reclaiming anything. Use report exports when you want a shareable evidence package.
+4. Build a plan and run a dry run. If every selected item is an eligible auto-safe Trash action, review the exact paths and explicitly confirm the one-time move to Finder Trash.
+5. Review the receipt and reveal moved items in Trash before deciding whether to empty it. Use report exports when you want a shareable evidence package.
 
 For command-line dogfooding:
 
@@ -58,7 +59,7 @@ Current synthetic UI proof assets are available under [docs/assets/screenshots](
 - proportional visual map nodes by category, using non-overlapping allocated-size accounting
 - hierarchical disk drill-down for scanned roots, with bounded child rows, safety/action/category hints, and explicit non-additive accounting notes
 - ownership-aware storage summaries that group findings by app/tool hints such as Codex, Docker, Colima, Xcode, Homebrew, and Chrome
-- local scan history snapshots and category growth deltas
+- local scan history snapshots and category growth deltas, retained for review rather than automatically pruned
 - exportable local Markdown growth reports comparing saved scan snapshots
 - menu bar disk-pressure status with report-only scan shortcut
 - trust readiness cockpit and `reclaimer trust --json` summary for disk pressure, scan coverage, latest plan/receipt state, report-only automation, next-action buckets, and release trust evidence
@@ -67,7 +68,7 @@ Current synthetic UI proof assets are available under [docs/assets/screenshots](
 - exportable local Markdown evidence reports with top findings, safety buckets, user policy, and non-claims
 - exportable local Markdown reclaim plan reports with selected actions, blocked items, safety buckets, and non-claims
 - exportable local Markdown receipt reports with before/after free-space notes, action counts, skipped/errors, and non-claims
-- Recovery Center for app-held restores plus honest Trash, dry-run, skipped, native-tool, and non-recoverable receipt guidance
+- Recovery Center for manual Finder holding-record recovery plus honest Trash, dry-run, skipped, and native-tool receipt guidance
 - report privacy controls for full, home-relative, or redacted paths plus user-entered reason redaction
 - transparent rule catalog showing bundled and opt-in local user rules, safety classes, actions, categories, match hints, conditions, recovery notes, and non-claims
 - active-handle review for cleanup candidates, with process summaries and failed-check visibility
@@ -85,20 +86,21 @@ Current synthetic UI proof assets are available under [docs/assets/screenshots](
 - report-only Trash review for current user Trash size, largest items, Finder guidance, and local audit history
 - report-only Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulators, protected Xcode UserData, and local audit history
 - apps-and-leftovers review for installed app support files and heuristic orphan candidates
-- app uninstall preview and explicit app-bundle Trash receipts, with related support files kept review-only
+- app uninstall preview and dry-run evidence for manual Finder removal, with related support files kept review-only
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, separating reclaimable cache from valuable history and protected state
 - AI-agent retention profiles that recommend old cache cleanup plans, old history compression review, and protected-state keep rules without modifying files
 - Codex cache/temp/log/session policy
 - Docker and Colima reporting with native-tool guidance
 - read-only Docker/Colima inventory for storage buckets, images, containers, volumes, profiles, and command outcomes
-- Remote Targets for agentless, report-only SSH/VPS storage evidence: target discovery from SSH config, safe probe, VPS scan, native guidance, redacted Markdown export, saved remote growth diffs, and local audit history
-- native-tool command preview and execution receipts for selected non-destructive Homebrew/package-manager cleanup commands, while Docker/Colima destructive commands remain guidance-only
+- Remote Targets for agentless, report-only SSH/VPS storage evidence: target discovery from SSH config, safe probe, VPS scan, row-level coverage, manual command cards, native guidance, redacted Markdown export, saved remote growth diffs, and local audit history
+- redacted issue package export for local support/debug evidence without copying raw SSH config, private keys, tokens, or arbitrary audit JSON
+- native-tool command preview and execution receipts for Homebrew cleanup only when a fresh preview and one-time same-process capability are consumed together; Docker/Colima destructive commands remain guidance-only
 - Xcode DerivedData, module cache, archive, DeviceSupport, simulator, runtime, and developer-state review
 - Homebrew, npm, pnpm, Yarn, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, Playwright, JetBrains, VS Code/Cursor/Windsurf, Android, and Flutter cache rules
 - Browser cache versus browser profile separation
 - Stale temp/scratch review
-- App-managed holding area for reversible quarantine moves
-- Local audit history for plans, execution receipts, native reports, container reports, active-file reports, and review reports
+- Holding-record history with manual Finder recovery guidance
+- Local audit history for plans, execution receipts, native reports, native command receipts, container reports, active-file reports, and review reports
 
 ## Safety Model
 
@@ -110,7 +112,30 @@ Ryddi classifies findings into:
 - `preserveByDefault` - valuable data such as sessions, profiles, assets, archives, or app-managed state
 - `neverTouch` - credentials, config, memories, app bundles, active state DBs, and other protected paths
 
-Confirmed reclaim is blocked unless a clean dry-run receipt exists for the current plan. Direct delete is limited to allowlisted reproducible caches. Uncertain user-visible removals use Trash or the app-managed holding area.
+Direct cache deletion, compression, holding moves, audit pruning, and issue-package replacement remain disabled. The app has one narrow recoverable filesystem lane: a current clean dry run may mint a 15-minute, one-use capability for selected `autoSafe` `.trash` items. The confirmation sheet lists exact paths; immediately before each move Ryddi rechecks file identity, classification, user policy, symlinks, typed gates, containment, and recursive open handles. Any changed or blocked item is skipped. A pathname check reduces replacement risk but is not atomic, and moving to Trash does not itself increase free space. Native maintenance separately supports Homebrew cleanup, Docker builder pruning, and npm cache clearing through exact allowlists, fresh bounded previews, explicit confirmation, and one-time same-process capabilities. Docker volumes/images/containers/VM state, project dependencies, Codex history, and arbitrary package-manager commands remain guidance-only.
+
+Every CLI `--output` export must use a new file name in an existing directory. Ryddi binds the write to the verified parent directory and refuses to replace an existing file; issue packages similarly require a new or empty output directory.
+
+## Storage Truth And Bounded Scans
+
+Ryddi keeps four storage claims separate:
+
+- logical bytes: the file-size view exposed by the filesystem;
+- allocated bytes: the local block-allocation estimate used for ranking;
+- shared-clone or hard-link bytes: storage that may be shared with another path and therefore is not an independent reclaim promise;
+- observed reclaim: a positive before/after free-space delta recorded only after a successful native perform action.
+
+Broad scans are bounded. The JSON and app trust surfaces report `Complete`, `Bounded`, or `Degraded` coverage, measured and skipped items, roots that could not be read, and a non-claim when totals are estimates. Use a targeted rescan before treating a bounded result as action evidence:
+
+```bash
+swift run --scratch-path .build reclaimer overview \
+  --preset developer \
+  --measurement-budget 25000 \
+  --measurement-depth 8 \
+  --json
+```
+
+`--no-deduplicate-hardlinks` is available for diagnostic comparison only. It does not make shared clone storage independently reclaimable. A smoke check is available at `Scripts/storage-truth-smoke.sh`; it uses a disposable fixture and never runs cleanup.
 
 ## Build
 
@@ -175,8 +200,8 @@ swift run --scratch-path .build reclaimer projects --json --path ~/Projects --in
 swift run --scratch-path .build reclaimer projects policy preserve ~/Projects/ImportantApp --reason "keep demo dependencies"
 swift run --scratch-path .build reclaimer xcode --json --save-audit
 swift run --scratch-path .build reclaimer native --path ~/.colima --save-audit
-swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
-swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
+swift run --scratch-path .build reclaimer native homebrew cleanup --dry-run --save-audit --finding-path ~/Library/Caches/Homebrew
+swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --finding-path ~/Library/Caches/Homebrew --path ~/Library/Caches/Homebrew --yes --save-audit
 swift run --scratch-path .build reclaimer containers --timeout 5 --save-audit
 swift run --scratch-path .build reclaimer remote targets list
 swift run --scratch-path .build reclaimer remote probe my-vps --json --timeout 5
@@ -185,6 +210,7 @@ swift run --scratch-path .build reclaimer remote native my-vps
 swift run --scratch-path .build reclaimer remote history list
 swift run --scratch-path .build reclaimer remote history diff
 swift run --scratch-path .build reclaimer remote history report --path-style redacted --output ryddi-vps-growth.md
+swift run --scratch-path .build reclaimer issue package --path-style redacted --include-remote --output ryddi-issue-package
 swift run --scratch-path .build reclaimer policy protect ~/Documents/Important --reason "never clean"
 swift run --scratch-path .build reclaimer policy exclude ~/Downloads/NoisyScratch
 swift run --scratch-path .build reclaimer policy export --output ryddi-policy.json
@@ -198,11 +224,10 @@ swift run --scratch-path .build reclaimer receipts list
 swift run --scratch-path .build reclaimer receipts export --output ryddi-receipt-report.md
 swift run --scratch-path .build reclaimer receipts export --path-style redacted --output ryddi-receipt-report-redacted.md
 swift run --scratch-path .build reclaimer recovery list
-swift run --scratch-path .build reclaimer recovery restore HOLDING_ID --to ~/Restored-Ryddi-Item
 swift run --scratch-path .build reclaimer holding list
 ```
 
-Execution is dry-run unless `--yes` is supplied. Even with `--yes`, the executor refuses protected classes, revalidates the path, reclassifies it, and skips open files.
+Core execution is dry-run-only: `reclaimer execute --yes` is rejected and its dry-run receipt is evidence for manual Finder review. The narrow Homebrew command path is different: a `--yes` invocation runs a fresh bounded preview and consumes its one-time capability in the same process.
 
 ## Install And Release Trust
 
@@ -213,21 +238,24 @@ swift build --scratch-path .build
 Scripts/release-check.sh
 ```
 
-For a signed `v0.2.0` release gate, provide Developer ID and notarization credentials, then run:
+For a signed `v0.3.0` release gate, provide Developer ID and notarization credentials, then run:
 
 ```bash
 ./Scripts/release-signing-doctor.sh
-RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh
+RYDDI_RELEASE_SIGNING=required \
+RYDDI_REQUIRE_PACKAGED_AX_E2E=1 \
+RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 \
+Scripts/release-check.sh
 ```
 
 The signing doctor checks for a Developer ID Application identity and either a usable `NOTARY_PROFILE` or direct `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD` environment without printing password values. It is a preflight helper only; the release gate and manifest are still the source of truth. Shells such as fish do not search the current directory automatically, so run the script with `./Scripts/...` from the repository root.
 
-The signed release gate must produce `dist/Ryddi-v0.2.0.zip`, `dist/Ryddi-v0.2.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, and strict codesign proof. If credentials are missing or any check fails, do not publish the build as `v0.2.0`.
+The signed release gate must produce `dist/Ryddi-v0.3.0.zip`, `dist/Ryddi-v0.3.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, strict codesign, and packaged Accessibility E2E proof, bundle version `0.3.0`, and build `3`. The AX lane requires a logged-in, Accessibility-approved Mac runner; the signed GitHub job therefore uses the `self-hosted`, `macOS`, and `ryddi-release` labels. If credentials, runner approval, or any check fails, do not publish the build as `v0.3.0`.
 
 After downloading a release asset, verify the checksum and inspect the manifest before installing:
 
 ```bash
-shasum -a 256 -c Ryddi-v0.2.0.zip.sha256
+shasum -a 256 -c Ryddi-v0.3.0.zip.sha256
 grep -E 'source_commit|notarization_status|stapled|gatekeeper|codesign_verified' Ryddi-release-manifest.txt
 ```
 
@@ -321,7 +349,13 @@ swift run --scratch-path .build reclaimer permissions --json --path ~/Library
 swift run --scratch-path .build reclaimer permissions guide --output ryddi-permissions-guide.md
 ```
 
-The permission advisor reports readable, denied, missing, and unknown scopes; recommends when to review Full Disk Access; and keeps explicit non-claims because path readability is not cleanup permission. The walkthrough adds first-run steps, a settings URL, rescan/report-only commands, affected scopes, and a local Markdown export. It does not grant macOS permissions or prove that Full Disk Access is enabled.
+The permission advisor reports readable, denied, missing, and unknown scopes; recommends when to review Full Disk Access; and keeps explicit non-claims because path readability is not cleanup permission. The walkthrough adds first-run steps, a settings URL, rescan/report-only commands, affected scopes, and a local Markdown export. It does not grant macOS permissions or prove that Full Disk Access is enabled. macOS privacy approval is tied to the exact app bundle, so after granting access you may need to quit and reopen the installed app before coverage changes.
+
+## Native Command Receipts
+
+Native-tool findings stay review-first. `reclaimer native` builds local command guidance for Docker, Colima, Homebrew, and package-manager storage without executing those commands. `reclaimer native run --command-id brew.preview --dry-run --save-audit` and `reclaimer native homebrew cleanup --dry-run --save-audit` run Homebrew's exact bounded preview command; `docker.builder-prune` uses `docker system df -v` as its preview, and `npm.cache-clean` uses `npm cache verify`. The Docker and npm actions can perform only their exact paired commands after an explicit same-process `--yes` confirmation. Saved previews remain exportable evidence but can never authorize a later invocation. Docker system/volume prune, Colima stop/delete/reset, VM deletion, images/containers/volumes, project dependencies, remote cleanup, raw deletes, and root-helper flows remain guidance-only.
+
+Saved native command receipts can be retrieved with `reclaimer native receipts list` and exported with `reclaimer native receipts export --path-style redacted --output RECEIPT.md`. Exporting a receipt summarizes local evidence only; it does not rerun the native command or prove exact APFS reclaim.
 
 ## Disk Drilldown
 
@@ -343,7 +377,7 @@ swift run --scratch-path .build reclaimer overview --preset general --sort recla
 swift run --scratch-path .build reclaimer overview --preset all --sort owner --group owner --limit 40
 ```
 
-Rows include allocated size, logical size, owner/category, safety class, action, cleanup confidence, and estimated immediate reclaim. The reclaim estimate is intentionally conservative: it only counts auto-safe trash/cache-style actions before final open-file, permission, Trash, APFS, and snapshot behavior.
+Rows include allocated size, logical size, owner/category, safety class, action, cleanup confidence, and estimated immediate reclaim. The reclaim estimate is intentionally conservative: it only counts auto-safe trash/cache-style candidates before final open-file, permission, Finder Trash, APFS, and snapshot behavior.
 
 ## Review Queues
 
@@ -395,7 +429,7 @@ swift run --scratch-path .build reclaimer agents retention --profile conservativ
 swift run --scratch-path .build reclaimer agents retention --profile balanced --json --limit 40
 ```
 
-The report groups Codex, Claude, Cursor, Windsurf, and Ollama storage into reclaimable cache, quit-first data, valuable history, protected state, and manual review. It is still report-only: agent sessions, memories, credentials, config, model state, and profiles are not deleted automatically, and cache cleanup still goes through the normal plan and dry-run gates.
+The report groups Codex, Claude, Cursor, Windsurf, and Ollama storage into reclaimable cache, quit-first data, valuable history, protected state, and manual review. The focused report itself is read-only. In the main app cleanup flow, narrowly matched Codex rebuildable cache can become an explicitly confirmed Trash move after a matching clean dry run. Agent sessions, memories, credentials, config, model state, profiles, and unknown agent data never enter that lane.
 
 Retention profiles are also report-only. `conservative`, `balanced`, and `aggressive` change the age thresholds used to recommend old cache cleanup plans, quit-then-cleanup review, compression review for old sessions/history, and protected-state keep rules. They do not delete, compress, move, or modify agent files.
 
@@ -408,10 +442,9 @@ swift run --scratch-path .build reclaimer apps --min-size 10000000
 swift run --scratch-path .build reclaimer apps uninstall-preview --app /Applications/Example.app --output ryddi-app-uninstall-preview.md
 swift run --scratch-path .build reclaimer apps uninstall-preview --bundle-id com.example.App --json --save-audit
 swift run --scratch-path .build reclaimer apps uninstall --dry-run --app /Applications/Example.app --json --save-audit
-swift run --scratch-path .build reclaimer apps uninstall --yes --app /Applications/Example.app --json --save-audit
 ```
 
-The preview separates the app bundle from related support files. `apps uninstall --dry-run` writes a receipt for moving only the selected app bundle to Trash. `apps uninstall --yes` performs that app-bundle Trash move after open-file, user-policy, and final bundle protection checks. Related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. Ryddi does not quit apps, unload helpers, run vendor uninstallers, or clean leftovers automatically.
+The preview separates the app bundle from related support files. `apps uninstall --dry-run --save-audit` writes local evidence for manual Finder removal only. Ryddi intentionally rejects `apps uninstall --yes`: macOS does not offer an identity-bound Trash operation that would let the app prove it was moving the reviewed bundle rather than a replacement. Related caches, preferences, app support, containers, saved state, and launch agents stay review-only/manual. Ryddi does not quit apps, unload helpers, run vendor uninstallers, or clean leftovers automatically.
 
 ## Downloads Review
 
@@ -554,7 +587,7 @@ swift run --scratch-path .build reclaimer report --save-report
 
 Reports include scan coverage, safety buckets, top categories, top findings, local protections/exclusions, APFS/accounting notes, disk-pressure notes, and explicit non-claims. They do not execute cleanup and may include local paths.
 
-Use `--path-style home-relative` to hide the home directory prefix, `--path-style redacted` or `--redact-paths` to replace report paths with `<path redacted>`, and `--redact-user-text` to hide user-entered policy reasons. Redaction affects the exported report; saved local audit records may still contain the original paths.
+Use `--path-style home-relative` to hide the home directory prefix, `--path-style redacted` or `--redact-paths` to replace report paths with `<path redacted>`, and `--redact-user-text` to hide user-entered policy reasons. Redaction affects the exported report; saved local audit records may still contain the original paths. Every `--output` export must name a new file in an existing directory; Ryddi refuses to overwrite an existing file.
 
 Saved scan history can also be exported as a before/after growth report:
 
@@ -585,22 +618,22 @@ swift run --scratch-path .build reclaimer receipts export --output ryddi-receipt
 
 Receipt reports summarize saved dry-run or execution receipts. They include action status counts, before/after free-space fields when available, skipped/error actions, and non-claims. Exporting a receipt report does not rerun cleanup.
 
-The Recovery Center combines app-held items and saved receipts:
+The Recovery Center combines holding records and saved receipts:
 
 ```bash
 swift run --scratch-path .build reclaimer recovery list
 swift run --scratch-path .build reclaimer recovery --json
-swift run --scratch-path .build reclaimer recovery restore HOLDING_ID
 ```
 
-Ryddi can restore only items currently in its app-managed holding area. Trash actions require Finder Trash review, dry-run/skipped/error actions should not need recovery, and direct deletes or native-tool cleanup may require rebuilding caches, using the owning tool, or restoring from backup.
+Existing holding-area records require manual Finder recovery: reveal the held item, review its original path, and move it yourself without overwriting anything. Trash actions also require Finder Trash review, dry-run/skipped/error actions should not need recovery, and Homebrew cleanup may require rebuilding caches, using the owning tool, or restoring from backup. New core cleanup plans do not add items to the holding area in this build.
 
-Holding-area expiry is also dry-run unless confirmed:
+Holding-area expiry is review-only:
 
 ```bash
 swift run --scratch-path .build reclaimer holding expire --older-than-days 30
-swift run --scratch-path .build reclaimer holding expire --older-than-days 30 --yes
 ```
+
+The command lists old holding records but does not remove them; use Finder after review.
 
 ## App Bundle
 
@@ -655,6 +688,8 @@ reclaimer report --json --save-report --preset general
 
 It does not run destructive cleanup unattended, does not call `execute --yes`, and does not run Docker/Colima/Homebrew/package-manager prune commands. A scheduled scope controls where Ryddi looks; it does not make personal files auto-cleanable.
 
+Schedule installation creates a new plist only. Ryddi refuses to overwrite or remove an existing schedule plist; reveal it in Finder and make any replacement or removal yourself.
+
 ## Native Tool Reports And Receipts
 
 Ryddi treats container runtimes, package-manager stores, and project-local dependency folders as tool-owned state. Use Package Cache Review to inventory global package cache roots, Project Dependencies Review to inspect project-local dependency/build folders, and Device Backups Review to inspect local MobileSync backups before using Apple/Finder-managed backup deletion. For findings such as Docker, Colima, Homebrew, npm, pnpm, Yarn, SwiftPM, Cargo, Go, Gradle, Maven, and CocoaPods, use native-tool reports when you want command-level guidance:
@@ -665,14 +700,14 @@ swift run --scratch-path .build reclaimer native --json --path ~/.colima
 
 The report is a preview receipt: command, purpose, risk, expected effect, and non-claims. It can be saved with `--save-audit`, and it is the safest default for Docker, Colima, package stores, and VM/container state.
 
-For selected non-destructive/non-placeholder commands, Ryddi can also create a native command execution receipt:
+For the narrow Homebrew path, Ryddi can also create a native command execution receipt:
 
 ```bash
-swift run --scratch-path .build reclaimer native run --command-id brew.preview --path ~/Library/Caches/Homebrew --dry-run --save-audit
-swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --path ~/Library/Caches/Homebrew --yes --save-audit
+swift run --scratch-path .build reclaimer native homebrew cleanup --dry-run --save-audit --finding-path ~/Library/Caches/Homebrew
+swift run --scratch-path .build reclaimer native run --command-id brew.cleanup --finding-path ~/Library/Caches/Homebrew --path ~/Library/Caches/Homebrew --yes --save-audit
 ```
 
-`native run` executes exactly one selected command. It defaults to dry-run, requires `--yes` before performing the command, records stdout/stderr previews and before/after free-space fields, and blocks destructive commands, placeholder commands, shell metacharacters, and raw-delete paths. Ryddi does not run Docker/Colima prune/reset commands automatically and does not raw-delete VM disks, volumes, or package stores.
+`native run` defaults to dry-run and records bounded stdout/stderr previews. For Homebrew, both `native run --command-id brew.preview --dry-run --save-audit` and `native homebrew cleanup --dry-run --save-audit` capture Homebrew's actual preview output. A Homebrew `--yes` invocation runs a new preview and consumes its one-time same-process capability immediately before the paired cleanup; saved receipts can never authorize later cleanup. Ryddi blocks other destructive commands, placeholders, shell metacharacters, raw-delete paths, Docker/Colima prune/reset, VM disks, volumes, and package stores.
 
 ## Container Inventory
 
@@ -683,6 +718,28 @@ swift run --scratch-path .build reclaimer containers --json --timeout 5 --save-a
 ```
 
 This records Docker storage buckets, images, containers, volumes, contexts, Colima profiles, command exit states, and missing/not-running tool states. It does not run prune, delete, stop, reset, or raw VM-disk commands.
+
+## Fixture-Backed App E2E
+
+Run the packaged-app smoke against a disposable temporary fixture:
+
+```bash
+Scripts/app-e2e-smoke.sh
+```
+
+The smoke defaults to a 30 GiB disk guard, builds a caller-bounded fixture, launches `Ryddi.app` with `RYDDI_E2E_MODE=1`, attempts a Ryddi-window-only screenshot, and runs packaged CLI scan, plan, core dry run, and app-uninstall dry run. It compares protected browser-profile, Codex-session, symlink, and app-bundle markers afterward. The fixture is under the current temporary directory, cleaned with a trap, requires no Full Disk Access, and never scans or mutates real user cache roots. Hosted CI sets `RYDDI_E2E_MIN_FREE_GIB=5` only for this bounded fixture smoke; autonomous local and signed release work retains the 30 GiB default.
+
+Use `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` for the manual screenshot gate. See [Ryddi v0.3 Human QA](docs/QA_V0.3.md) for the required visual and VoiceOver checks.
+
+The release-only lane runs `Scripts/run-packaged-app-e2e.sh` through macOS Accessibility against the packaged app. It drives Scan, Plan, Dry Run, explicit Trash confirmation, and recovery-result presentation; checks protected fixture hashes; captures minimum, regular, and wide window screenshots; and removes only the receipt-identified fixture artifact from Trash afterward. Run it from an Accessibility-approved terminal or self-hosted runner. Ordinary hosted CI intentionally uses the non-destructive fixture smoke because it cannot be assumed to have Accessibility approval.
+
+## Local Diagnostics
+
+Ryddi records privacy-safe macOS unified-log events for typed workflow operations, timings, counts, stages, and coarse error kinds. It does not intentionally put paths, filenames, SSH targets, aliases, usernames, rule text, command output, or file contents in those events. **More > Export Diagnostic Summary** writes a bounded JSON summary locally and never uploads it. Inspect recent events with `log show --info --predicate 'subsystem == "com.reidar.ryddi"' --last 5m`.
+
+## macOS Interaction
+
+The supported minimum dashboard size is 980×680. The primary task order is **Scan → Review → Plan → Dry Run → Confirm → Trash → Recover**. Keyboard commands keep the evidence gates intact: `⌘R` scans, `⌥⌘P` builds a plan, `⌥⌘D` runs the dry run, `⌥⌘R` opens the exact-path reclaim confirmation when current evidence is ready, and `⌘1` opens Cleanup Flow. VoiceOver and keyboard traversal remain manual release checks in [Ryddi v0.3 Human QA](docs/QA_V0.3.md); automated AX proof verifies control discovery, activation, and geometry but does not claim to replace a human screen-reader review.
 
 ## Repository Layout
 
@@ -699,6 +756,7 @@ Scripts/                     Packaging and notarization helpers
 
 - [Competitive research snapshot](docs/COMPETITIVE_RESEARCH.md) - competitor lanes, expected features, and suggested Ryddi roadmap.
 - [Release checklist](docs/RELEASE_CHECKLIST.md) - developer preview versus signed/notarized release gates.
+- [Ryddi v0.3 Human QA](docs/QA_V0.3.md) - required app workflows, screenshots, small-window checks, and VoiceOver evidence.
 
 ## Non-Goals For v1
 

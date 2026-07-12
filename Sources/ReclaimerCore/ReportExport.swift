@@ -320,6 +320,14 @@ public final class ReportStore: @unchecked Sendable {
     }
 
     @discardableResult
+    public func save(nativeToolExecutionReceiptReport report: NativeToolExecutionReceiptReport) throws -> URL {
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("native-tool-receipt-report-\(report.receiptID)-\(report.id).md")
+        try report.markdown.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    @discardableResult
     public func save(planReport report: ReclaimPlanReport) throws -> URL {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent("plan-report-\(report.planID)-\(report.id).md")
@@ -372,6 +380,14 @@ public final class ReportStore: @unchecked Sendable {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent("saved-scope-sets-\(document.id).json")
         try encoder.encode(document).write(to: url, options: .atomic)
+        return url
+    }
+
+    @discardableResult
+    public func save(diagnosticMetadata metadata: DiagnosticMetadata) throws -> URL {
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("diagnostic-summary-\(metadata.id).json")
+        try SafeFileOutput.write(encoder.encode(metadata), to: url)
         return url
     }
 }

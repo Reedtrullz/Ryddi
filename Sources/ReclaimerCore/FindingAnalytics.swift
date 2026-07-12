@@ -466,7 +466,14 @@ public struct TopOffenderTable: Codable, Hashable, Sendable {
     }
 }
 
-public enum ReviewQueueID: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+public protocol CleanupFlowPrioritizable {
+    var cleanupFlowStage: CleanupFlowStage { get }
+    var actionPriority: Int { get }
+}
+
+public enum ReviewQueueID: String, Codable, CaseIterable, Hashable, Identifiable, Sendable,
+    CleanupFlowPrioritizable
+{
     case safeMaintenance
     case quitAppFirst
     case useNativeTool
@@ -475,6 +482,28 @@ public enum ReviewQueueID: String, Codable, CaseIterable, Hashable, Identifiable
     case unknown
 
     public var id: String { rawValue }
+
+    public var cleanupFlowStage: CleanupFlowStage {
+        switch self {
+        case .safeMaintenance:
+            .safeCleanup
+        case .quitAppFirst, .useNativeTool:
+            .needsAction
+        case .valuableHistory, .personalAppAssets, .unknown:
+            .keepOrInspect
+        }
+    }
+
+    public var actionPriority: Int {
+        switch self {
+        case .safeMaintenance: 600
+        case .quitAppFirst: 500
+        case .useNativeTool: 400
+        case .unknown: 300
+        case .valuableHistory: 200
+        case .personalAppAssets: 100
+        }
+    }
 
     public var title: String {
         switch self {
@@ -525,6 +554,41 @@ public enum ReviewQueueID: String, Codable, CaseIterable, Hashable, Identifiable
             return .unknown
         default:
             return ReviewQueueID(rawValue: rawValue)
+        }
+    }
+}
+
+public enum CleanupFlowStage: String, Codable, CaseIterable, Hashable, Identifiable, Sendable {
+    case safeCleanup
+    case needsAction
+    case keepOrInspect
+
+    public var id: String { rawValue }
+
+    public var sortPriority: Int {
+        switch self {
+        case .safeCleanup: 0
+        case .needsAction: 1
+        case .keepOrInspect: 2
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .safeCleanup: "Safe cleanup"
+        case .needsAction: "Needs your action"
+        case .keepOrInspect: "Keep or inspect"
+        }
+    }
+
+    public var guidance: String {
+        switch self {
+        case .safeCleanup:
+            "Rebuildable data that can enter a checked dry-run plan."
+        case .needsAction:
+            "Quit an app or use the owning tool before reclaiming storage."
+        case .keepOrInspect:
+            "History, personal data, and unknown storage stay outside cleanup plans."
         }
     }
 }
@@ -612,6 +676,23 @@ public struct ReviewQueueReport: Codable, Hashable, Sendable {
         "Queue reclaim estimates only count auto-safe trash/cache actions and remain subject to dry-run, open-file, permission, Trash, APFS, and snapshot behavior.",
         "Native-tool, valuable-history, personal/app-asset, unknown, and protected findings remain review-first unless a separate explicit plan says otherwise."
     ]
+
+    public static func empty(generatedAt: Date = Date()) -> ReviewQueueReport {
+        ReviewQueueReport(
+            generatedAt: generatedAt,
+            queues: ReviewQueueID.allCases.map { ReviewQueueSummary(queueID: $0, rows: []) }
+        )
+    }
+
+    public func detailReport(for queueID: ReviewQueueID, limit: Int) -> ReviewQueueDetailReport {
+        let queue = queues.first { $0.queueID == queueID }
+            ?? ReviewQueueSummary(queueID: queueID, rows: [])
+        return ReviewQueueDetailReport(
+            generatedAt: generatedAt,
+            queue: queue,
+            limit: limit
+        )
+    }
 }
 
 public struct ReviewQueueDetailReport: Codable, Hashable, Sendable {
@@ -642,7 +723,8 @@ public struct ReviewQueueDetailReport: Codable, Hashable, Sendable {
         title = queue.title
         guidance = queue.guidance
         count = queue.count
-        rowCount = queue.rows.count
+        let visibleRows = queue.rows.prefix(max(0, limit)).map { $0 }
+        rowCount = visibleRows.count
         self.limit = limit
         logicalSize = queue.logicalSize
         allocatedSize = queue.allocatedSize
@@ -650,7 +732,7 @@ public struct ReviewQueueDetailReport: Codable, Hashable, Sendable {
         highestRiskClass = queue.highestRiskClass
         dominantCategory = queue.dominantCategory
         dominantAction = queue.dominantAction
-        rows = queue.rows
+        rows = visibleRows
         self.nonClaims = nonClaims
     }
 }
@@ -828,6 +910,7 @@ public struct ScanOverview: Codable, Hashable, Sendable {
     public let topFindings: [Finding]
     public let topOffenderTable: TopOffenderTable
     public let accountingNotes: [String]
+    public let scanCoverage: ScanCoverage?
 
     public init(
         generatedAt: Date,
@@ -845,7 +928,8 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         ownerSummaries: [OwnerStorageSummary],
         topFindings: [Finding],
         topOffenderTable: TopOffenderTable? = nil,
-        accountingNotes: [String]
+        accountingNotes: [String],
+        scanCoverage: ScanCoverage? = nil
     ) {
         self.generatedAt = generatedAt
         self.findingCount = findingCount
@@ -863,6 +947,31 @@ public struct ScanOverview: Codable, Hashable, Sendable {
         self.topFindings = topFindings
         self.topOffenderTable = topOffenderTable ?? TopOffenderTable.empty(generatedAt: generatedAt)
         self.accountingNotes = accountingNotes
+        self.scanCoverage = scanCoverage
+    }
+}
+
+public extension ScanOverview {
+    func withScanCoverage(_ coverage: ScanCoverage) -> ScanOverview {
+        ScanOverview(
+            generatedAt: generatedAt,
+            findingCount: findingCount,
+            totalLogicalSize: totalLogicalSize,
+            totalAllocatedSize: totalAllocatedSize,
+            expectedAutoSafeBytes: expectedAutoSafeBytes,
+            reviewBytes: reviewBytes,
+            protectedBytes: protectedBytes,
+            safetySummaries: safetySummaries,
+            categorySummaries: categorySummaries,
+            scopeSizeSummaries: scopeSizeSummaries,
+            scopeSummaries: scopeSummaries,
+            mapNodes: mapNodes,
+            ownerSummaries: ownerSummaries,
+            topFindings: topFindings,
+            topOffenderTable: topOffenderTable,
+            accountingNotes: accountingNotes,
+            scanCoverage: coverage
+        )
     }
 }
 
@@ -1556,14 +1665,28 @@ public enum FindingAnalytics {
             return lhsDepth < rhsDepth
         }
         var selected: [Finding] = []
-        var selectedPaths: [String] = []
+        var selectedPaths = Set<String>()
         for finding in ordered {
             let path = URL(fileURLWithPath: finding.path).standardizedFileURL.path
-            guard !selectedPaths.contains(where: { isDescendant(path, of: $0) }) else { continue }
+            guard !hasSelectedAncestor(of: path, in: selectedPaths) else { continue }
             selected.append(finding)
-            selectedPaths.append(path)
+            selectedPaths.insert(path)
         }
         return selected
+    }
+
+    private static func hasSelectedAncestor(of path: String, in selectedPaths: Set<String>) -> Bool {
+        var ancestor = URL(fileURLWithPath: path).deletingLastPathComponent().standardizedFileURL.path
+        while ancestor != path {
+            if selectedPaths.contains(ancestor) {
+                return true
+            }
+            guard ancestor != "/" else { return false }
+            let parent = URL(fileURLWithPath: ancestor).deletingLastPathComponent().standardizedFileURL.path
+            guard parent != ancestor else { return false }
+            ancestor = parent
+        }
+        return false
     }
 
     private static func largeOldReviewFindings(_ findings: [Finding]) -> [Finding] {

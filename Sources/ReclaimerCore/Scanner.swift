@@ -8,6 +8,8 @@ public struct ScanOptions: Hashable, Sendable {
     public let largeFileThreshold: Int64
     public let oldFileAgeDays: Int
     public let userPathPolicy: UserPathPolicy
+    public let measurementItemBudget: Int
+    public let deduplicateHardLinks: Bool
 
     public init(
         minimumFindingSize: Int64 = 1_000_000,
@@ -16,7 +18,9 @@ public struct ScanOptions: Hashable, Sendable {
         includeOpenFileStatus: Bool = false,
         largeFileThreshold: Int64 = 5_000_000_000,
         oldFileAgeDays: Int = 180,
-        userPathPolicy: UserPathPolicy = .empty
+        userPathPolicy: UserPathPolicy = .empty,
+        measurementItemBudget: Int = 25_000,
+        deduplicateHardLinks: Bool = true
     ) {
         self.minimumFindingSize = minimumFindingSize
         self.maximumFindingDepth = maximumFindingDepth
@@ -25,6 +29,8 @@ public struct ScanOptions: Hashable, Sendable {
         self.largeFileThreshold = largeFileThreshold
         self.oldFileAgeDays = oldFileAgeDays
         self.userPathPolicy = userPathPolicy
+        self.measurementItemBudget = max(1, min(measurementItemBudget, 2_000_000))
+        self.deduplicateHardLinks = deduplicateHardLinks
     }
 }
 
@@ -34,76 +40,200 @@ struct FileMeasurement: Hashable {
     let itemCount: Int
 }
 
+private final class ScanMeasurementContext {
+    let requestedBudget: Int
+    private(set) var measuredItemCount = 0
+    private(set) var skippedItemCount = 0
+    private(set) var rootsVisited = 0
+    private(set) var rootsMissing = 0
+    private(set) var rootsPermissionDenied = 0
+    private(set) var hardLinkIdentityKeys: Set<String> = []
+
+    init(requestedBudget: Int) {
+        self.requestedBudget = requestedBudget
+    }
+
+    var budgetExhausted: Bool {
+        measuredItemCount >= requestedBudget
+    }
+
+    func visitRoot() {
+        rootsVisited += 1
+    }
+
+    func recordMissingRoot() {
+        rootsMissing += 1
+    }
+
+    func recordPermissionDeniedRoot() {
+        rootsPermissionDenied += 1
+    }
+
+    func reserveItem() -> Bool {
+        guard measuredItemCount < requestedBudget else {
+            skippedItemCount += 1
+            return false
+        }
+        measuredItemCount += 1
+        return true
+    }
+
+    func recordSkippedItem() {
+        skippedItemCount += 1
+    }
+
+    func hasHardLinkIdentity(_ key: String) -> Bool {
+        hardLinkIdentityKeys.contains(key)
+    }
+
+    func recordHardLinkIdentity(_ key: String) {
+        hardLinkIdentityKeys.insert(key)
+    }
+
+    func coverage(maximumMeasurementDepth: Int) -> ScanCoverage {
+        let state: ScanCoverageState
+        if rootsPermissionDenied > 0 {
+            state = .degraded
+        } else if skippedItemCount > 0 || budgetExhausted {
+            state = .bounded
+        } else {
+            state = .complete
+        }
+        var evidence = [String]()
+        if rootsMissing > 0 {
+            evidence.append("\(rootsMissing) optional scan root(s) were not present on this Mac.")
+        }
+        if rootsPermissionDenied > 0 {
+            evidence.append("\(rootsPermissionDenied) scan root(s) could not be read because permission was denied.")
+        }
+        if skippedItemCount > 0 || budgetExhausted {
+            evidence.append("Measurement stopped at \(requestedBudget) item(s); run a targeted rescan for exact local evidence.")
+        }
+        return ScanCoverage(
+            state: state,
+            requestedItemBudget: requestedBudget,
+            measuredItemCount: measuredItemCount,
+            skippedItemCount: skippedItemCount,
+            rootsVisited: rootsVisited,
+            rootsDenied: rootsPermissionDenied,
+            maximumMeasurementDepth: maximumMeasurementDepth,
+            rootsMissing: rootsMissing,
+            rootsPermissionDenied: rootsPermissionDenied,
+            evidence: evidence
+        )
+    }
+}
+
 public final class FileScanner: @unchecked Sendable {
     private let fileManager: FileManager
     private let ruleEngine: RuleEngine
     private let openFileChecker: OpenFileChecking
+    private let scopeReadabilityProvider: (URL, FileManager) -> ScopeReadability
 
-    public init(
+    public convenience init(
         fileManager: FileManager = .default,
         ruleEngine: RuleEngine? = nil,
         openFileChecker: OpenFileChecking = LsofOpenFileChecker()
     ) throws {
+        try self.init(
+            fileManager: fileManager,
+            ruleEngine: ruleEngine,
+            openFileChecker: openFileChecker,
+            scopeReadabilityProvider: { root, fileManager in
+                PermissionAdvisor.scopeReadability(at: root, fileManager: fileManager)
+            }
+        )
+    }
+
+    init(
+        fileManager: FileManager = .default,
+        ruleEngine: RuleEngine? = nil,
+        openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
+        scopeReadabilityProvider: @escaping (URL, FileManager) -> ScopeReadability
+    ) throws {
         self.fileManager = fileManager
         self.ruleEngine = try ruleEngine ?? RuleEngine.bundled()
         self.openFileChecker = openFileChecker
+        self.scopeReadabilityProvider = scopeReadabilityProvider
     }
 
     public func scan(scopes: [ScanScope], options: ScanOptions = ScanOptions()) -> [Finding] {
-        scopes.flatMap { scan(scope: $0, options: options) }
+        scanWithCoverage(scopes: scopes, options: options).findings
+    }
+
+    public func scanWithCoverage(scopes: [ScanScope], options: ScanOptions = ScanOptions()) -> ScanResult {
+        let context = ScanMeasurementContext(requestedBudget: options.measurementItemBudget)
+        let findings = scopes.flatMap { scan(scope: $0, options: options, context: context) }
             .sorted { lhs, rhs in
                 if lhs.allocatedSize == rhs.allocatedSize {
                     return lhs.path < rhs.path
                 }
                 return lhs.allocatedSize > rhs.allocatedSize
             }
+        let coverage = context.coverage(maximumMeasurementDepth: options.measurementDepth)
+        let coveredFindings = findings.map { $0.withMeasurementCoverage(coverage.state.rawValue) }
+        return ScanResult(findings: coveredFindings, coverage: coverage)
     }
 
-    private func scan(scope: ScanScope, options: ScanOptions) -> [Finding] {
+    private func scan(scope: ScanScope, options: ScanOptions, context: ScanMeasurementContext) -> [Finding] {
+        context.visitRoot()
         let root = scope.root.standardizedFileURL
         if options.userPathPolicy.matchingRule(for: root.path, kind: .exclude) != nil {
             return []
         }
 
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) else {
+        switch scopeReadabilityProvider(root, fileManager) {
+        case .missing:
+            context.recordMissingRoot()
             return [
                 permissionFinding(scope: scope, state: .missing, message: "Path does not exist.")
             ]
-        }
-
-        guard fileManager.isReadableFile(atPath: root.path) else {
+        case .permissionDenied, .unknown:
+            context.recordPermissionDeniedRoot()
             return [
                 permissionFinding(scope: scope, state: .denied, message: "Path is not readable with current permissions.")
             ]
+        case .readable:
+            break
         }
+
+        var isDirectory: ObjCBool = false
+        _ = fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory)
 
         if !isDirectory.boolValue {
-            return [makeFinding(scope: scope, url: root, depth: 0, options: options)]
+            return [makeFinding(scope: scope, url: root, depth: 0, options: options, context: context)]
         }
 
-        var findings = [makeFinding(scope: scope, url: root, depth: 0, options: options)]
-        guard let children = try? fileManager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: resourceKeys,
-            options: [.skipsPackageDescendants]
-        ) else {
+        var findings = [makeFinding(scope: scope, url: root, depth: 0, options: options, context: context)]
+        let children: [URL]
+        do {
+            children = try fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: resourceKeys,
+                options: [.skipsPackageDescendants]
+            )
+        } catch {
+            context.recordPermissionDeniedRoot()
             findings.append(permissionFinding(scope: scope, state: .denied, message: "Could not list directory contents."))
             return findings
         }
 
         for child in children {
-            collectFindings(scope: scope, url: child, depth: 1, options: options, findings: &findings)
+            collectFindings(scope: scope, url: child, depth: 1, options: options, context: context, findings: &findings)
         }
         return findings
     }
 
-    private func collectFindings(scope: ScanScope, url: URL, depth: Int, options: ScanOptions, findings: inout [Finding]) {
+    private func collectFindings(scope: ScanScope, url: URL, depth: Int, options: ScanOptions, context: ScanMeasurementContext, findings: inout [Finding]) {
+        if context.budgetExhausted {
+            context.recordSkippedItem()
+            return
+        }
         if options.userPathPolicy.matchingRule(for: url.path, kind: .exclude) != nil {
             return
         }
 
-        let finding = makeFinding(scope: scope, url: url, depth: depth, options: options)
+        let finding = makeFinding(scope: scope, url: url, depth: depth, options: options, context: context)
         let shouldInclude = depth <= options.maximumFindingDepth
             || finding.allocatedSize >= options.minimumFindingSize
             || !finding.ruleMatches.isEmpty
@@ -122,17 +252,18 @@ public final class FileScanner: @unchecked Sendable {
         }
 
         for child in children {
-            collectFindings(scope: scope, url: child, depth: depth + 1, options: options, findings: &findings)
+            collectFindings(scope: scope, url: child, depth: depth + 1, options: options, context: context, findings: &findings)
         }
     }
 
-    private func makeFinding(scope: ScanScope, url: URL, depth: Int, options: ScanOptions) -> Finding {
+    private func makeFinding(scope: ScanScope, url: URL, depth: Int, options: ScanOptions, context: ScanMeasurementContext) -> Finding {
         let values = try? url.resourceValues(forKeys: Set(resourceKeys))
         let isDirectory = values?.isDirectory ?? false
         let isSymbolicLink = values?.isSymbolicLink ?? false
-        let measurement = measure(url: url, maxDepth: options.measurementDepth, userPathPolicy: options.userPathPolicy)
+        let measurement = measure(url: url, maxDepth: options.measurementDepth, userPathPolicy: options.userPathPolicy, context: context, deduplicateHardLinks: options.deduplicateHardLinks)
         let classification = ruleEngine.classify(path: url.path, isDirectory: isDirectory, isSymbolicLink: isSymbolicLink)
         let openStatus = options.includeOpenFileStatus ? openFileChecker.status(for: url) : nil
+        let filesystemIdentity = try? FilesystemIdentity.capture(at: url)
 
         var safetyClass = classification.safetyClass
         var actionKind = classification.actionKind
@@ -179,6 +310,15 @@ public final class FileScanner: @unchecked Sendable {
             evidence.append(Evidence(kind: "scope", message: "Scan root: \(scope.name)."))
         }
 
+        let storageAccounting = StorageAccounting(
+            logicalBytes: measurement.logicalSize,
+            allocatedBytes: measurement.allocatedSize,
+            physicalReclaimStatus: (filesystemIdentity?.hardLinkCount ?? 1) > 1 ? .sharedCloneBacked : .estimated,
+            deduplicationNote: (filesystemIdentity?.hardLinkCount ?? 1) > 1
+                ? "This regular file has multiple hard links; allocated bytes are shared identity evidence, not an independent reclaim promise."
+                : "Allocated bytes are an estimate; verify observed free-space change after any confirmed action."
+        )
+
         return Finding(
             scopeName: scope.name,
             path: url.path,
@@ -188,12 +328,14 @@ public final class FileScanner: @unchecked Sendable {
             isDirectory: isDirectory,
             isSymbolicLink: isSymbolicLink,
             modificationDate: values?.contentModificationDate,
+            filesystemIdentity: filesystemIdentity,
             ownerHint: ownerHint(for: url.path),
             safetyClass: safetyClass,
             actionKind: actionKind,
             ruleMatches: matches,
             evidence: evidence,
-            openFileStatus: openStatus
+            openFileStatus: openStatus,
+            storageAccounting: storageAccounting
         )
     }
 
@@ -275,12 +417,12 @@ public final class FileScanner: @unchecked Sendable {
         )
     }
 
-    private func measure(url: URL, maxDepth: Int, userPathPolicy: UserPathPolicy) -> FileMeasurement {
+    private func measure(url: URL, maxDepth: Int, userPathPolicy: UserPathPolicy, context: ScanMeasurementContext, deduplicateHardLinks: Bool) -> FileMeasurement {
         guard maxDepth >= 0 else {
             return FileMeasurement(logicalSize: 0, allocatedSize: 0, itemCount: 0)
         }
 
-        guard let values = try? url.resourceValues(forKeys: Set(resourceKeys)) else {
+        guard context.reserveItem(), let values = try? url.resourceValues(forKeys: Set(resourceKeys)) else {
             return FileMeasurement(logicalSize: 0, allocatedSize: 0, itemCount: 0)
         }
 
@@ -291,6 +433,21 @@ public final class FileScanner: @unchecked Sendable {
         if values.isDirectory != true {
             let logical = Int64(values.fileSize ?? 0)
             let allocated = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
+            if deduplicateHardLinks,
+               values.isRegularFile == true,
+               let identity = try? FilesystemIdentity.capture(at: url),
+               let key = identity.fileIdentityKey,
+               (identity.hardLinkCount ?? 1) > 1,
+               context.hasHardLinkIdentity(key) {
+                return FileMeasurement(logicalSize: 0, allocatedSize: 0, itemCount: 1)
+            }
+            if deduplicateHardLinks,
+               values.isRegularFile == true,
+               let identity = try? FilesystemIdentity.capture(at: url),
+               let key = identity.fileIdentityKey,
+               (identity.hardLinkCount ?? 1) > 1 {
+                context.recordHardLinkIdentity(key)
+            }
             return FileMeasurement(logicalSize: logical, allocatedSize: allocated, itemCount: 1)
         }
 
@@ -315,6 +472,10 @@ public final class FileScanner: @unchecked Sendable {
                 enumerator.skipDescendants()
                 continue
             }
+            guard context.reserveItem() else {
+                enumerator.skipDescendants()
+                break
+            }
             count += 1
             guard let childValues = try? child.resourceValues(forKeys: Set(resourceKeys)) else { continue }
             if childValues.isSymbolicLink == true {
@@ -323,6 +484,21 @@ public final class FileScanner: @unchecked Sendable {
             }
             if childValues.isDirectory == true {
                 continue
+            }
+            if deduplicateHardLinks,
+               childValues.isRegularFile == true,
+               let identity = try? FilesystemIdentity.capture(at: child),
+               let key = identity.fileIdentityKey,
+               (identity.hardLinkCount ?? 1) > 1,
+               context.hasHardLinkIdentity(key) {
+                continue
+            }
+            if deduplicateHardLinks,
+               childValues.isRegularFile == true,
+               let identity = try? FilesystemIdentity.capture(at: child),
+               let key = identity.fileIdentityKey,
+               (identity.hardLinkCount ?? 1) > 1 {
+                context.recordHardLinkIdentity(key)
             }
             logical += Int64(childValues.fileSize ?? 0)
             allocated += Int64(childValues.totalFileAllocatedSize ?? childValues.fileAllocatedSize ?? childValues.fileSize ?? 0)
@@ -347,7 +523,8 @@ private let resourceKeys: [URLResourceKey] = [
     .fileSizeKey,
     .fileAllocatedSizeKey,
     .totalFileAllocatedSizeKey,
-    .contentModificationDateKey
+    .contentModificationDateKey,
+    .isRegularFileKey
 ]
 
 private func ownerHint(for path: String) -> String? {

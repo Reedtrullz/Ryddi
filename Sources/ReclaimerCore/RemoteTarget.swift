@@ -158,6 +158,29 @@ public enum RemoteScanCoverageLevel: String, Codable, Hashable, Sendable {
     case unsupported
 }
 
+public enum RemoteCoverageRowStatus: String, Codable, Hashable, Sendable {
+    case passed
+    case warning
+    case failed
+    case unknown
+}
+
+public struct RemoteCoverageRow: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let label: String
+    public let status: RemoteCoverageRowStatus
+    public let detail: String
+    public let commandIDs: [String]
+
+    public init(id: String, label: String, status: RemoteCoverageRowStatus, detail: String, commandIDs: [String]) {
+        self.id = id
+        self.label = label
+        self.status = status
+        self.detail = detail
+        self.commandIDs = commandIDs
+    }
+}
+
 public struct RemoteScanCoverage: Codable, Hashable, Sendable {
     public let level: RemoteScanCoverageLevel
     public let successfulCommandIDs: [String]
@@ -165,6 +188,17 @@ public struct RemoteScanCoverage: Codable, Hashable, Sendable {
     public let timedOutCommandIDs: [String]
     public let permissionDeniedCommandIDs: [String]
     public let explanation: String
+    public let rows: [RemoteCoverageRow]
+
+    private enum CodingKeys: String, CodingKey {
+        case level
+        case successfulCommandIDs
+        case failedCommandIDs
+        case timedOutCommandIDs
+        case permissionDeniedCommandIDs
+        case explanation
+        case rows
+    }
 
     public init(
         level: RemoteScanCoverageLevel,
@@ -172,7 +206,8 @@ public struct RemoteScanCoverage: Codable, Hashable, Sendable {
         failedCommandIDs: [String],
         timedOutCommandIDs: [String],
         permissionDeniedCommandIDs: [String],
-        explanation: String
+        explanation: String,
+        rows: [RemoteCoverageRow]? = nil
     ) {
         self.level = level
         self.successfulCommandIDs = successfulCommandIDs
@@ -180,6 +215,29 @@ public struct RemoteScanCoverage: Codable, Hashable, Sendable {
         self.timedOutCommandIDs = timedOutCommandIDs
         self.permissionDeniedCommandIDs = permissionDeniedCommandIDs
         self.explanation = explanation
+        self.rows = rows ?? RemoteCoverageRowsBuilder.fallbackRows(
+            successfulCommandIDs: successfulCommandIDs,
+            failedCommandIDs: failedCommandIDs,
+            timedOutCommandIDs: timedOutCommandIDs,
+            permissionDeniedCommandIDs: permissionDeniedCommandIDs
+        )
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        level = try container.decode(RemoteScanCoverageLevel.self, forKey: .level)
+        successfulCommandIDs = try container.decode([String].self, forKey: .successfulCommandIDs)
+        failedCommandIDs = try container.decode([String].self, forKey: .failedCommandIDs)
+        timedOutCommandIDs = try container.decode([String].self, forKey: .timedOutCommandIDs)
+        permissionDeniedCommandIDs = try container.decode([String].self, forKey: .permissionDeniedCommandIDs)
+        explanation = try container.decode(String.self, forKey: .explanation)
+        rows = try container.decodeIfPresent([RemoteCoverageRow].self, forKey: .rows)
+            ?? RemoteCoverageRowsBuilder.fallbackRows(
+                successfulCommandIDs: successfulCommandIDs,
+                failedCommandIDs: failedCommandIDs,
+                timedOutCommandIDs: timedOutCommandIDs,
+                permissionDeniedCommandIDs: permissionDeniedCommandIDs
+            )
     }
 }
 
@@ -205,8 +263,160 @@ public struct RemoteTargetContinuityWarning: Codable, Hashable, Identifiable, Se
     }
 }
 
+public enum RemoteCoverageRowsBuilder {
+    public static func build(
+        commands: [RemoteCommandResult],
+        osSummary: String?,
+        target: RemoteTargetReference?
+    ) -> [RemoteCoverageRow] {
+        [
+            connectedRow(commands: commands),
+            hostKeyRow(target: target),
+            linuxRow(osSummary: osSummary),
+            commandRow(
+                id: "disk-filesystems",
+                label: "Disk filesystems readable",
+                commandIDs: ["scan.df", "probe.df"],
+                commands: commands,
+                unavailableIsWarning: false
+            ),
+            commandRow(
+                id: "inode-filesystems",
+                label: "Inode filesystems readable",
+                commandIDs: ["scan.inodes", "probe.inodes"],
+                commands: commands,
+                unavailableIsWarning: false
+            ),
+            commandRow(
+                id: "docker-inventory",
+                label: "Docker inventory readable",
+                commandIDs: ["scan.docker-df"],
+                commands: commands,
+                unavailableIsWarning: true
+            ),
+            commandRow(
+                id: "journald",
+                label: "Journald readable",
+                commandIDs: ["scan.journal"],
+                commands: commands,
+                unavailableIsWarning: true
+            ),
+            commandRow(
+                id: "apt-cache",
+                label: "Apt cache readable",
+                commandIDs: ["scan.apt"],
+                commands: commands,
+                unavailableIsWarning: true
+            )
+        ]
+    }
+
+    public static func fallbackRows(
+        successfulCommandIDs: [String],
+        failedCommandIDs: [String],
+        timedOutCommandIDs: [String],
+        permissionDeniedCommandIDs: [String]
+    ) -> [RemoteCoverageRow] {
+        let commands = Set(successfulCommandIDs + failedCommandIDs + timedOutCommandIDs + permissionDeniedCommandIDs)
+        func status(for ids: [String], unavailableIsWarning: Bool) -> RemoteCoverageRowStatus {
+            if ids.contains(where: { successfulCommandIDs.contains($0) }) { return .passed }
+            if ids.contains(where: { timedOutCommandIDs.contains($0) }) { return .failed }
+            if ids.contains(where: { permissionDeniedCommandIDs.contains($0) }) { return .warning }
+            if ids.contains(where: { failedCommandIDs.contains($0) }) { return unavailableIsWarning ? .warning : .failed }
+            return .unknown
+        }
+        return [
+            RemoteCoverageRow(
+                id: "connected",
+                label: "Connected",
+                status: successfulCommandIDs.isEmpty ? (failedCommandIDs.isEmpty ? .unknown : .failed) : .passed,
+                detail: successfulCommandIDs.isEmpty ? "No successful remote command receipts were recorded." : "At least one remote command completed.",
+                commandIDs: Array(commands).sorted()
+            ),
+            RemoteCoverageRow(id: "host-key", label: "Host key verified", status: .unknown, detail: "Host key state was not recorded in this coverage object.", commandIDs: []),
+            RemoteCoverageRow(id: "linux", label: "Linux detected", status: .unknown, detail: "OS evidence was not recorded in this coverage object.", commandIDs: []),
+            RemoteCoverageRow(id: "disk-filesystems", label: "Disk filesystems readable", status: status(for: ["scan.df", "probe.df"], unavailableIsWarning: false), detail: "Derived from saved command IDs.", commandIDs: ["scan.df", "probe.df"].filter(commands.contains)),
+            RemoteCoverageRow(id: "inode-filesystems", label: "Inode filesystems readable", status: status(for: ["scan.inodes", "probe.inodes"], unavailableIsWarning: false), detail: "Derived from saved command IDs.", commandIDs: ["scan.inodes", "probe.inodes"].filter(commands.contains)),
+            RemoteCoverageRow(id: "docker-inventory", label: "Docker inventory readable", status: status(for: ["scan.docker-df"], unavailableIsWarning: true), detail: "Derived from saved command IDs.", commandIDs: ["scan.docker-df"].filter(commands.contains)),
+            RemoteCoverageRow(id: "journald", label: "Journald readable", status: status(for: ["scan.journal"], unavailableIsWarning: true), detail: "Derived from saved command IDs.", commandIDs: ["scan.journal"].filter(commands.contains)),
+            RemoteCoverageRow(id: "apt-cache", label: "Apt cache readable", status: status(for: ["scan.apt"], unavailableIsWarning: true), detail: "Derived from saved command IDs.", commandIDs: ["scan.apt"].filter(commands.contains))
+        ]
+    }
+
+    private static func connectedRow(commands: [RemoteCommandResult]) -> RemoteCoverageRow {
+        if commands.isEmpty {
+            return RemoteCoverageRow(id: "connected", label: "Connected", status: .unknown, detail: "No remote command receipts were recorded.", commandIDs: [])
+        }
+        if commands.contains(where: { $0.exitCode == 0 }) {
+            return RemoteCoverageRow(id: "connected", label: "Connected", status: .passed, detail: "At least one remote command completed.", commandIDs: commands.map(\.commandID))
+        }
+        if commands.contains(where: \.timedOut) {
+            return RemoteCoverageRow(id: "connected", label: "Connected", status: .failed, detail: "SSH command timed out before evidence could be collected.", commandIDs: commands.map(\.commandID))
+        }
+        if commands.contains(where: { contains($0, "host key verification failed") }) {
+            return RemoteCoverageRow(id: "connected", label: "Connected", status: .failed, detail: "SSH host key verification failed.", commandIDs: commands.map(\.commandID))
+        }
+        return RemoteCoverageRow(id: "connected", label: "Connected", status: .failed, detail: "All remote commands failed.", commandIDs: commands.map(\.commandID))
+    }
+
+    private static func hostKeyRow(target: RemoteTargetReference?) -> RemoteCoverageRow {
+        guard let target else {
+            return RemoteCoverageRow(id: "host-key", label: "Host key verified", status: .unknown, detail: "Target host key state was not available.", commandIDs: [])
+        }
+        let state = target.knownHostsState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if state.contains("known") || state.contains("verified") {
+            return RemoteCoverageRow(id: "host-key", label: "Host key verified", status: .passed, detail: "Known hosts state: \(target.knownHostsState).", commandIDs: [])
+        }
+        if state.contains("missing") || state.contains("unknown") || state.isEmpty {
+            return RemoteCoverageRow(id: "host-key", label: "Host key verified", status: .warning, detail: "Known hosts state is \(target.knownHostsState); SSH will not connect with StrictHostKeyChecking=yes until the host key is trusted.", commandIDs: [])
+        }
+        return RemoteCoverageRow(id: "host-key", label: "Host key verified", status: .warning, detail: "Known hosts state: \(target.knownHostsState).", commandIDs: [])
+    }
+
+    private static func linuxRow(osSummary: String?) -> RemoteCoverageRow {
+        guard let osSummary, !osSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return RemoteCoverageRow(id: "linux", label: "Linux detected", status: .unknown, detail: "OS was not checked in this scan; run Probe first for host OS evidence.", commandIDs: ["probe.uname", "probe.os-release"])
+        }
+        if osSummary.localizedCaseInsensitiveContains("linux") {
+            return RemoteCoverageRow(id: "linux", label: "Linux detected", status: .passed, detail: osSummary, commandIDs: ["probe.uname", "probe.os-release"])
+        }
+        return RemoteCoverageRow(id: "linux", label: "Linux detected", status: .failed, detail: "Detected \(osSummary); the selected preset is Linux VPS focused.", commandIDs: ["probe.uname", "probe.os-release"])
+    }
+
+    private static func commandRow(
+        id: String,
+        label: String,
+        commandIDs: [String],
+        commands: [RemoteCommandResult],
+        unavailableIsWarning: Bool
+    ) -> RemoteCoverageRow {
+        let matches = commands.filter { commandIDs.contains($0.commandID) }
+        guard !matches.isEmpty else {
+            return RemoteCoverageRow(id: id, label: label, status: .unknown, detail: "This evidence command was not run.", commandIDs: commandIDs)
+        }
+        if matches.contains(where: { $0.exitCode == 0 }) {
+            return RemoteCoverageRow(id: id, label: label, status: .passed, detail: "Evidence command completed.", commandIDs: matches.map(\.commandID))
+        }
+        if matches.contains(where: \.timedOut) {
+            return RemoteCoverageRow(id: id, label: label, status: .failed, detail: "Evidence command timed out.", commandIDs: matches.map(\.commandID))
+        }
+        if matches.contains(where: { contains($0, "permission denied") }) {
+            return RemoteCoverageRow(id: id, label: label, status: .warning, detail: "Evidence command was blocked by remote permissions.", commandIDs: matches.map(\.commandID))
+        }
+        if unavailableIsWarning, matches.contains(where: { contains($0, "command not found") || contains($0, "not found") || contains($0, "No journal files were found") }) {
+            return RemoteCoverageRow(id: id, label: label, status: .warning, detail: "Tool or data source appears unavailable on this host.", commandIDs: matches.map(\.commandID))
+        }
+        return RemoteCoverageRow(id: id, label: label, status: unavailableIsWarning ? .warning : .failed, detail: "Evidence command failed.", commandIDs: matches.map(\.commandID))
+    }
+
+    private static func contains(_ command: RemoteCommandResult, _ needle: String) -> Bool {
+        command.stderrPreview.contains { $0.localizedCaseInsensitiveContains(needle) }
+            || command.stdoutPreview.contains { $0.localizedCaseInsensitiveContains(needle) }
+    }
+}
+
 public enum RemoteScanCoverageBuilder {
-    public static func build(commands: [RemoteCommandResult], osSummary: String?) -> RemoteScanCoverage {
+    public static func build(commands: [RemoteCommandResult], osSummary: String?, target: RemoteTargetReference? = nil) -> RemoteScanCoverage {
         guard !commands.isEmpty else {
             return RemoteScanCoverage(
                 level: .partial,
@@ -214,7 +424,8 @@ public enum RemoteScanCoverageBuilder {
                 failedCommandIDs: [],
                 timedOutCommandIDs: [],
                 permissionDeniedCommandIDs: [],
-                explanation: "No remote command receipts were recorded, so scan coverage cannot be proven complete."
+                explanation: "No remote command receipts were recorded, so scan coverage cannot be proven complete.",
+                rows: RemoteCoverageRowsBuilder.build(commands: commands, osSummary: osSummary, target: target)
             )
         }
 
@@ -234,7 +445,8 @@ public enum RemoteScanCoverageBuilder {
                 failedCommandIDs: failed,
                 timedOutCommandIDs: timedOut,
                 permissionDeniedCommandIDs: permissionDenied,
-                explanation: "The target was unreachable or all evidence commands failed."
+                explanation: "The target was unreachable or all evidence commands failed.",
+                rows: RemoteCoverageRowsBuilder.build(commands: commands, osSummary: osSummary, target: target)
             )
         }
 
@@ -245,7 +457,8 @@ public enum RemoteScanCoverageBuilder {
                 failedCommandIDs: failed,
                 timedOutCommandIDs: timedOut,
                 permissionDeniedCommandIDs: permissionDenied,
-                explanation: "The target responded, but the selected preset is Linux VPS focused."
+                explanation: "The target responded, but the selected preset is Linux VPS focused.",
+                rows: RemoteCoverageRowsBuilder.build(commands: commands, osSummary: osSummary, target: target)
             )
         }
 
@@ -256,7 +469,8 @@ public enum RemoteScanCoverageBuilder {
                 failedCommandIDs: [],
                 timedOutCommandIDs: [],
                 permissionDeniedCommandIDs: [],
-                explanation: "Core remote evidence commands completed."
+                explanation: "Core remote evidence commands completed.",
+                rows: RemoteCoverageRowsBuilder.build(commands: commands, osSummary: osSummary, target: target)
             )
         }
 
@@ -266,7 +480,8 @@ public enum RemoteScanCoverageBuilder {
             failedCommandIDs: failed,
             timedOutCommandIDs: timedOut,
             permissionDeniedCommandIDs: permissionDenied,
-            explanation: "Some remote evidence commands failed, timed out, or lacked permission."
+            explanation: "Some remote evidence commands failed, timed out, or lacked permission.",
+            rows: RemoteCoverageRowsBuilder.build(commands: commands, osSummary: osSummary, target: target)
         )
     }
 }
@@ -353,7 +568,10 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         "No cleanup was executed on the remote target.",
         "Remote scan does not grant permissions, sudo rights, or cleanup approval.",
         "Remote reclaim estimates are native-tool evidence, not exact free-space promises.",
-        "Docker volumes, databases, backups, credentials, app data, and unknown state remain preserve/review by default."
+        "Docker volumes, databases, backups, credentials, app data, and unknown state remain preserve/review by default.",
+        "Command cards are manual operator guidance only; Ryddi does not execute them remotely.",
+        "Some command cards may require sudo; Ryddi does not collect or manage sudo passwords.",
+        "Inspect service impact before changing logs, packages, containers, or deploy releases."
     ]
 
     public let id: String
@@ -364,6 +582,7 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
     public let inodeFilesystems: [RemoteFilesystemSummary]
     public let findings: [RemoteStorageFinding]
     public let nativeGuidance: [RemoteNativeGuidance]
+    public let commandCards: [RemoteManualCommandCard]
     public let commands: [RemoteCommandResult]
     public let coverage: RemoteScanCoverage
     public let continuityWarnings: [RemoteTargetContinuityWarning]
@@ -378,6 +597,7 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         case inodeFilesystems
         case findings
         case nativeGuidance
+        case commandCards
         case commands
         case coverage
         case continuityWarnings
@@ -393,6 +613,7 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         inodeFilesystems: [RemoteFilesystemSummary],
         findings: [RemoteStorageFinding],
         nativeGuidance: [RemoteNativeGuidance],
+        commandCards: [RemoteManualCommandCard]? = nil,
         commands: [RemoteCommandResult],
         coverage: RemoteScanCoverage? = nil,
         continuityWarnings: [RemoteTargetContinuityWarning] = [],
@@ -406,8 +627,9 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         self.inodeFilesystems = inodeFilesystems
         self.findings = findings
         self.nativeGuidance = nativeGuidance
+        self.commandCards = commandCards ?? RemoteCommandCardBuilder.build(for: findings)
         self.commands = commands
-        self.coverage = coverage ?? RemoteScanCoverageBuilder.build(commands: commands, osSummary: nil)
+        self.coverage = coverage ?? RemoteScanCoverageBuilder.build(commands: commands, osSummary: nil, target: target)
         self.continuityWarnings = continuityWarnings
         self.nonClaims = nonClaims
     }
@@ -422,9 +644,11 @@ public struct RemoteScanReport: Codable, Hashable, Identifiable, Sendable {
         inodeFilesystems = try container.decode([RemoteFilesystemSummary].self, forKey: .inodeFilesystems)
         findings = try container.decode([RemoteStorageFinding].self, forKey: .findings)
         nativeGuidance = try container.decode([RemoteNativeGuidance].self, forKey: .nativeGuidance)
+        commandCards = try container.decodeIfPresent([RemoteManualCommandCard].self, forKey: .commandCards)
+            ?? RemoteCommandCardBuilder.build(for: findings)
         commands = try container.decode([RemoteCommandResult].self, forKey: .commands)
         coverage = try container.decodeIfPresent(RemoteScanCoverage.self, forKey: .coverage)
-            ?? RemoteScanCoverageBuilder.build(commands: commands, osSummary: nil)
+            ?? RemoteScanCoverageBuilder.build(commands: commands, osSummary: nil, target: target)
         continuityWarnings = try container.decodeIfPresent([RemoteTargetContinuityWarning].self, forKey: .continuityWarnings) ?? []
         nonClaims = try container.decode([String].self, forKey: .nonClaims)
     }

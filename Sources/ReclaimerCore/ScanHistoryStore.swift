@@ -27,10 +27,10 @@ public final class ScanHistoryStore: @unchecked Sendable {
 
     @discardableResult
     public func save(snapshot: ScanSnapshot, keepLimit: Int = 30) throws -> URL {
+        _ = keepLimit
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent("scan-\(timestamp(snapshot.createdAt))-\(snapshot.id).json")
         try encoder.encode(snapshot).write(to: url, options: .atomic)
-        try prune(keepLimit: keepLimit)
         return url
     }
 
@@ -68,24 +68,6 @@ public final class ScanHistoryStore: @unchecked Sendable {
             FindingAnalytics.growthDeltas(previous: snapshots[1], current: snapshots[0], group: group)
                 .prefix(limit)
         )
-    }
-
-    private func prune(keepLimit: Int) throws {
-        guard keepLimit > 0 else { return }
-        let snapshots = recent(limit: Int.max)
-        let keepIDs = Set(snapshots.prefix(keepLimit).map(\.id))
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
-            return
-        }
-        for file in files where file.lastPathComponent.hasPrefix("scan-") && file.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: file),
-                  let snapshot = try? decoder.decode(ScanSnapshot.self, from: data) else {
-                continue
-            }
-            if !keepIDs.contains(snapshot.id) {
-                try? FileManager.default.removeItem(at: file)
-            }
-        }
     }
 
     private func timestamp(_ date: Date) -> String {

@@ -100,6 +100,15 @@ public enum DogfoodReportBuilder {
         lines.append("")
 
         lines.append("## Scan Coverage")
+        if let coverage = overview.scanCoverage {
+            lines.append(table(headers: ["Metric", "Value"], rows: [
+                ["Measurement state", coverage.state.label],
+                ["Measured items", "\(coverage.measuredItemCount)/\(coverage.requestedItemBudget)"],
+                ["Skipped items", "\(coverage.skippedItemCount)"],
+                ["Non-claim", coverage.nonClaim]
+            ]))
+            lines.append("")
+        }
         lines.append(table(
             headers: ["State", "Scope", "Path"],
             rows: overview.scopeSummaries.map {
@@ -174,6 +183,7 @@ public enum DogfoodReportBuilder {
         lines.append("## Permission Advisory")
         lines.append(table(headers: ["Metric", "Value"], rows: [
             ["Coverage", permissionReport.coverageLevel.label],
+            ["Scope summary", permissionReport.coverageSummary],
             ["Readable", "\(permissionReport.readableCount)/\(permissionReport.totalCount)"],
             ["Denied", "\(permissionReport.deniedCount)"],
             ["Missing", "\(permissionReport.missingCount)"]

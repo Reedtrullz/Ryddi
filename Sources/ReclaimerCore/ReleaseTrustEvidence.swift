@@ -96,6 +96,14 @@ public struct ReleaseTrustEvidence: Codable, Hashable, Sendable {
 }
 
 public enum ReleaseTrustEvidenceParser {
+    public static func parseRuntimeManifest(text: String, path: String?) -> ReleaseTrustEvidence? {
+        let fields = parseFields(text)
+        guard fields["manifest_schema"] == "ryddi.release-trust.v1" else {
+            return nil
+        }
+        return parseManifest(text: text, path: path)
+    }
+
     public static func parseManifest(text: String, path: String?) -> ReleaseTrustEvidence {
         let fields = parseFields(text)
         guard !fields.isEmpty else {

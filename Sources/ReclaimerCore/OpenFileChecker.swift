@@ -4,10 +4,37 @@ public protocol OpenFileChecking: Sendable {
     func status(for url: URL) -> OpenFileStatus
 }
 
-public struct LsofOpenFileChecker: OpenFileChecking {
-    public init() {}
+public protocol LinkAwareOpenFileChecking: OpenFileChecking {
+    func status(for url: URL, selectedPaths: [String], knownPaths: [String]) -> OpenFileStatus
+}
+
+public struct LsofOpenFileChecker: LinkAwareOpenFileChecking {
+    private let linkInspector: FilesystemLinkInspecting
+
+    public init(linkInspector: FilesystemLinkInspecting = FilesystemLinkInspector()) {
+        self.linkInspector = linkInspector
+    }
 
     public func status(for url: URL) -> OpenFileStatus {
+        status(for: url, selectedPaths: [], knownPaths: [])
+    }
+
+    public func status(for url: URL, selectedPaths: [String], knownPaths: [String]) -> OpenFileStatus {
+        let rawStatus = rawStatus(for: url)
+        guard rawStatus.checkFailed == nil else { return rawStatus }
+
+        let evidence = linkInspector.inspect(
+            candidateURL: url,
+            plannedIdentity: try? FilesystemIdentity.capture(at: url),
+            openStatus: rawStatus,
+            selectedPaths: selectedPaths,
+            knownPaths: knownPaths
+        )
+        let sharedOpenWasProven = evidence.sharedOpenIdentityOnly && evidence.blockReason == nil
+        return rawStatus.withLinkEvidence(evidence, isOpen: rawStatus.isOpen && !sharedOpenWasProven)
+    }
+
+    private func rawStatus(for url: URL) -> OpenFileStatus {
         let lsof = URL(fileURLWithPath: "/usr/sbin/lsof")
         let checkInfo = checkMode(for: url)
         guard FileManager.default.isExecutableFile(atPath: lsof.path) else {
@@ -58,7 +85,7 @@ public struct LsofOpenFileChecker: OpenFileChecking {
         let lines = String(data: data, encoding: .utf8)?
             .split(separator: "\n")
             .map(String.init) ?? []
-        var processes: [String] = []
+        var hits: [OpenFileHit] = []
         var pid: String?
         var command: String?
 
@@ -68,18 +95,25 @@ public struct LsofOpenFileChecker: OpenFileChecking {
             } else if line.hasPrefix("c") {
                 command = String(line.dropFirst())
             } else if line.hasPrefix("n") {
+                let path = String(line.dropFirst())
                 let processName = [command, pid.map { "pid \($0)" }].compactMap { $0 }.joined(separator: " ")
-                if !processName.isEmpty {
-                    processes.append(processName)
-                }
+                let identity = try? FilesystemIdentity.capture(at: URL(fileURLWithPath: path))
+                hits.append(OpenFileHit(
+                    path: path,
+                    processSummary: processName.isEmpty ? nil : processName,
+                    fileIdentityKey: identity?.fileIdentityKey,
+                    identityResolutionFailed: identity?.fileIdentityKey == nil
+                ))
             }
         }
 
+        let processes = Array(Set(hits.compactMap(\.processSummary))).sorted()
         return OpenFileStatus(
-            isOpen: !processes.isEmpty,
-            processSummary: Array(Set(processes)).sorted(),
+            isOpen: !hits.isEmpty,
+            processSummary: processes,
             checkedRecursively: checkInfo.recursive,
-            checkedPath: url.path
+            checkedPath: url.path,
+            openHits: hits
         )
     }
 

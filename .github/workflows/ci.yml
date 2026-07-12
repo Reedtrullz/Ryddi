@@ -19,3 +19,10 @@ jobs:
 
       - name: Test
         run: swift test --scratch-path "$PWD/.build"
+
+      - name: Fixture-backed app E2E smoke
+        timeout-minutes: 10
+        env:
+          RYDDI_E2E_REQUIRE_SCREENSHOT: "0"
+          RYDDI_E2E_MIN_FREE_GIB: "5"
+        run: Scripts/app-e2e-smoke.sh

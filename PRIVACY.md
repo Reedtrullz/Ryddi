@@ -44,11 +44,11 @@ Project Dependencies Review reads local filesystem metadata from configured proj
 
 AI-agent storage review reads local filesystem metadata from common Codex, Claude, Cursor, Windsurf, and Ollama roots, or from explicit paths you provide. Results can include local paths, owner hints, rule IDs, bucket names, and evidence strings. Ryddi does not upload this report, inspect prompt contents for remote analysis, or automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
 
-Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Ryddi does not upload these reports and does not execute the native commands automatically.
+Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Native command execution receipts can include one selected command ID, command text, finding path, category, user-confirmation state, before/after free-space snapshots, bounded stdout/stderr previews, errors, and non-claims. Ryddi does not upload these reports. Saved native receipts are evidence only. Homebrew cleanup requires explicit confirmation plus a fresh actual preview and one-time capability in the same process; Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside that Homebrew lane, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
 
 Container inventory can run read-only Docker and Colima inspection commands. The resulting local reports can include Docker image names, container names, volume names, context endpoints, Colima profile names, command exit states, and short command-output previews. Ryddi does not upload this inventory and does not run prune, delete, stop, reset, or raw VM-disk commands.
 
-Remote Targets can read your local SSH config to list non-wildcard host aliases and can use the system `ssh` client to resolve and probe a target. Remote reports can include SSH aliases, resolved user/host/port values, known-host state, host-key fingerprint snippets, remote OS summary, remote home directory, remote paths, filesystem names, Docker object names, command IDs, exit codes, short stdout/stderr previews, typed coverage levels, failed/timed-out/permission-denied command IDs, and target-continuity warnings. Saved remote growth reports compare local remote-scan audit records and can include target metadata, bucket names, remote paths or redacted path placeholders, size deltas, safety classes, and next-action labels. Remote dogfood reports can combine remote probe metadata, remote scan findings, command previews, saved growth deltas, and redacted remote paths. Redaction affects the exported Markdown report; saved local audit JSON can still contain original remote paths and host metadata. Ryddi does not store SSH private keys, passwords, passphrases, sudo passwords, tokens, or remote secrets. Remote Targets v1 does not install an agent on the server, upload remote scan results, run remote cleanup, run Docker prune/reset, run `rm`, run `find -delete`, or run sudo cleanup commands. `sudo -n true` is used only as a non-interactive capability probe.
+Remote Targets can read your local SSH config to list non-wildcard host aliases and can use the system `ssh` client to resolve and probe a target. Remote reports can include SSH aliases, resolved user/host/port values, known-host state, host-key fingerprint snippets, remote OS summary, remote home directory, remote paths, filesystem names, Docker object names, command IDs, exit codes, short stdout/stderr previews, typed coverage levels, coverage rows, failed/timed-out/permission-denied command IDs, manual command cards, and target-continuity warnings. Saved remote growth reports compare local remote-scan audit records and can include target metadata, bucket names, remote paths or redacted path placeholders, size deltas, safety classes, and next-action labels. Remote dogfood reports can combine remote probe metadata, remote scan findings, command previews, saved growth deltas, and redacted remote paths. Redacted remote Markdown and redacted issue packages apply best-effort redaction to target aliases, resolved host/user fields, path fragments, Docker-like object names, deploy-release fragments, command-card text, command preview lines, and SSH private-key markers. Saved local audit JSON can still contain original remote paths and host metadata. Ryddi does not store SSH private keys, passwords, passphrases, sudo passwords, tokens, or remote secrets. Remote Targets v1 does not install an agent on the server, upload remote scan results, run remote cleanup, run Docker prune/reset, run `rm`, run `find -delete`, or run sudo cleanup commands. `sudo -n true` is used only as a non-interactive capability probe.
 
 User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
 
@@ -62,13 +62,15 @@ User rule packs store local classification rules you import. These entries can i
 
 Saved scope sets store local scan root names and paths for reuse. Ryddi does not upload scope sets. Scope-set export writes local JSON and can reveal usernames, project names, app names, client folders, or personal folder structure, so review exports before sharing. Importing a scope set changes only what roots Ryddi scans when selected; it does not grant cleanup permission or change safety classification.
 
-Evidence report export reads scan findings, disk status, scan coverage, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them.
+Evidence report export reads scan findings, disk status, scan coverage, storage-accounting fields, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, logical/allocated size fields, clone-sharing notes, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them. Bounded or degraded coverage is preserved in the report so an incomplete scan is not presented as a complete reclaim map.
+
+Issue package export writes a small local diagnostics folder with `manifest.json`, `report.md`, `non-claims.md`, `local-summary.json`, and optionally `remote-summary.json`. It summarizes local audit counts, latest scan-session state, and selected redacted remote evidence. It does not copy raw audit JSON, raw SSH config, private keys, passwords, tokens, or arbitrary filesystem data. Redaction is best-effort and not a secrets inventory; review the package before sharing it.
 
 Plan report export reads a proposed reclaim plan to write local Markdown. Plan reports can include selected action paths, blocked or review-only paths, safety buckets, condition messages, and reclaim estimates. Ryddi does not upload plan reports or execute cleanup while creating them.
 
-Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Ryddi does not upload receipt reports or rerun cleanup while creating them.
+Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Native command receipt export reads saved native command receipts and can include one command, command context, bounded output previews, errors, path privacy transforms, and native non-claims. Ryddi does not upload receipt reports or rerun cleanup/native tools while creating them.
 
-Recovery Center reads local holding-area metadata and saved execution receipts to show what Ryddi can restore directly and what needs Trash, native-tool, backup, or manual review. Recovery output can include original paths, held paths, receipt IDs, action statuses, and guidance. Ryddi can restore only app-held items; it does not upload recovery data or silently recover/delete receipt-only items.
+Recovery Center reads local holding-area metadata and saved execution receipts to show what needs Finder Trash, native-tool, backup, or manual review. Recovery output can include original paths, held paths, receipt IDs, action statuses, and guidance. Holding records remain manual Finder recovery only; Ryddi does not upload recovery data or silently restore, move, or delete them.
 
 Growth report export reads saved scan-history snapshots to write local Markdown. Growth reports can include category, scope, safety, scan coverage, and current top finding paths. Ryddi does not upload growth reports or execute cleanup while creating them.
 
@@ -76,7 +78,7 @@ Report exports support path privacy controls. `home-relative` reports hide your 
 
 Dogfood report redaction uses the same path privacy controls. Redacted reports hide full paths in the generated Markdown, but they can still include owner names, categories, workflow labels, counts, sizes, process summaries, command labels, and other local context. Review any report before sharing it.
 
-Remote report redaction hides full remote paths in generated Markdown, but reports can still reveal host aliases, usernames, hostnames, service names, Docker object names, mount names, command labels, sizes, counts, and error text. Review remote reports before sharing them.
+Remote report redaction hides full remote paths in generated Markdown and redacts common target, host, object-name, deploy-fragment, command-card, command-preview, and SSH key-marker text. Reports can still reveal bucket names, filesystem names, service categories, mount classes, command labels, sizes, counts, and non-secret error context. Review remote reports before sharing them.
 
 Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
 
@@ -88,9 +90,12 @@ Ryddi can write:
 - saved Markdown evidence reports;
 - saved Markdown reclaim plan reports;
 - saved Markdown receipt reports;
+- saved Markdown native command receipt reports;
 - saved Markdown growth reports;
 - saved Markdown dogfood reports when you choose an output path;
+- saved issue package folders when you choose an output directory;
 - saved native-tool preview reports;
+- saved native command execution receipts;
 - saved container inventory reports;
 - saved remote probe, scan, and local growth-history audit records;
 - saved remote Markdown evidence and growth reports when you choose an output path or export from the app;
@@ -100,12 +105,12 @@ Ryddi can write:
 - saved project dependency policy for per-project review choices;
 - saved user rule packs for custom review/protection signals;
 - saved scope sets for repeatable scan roots;
-- compact local scan-history snapshots for growth comparisons;
+- compact local scan-history snapshots for growth comparisons, retained for review rather than automatically pruned;
 - app-managed holding-area metadata;
 - a per-user LaunchAgent plist if you install report scheduling;
-- cleanup changes only after explicit confirmation.
+- same-process Homebrew cleanup, Docker builder prune, or npm cache clean only after an explicit confirmation and fresh bounded preview; each action has an exact allowlist and a local receipt.
 
-Uncertain user-visible data should go to Trash or the app-managed holding area. Direct delete is reserved for allowlisted reproducible cache/temp data after safety checks.
+Core filesystem cleanup is report-first. The app can move only explicitly confirmed, current-session `autoSafe` Trash selections after a matching clean dry run and final identity, classification, policy, symlink, age-gate, containment, and recursive open-handle checks. The one-time authorization stays in memory and expires after 15 minutes. Receipts can store original paths, resulting Trash paths, file identity metadata, and skipped/error reasons locally. Ryddi does not empty Trash; moving an item there does not immediately reclaim space, and the final pathname check is not atomic. Direct cache deletion, compression, holding moves, remote cleanup, and scheduled destructive work remain disabled. Holding records are retained for manual Finder review. Native actions are still review-first: only the exact Homebrew, Docker builder, and npm cache lanes can perform, and they do not touch VM disks, Docker volumes/images/containers, project dependencies, Codex history, or arbitrary tool-owned state.
 
 ## What Ryddi Should Never Touch Automatically
 
@@ -115,7 +120,9 @@ On remote targets, Ryddi should never automatically remove databases, backups, D
 
 ## Telemetry
 
-Ryddi has no telemetry in the MVP. If telemetry is ever proposed, it should be opt-in, documented, and unnecessary for local cleanup.
+Ryddi has no telemetry in the MVP. The app writes local macOS unified-log events for typed operation names, durations, counts, workflow stages, preset, and coarse error kinds. These events do not intentionally include paths, filenames, SSH targets, aliases, usernames, rule text, command output, or file contents. The optional **Export Diagnostic Summary** command writes the same bounded metadata to a new local JSON file; it is never uploaded automatically. macOS controls unified-log retention independently of Ryddi.
+
+If telemetry is ever proposed, it should be opt-in, documented, and unnecessary for local cleanup.
 
 ## Removing Local Ryddi Data
 
@@ -133,4 +140,4 @@ Ryddi data is expected under:
 ~/Library/LaunchAgents/com.reidar.ryddi.agent.plist
 ```
 
-Remove the LaunchAgent from the app or CLI before deleting app support data.
+Ryddi does not unload or remove a LaunchAgent plist automatically. Reveal `~/Library/LaunchAgents/com.reidar.ryddi.agent.plist` in Finder and remove it manually before deleting app support data; if it is loaded, manually run `launchctl bootout gui/$(id -u)/com.reidar.ryddi.agent` first.

@@ -105,7 +105,7 @@ public enum PermissionWalkthroughBuilder {
         let coverageStatus: PermissionWalkthroughStepStatus = report.coverageLevel == .blocked ? .blocked : .done
         let settingsStatus: PermissionWalkthroughStepStatus = report.needsFullDiskAccessReview ? .recommended : .optional
         let rescanStatus: PermissionWalkthroughStepStatus = report.coverageLevel == .complete ? .optional : .recommended
-        let degradedStatus: PermissionWalkthroughStepStatus = report.unavailableScopes.isEmpty
+        let degradedStatus: PermissionWalkthroughStepStatus = report.blockingUnavailableScopes.isEmpty
             ? .done
             : (report.coverageLevel == .blocked ? .blocked : .recommended)
 
@@ -114,7 +114,7 @@ public enum PermissionWalkthroughBuilder {
                 id: "review-coverage",
                 title: "Review current scan coverage",
                 status: coverageStatus,
-                detail: "\(appName) can read \(report.readableCount) of \(report.totalCount) configured scopes. Current coverage is \(report.coverageLevel.label.lowercased())."
+                detail: "\(appName) scope summary: \(report.coverageSummary). Current coverage is \(report.coverageLevel.label.lowercased())."
             ),
             PermissionWalkthroughStep(
                 id: "open-full-disk-access",
@@ -200,6 +200,7 @@ public enum PermissionWalkthroughBuilder {
             "",
             "- Generated: \(ISO8601DateFormatter().string(from: walkthrough.createdAt))",
             "- Coverage: \(walkthrough.coverageLevel.label)",
+            "- Scope summary: \(scopeSummary(for: walkthrough))",
             "- Readable scopes: \(walkthrough.readableCount)/\(walkthrough.totalCount)",
             "- Denied: \(walkthrough.deniedCount)",
             "- Missing: \(walkthrough.missingCount)",
@@ -237,6 +238,30 @@ public enum PermissionWalkthroughBuilder {
 
         lines.append("")
         return lines.joined(separator: "\n")
+    }
+
+    private static func scopeSummary(for walkthrough: PermissionWalkthrough) -> String {
+        if walkthrough.deniedCount > 0 || walkthrough.unknownCount > 0 {
+            var parts = ["\(walkthrough.readableCount) of \(walkthrough.totalCount) configured scopes readable"]
+            if walkthrough.deniedCount > 0 {
+                parts.append("\(walkthrough.deniedCount) \(plural("scope", walkthrough.deniedCount)) need access review")
+            }
+            if walkthrough.unknownCount > 0 {
+                parts.append("\(walkthrough.unknownCount) \(plural("scope", walkthrough.unknownCount)) need a fresh check")
+            }
+            if walkthrough.missingCount > 0 {
+                parts.append("\(walkthrough.missingCount) optional \(plural("root", walkthrough.missingCount)) not present")
+            }
+            return parts.joined(separator: "; ")
+        }
+        if walkthrough.missingCount > 0 {
+            return "\(walkthrough.readableCount) readable; \(walkthrough.missingCount) optional \(plural("root", walkthrough.missingCount)) not present"
+        }
+        return "All \(walkthrough.readableCount) configured \(plural("scope", walkthrough.readableCount)) readable"
+    }
+
+    private static func plural(_ singular: String, _ count: Int) -> String {
+        count == 1 ? singular : singular + "s"
     }
 }
 

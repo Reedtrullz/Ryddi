@@ -12,11 +12,12 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Organize review queues | Shared user-intent queues separate safe maintenance, quit-first data, native-tool stores, valuable history, protected personal/app assets, and unknown review items, with single-queue filtering and evidence-detail navigation. | `ReviewQueueReport`, `ReviewQueueDetailReport`, `FindingAnalytics.reviewQueueReport`, `reclaimer queues --queue`, app Review Queues |
 | Visualize space | Proportional category map plus bounded hierarchical drill-down from scan findings; informational only, not a cleanup selector. | `DiskMapNode`, `DiskDrillDownReport`, `reclaimer drilldown`, app Visual Map and Disk Drilldown |
 | Explain ownership | Group non-overlapping findings by scanner owner hints or category fallback so users can see which app/tool appears responsible for storage. | `OwnerStorageSummary`, `ScanOverview.ownerSummaries`, `reclaimer overview`, app Top Owners, evidence reports |
-| Track growth | Local scan snapshots compare category/scope/safety growth between scans and export local before/after Markdown reports. | `ScanHistoryStore`, `GrowthReportBuilder`, `reclaimer history`, `reclaimer history report`, app Growth History |
+| Track growth | Local scan snapshots compare category/scope/safety growth between scans and export local before/after Markdown reports; snapshots are retained for review rather than automatically pruned. | `ScanHistoryStore`, `GrowthReportBuilder`, `reclaimer history`, `reclaimer history report`, app Growth History |
 | Watch disk pressure | Menu bar status item and CLI status report current free space using explicit warning/critical thresholds. | `DiskStatusReader`, `reclaimer status`, app menu bar |
 | Show trust readiness | Summarize disk pressure, scan coverage, latest plan/receipt state, report-only automation, next-action buckets, release trust evidence, and explicit non-claims before raw cleanup navigation. | `TrustReadinessReport`, `TrustReadinessBuilder`, `reclaimer trust`, app Summary trust cards |
 | Dogfood safely | Generate a redacted real-machine report that includes disk status, scan coverage, owners, queues, selected dry-run summary, active-handle summary, protected buckets, and explicit no-cleanup non-claims. | `DogfoodReportBuilder`, `reclaimer dogfood`, release-check smoke |
 | Explain scan coverage | Report missing/restricted/readable scopes, degraded scan behavior, first-run Full Disk Access walkthrough steps, exportable guidance, and explicit permission non-claims. | `PermissionAdvisor`, `PermissionWalkthroughBuilder`, `reclaimer permissions`, `reclaimer permissions guide`, app Permissions |
+| Explain storage truth | Keep logical bytes, allocated estimates, shared hard-link/clone state, bounded scan coverage, and observed post-action free-space deltas distinct; never turn a folder-size estimate into an exact reclaim promise. | `StorageAccounting`, `ScanCoverage`, `FilesystemLinkInspector`, `NativeActionReceipt`, `ScanOverview` |
 | Explain APFS accounting | Surface logical versus allocated size and caveats around clones, sparse files, snapshots, and purgeable storage. | `storageAccountingNote`, `ScanOverview.accountingNotes` |
 | Export evidence reports | Produce local Markdown reports with disk status, scan coverage, safety/category buckets, top findings, user policy, accounting notes, optional path privacy controls, and explicit non-claims. | `EvidenceReportBuilder`, `ReportPrivacyOptions`, `ReportStore`, `reclaimer report`, app Export Report |
 | Export plan reports | Produce local Markdown reports for proposed reclaim plans with selected actions, blocked/review items, safety buckets, estimates, optional path privacy controls, and explicit non-claims. | `ReclaimPlanReportBuilder`, `ReportPrivacyOptions`, `reclaimer plan --output`, `reclaimer plans export`, app plan export |
@@ -36,24 +37,28 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Review device backups | Report local iPhone/iPad MobileSync backup roots, size, age, encryption state, parsed metadata, missing metadata, Apple/Finder guidance, and local audit history without modifying backups. | `DeviceBackupReviewScanner`, `DeviceBackupReviewReport`, `reclaimer device-backups`, app Device Backups Review |
 | Review Trash | Report the configured user Trash root, permission state, total size, largest immediate Trash items, Finder guidance, and local audit history without emptying or restoring anything. | `TrashReviewScanner`, `TrashReviewReport`, `reclaimer trash`, app Trash Review |
 | Review apps & leftovers | Parse installed `.app` bundles and related Library files, then surface support data and orphan candidates as review-only guidance. | `AppReviewScanner`, `reclaimer apps`, app Apps & Leftovers |
-| Preview and confirm app uninstall | Build a selected-app uninstall checklist/report, then optionally move only the selected app bundle to Trash after a clean dry run and explicit confirmation. Related support files remain review-only. | `AppUninstallPreview`, `AppUninstallExecutor`, `reclaimer apps uninstall-preview`, `reclaimer apps uninstall`, app Uninstall Preview |
+| Preview app uninstall | Build a selected-app uninstall checklist/report and dry-run evidence for manual Finder removal. Related support files remain review-only. | `AppUninstallPreview`, `AppUninstallExecutor`, `reclaimer apps uninstall-preview`, `reclaimer apps uninstall --dry-run`, app Uninstall Preview |
 | Review AI-agent storage | Scan common Codex, Claude, Cursor, Windsurf, and Ollama roots, then bucket cache/log churn separately from valuable history, protected state, and manual review. | `AgentStorageReviewBuilder`, `DefaultScopes.aiAgentStorage`, `reclaimer agents`, app AI Agent Storage |
 | Review AI-agent retention | Apply conservative, balanced, or aggressive report-only retention profiles so old cache can become cleanup-plan guidance, old history can become compression-review guidance, and protected state stays blocked. | `AgentRetentionBuilder`, `AgentRetentionProfile`, `reclaimer agents retention`, app AI Agent Storage |
 | Inspect in native tools | Copy path, reveal in Finder, Quick Look, and open Terminal for reviewed findings. | app finding action buttons |
 | Protect valuable data | Default preserve/never-touch for user documents, creative assets, credentials, browser profiles, VM/container state, and Codex history. | rule pack and executor protected-class checks |
 | Handle active files | Check open handles before planning/execution, surface process names in an active-handle review, and skip active paths. | `LsofOpenFileChecker`, `ActiveFileReviewScanner`, `PlanBuilder`, `ReclaimerExecutor`, `reclaimer active`, app Active Handles |
-| Avoid blind deletes | Build a dry-run plan first; UI exposes dry-run receipts and enables reclaim only after a clean dry run. | `ReclaimPlan`, `ExecutionReceipt`, app Dry Run/Reclaim |
+| Avoid blind deletes | Build a current dry-run plan first. Direct deletion remains disabled; selected auto-safe Trash actions require a matching clean receipt, one-time identity-bound authorization, exact-path confirmation, and final-state checks. | `ReclaimPlan`, `ExecutionReceipt`, `TrashExecutionAuthorization`, app Dry Run/Confirm |
 | Export receipts | Convert saved dry-run/execution receipts into local Markdown with action counts, before/after free-space fields, skipped/errors, optional path privacy controls, and non-claims. | `ExecutionReceiptReportBuilder`, `ReportPrivacyOptions`, `reclaimer receipts export`, app Audit History export |
-| Reclaim safely | Use Trash for uncertain/user-visible data, direct delete only for allowlisted caches, compression only for cold files, holding area for reversible moves, with app confirmation before execution. | `ReclaimerExecutor`, app Reclaim confirmation |
-| Restore held items | Store holding metadata so held items can be listed, restored, or expired after review. | `HoldingStore`, `reclaimer holding`, app Holding Area |
-| Review recovery | Combine app-held items and saved receipts into a recovery view that separates Ryddi-restorable items from Trash review, dry-run/skipped no-ops, native-tool guidance, and non-recoverable direct deletes. | `RecoveryCenter`, `reclaimer recovery`, app Recovery Center |
-| Prefer native cleanup | Report Docker/Colima/package-manager cleanup as native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims; execute only one selected non-destructive/non-placeholder command at a time with dry-run default and a local receipt. | `NativeToolGuidance`, `NativeToolExecutor`, `reclaimer native`, `reclaimer native run`, app native receipt preview |
+| Recoverable cleanup evidence | Keep direct cache deletion, compression, hold moves, audit pruning, and issue-package replacement disabled. Only explicitly confirmed auto-safe Trash actions may run, and each action records Done/Skipped/Error plus the resulting Trash path when available. | `ReclaimerExecutor`, `TrashExecutionReadiness`, app Action Center and Recovery Center |
+| Review holding records | List holding metadata and reveal held paths in Finder for manual recovery; Ryddi does not restore or expire them automatically. | `HoldingStore`, `reclaimer holding`, app Holding Area |
+| Review recovery | Combine holding records and saved receipts into a recovery view that separates manual Finder recovery from Trash review, dry-run/skipped no-ops, native-tool guidance, and manual core-action outcomes. | `RecoveryCenter`, `reclaimer recovery`, app Recovery Center |
+| Prefer native cleanup | Report Docker/Colima/package-manager cleanup as native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims. Only Homebrew cleanup, Docker builder prune, and npm cache clean have narrow same-process preview/perform lanes; broad Docker, VM, volume, project, and package-store actions remain guidance-only. | `NativeToolGuidance`, `NativeMaintenanceExecutor`, `NativeToolExecutor`, `NativeActionExecutor`, `reclaimer native`, app native receipt preview |
 | Inventory containers | Run bounded read-only Docker/Colima inspection commands and record storage buckets, images, containers, volumes, profiles, missing/not-running states, and command outcomes. | `ContainerInventoryScanner`, `reclaimer containers`, app Container Inventory |
-| Review remote SSH/VPS targets | Use the system SSH client and existing SSH config to collect bounded, read-only disk evidence from Linux VPS targets, label scan coverage as complete/partial/unreachable/unsupported, classify storage buckets conservatively, emit native guidance, export redacted reports, compare saved reachable remote scan growth locally, and save local audit records without remote cleanup. | `RemoteTargetResolver`, `RemoteSSHCommandRunner`, `RemoteProbeBuilder`, `RemoteScanBuilder`, `RemoteScanCoverageBuilder`, `RemoteReportBuilder`, `RemoteGrowthReportBuilder`, `reclaimer remote`, app Remote Targets |
-| Automate conservatively | Scheduled jobs are report-only, can target Developer/General/All presets, built-in templates, or saved scope sets, and can be previewed before installation; unattended destructive cleanup is not enabled in v1. | `ScheduleConfiguration`, `LaunchAgentManager`, `ReclaimerAgent`, `schedule preview`, `schedule install` |
+| Review remote SSH/VPS targets | Use the system SSH client and existing SSH config to collect bounded, read-only disk evidence from Linux VPS targets, label scan coverage as complete/partial/unreachable/unsupported with row-level reasons, classify storage buckets conservatively, emit native guidance and manual command cards, export redacted reports, compare saved reachable remote scan growth locally, and save local audit records without remote cleanup. | `RemoteTargetResolver`, `RemoteSSHCommandRunner`, `RemoteProbeBuilder`, `RemoteScanBuilder`, `RemoteScanCoverageBuilder`, `RemoteCommandCardBuilder`, `RemoteReportBuilder`, `RemoteGrowthReportBuilder`, `reclaimer remote`, app Remote Targets |
+| Package redacted issue evidence | Write a small local diagnostics folder with manifest, report, non-claims, local audit/session summary, and optional redacted remote summary without copying raw SSH config, keys, tokens, or arbitrary audit JSON. User-selected export files must be new and issue-package directories must be new or empty; existing paths are never replaced. | `IssuePackageExporter`, `SafeFileOutput`, `RemotePrivacyRedactor`, `reclaimer issue package` |
+| Automate conservatively | Scheduled jobs are report-only, can target Developer/General/All presets, built-in templates, or saved scope sets, and can be previewed before installation; unattended destructive cleanup is not enabled in v1. Ryddi refuses to overwrite or remove an existing schedule plist. | `ScheduleConfiguration`, `LaunchAgentManager`, `ReclaimerAgent`, `schedule preview`, `schedule install` |
 | Keep local audit trail | Save plans, receipts, native reports, container reports, active-file reports, and general review reports under Application Support with local-only JSON. | `AuditStore`, app Audit History |
 | Package for direct distribution | Build unsigned previews for testing, or fail-closed signed release artifacts that require Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and typed manifest proof. | `Scripts/package-app.sh`, `Scripts/release-check.sh`, `Scripts/notarize-app.sh`, `reclaimer release-trust`, release-preview and signed-release workflows |
+| Present as a native Mac app | Package a validated multi-resolution Ryddi fan icon in the signed app bundle for Finder, Dock, About, and app-switcher presentation. | `Assets/Ryddi.icns`, `Assets/AppIcon.iconset`, `Scripts/generate-app-icon.swift` |
+| Verify the packaged app safely | Launch the packaged app against a temporary fixture, expose stable accessibility identifiers, prove scan/plan/dry-run/explicit-confirmation/Trash flow, capture three window sizes, clean the receipt-identified test Trash artifact, and verify protected fixtures remain byte-identical. | `Scripts/make-app-e2e-fixture.sh`, `Scripts/app-e2e-smoke.sh`, `Scripts/run-packaged-app-e2e.sh`, `RyddiAXHarness`, `AppAccessibilityContractTests`, `AppE2EFixtureTests`, `AppLayoutContractTests` |
 | Stay private | No telemetry, cloud upload, or remote AI analysis. | architecture and README policy |
+| Diagnose slow workflows locally | Record privacy-safe unified-log timings/counts and explicitly export a bounded local JSON summary without paths, command output, file contents, or automatic upload. | `DiagnosticMetadata`, `RyddiLog`, `Export Diagnostic Summary`, redaction tests |
 
 ## MVP Feature Boundaries
 
@@ -66,9 +71,10 @@ Included:
 - Saved custom scope sets for repeatable general cleanup, project-specific review, and developer maintenance scans, with local JSON import/export.
 - Codex storage policy: caches/temp/logs versus sessions/state/credentials.
 - Docker/Colima reporting and native cleanup guidance.
-- Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, plus one-command execution receipts for selected non-destructive/non-placeholder commands; no automatic native command execution.
+- Native-tool preview receipts for Docker/Colima/Homebrew/package-manager cleanup, plus narrow same-process execution lanes for Homebrew cleanup, Docker builder prune, and npm cache clean after fresh previews; broad Docker, Colima, VM, volume, project, and package-store cleanup remains guidance-only.
 - Read-only Docker/Colima live inventory for native storage estimates and profile/object context.
-- Agentless Remote Targets for SSH/VPS report-only review: SSH alias discovery, safe probe, Linux VPS disk/inode evidence, journald/APT/Docker/deploy-release/large-file/temp buckets, native guidance, redacted Markdown export, saved remote growth history, local audit history, and no remote cleanup execution.
+- Agentless Remote Targets for SSH/VPS report-only review: SSH alias discovery, safe probe, Linux VPS disk/inode evidence, row-level coverage, journald/APT/Docker/deploy-release/large-file/temp buckets, native guidance, manual command cards, redacted Markdown export, saved remote growth history, local audit history, and no remote cleanup execution.
+- Redacted issue package export for local support/debug evidence without copying raw SSH config, private keys, tokens, or arbitrary audit JSON.
 - Local user protections and exclusions, plus user path policy JSON import/export.
 - Local user rule-pack preview/import/export for custom review/protection signals, disabled by default unless a scan passes `--include-user-rules` or the app User Rules scan toggle is on.
 - Xcode Review for DerivedData, module/documentation caches, Products, Archives, DeviceSupport, simulator devices, runtimes, logs, preview simulator data, protected developer-state roots, Xcode/simctl guidance, audit saving, and no Xcode-state mutation.
@@ -83,7 +89,7 @@ Included:
 - Exportable local Markdown evidence reports.
 - Exportable local Markdown reclaim plan reports.
 - Exportable local Markdown execution receipt reports.
-- Recovery Center for app-held restores and receipt-based recovery guidance.
+- Recovery Center for manual Finder holding-record recovery and receipt-based guidance.
 - Report path privacy controls: full, home-relative, redacted, plus user-entered reason redaction.
 - Active-handle review with process summaries for cleanup-relevant candidates.
 - Permission advisor and first-run walkthrough for readable/denied/missing scope coverage, Full Disk Access guidance, degraded-mode labels, rescan commands, and permission non-claims.
@@ -99,7 +105,7 @@ Included:
 - Xcode Review for Xcode cache, archive, device-support, simulator, runtime, log, preview, and protected developer-state roots, audit saving, and no Xcode mutation.
 - Device Backups Review for local MobileSync backup size, age, encryption, metadata, Apple/Finder guidance, audit saving, and no backup mutation.
 - Apps & Leftovers review for installed app support files and heuristic orphan candidates.
-- App uninstall preview/checklist plus explicit app-bundle Trash execution after dry run and confirmation, keeping related support files review-only and outside execution.
+- App uninstall preview/checklist plus dry-run evidence for manual Finder removal, keeping related support files review-only and outside automatic mutation.
 - AI-agent storage review for Codex, Claude, Cursor, Windsurf, and Ollama, with cache/history/protected-state buckets and no automatic session/config/model cleanup.
 - AI-agent retention profiles for conservative, balanced, or aggressive report-only guidance; profiles never delete sessions, memories, config, credentials, model state, or unknown state.
 - Stale temp/scratch classification.
@@ -114,8 +120,8 @@ Deferred:
 - RAM/performance optimizer features.
 - Root helper or system-wide cleanup.
 - Mac App Store sandbox packaging.
-- Automatic deletion of safe-after-condition or review-required items.
-- Automatic execution of native Docker/Colima/Homebrew/package-manager cleanup commands.
+- Automatic or unattended deletion, Trash, compression, holding moves, audit pruning, or issue-package replacement. The only core perform lane is an interactive one-use move to Trash for current auto-safe selections.
+- Automatic execution of native Docker/Colima/package-manager cleanup commands; Homebrew is limited to a fresh preview plus one-time same-process capability.
 - Remote cleanup execution, remote Docker prune/reset execution, sudo password management, remote agent installation, secrets inventory, database cleanup, and unattended destructive SSH maintenance.
 - Raw deletion or unattended execution of Docker/Colima VM disks, volumes, package stores, destructive prune/reset commands, or placeholder commands.
 - Screenshot/GIF walkthrough for Full Disk Access onboarding in release materials.
@@ -125,13 +131,14 @@ Deferred:
 - `swift test --scratch-path .build` passes.
 - `reclaimer plan --path ~/.codex --no-lsof` classifies Codex sessions as preserve/review, cache/temp as auto-safe, and credentials/state as never-touch.
 - `reclaimer execute --dry-run` never mutates files.
-- App Reclaim is disabled until a successful dry-run receipt exists for the current plan.
-- `reclaimer holding restore` restores a held fixture, and `holding expire` is dry-run unless `--yes` is supplied.
+- The app can complete Scan, Plan, Dry Run, Confirm, Trash, and Recovery for current auto-safe Trash selections; direct deletion and all non-Trash core actions remain disabled.
+- `reclaimer holding expire` lists eligible holding records without deleting them; `holding restore` and `recovery restore` reject automatic moves and direct users to Finder.
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
 - `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records typed release-trust keys, and creates a zip/checksum/manifest.
-- `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` fails unless Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, checksum, and manifest proof all pass.
+- `RYDDI_RELEASE_SIGNING=required RYDDI_REQUIRE_PACKAGED_AX_E2E=1 RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 Scripts/release-check.sh` fails unless Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, packaged Accessibility E2E, checksum, bundle version `0.3.0`, build `3`, and manifest proof all pass.
 - `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` parses the manifest into exact states and does not treat `not notarized` as trusted.
 - `reclaimer remote dogfood --from-audit TARGET --path-style redacted --output FILE.md` packages saved remote evidence without reconnecting to a server or running cleanup.
+- `reclaimer issue package --path-style redacted --include-remote --output DIR` writes a share-reviewable local diagnostics folder with manifest, non-claims, local summary, and optional redacted remote summary.
 - The app can scan, build a dry-run plan, show feature coverage, show item evidence, and show local audit history.
 - `reclaimer overview --sort reclaim --group safety` reports grouped top offenders with confidence, conservative immediate-reclaim estimates, permission coverage, category summaries, owner summaries, and APFS notes.
 - `reclaimer queues --path FIXTURE --limit 5 --json` reports all review queues with counts, allocated bytes, conservative reclaim estimates, sample rows, and non-claims without creating a cleanup plan.
@@ -150,7 +157,7 @@ Deferred:
 - `reclaimer scan --template weekly-general` scans the template roots while preserving all normal rules, policies, dry-run gates, and never-touch protections.
 - `reclaimer scan --scope-set NAME` scans the saved roots while preserving all normal rules, policies, dry-run gates, and never-touch protections.
 - `reclaimer schedule preview --preset general --kind evidence`, `reclaimer schedule preview --template weekly-general`, and `reclaimer schedule preview --scope-set NAME` print the exact report-only LaunchAgent plist without installing it.
-- `reclaimer schedule install --template weekly-general` or `--scope-set NAME` writes a per-user LaunchAgent for that scope and still only runs `plan --json --save-audit` unless evidence reports are explicitly selected.
+- `reclaimer schedule install --template weekly-general` or `--scope-set NAME` writes a new per-user LaunchAgent for that scope and still only runs `plan --json --save-audit` unless evidence reports are explicitly selected; it refuses to replace an existing plist, which must be reviewed manually in Finder.
 - `reclaimer rules user preview RULES.json --json` validates custom rules, rejects cleanup-granting rules, and reports import non-claims without mutating local config.
 - `reclaimer rules user import RULES.json --json` stores local user rules without enabling them by default.
 - `reclaimer scan --include-user-rules --path FIXTURE --min-size 1 --json` includes accepted user rules while preserving bundled never-touch protections.
@@ -167,8 +174,8 @@ Deferred:
 - `reclaimer plans export --path-style redacted --output PLAN.md` exports a saved plan report with redacted action/review paths without mutating the saved plan.
 - `reclaimer receipts export --output RECEIPT.md` writes a local Markdown report for a saved receipt without rerunning cleanup.
 - `reclaimer receipts export --path-style redacted --output RECEIPT.md` redacts receipt action paths and path-bearing messages without mutating the saved receipt.
-- `reclaimer recovery --json` reports app-held items as restorable, dry-run/skipped actions as no-op evidence, Trash actions as Finder Trash review, and direct deletes/native-tool actions as non-Ryddi recovery guidance.
-- `reclaimer recovery restore HOLDING_ID --to DESTINATION` restores a disposable held fixture and refuses to treat receipt-only rows as Ryddi-restorable.
+- `reclaimer recovery --json` reports holding records as manual Finder review, dry-run/skipped actions as no-op evidence, Trash actions as Finder Trash review, and manual core-action/native-tool outcomes as non-Ryddi recovery guidance.
+- `reclaimer recovery restore HOLDING_ID --to DESTINATION` rejects automatic moves and preserves the held record for manual Finder review.
 - `reclaimer status --json` reports disk pressure and free-space notes without scanning content.
 - `reclaimer history record/list/diff` stores local scan snapshots and reports category/scope/safety deltas.
 - `reclaimer history report --output GROWTH.md` writes a local Markdown before/after report for saved scan snapshots, with category/scope/safety grouping, path privacy controls, and non-claims.
@@ -177,12 +184,15 @@ Deferred:
 - `reclaimer device-backups --home FIXTURE --json --save-audit` reports local MobileSync backup size, age, encryption, parsed/missing metadata, saves a local audit record, and does not mutate backups.
 - `reclaimer apps --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1` reports installed app support files and orphan candidates without creating plan items.
 - `reclaimer apps uninstall-preview --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --output PREVIEW.md` writes an uninstall preview where the app bundle is separated from review-only related files and no deletion occurs.
-- `reclaimer apps uninstall --dry-run --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` writes an app-uninstall receipt showing that only the selected app bundle would move to Trash.
-- `reclaimer apps uninstall --yes --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` moves only the selected app bundle to Trash after open-file checks, user policy checks, and final bundle protection checks; related support files remain untouched.
+- `reclaimer apps uninstall --dry-run --app FIXTURE.app --path FIXTURE_APPS --home FIXTURE_HOME --min-size 1 --json` writes app-uninstall evidence for manual Finder removal; related files remain untouched.
+- `reclaimer apps uninstall --yes ...` is rejected because Trash cannot be bound atomically to the reviewed app bundle.
 - `reclaimer agents --path FIXTURE --min-size 1 --max-depth 4 --json` reports AI-agent storage buckets, including reclaimable cache, valuable history, protected state, and quit-first data without creating plan items.
 - `reclaimer agents retention --path FIXTURE --profile balanced --min-size 1 --max-depth 4 --json` reports cleanup-plan, compression-review, keep, and protect recommendations without deleting, compressing, moving, or modifying agent files.
 - `reclaimer native --path FIXTURE --json` emits native-tool preview receipts for matching Docker/Colima/package-manager findings and can save them to local audit history.
-- `reclaimer native run --command-id brew.preview --path FIXTURE --dry-run --json --save-audit` creates a local native command execution receipt without executing the command.
+- `reclaimer native run --command-id brew.preview --path FIXTURE --dry-run --json --save-audit` runs the exact bounded Homebrew preview and captures its output in a local native command execution receipt.
+- `reclaimer native homebrew cleanup --dry-run --finding-path FIXTURE/Library/Caches/Homebrew --json --save-audit` runs Homebrew's own preview command and saves the bounded output as a native command receipt.
+- `reclaimer native run --command-id brew.cleanup --finding-path FIXTURE/Library/Caches/Homebrew --path FIXTURE --yes --save-audit` runs a new bounded preview and consumes its one-time same-process capability before the paired Homebrew cleanup; saved preview JSON remains evidence only.
+- `reclaimer native receipts list/export` retrieves saved native command receipts and writes local Markdown reports without rerunning native tools.
 - `reclaimer containers --json --timeout 2` emits a read-only Docker/Colima inventory, classifies missing versus not-running tools, and never emits prune/delete/stop/reset commands.
 - `reclaimer remote history list/diff/report` reads saved reachable remote scan audit records, compares bucket/path growth, writes optional redacted Markdown, and never connects to or mutates a server.
 - `reclaimer policy protect/exclude/list/remove/export/import` writes local-only path policy, protects configured paths from cleanup selection, excludes configured paths from scan output, exports a versioned JSON document, imports by merge by default, and supports explicit `--replace`.
@@ -192,6 +202,6 @@ Deferred:
 - Archive review rows remain review-only and do not execute compression, Trash, delete, or holding-area actions.
 - Duplicate review findings remain outside `PlanBuilder` and `ReclaimerExecutor`.
 - Apps & Leftovers findings remain outside `PlanBuilder` and `ReclaimerExecutor`.
-- App uninstall receipts can move only the selected app bundle to Trash; related support files remain outside `PlanBuilder`, `ReclaimerExecutor`, and app-uninstall execution.
+- App uninstall receipts remain evidence-only; the selected app bundle and related support files remain outside automatic mutation.
 - Device Backups Review remains report-only and never emits cleanup-plan selections or backup deletion actions.
 - Xcode Review remains report-only and never emits cleanup-plan selections, raw simulator reset/delete actions, archive deletion actions, runtime deletion actions, or Xcode developer-state mutations.

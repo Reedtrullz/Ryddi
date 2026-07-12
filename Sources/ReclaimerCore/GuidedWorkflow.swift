@@ -16,6 +16,7 @@ public enum GuidedWorkflowActionKind: String, Codable, CaseIterable, Hashable, S
     case openReviewQueues
     case createSafePlan
     case runDryRun
+    // Retained for decoding historical reports; new workflows route to manual review.
     case reclaimSafely
     case exportReport
     case openRecovery
@@ -100,7 +101,7 @@ public enum GuidedWorkflowBuilder {
                 primaryAction: GuidedWorkflowAction(
                     kind: .openPermissions,
                     title: "Review Access",
-                    reason: "\(input.permissionSummary.readableCount) of \(input.permissionSummary.totalCount) configured scopes are readable."
+                    reason: input.permissionSummary.coverageSummary
                 ),
                 secondaryActions: [
                     GuidedWorkflowAction(
@@ -231,11 +232,10 @@ public enum GuidedWorkflowBuilder {
             return GuidedWorkflowReport(
                 currentStep: .reclaimOrExport,
                 primaryAction: GuidedWorkflowAction(
-                    kind: .reclaimSafely,
-                    title: "Reclaim Safely",
-                    reason: "A dry-run receipt exists for the selected safe-maintenance plan.",
-                    estimatedBytes: plan.expectedImmediateReclaim,
-                    isDestructive: true
+                    kind: .openReviewQueues,
+                    title: "Review Safe Plan",
+                    reason: "A dry-run receipt exists, but core filesystem cleanup remains manual-only. Review the selected paths in Finder.",
+                    estimatedBytes: plan.expectedImmediateReclaim
                 ),
                 secondaryActions: [
                     GuidedWorkflowAction(
@@ -250,7 +250,7 @@ public enum GuidedWorkflowBuilder {
                     )
                 ],
                 safetyTotals: safetyTotals,
-                explanation: "Dry-run evidence exists. Ryddi can reclaim only the selected local plan after final safety revalidation."
+                explanation: "Dry-run evidence exists. Ryddi keeps core filesystem cleanup manual-only, so review the selected paths in Finder or export the evidence."
             )
         }
 

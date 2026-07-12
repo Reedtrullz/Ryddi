@@ -2,7 +2,7 @@
 
 This file tracks the public screenshots and short clips needed before a polished release page. Do not use screenshots that expose private paths, hostnames, project names, usernames, remote targets, receipts, or customer data.
 
-## Required For v0.2 Public Release
+## Required For v0.3 Public Release
 
 - Summary screen after a scan, showing the Next Safe Action, disk status, trust readiness, and review queues.
 - Review Queues screen showing Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, and Unknown.

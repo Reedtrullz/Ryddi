@@ -37,14 +37,33 @@ final class MacDiskReclaimerAppPermissionAccessTests: XCTestCase {
             source.contains("Refresh Coverage"),
             "Users should be able to re-check permission coverage after changing macOS settings."
         )
+        XCTAssertTrue(
+            source.contains("report.coverageSummary"),
+            "Permission views should use the core summary that separates access problems from optional missing roots."
+        )
+        XCTAssertTrue(
+            source.contains("Optional missing roots"),
+            "Missing developer/tool roots should be labelled as optional instead of blended into Full Disk Access failures."
+        )
+        XCTAssertTrue(
+            source.contains("blockingUnavailableScopes"),
+            "The access helper should separate denied/unknown blockers from non-blocking missing paths."
+        )
     }
 
     private func appSource() throws -> String {
-        try String(
-            contentsOf: repoRoot()
-                .appendingPathComponent("Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift"),
-            encoding: .utf8
+        let appSourceDirectory = repoRoot().appendingPathComponent("Sources/MacDiskReclaimerApp")
+        let swiftFiles = try FileManager.default.contentsOfDirectory(
+            at: appSourceDirectory,
+            includingPropertiesForKeys: nil
         )
+        .filter { $0.pathExtension == "swift" }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        return try swiftFiles.map {
+            try String(contentsOf: $0, encoding: .utf8)
+        }
+        .joined(separator: "\n")
     }
 
     private func repoRoot() -> URL {

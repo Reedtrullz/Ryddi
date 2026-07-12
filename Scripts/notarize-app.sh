@@ -20,17 +20,14 @@ if [[ ! -d "$app" ]]; then
   exit 1
 fi
 
-if [[ -z "${NOTARY_PROFILE:-}" ]]; then
-  : "${APPLE_ID:?Set APPLE_ID or NOTARY_PROFILE}"
-  : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID or NOTARY_PROFILE}"
-  : "${APPLE_APP_PASSWORD:?Set APPLE_APP_PASSWORD or NOTARY_PROFILE}"
-fi
-
 notary_args=()
-if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" ]]; then
+  notary_args+=(--apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD")
+elif [[ -n "${NOTARY_PROFILE:-}" ]]; then
   notary_args+=(--keychain-profile "$NOTARY_PROFILE")
 else
-  notary_args+=(--apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD")
+  echo "Set complete APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_PASSWORD credentials or NOTARY_PROFILE." >&2
+  exit 1
 fi
 
 json_value() {

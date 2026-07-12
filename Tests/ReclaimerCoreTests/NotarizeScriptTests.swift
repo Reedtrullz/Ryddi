@@ -32,8 +32,34 @@ final class NotarizeScriptTests: XCTestCase {
         let toolLog = try String(contentsOf: toolLogURL, encoding: .utf8)
         XCTAssertTrue(toolLog.contains("xcrun notarytool submit"))
         XCTAssertTrue(toolLog.contains("xcrun stapler staple"))
+        XCTAssertTrue(toolLog.contains("xcrun stapler validate"))
         XCTAssertTrue(toolLog.contains("spctl --assess --type execute --verbose"))
         XCTAssertTrue(toolLog.contains("codesign --verify --deep --strict --verbose=2"))
+    }
+
+    func testCompleteDirectCredentialsTakePrecedenceOverProfileWithoutLeakingSecrets() throws {
+        let secret = "fixture-secret-that-must-not-print"
+        let result = try runNotarize(
+            mode: "accepted",
+            profile: "fixture-profile",
+            directCredentials: ("release@example.invalid", "TEAM123", secret)
+        )
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(result.stdout.contains(secret))
+        XCTAssertFalse(result.stderr.contains(secret))
+        let toolLog = try String(contentsOf: toolLogURL, encoding: .utf8)
+        XCTAssertTrue(toolLog.contains("--apple-id release@example.invalid --team-id TEAM123 --password \(secret)"))
+        XCTAssertFalse(toolLog.contains("--keychain-profile fixture-profile"))
+    }
+
+    func testProfileIsFallbackWhenCompleteDirectCredentialsAreAbsent() throws {
+        let result = try runNotarize(mode: "accepted", profile: "fixture-profile")
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let toolLog = try String(contentsOf: toolLogURL, encoding: .utf8)
+        XCTAssertTrue(toolLog.contains("--keychain-profile fixture-profile"))
+        XCTAssertFalse(toolLog.contains("--apple-id"))
     }
 
     func testNotarizePendingTimeoutExitsWithResumeCommandAndDoesNotStaple() throws {
@@ -65,14 +91,48 @@ final class NotarizeScriptTests: XCTestCase {
         XCTAssertFalse(toolLog.contains("xcrun stapler staple"))
     }
 
-    private func runNotarize(mode: String, resumeID: String? = nil) throws -> (status: Int32, stdout: String, stderr: String) {
+    func testNotarizeAcceptedFailsWhenStaplerValidationFails() throws {
+        let result = try runNotarize(mode: "stapler-failure")
+
+        XCTAssertNotEqual(result.status, 0)
+        let toolLog = try String(contentsOf: toolLogURL, encoding: .utf8)
+        XCTAssertTrue(toolLog.contains("xcrun stapler validate"))
+        XCTAssertFalse(toolLog.contains("spctl --assess"))
+    }
+
+    func testNotarizeAcceptedFailsWhenGatekeeperRejectsApp() throws {
+        let result = try runNotarize(mode: "gatekeeper-rejection")
+
+        XCTAssertNotEqual(result.status, 0)
+        let toolLog = try String(contentsOf: toolLogURL, encoding: .utf8)
+        XCTAssertTrue(toolLog.contains("spctl --assess --type execute --verbose"))
+        XCTAssertFalse(toolLog.contains("codesign --verify"))
+    }
+
+    private func runNotarize(
+        mode: String,
+        resumeID: String? = nil,
+        profile: String? = "fixture-profile",
+        directCredentials: (appleID: String, teamID: String, password: String)? = nil
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
         try? FileManager.default.removeItem(at: toolLogURL)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [repoRoot().appendingPathComponent("Scripts/notarize-app.sh").path, appURL.path]
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(toolRoot.path):\(environment["PATH"] ?? "")"
-        environment["NOTARY_PROFILE"] = "fixture-profile"
+        environment.removeValue(forKey: "APPLE_ID")
+        environment.removeValue(forKey: "APPLE_TEAM_ID")
+        environment.removeValue(forKey: "APPLE_APP_PASSWORD")
+        environment.removeValue(forKey: "NOTARY_PROFILE")
+        if let profile {
+            environment["NOTARY_PROFILE"] = profile
+        }
+        if let directCredentials {
+            environment["APPLE_ID"] = directCredentials.appleID
+            environment["APPLE_TEAM_ID"] = directCredentials.teamID
+            environment["APPLE_APP_PASSWORD"] = directCredentials.password
+        }
         environment["RYDDI_FAKE_NOTARY_MODE"] = mode
         environment["RYDDI_FAKE_TOOL_LOG"] = toolLogURL.path
         environment["RYDDI_NOTARY_WAIT_TIMEOUT"] = "1s"
@@ -113,6 +173,9 @@ final class NotarizeScriptTests: XCTestCase {
             set -euo pipefail
             echo "xcrun $*" >> "$RYDDI_FAKE_TOOL_LOG"
             if [[ "$1" == "stapler" ]]; then
+              if [[ "${RYDDI_FAKE_NOTARY_MODE:-accepted}" == "stapler-failure" && "$2" == "validate" ]]; then
+                exit 1
+              fi
               exit 0
             fi
             if [[ "$1" != "notarytool" ]]; then
@@ -127,7 +190,7 @@ final class NotarizeScriptTests: XCTestCase {
               wait)
                 submission="$3"
                 case "$mode" in
-                  accepted)
+                  accepted|stapler-failure|gatekeeper-rejection)
                     printf '{"id":"%s","status":"Accepted"}\\n' "$submission"
                     ;;
                   pending)
@@ -155,6 +218,9 @@ final class NotarizeScriptTests: XCTestCase {
             #!/usr/bin/env bash
             set -euo pipefail
             echo "spctl $*" >> "$RYDDI_FAKE_TOOL_LOG"
+            if [[ "${RYDDI_FAKE_NOTARY_MODE:-accepted}" == "gatekeeper-rejection" ]]; then
+              exit 3
+            fi
             """
         )
         try writeExecutable(

@@ -48,6 +48,7 @@ struct RemoteTargetsView: View {
                             Label("Probe", systemImage: "network")
                         }
                         .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
+                        .accessibilityIdentifier("remote-targets.probe-button")
 
                         Button {
                             Task { await model.scanRemoteTarget() }
@@ -55,6 +56,7 @@ struct RemoteTargetsView: View {
                             Label("Scan", systemImage: "externaldrive")
                         }
                         .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
+                        .accessibilityIdentifier("remote-targets.scan-button")
 
                         Button {
                             Task { await model.exportRemoteRedactedReport() }
@@ -62,6 +64,7 @@ struct RemoteTargetsView: View {
                             Label("Export Redacted", systemImage: "eye.slash")
                         }
                         .disabled(model.remoteScanReport == nil || model.isWorking)
+                        .accessibilityIdentifier("remote-targets.export-redacted-button")
 
                         Button {
                             Task { await model.exportRemoteRedactedGrowthReport() }
@@ -123,6 +126,27 @@ struct RemoteTargetsView: View {
                             .font(.caption)
                             .foregroundStyle(report.coverage.level == .complete ? Color.secondary : Color.orange)
                             .fixedSize(horizontal: false, vertical: true)
+                        if !report.coverage.rows.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(report.coverage.rows) { row in
+                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                        Circle()
+                                            .fill(remoteCoverageStatusColor(row.status))
+                                            .frame(width: 7, height: 7)
+                                        Text(row.label)
+                                            .font(.caption.weight(.semibold))
+                                        Text(row.status.rawValue.capitalized)
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(remoteCoverageStatusColor(row.status))
+                                        Spacer(minLength: 8)
+                                        Text(row.detail)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                }
+                            }
+                        }
                         Text(commandIssues == 0 ? "All read-only commands returned usable evidence." : "Some read-only commands failed or were unavailable; do not treat missing evidence as clean.")
                             .font(.caption)
                             .foregroundStyle(commandIssues == 0 ? Color.secondary : Color.orange)
@@ -202,6 +226,57 @@ struct RemoteTargetsView: View {
                                 }
                                 Divider()
                             }
+                        }
+                    }
+
+                    SectionBox(title: "Manual Command Cards") {
+                        if report.commandCards.isEmpty {
+                            Text("No manual command cards generated.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(report.commandCards) { card in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(alignment: .firstTextBaseline) {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(card.title)
+                                                .font(.headline)
+                                            HStack(spacing: 8) {
+                                                Text(card.kind.label)
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(.blue)
+                                                Text(card.risk.label)
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(card.risk == .preserveByDefault ? .purple : .orange)
+                                            }
+                                        }
+                                        Spacer()
+                                        Button {
+                                            PathActions.copyText(card.displayCommand)
+                                        } label: {
+                                            Label("Copy", systemImage: "doc.on.doc")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                    Text(card.displayCommand)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                        .lineLimit(2)
+                                        .truncationMode(.middle)
+                                    Text(card.explanation)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    ForEach(card.prerequisites.prefix(3), id: \.self) { prerequisite in
+                                        Text("• \(prerequisite)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Divider()
+                            }
+                            Text("Ryddi never runs these commands remotely. Copy one only after reviewing service impact.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
@@ -326,6 +401,19 @@ struct RemoteTargetsView: View {
 
     private func remoteSignedBytes(_ bytes: Int64) -> String {
         bytes > 0 ? "+\(ByteFormat.string(bytes))" : ByteFormat.string(bytes)
+    }
+
+    private func remoteCoverageStatusColor(_ status: RemoteCoverageRowStatus) -> Color {
+        switch status {
+        case .passed:
+            .green
+        case .warning:
+            .orange
+        case .failed:
+            .red
+        case .unknown:
+            .secondary
+        }
     }
 }
 

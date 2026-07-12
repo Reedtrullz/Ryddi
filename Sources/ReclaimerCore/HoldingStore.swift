@@ -86,27 +86,9 @@ public final class HoldingStore: @unchecked Sendable {
         guard let item = list().first(where: { $0.id == id }) else {
             throw error("No held item found for id \(id).")
         }
-        let heldURL = URL(fileURLWithPath: item.heldPath)
-        guard isInsideRoot(heldURL) else {
-            throw error("Held item is outside the holding root.")
-        }
-
-        let destination = explicitDestination ?? {
-            if let originalPath = item.originalPath {
-                return URL(fileURLWithPath: originalPath)
-            }
-            return fileManager.homeDirectoryForCurrentUser
-                .appendingPathComponent("Restored Ryddi Items", isDirectory: true)
-                .appendingPathComponent(item.displayName)
-        }()
-
-        guard !fileManager.fileExists(atPath: destination.path) else {
-            throw error("Destination already exists: \(destination.path)")
-        }
-        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.moveItem(at: heldURL, to: destination)
-        try removeEmptyHoldDirectory(containing: heldURL)
-        return destination
+        _ = item
+        _ = explicitDestination
+        throw error("Automatic holding-area restore is disabled because macOS cannot bind the final path move to the verified held item. Reveal the holding record in Finder and move it manually after review.")
     }
 
     @discardableResult
@@ -119,15 +101,7 @@ public final class HoldingStore: @unchecked Sendable {
             return expired
         }
 
-        for item in expired {
-            let heldURL = URL(fileURLWithPath: item.heldPath)
-            guard isInsideRoot(heldURL) else { continue }
-            let holdDirectory = heldURL.deletingLastPathComponent()
-            if isInsideRoot(holdDirectory) {
-                try fileManager.removeItem(at: holdDirectory)
-            }
-        }
-        return expired
+        throw error("Confirmed holding-area expiry is disabled because delete cannot be bound to the verified held item. The dry-run list remains available for manual Finder review.")
     }
 
     private func heldItem(in holdDirectory: URL) -> HeldItem? {
@@ -165,15 +139,6 @@ public final class HoldingStore: @unchecked Sendable {
         let metadataURL = holdDirectory.appendingPathComponent(metadataName)
         guard let data = try? Data(contentsOf: metadataURL) else { return nil }
         return try? decoder.decode(HoldingMetadata.self, from: data)
-    }
-
-    private func removeEmptyHoldDirectory(containing heldURL: URL) throws {
-        let holdDirectory = heldURL.deletingLastPathComponent()
-        guard isInsideRoot(holdDirectory) else { return }
-        let remaining = (try? fileManager.contentsOfDirectory(atPath: holdDirectory.path)) ?? []
-        if remaining.allSatisfy({ $0 == metadataName }) {
-            try fileManager.removeItem(at: holdDirectory)
-        }
     }
 
     private func isInsideRoot(_ url: URL) -> Bool {

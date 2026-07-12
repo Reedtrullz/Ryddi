@@ -12,6 +12,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Release check
+        env:
+          RYDDI_E2E_MIN_FREE_GIB: "5"
         run: Scripts/release-check.sh
 
       - name: Upload developer preview artifact
@@ -26,7 +28,7 @@ jobs:
 
   signed-release:
     name: Build signed notarized release
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ryddi-release]
     if: ${{ vars.RYDDI_ENABLE_SIGNED_RELEASE == 'true' }}
     steps:
       - name: Check out
@@ -49,22 +51,23 @@ jobs:
       - name: Signed release check
         env:
           RYDDI_RELEASE_SIGNING: required
-          RYDDI_ARTIFACT_BASENAME: Ryddi-v0.2.0
-          RYDDI_VERSION: 0.2.0
-          RYDDI_BUILD_NUMBER: 2
+          RYDDI_ARTIFACT_BASENAME: Ryddi-v0.3.0
+          RYDDI_VERSION: 0.3.0
+          RYDDI_BUILD_NUMBER: 3
+          RYDDI_REQUIRE_PACKAGED_AX_E2E: "1"
           CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
         run: Scripts/release-check.sh
 
       - name: Upload signed release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Ryddi-v0.2.0-signed-notarized
+          name: Ryddi-v0.3.0-signed-notarized
           if-no-files-found: error
           path: |
-            dist/Ryddi-v0.2.0.zip
-            dist/Ryddi-v0.2.0.zip.sha256
+            dist/Ryddi-v0.3.0.zip
+            dist/Ryddi-v0.3.0.zip.sha256
             dist/Ryddi-release-manifest.txt
+            dist/e2e-proof

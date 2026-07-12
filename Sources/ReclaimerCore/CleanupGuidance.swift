@@ -191,6 +191,7 @@ public enum NativeToolGuidance {
             return [
                 command("colima.inspect", "colima list", "Inventory Colima profiles before cleanup.", .inspect, false, "Shows profile names, status, runtime, architecture, CPU, memory, and disk allocation where available."),
                 command("colima.docker-df", "docker system df", "Inspect Docker-managed reclaimable images, containers, local volumes, and build cache.", .inspect, false, "Reports native Docker reclaim estimates without deleting state."),
+                command("docker.builder-prune", "docker builder prune --force", "Remove Docker build cache only after reviewing a fresh Docker inventory and active context.", .reclaim, true, "Reclaims Docker build cache while leaving containers, images, volumes, and VM files untouched."),
                 command("colima.stop", "colima stop <profile>", "Stop the reviewed Colima profile before destructive profile cleanup.", .inspect, true, "Stops the VM profile; does not reclaim much space on its own."),
                 command("colima.delete", "colima delete <profile>", "Delete a reviewed Colima VM profile only after confirming volumes and databases are disposable or backed up.", .destructive, true, "Removes the selected Colima profile and its tool-owned runtime state.")
             ]
@@ -199,6 +200,7 @@ public enum NativeToolGuidance {
         if path.contains("/.docker") || path.contains("/library/containers/com.docker.docker") || path.contains("docker.raw") {
             return [
                 command("docker.df", "docker system df", "Inspect Docker reclaimable images, containers, local volumes, and build cache.", .inspect, false, "Reports native Docker reclaim estimates without deleting state."),
+                command("docker.builder-prune", "docker builder prune --force", "Remove Docker build cache only after reviewing a fresh Docker inventory and active context.", .reclaim, true, "Reclaims Docker build cache while leaving containers, images, volumes, and VM files untouched."),
                 command("docker.prune", "docker system prune", "Prune stopped containers, unused networks, dangling images, and build cache after review.", .reclaim, true, "Reclaims Docker-managed unused state while preserving named volumes."),
                 command("docker.prune-volumes", "docker system prune --volumes", "Also prune unused local volumes only after confirming they do not contain unique databases or project state.", .destructive, true, "Can remove unused Docker volumes, including data that may not be reproducible.")
             ]
@@ -214,7 +216,7 @@ public enum NativeToolGuidance {
         if path.contains("/.npm") {
             return [
                 command("npm.verify", "npm cache verify", "Verify npm cache integrity and report cache state.", .inspect, false, "Checks npm cache contents without deleting project files."),
-                command("npm.clean", "npm cache clean --force", "Clear npm's shared cache only when cache repair or space pressure justifies re-download cost.", .reclaim, true, "Forces npm to drop its cache; packages are re-downloaded later.")
+                command("npm.cache-clean", "npm cache clean --force", "Clear npm's shared cache only after a successful verify preview and explicit confirmation.", .reclaim, true, "Forces npm to drop its cache; packages are re-downloaded later.")
             ]
         }
 

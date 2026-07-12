@@ -11,7 +11,7 @@ public enum RecoveryState: String, Codable, CaseIterable, Hashable, Sendable {
 
     public var label: String {
         switch self {
-        case .restorableFromHolding: "Restorable from Ryddi"
+        case .restorableFromHolding: "Holding item review"
         case .trashReview: "Review Trash"
         case .notRecoverableByRyddi: "Not recoverable by Ryddi"
         case .dryRunOnly: "Dry run only"
@@ -170,9 +170,9 @@ public enum RecoveryCenter {
             stateSummaries: summaries,
             items: limited,
             nonClaims: [
-                "Ryddi can restore only items currently held in its app-managed holding area.",
+                "Holding-area records require manual Finder recovery; Ryddi does not restore, move, or delete them automatically.",
                 "Trash actions require Finder Trash review; Ryddi cannot prove an item is still in Trash or restore it from Trash.",
-                "Direct deletes, native-tool cleanup, and external manual cleanup may require rebuilding caches, using the owning tool, or restoring from backups.",
+                "Homebrew cleanup and external manual cleanup may require rebuilding caches, using the owning tool, or restoring from backups.",
                 "Dry-run, skipped, and error actions did not prove a filesystem mutation."
             ]
         )
@@ -181,7 +181,7 @@ public enum RecoveryCenter {
     private static func heldItem(_ item: HeldItem) -> RecoveryCenterItem {
         RecoveryCenterItem(
             id: "holding:\(item.id)",
-            state: .restorableFromHolding,
+            state: .manualReview,
             title: item.displayName,
             originalPath: item.originalPath,
             currentPath: item.heldPath,
@@ -190,13 +190,13 @@ public enum RecoveryCenter {
             receiptMode: nil,
             actionKind: .quarantineHold,
             actionStatus: "held",
-            message: "Item is currently in Ryddi's holding area.",
+            message: "Item is currently in Ryddi's holding area for manual Finder recovery.",
             bytes: item.allocatedSize,
             holdingID: item.id,
-            canRestoreWithRyddi: true,
+            canRestoreWithRyddi: false,
             guidance: [
-                "Restore returns the item to its original path when available.",
-                "Restore refuses to overwrite an existing destination."
+                "Reveal the held item in Finder and move it manually after review.",
+                "Do not overwrite an existing destination."
             ]
         )
     }
@@ -213,7 +213,7 @@ public enum RecoveryCenter {
             state: state,
             title: URL(fileURLWithPath: action.path).lastPathComponent,
             originalPath: action.path,
-            currentPath: nil,
+            currentPath: action.resultingPath,
             receiptID: receipt.id,
             receiptCreatedAt: receipt.createdAt,
             receiptMode: receipt.mode,

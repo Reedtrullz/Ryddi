@@ -2,6 +2,53 @@ import XCTest
 @testable import ReclaimerCore
 
 final class PlanGateEvidenceTests: XCTestCase {
+    func testEquivalentPlansUseStableContentID() throws {
+        let first = PlanGateFixtures.finding(
+            id: "stable-cache",
+            path: "/tmp/ryddi-stable-cache",
+            conditionGates: [.openFileClear],
+            gateEvidence: RuleGateEvidence(),
+            modificationAgeDays: nil
+        )
+        let second = PlanGateFixtures.finding(
+            id: "stable-cache",
+            path: "/tmp/ryddi-stable-cache",
+            conditionGates: [.openFileClear],
+            gateEvidence: RuleGateEvidence(),
+            modificationAgeDays: nil
+        )
+
+        let firstPlan = PlanBuilder(openFileChecker: AlwaysClearOpenFileChecker()).buildPlan(from: [first], mode: .autoSafeOnly)
+        let secondPlan = PlanBuilder(openFileChecker: AlwaysClearOpenFileChecker()).buildPlan(from: [second], mode: .autoSafeOnly)
+
+        XCTAssertEqual(firstPlan.id, secondPlan.id)
+        XCTAssertTrue(firstPlan.id.hasPrefix("plan-"))
+    }
+
+    func testPlanIDChangesWhenReclaimRelevantContentChanges() throws {
+        let base = PlanGateFixtures.finding(
+            id: "stable-cache",
+            path: "/tmp/ryddi-stable-cache",
+            conditionGates: [.openFileClear],
+            gateEvidence: RuleGateEvidence(),
+            modificationAgeDays: nil
+        )
+        let larger = PlanGateFixtures.finding(
+            id: "stable-cache",
+            path: "/tmp/ryddi-stable-cache",
+            logicalSize: 2_000_000,
+            allocatedSize: 2_000_000,
+            conditionGates: [.openFileClear],
+            gateEvidence: RuleGateEvidence(),
+            modificationAgeDays: nil
+        )
+
+        let basePlan = PlanBuilder(openFileChecker: AlwaysClearOpenFileChecker()).buildPlan(from: [base], mode: .autoSafeOnly)
+        let largerPlan = PlanBuilder(openFileChecker: AlwaysClearOpenFileChecker()).buildPlan(from: [larger], mode: .autoSafeOnly)
+
+        XCTAssertNotEqual(basePlan.id, largerPlan.id)
+    }
+
     func testMinimumAgeGateWithoutNumericEvidenceDoesNotAutoSelect() throws {
         let finding = PlanGateFixtures.finding(
             conditionGates: [.minimumAgeRequired],
@@ -152,6 +199,10 @@ private struct AlwaysClearOpenFileChecker: OpenFileChecking {
 
 private enum PlanGateFixtures {
     static func finding(
+        id: String = UUID().uuidString,
+        path: String? = nil,
+        logicalSize: Int64 = 1_000_000,
+        allocatedSize: Int64 = 1_000_000,
         actionKind: ActionKind = .deleteCache,
         conditionGates: [PlanConditionKind],
         gateEvidence: RuleGateEvidence,
@@ -160,7 +211,6 @@ private enum PlanGateFixtures {
         let modificationDate = modificationAgeDays.map {
             Date(timeIntervalSinceNow: -Double($0) * 86_400)
         }
-        let id = UUID().uuidString
         let match = RuleMatch(
             ruleID: "fixture.age-gate",
             title: "Fixture cache",
@@ -176,10 +226,10 @@ private enum PlanGateFixtures {
         return Finding(
             id: id,
             scopeName: "Fixture",
-            path: "/tmp/ryddi-fixture-cache-\(id)",
+            path: path ?? "/tmp/ryddi-fixture-cache-\(id)",
             displayName: "ryddi-fixture-cache",
-            logicalSize: 1_000_000,
-            allocatedSize: 1_000_000,
+            logicalSize: logicalSize,
+            allocatedSize: allocatedSize,
             isDirectory: true,
             modificationDate: modificationDate,
             safetyClass: .autoSafe,

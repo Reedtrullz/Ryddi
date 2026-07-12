@@ -55,7 +55,7 @@ Ryddi is local-first: no telemetry, no path upload, no cloud analysis.
 ## Suggested Pinned Tagline
 
 ```text
-Review first. Reclaim safely.
+Review first. Decide manually.
 ```
 
 ## Initial Release Notes Draft
@@ -66,11 +66,11 @@ Review first. Reclaim safely.
 Initial MVP:
 
 - Swift core scanner and rule engine
-- CLI for scan scope presets, built-in scope templates, saved scope sets, scan, overview, review queues, large/old review, disk drill-down, bundled rule catalog, status, permissions, active-handle review, Downloads Review, Browser Cache Review, Package Cache Review, Project Dependencies Review, Xcode Review, Device Backups Review, apps-and-leftovers review, app uninstall preview/execution receipts, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
-- SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, Large & Old Files, detail view, Downloads Review, Browser Cache Review, Package Cache Review, Project Dependencies Review, Xcode Review, Device Backups Review, Apps & Leftovers, app uninstall preview/execution receipts, AI Agent Storage, dry run, confirmed reclaim, audit history, recovery center, automation, and holding area
+- CLI for scan scope presets, built-in scope templates, saved scope sets, scan, overview, review queues, large/old review, disk drill-down, bundled rule catalog, status, permissions, active-handle review, Downloads Review, Browser Cache Review, Package Cache Review, Project Dependencies Review, Xcode Review, Device Backups Review, apps-and-leftovers review, app uninstall preview/dry-run evidence, AI-agent storage review, report, history/growth reports, plan/plans, receipts, recovery, explain, execute, schedule, and holding-area operations
+- SwiftUI app overview, visual map, disk drill-down, rule catalog, review queues, Large & Old Files, detail view, Downloads Review, Browser Cache Review, Package Cache Review, Project Dependencies Review, Xcode Review, Device Backups Review, Apps & Leftovers, app uninstall preview/dry-run evidence, AI Agent Storage, manual review, audit history, recovery center, automation, and holding area
 - Codex, Docker/Colima, Xcode, package-manager, browser-cache, temp, and large-file review rules
 - AI-agent storage buckets and retention profiles that separate reclaimable cache, old-history compression review, protected state, quit-first data, and manual review
-- Native-tool command preview and execution receipts for selected non-destructive/non-placeholder cleanup commands, with Docker/Colima destructive commands kept guidance-only
+- Native-tool command preview receipts plus Homebrew-only execution receipts after a fresh same-process preview, with Docker/Colima and all other destructive commands kept guidance-only
 - Report-only Downloads Review for old downloads, installers, archives, app bundles, Finder workflow buckets, row actions, and local audit history
 - Report-only Browser Cache Review for cache roots, protected profile roots, advisory browser runtime status, quit-first guidance, and local audit history
 - Report-only Package Cache Review for Homebrew, npm, pnpm, Yarn, pip, Cargo, Go, Gradle, Maven, CocoaPods, SwiftPM, and Playwright cache roots, protected config/auth paths, native cleanup guidance, and local audit history
@@ -84,8 +84,8 @@ Initial MVP:
 - Saved scope sets for repeatable general cleanup, project review, or developer maintenance scan roots
 - Local path protections/exclusions with versioned JSON export, merge import, and explicit replace import
 - Local user rule-pack preview/import/export in CLI and app for custom review, preserve, and never-touch signals; user rules are opt-in per scan and cannot grant cleanup actions
-- App-managed holding area with restore/expire workflow
-- Recovery Center for app-held restores and receipt-based guidance
+- App-managed holding records with manual Finder recovery guidance
+- Recovery Center for manual Finder holding records and receipt-based guidance
 - Permission advisor and first-run walkthrough for readable/denied/missing scan coverage and Full Disk Access guidance
 - Release-check workflow for unsigned developer preview artifacts
 
@@ -95,25 +95,24 @@ Known limits:
 - no Apple notarization unless Developer ID credentials are configured
 - no screenshots/GIFs for the first-run permission walkthrough yet
 - no root helper or system-wide cleanup
-- app uninstall execution can move only the selected app bundle to Trash after dry run and confirmation; related app support files stay review-only
+- app uninstall previews and dry-run receipts are evidence for manual Finder removal; `apps uninstall --yes` is rejected and related app support files stay review-only
 - Project Dependencies Review does not delete, move, Trash, prune, purge, clean, execute project scripts, or modify project files, source, manifests, lockfiles, env files, dependencies, build outputs, credentials, IDE settings, workspace metadata, generated code, local editable installs, or unknown project state
 - Xcode Review does not delete, move, Trash, prune, purge, reset simulators, or modify Xcode files
 ```
 
-## v0.2.0 Trust Release Notes Draft
+## v0.3.0 Trust Release Notes Draft
 
 ```markdown
-## Ryddi v0.2.0
+## Ryddi v0.3.0
 
-First signed trust release, published only after `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.2.0 Scripts/release-check.sh` passes.
+Trust-to-action polish release, published only after `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 Scripts/release-check.sh` passes.
 
-- Developer ID signed, notarized, stapled, Gatekeeper assessed, strict codesign verified, and shipped with SHA-256 plus typed release manifest proof
+- Developer ID signed, notarized, stapled, Gatekeeper assessed, strict codesign verified, and shipped as `Ryddi-v0.3.0.zip` with SHA-256 plus typed release manifest proof
 - Trust readiness cockpit, `reclaimer trust --json`, and `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt`
 - Redacted dogfood reports with explicit no-cleanup, no-permission-grant, and no-exact-APFS-reclaim non-claims
-- Typed plan-condition gates so display copy cannot accidentally grant cleanup authority
-- Recursive open-handle checks and final-state execution revalidation
-- Report-only automation status with exact LaunchAgent scope/report evidence
-- General cleaner next-action guidance for safe maintenance, quit-first, native-tool, Finder review, archive, protect, and do-not-touch paths
+- Trust-to-action app surfaces for Summary, Review Queues, Package Cache, AI Agent Storage, and Remote Targets evidence
+- Report-only remote target evidence, history, dogfood reports, and issue-package exports
+- Signed workflow, release checklist, and docs aligned to bundle version `0.3.0`, build `3`
 
-Do not publish as `v0.2.0` if signing or notarization credentials are absent or any release gate fails.
+Do not publish as `v0.3.0` if signing or notarization credentials are absent or any release gate fails.
 ```
