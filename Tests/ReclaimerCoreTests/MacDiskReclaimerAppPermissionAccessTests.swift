@@ -51,6 +51,24 @@ final class MacDiskReclaimerAppPermissionAccessTests: XCTestCase {
         )
     }
 
+    func testRefreshCoverageReprobesCurrentScopesInsteadOfReusingScanSnapshot() throws {
+        let source = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel+AuditAndRecovery.swift"),
+            encoding: .utf8
+        )
+        let refreshBody = try functionBody(named: "refreshPermissions", in: source)
+
+        XCTAssertTrue(
+            refreshBody.contains("PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))"),
+            "Refresh Coverage must probe the selected scopes against the live filesystem."
+        )
+        XCTAssertFalse(
+            refreshBody.contains("overview.scopeSummaries"),
+            "A prior scan snapshot must not keep a stale permission result after Full Disk Access changes."
+        )
+    }
+
     private func appSource() throws -> String {
         let appSourceDirectory = repoRoot().appendingPathComponent("Sources/MacDiskReclaimerApp")
         let swiftFiles = try FileManager.default.contentsOfDirectory(
@@ -71,5 +89,33 @@ final class MacDiskReclaimerAppPermissionAccessTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func functionBody(named name: String, in source: String) throws -> String {
+        let signature = "func \(name)() {"
+        guard let signatureRange = source.range(of: signature) else {
+            XCTFail("Missing function \(name)")
+            return ""
+        }
+
+        var depth = 0
+        var bodyEnd = signatureRange.upperBound
+        for index in source.indices[signatureRange.lowerBound...] {
+            switch source[index] {
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0 {
+                    bodyEnd = source.index(after: index)
+                    return String(source[signatureRange.lowerBound..<bodyEnd])
+                }
+            default:
+                break
+            }
+        }
+
+        XCTFail("Unterminated function \(name)")
+        return ""
     }
 }
