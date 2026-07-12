@@ -12,6 +12,12 @@ build_date="${RYDDI_BUILD_DATE:-$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
 signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
 dist="$root/dist"
 app="$dist/$app_name.app"
+icon="$root/Assets/Ryddi.icns"
+
+if [[ ! -s "$icon" ]]; then
+  echo "missing packaged app icon: $icon" >&2
+  exit 1
+fi
 
 if [[ "$signing_required" == "required" && -z "${CODESIGN_IDENTITY:-}" ]]; then
   echo "RYDDI_RELEASE_SIGNING=required but CODESIGN_IDENTITY is not set." >&2
@@ -40,6 +46,7 @@ selected_resource_bundle=""
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp "$icon" "$app/Contents/Resources/Ryddi.icns"
 cp "$binary" "$app/Contents/MacOS/$app_name"
 cp "$cli_binary" "$app/Contents/MacOS/reclaimer"
 cp "$agent_binary" "$app/Contents/MacOS/ReclaimerAgent"
@@ -66,6 +73,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <string>$app_name</string>
   <key>CFBundleDisplayName</key>
   <string>$app_name</string>
+  <key>CFBundleIconFile</key>
+  <string>Ryddi</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

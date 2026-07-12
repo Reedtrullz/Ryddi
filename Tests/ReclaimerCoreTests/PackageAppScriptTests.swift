@@ -40,6 +40,36 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertLessThan(metadataWrite.lowerBound, signing.lowerBound)
     }
 
+    func testPackageAppEmbedsIconBeforeSigning() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/package-app.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("Assets/Ryddi.icns"))
+        XCTAssertTrue(script.contains("$app/Contents/Resources/Ryddi.icns"))
+        XCTAssertTrue(script.contains("<key>CFBundleIconFile</key>"))
+        XCTAssertTrue(script.contains("<string>Ryddi</string>"))
+        let iconCopy = try XCTUnwrap(script.range(of: "cp \"$icon\""))
+        let signing = try XCTUnwrap(script.range(of: "codesign --force"))
+        XCTAssertLessThan(iconCopy.lowerBound, signing.lowerBound)
+    }
+
+    func testIconGeneratorAndRequiredRepresentationsExist() throws {
+        let root = repoRoot()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Scripts/generate-app-icon.swift").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Assets/Ryddi.icns").path))
+        for name in [
+            "icon_16x16.png", "icon_16x16@2x.png",
+            "icon_32x32.png", "icon_32x32@2x.png",
+            "icon_128x128.png", "icon_128x128@2x.png",
+            "icon_256x256.png", "icon_256x256@2x.png",
+            "icon_512x512.png", "icon_512x512@2x.png"
+        ] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: root.appendingPathComponent("Assets/AppIcon.iconset/\(name)").path),
+                name
+            )
+        }
+    }
+
     func testReleaseCheckHidesBuildDirectoryForPackagedCliSmokes() throws {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 

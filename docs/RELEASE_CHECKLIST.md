@@ -100,6 +100,8 @@ Human review follows [QA_V0.3.md](QA_V0.3.md).
 - [ ] `CODESIGN_IDENTITY` is set to a Developer ID Application certificate.
 - [ ] `RYDDI_VERSION=0.3.0` and `RYDDI_BUILD_NUMBER=3` are used by the packaging scripts.
 - [ ] `Scripts/package-app.sh` signs `dist/Ryddi.app` with Hardened Runtime.
+- [ ] `dist/Ryddi.app/Contents/Resources/Ryddi.icns` exists, `CFBundleIconFile=Ryddi`, and the icon is visible in Finder, Dock, About, and the app switcher.
+- [ ] `iconutil --convert iconset Assets/Ryddi.icns` recreates all required 16, 32, 128, 256, 512, and 1024 pixel representations.
 - [ ] `Scripts/notarize-app.sh dist/Ryddi.app` completes successfully.
 - [ ] If notarization is still `In Progress`, the script exits nonzero, prints a `RYDDI_NOTARY_SUBMISSION_ID=...` resume command, and no final `Ryddi-v0.3.0.zip` is published.
 - [ ] `dist/Ryddi-notary-status.json` records `"status": "Accepted"` before any manifest claims notarization.

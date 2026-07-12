@@ -194,6 +194,12 @@ if [[ "$bundle_id" != "com.reidar.ryddi" ]]; then
   exit 1
 fi
 
+bundle_icon="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$plist")"
+if [[ "$bundle_icon" != "Ryddi" || ! -s "$app/Contents/Resources/Ryddi.icns" ]]; then
+  echo "packaged app icon metadata or resource is missing" >&2
+  exit 1
+fi
+
 if [[ "$signing_required" == "required" && "$bundle_version" != "$release_version" ]]; then
   echo "unexpected release CFBundleShortVersionString: $bundle_version" >&2
   exit 1
