@@ -426,7 +426,7 @@ public extension Finding {
             return "Allocated size is higher than logical size because filesystem blocks and metadata can consume extra physical space; physical reclaim is not directly observed."
         }
 
-        switch storageAccounting.status {
+        switch storageAccounting.physicalReclaimStatus {
         case .unknown:
             return "Physical reclaim is unknown; logical and allocated sizes are evidence only."
         case .sharedCloneBacked:

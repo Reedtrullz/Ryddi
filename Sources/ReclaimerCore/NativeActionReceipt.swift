@@ -31,8 +31,7 @@ public struct NativeActionReceipt: Codable, Identifiable, Hashable, Sendable {
         skippedReason: String?,
         nonClaims: [String],
         beforeObservedFreeBytes: Int64? = nil,
-        afterObservedFreeBytes: Int64? = nil,
-        observedReclaimBytes: Int64? = nil
+        afterObservedFreeBytes: Int64? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -48,13 +47,12 @@ public struct NativeActionReceipt: Codable, Identifiable, Hashable, Sendable {
         self.nonClaims = nonClaims
         self.beforeObservedFreeBytes = beforeObservedFreeBytes
         self.afterObservedFreeBytes = afterObservedFreeBytes
-        let candidateObservedReclaim = observedReclaimBytes
-            ?? StorageAccounting.observedReclaimBytes(
-                beforeFreeBytes: beforeObservedFreeBytes,
-                afterFreeBytes: afterObservedFreeBytes
-            )
+        let observedDelta = StorageAccounting.observedReclaimBytes(
+            beforeFreeBytes: beforeObservedFreeBytes,
+            afterFreeBytes: afterObservedFreeBytes
+        )
         self.observedReclaimBytes = mode == .perform && exitCode == 0 && skippedReason == nil
-            ? candidateObservedReclaim.flatMap { $0 > 0 ? $0 : nil }
+            ? observedDelta
             : nil
     }
 
@@ -92,8 +90,7 @@ public struct NativeActionReceipt: Codable, Identifiable, Hashable, Sendable {
             skippedReason: try container.decodeIfPresent(String.self, forKey: .skippedReason),
             nonClaims: try container.decodeIfPresent([String].self, forKey: .nonClaims) ?? [],
             beforeObservedFreeBytes: try container.decodeIfPresent(Int64.self, forKey: .beforeObservedFreeBytes),
-            afterObservedFreeBytes: try container.decodeIfPresent(Int64.self, forKey: .afterObservedFreeBytes),
-            observedReclaimBytes: try container.decodeIfPresent(Int64.self, forKey: .observedReclaimBytes)
+            afterObservedFreeBytes: try container.decodeIfPresent(Int64.self, forKey: .afterObservedFreeBytes)
         )
     }
 
@@ -157,8 +154,8 @@ public enum NativeActionReceiptBridge {
                     ruleVersion: ruleVersion
                 )
                 : nil,
-            beforeFreeBytes: receipt.beforeDisk?.displayFreeBytes,
-            afterFreeBytes: receipt.mode == .dryRun ? nil : receipt.afterDisk?.displayFreeBytes,
+            beforeFreeBytes: receipt.beforeObservedFreeBytes ?? receipt.beforeDisk?.displayFreeBytes,
+            afterFreeBytes: receipt.afterObservedFreeBytes ?? (receipt.mode == .dryRun ? nil : receipt.afterDisk?.displayFreeBytes),
             output: snapshot,
             userConfirmed: userConfirmed,
             message: message(for: receipt, command: command, invocation: invocation, status: status),

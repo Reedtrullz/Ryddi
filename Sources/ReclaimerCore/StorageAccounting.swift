@@ -10,7 +10,7 @@ public enum StoragePhysicalReclaimStatus: String, Codable, Hashable, Sendable {
 public struct StorageAccounting: Codable, Hashable, Sendable {
     public let logicalBytes: Int64
     public let allocatedBytes: Int64
-    public let status: StoragePhysicalReclaimStatus
+    public let physicalReclaimStatus: StoragePhysicalReclaimStatus
     public let physicalReclaimBytes: Int64?
     public let deduplicationNote: String?
 
@@ -23,7 +23,7 @@ public struct StorageAccounting: Codable, Hashable, Sendable {
     ) {
         self.logicalBytes = logicalBytes
         self.allocatedBytes = allocatedBytes
-        self.status = status
+        self.physicalReclaimStatus = status
         self.physicalReclaimBytes = physicalReclaimBytes
         self.deduplicationNote = deduplicationNote
     }
@@ -45,12 +45,12 @@ public struct StorageAccounting: Codable, Hashable, Sendable {
         )
     }
 
-    public var physicalReclaimStatus: StoragePhysicalReclaimStatus {
-        status
+    public var status: StoragePhysicalReclaimStatus {
+        physicalReclaimStatus
     }
 
     public var estimatedImmediateReclaimBytes: Int64 {
-        switch status {
+        switch physicalReclaimStatus {
         case .unknown, .sharedCloneBacked:
             return 0
         case .observedDelta:
@@ -91,8 +91,8 @@ public struct StorageAccounting: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.logicalBytes = try container.decode(Int64.self, forKey: .logicalBytes)
         self.allocatedBytes = try container.decode(Int64.self, forKey: .allocatedBytes)
-        self.status = try container.decodeIfPresent(StoragePhysicalReclaimStatus.self, forKey: .status)
-            ?? container.decodeIfPresent(StoragePhysicalReclaimStatus.self, forKey: .physicalReclaimStatus)
+        self.physicalReclaimStatus = try container.decodeIfPresent(StoragePhysicalReclaimStatus.self, forKey: .physicalReclaimStatus)
+            ?? container.decodeIfPresent(StoragePhysicalReclaimStatus.self, forKey: .status)
             ?? .unknown
         self.physicalReclaimBytes = try container.decodeIfPresent(Int64.self, forKey: .physicalReclaimBytes)
         self.deduplicationNote = try container.decodeIfPresent(String.self, forKey: .deduplicationNote)
@@ -102,7 +102,7 @@ public struct StorageAccounting: Codable, Hashable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(logicalBytes, forKey: .logicalBytes)
         try container.encode(allocatedBytes, forKey: .allocatedBytes)
-        try container.encode(status, forKey: .status)
+        try container.encode(physicalReclaimStatus, forKey: .physicalReclaimStatus)
         try container.encodeIfPresent(physicalReclaimBytes, forKey: .physicalReclaimBytes)
         try container.encodeIfPresent(deduplicationNote, forKey: .deduplicationNote)
     }

@@ -288,4 +288,70 @@ final class StorageAccountingTests: XCTestCase {
         XCTAssertNil(dryRun.observedReclaimBytes)
         XCTAssertNil(negative.observedReclaimBytes)
     }
+
+    func testObservedReclaimCannotBeClaimedWithoutBothObservedSnapshots() {
+        let receipt = NativeActionReceipt(
+            kind: .homebrewCleanup,
+            mode: .perform,
+            commandDisplay: ["brew", "cleanup"],
+            exitCode: 0,
+            stdoutPreview: [],
+            stderrPreview: [],
+            beforeDisk: nil,
+            afterDisk: nil,
+            skippedReason: nil,
+            nonClaims: [],
+            beforeObservedFreeBytes: nil,
+            afterObservedFreeBytes: 500
+        )
+
+        XCTAssertNil(receipt.observedReclaimBytes)
+    }
+
+    func testStorageAccountingUsesPlannedPhysicalReclaimStatusWireKey() throws {
+        let accounting = StorageAccounting(
+            logicalBytes: 100,
+            allocatedBytes: 80,
+            physicalReclaimStatus: .sharedCloneBacked
+        )
+        let data = try JSONEncoder().encode(accounting)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(object["physicalReclaimStatus"] as? String, "sharedCloneBacked")
+        XCTAssertNil(object["status"])
+
+        let legacy = try JSONSerialization.data(withJSONObject: [
+            "logicalBytes": 100,
+            "allocatedBytes": 80,
+            "status": "estimated"
+        ])
+        XCTAssertEqual(try JSONDecoder().decode(StorageAccounting.self, from: legacy).physicalReclaimStatus, .estimated)
+    }
+
+    func testNativeReceiptBridgeCarriesObservedFreeSpaceEvidence() {
+        let receipt = NativeActionReceipt(
+            kind: .homebrewCleanup,
+            mode: .perform,
+            commandDisplay: ["brew", "cleanup"],
+            exitCode: 0,
+            stdoutPreview: [],
+            stderrPreview: [],
+            beforeDisk: nil,
+            afterDisk: nil,
+            skippedReason: nil,
+            nonClaims: [],
+            beforeObservedFreeBytes: 1_000,
+            afterObservedFreeBytes: 1_350
+        )
+
+        let bridged = NativeActionReceiptBridge.nativeToolExecutionReceipt(
+            from: receipt,
+            ruleVersion: "test",
+            findingPath: "/tmp/homebrew",
+            userConfirmed: true
+        )
+
+        XCTAssertEqual(bridged.beforeFreeBytes, 1_000)
+        XCTAssertEqual(bridged.afterFreeBytes, 1_350)
+    }
 }
