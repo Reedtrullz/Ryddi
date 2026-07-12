@@ -101,6 +101,7 @@ final class DashboardModel {
     var error: String?
     var currentScanSession: ScanSession?
     var reviewedQueueID: ReviewQueueID?
+    var reviewQueueReport: ReviewQueueReport = .empty()
     var hasAppliedStoredSettings = false
     private var e2eScopeRoot: URL?
 
@@ -145,8 +146,12 @@ final class DashboardModel {
         selectedSavedScopeSetID = nil
     }
 
-    var reviewQueueReport: ReviewQueueReport {
-        FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: 12)
+    func reviewQueueDetailReport(for queueID: ReviewQueueID, limit: Int = 40) -> ReviewQueueDetailReport {
+        reviewQueueReport.detailReport(for: queueID, limit: limit)
+    }
+
+    func refreshReviewQueueReport() {
+        reviewQueueReport = FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: 40)
     }
 
     var trustReadinessReport: TrustReadinessReport {
@@ -371,6 +376,7 @@ final class DashboardModel {
 
     func resetScanState() {
         findings = []
+        reviewQueueReport = .empty()
         scanScopes = []
         overview = nil
         scanCoverage = nil

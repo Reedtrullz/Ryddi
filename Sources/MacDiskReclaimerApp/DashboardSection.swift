@@ -5,7 +5,7 @@ enum DashboardSidebarGroup: String, CaseIterable, Identifiable {
     case start = "Start"
     case generalMac = "General Mac"
     case developer = "Developer"
-    case trust = "Trust"
+    case trust = "Trust & Recovery"
 
     var id: String { rawValue }
 }
@@ -43,7 +43,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .summary: "Summary"
-        case .queues: "Review Queues"
+        case .queues: "Cleanup Flow"
         case .largeOld: "Large & Old Files"
         case .apps: "Apps & Leftovers"
         case .downloads: "Downloads"

@@ -37,6 +37,7 @@ enum DashboardDemoData {
         model.selectedScopeTemplateID = nil
         model.selectedSavedScopeSetID = nil
         model.findings = findings
+        model.refreshReviewQueueReport()
         model.scanScopes = scopes
         model.overview = overview
         model.diskDrillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)

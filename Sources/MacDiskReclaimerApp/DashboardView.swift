@@ -25,10 +25,14 @@ struct DashboardView: View {
             case .apps:
                 AppReviewView(model: model)
             case .queues:
-                ReviewQueuesView(model: model) { finding in
-                    selectedFinding = finding.id
-                    selectedSectionID = DashboardSection.finding.rawValue
-                }
+                ReviewQueuesView(
+                    model: model,
+                    onOpenFinding: { finding in
+                        selectedFinding = finding.id
+                        selectedSectionID = DashboardSection.finding.rawValue
+                    },
+                    onNavigate: selectSection
+                )
             case .largeOld:
                 LargeOldReviewView(model: model)
             case .duplicates:
@@ -167,7 +171,7 @@ struct DashboardView: View {
                 Button {
                     selectSection(.queues)
                 } label: {
-                    Label("Review Manual Cleanup", systemImage: "folder")
+                    Label("Open Cleanup Flow", systemImage: "folder")
                 }
                 .disabled(model.findings.isEmpty)
             } label: {

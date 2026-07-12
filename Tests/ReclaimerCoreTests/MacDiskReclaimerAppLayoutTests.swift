@@ -170,7 +170,7 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(sidebar.contains("List(selection:"))
         XCTAssertTrue(sidebar.contains(".listStyle(.sidebar)"))
         XCTAssertTrue(sidebar.contains(".tag(section)"))
-        XCTAssertFalse(sidebar.contains("DisclosureGroup"))
+        XCTAssertTrue(sidebar.contains("DisclosureGroup(\"Advanced\""))
         XCTAssertFalse(sidebar.contains("FindingRow("))
         XCTAssertFalse(source.contains("private func sidebarRow("))
     }
@@ -365,8 +365,42 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             "Review queue rows should label the next action and blocked reason explicitly."
         )
         XCTAssertTrue(
-            source.contains("Label(\"Plan Eligible\"") && source.contains("Label(\"Dry Run\"") && source.contains("Label(\"Export\""),
-            "The review workspace should expose preview-gated next actions without adding a destructive reclaim button."
+            source.contains("Label(\"Build Safe Plan\"") && source.contains("Label(\"Dry Run\"") && source.contains("Label(\"Export\""),
+            "The cleanup flow should expose preview-gated actions only for the safe-cleanup stage."
+        )
+    }
+
+    func testCleanupFlowUsesCachedQueueEvidenceAndStageSpecificActions() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("Text(\"Cleanup Flow\")") && source.contains("CleanupFlowStage"),
+            "The scan follow-up should present a staged cleanup flow instead of an undifferentiated queue browser."
+        )
+        XCTAssertTrue(
+            source.contains("model.reviewQueueDetailReport(for: selectedQueue, limit: 40)"),
+            "Queue selection should reuse the model's precomputed queue index."
+        )
+        XCTAssertFalse(
+            source.contains("FindingAnalytics.reviewQueueDetailReport(\n            findings: model.findings"),
+            "The SwiftUI body must not rescan every finding when queue selection changes."
+        )
+        XCTAssertTrue(
+            source.contains("case .safeCleanup:") && source.contains("case .keepOrInspect:"),
+            "Cleanup controls should vary by typed flow stage so protected history is not presented as cleanup-ready."
+        )
+        XCTAssertTrue(
+            source.contains("DisclosureGroup(\"Advanced\""),
+            "Secondary diagnostics should be collapsed under Advanced instead of competing with the cleanup flow."
+        )
+        XCTAssertTrue(
+            source.contains("ReviewQueueID.parse(action.sourceIDs.first ?? \"\")")
+                && source.contains("State(initialValue: model.reviewedQueueID ?? .safeMaintenance)"),
+            "A summary action such as Review Valuable History should open the cleanup flow with that typed queue selected."
+        )
+        XCTAssertTrue(
+            source.contains("model.recordReviewSelection(queue.queueID)\n                        navigate(\"Queues\")"),
+            "Cleanup Flow snapshot rows should also preserve the queue the user selected."
         )
     }
 

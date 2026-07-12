@@ -50,7 +50,7 @@ struct DashboardCommands: Commands {
 
             Divider()
 
-            Button("Review Queues") {
+            Button("Cleanup Flow") {
                 actions?.openSection(.queues)
             }
             .keyboardShortcut("1", modifiers: [.command])

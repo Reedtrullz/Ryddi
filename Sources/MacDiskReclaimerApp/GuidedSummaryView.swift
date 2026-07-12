@@ -88,7 +88,7 @@ struct GuidedSummaryView: View {
 
     private var reclaimBlockedReasons: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Manual Removal Only")
+            Text("Final removal stays manual")
                 .font(.headline)
 
             ForEach(reclaimBlockReasons, id: \.self) { reason in
@@ -210,9 +210,9 @@ struct GuidedSummaryView: View {
         if !model.findings.isEmpty, !coreKinds.contains(.reviewQueue) {
             commands.append(.standard(
                 id: "command.review-queue",
-                title: "Open Review Queue",
-                reason: "Inspect protected, conditional, and manual-review storage before widening scope.",
-                systemImage: "tray.full",
+                title: "Open Cleanup Flow",
+                reason: "Start with safe cleanup, then resolve app and native-tool blockers without mixing in protected data.",
+                systemImage: "arrow.right.circle",
                 command: .openReviewQueue
             ))
         }
@@ -245,7 +245,7 @@ struct GuidedSummaryView: View {
     }
 
     private var reclaimBlockReasons: [String] {
-        var reasons = ["Automatic filesystem mutation is disabled in this build. Use the reviewed plan as evidence, then remove selected items manually in Finder."]
+        var reasons = ["Ryddi verifies and explains candidates, but final file removal remains an explicit Finder action in this build."]
         reasons += report.actions
             .filter { $0.kind != .executeSafePlan }
             .map(\.reason)
@@ -330,6 +330,9 @@ struct GuidedSummaryView: View {
         case .runScan:
             Task { await model.scan() }
         case .reviewQueue:
+            if let queueID = ReviewQueueID.parse(action.sourceIDs.first ?? "") {
+                model.recordReviewSelection(queueID)
+            }
             navigate("Queues")
         case .runDryRun:
             Task { await model.runDryRun() }

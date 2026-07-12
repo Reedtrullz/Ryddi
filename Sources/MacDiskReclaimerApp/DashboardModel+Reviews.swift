@@ -465,6 +465,7 @@ extension DashboardModel {
             }
             return finding
         }
+        refreshReviewQueueReport()
     }
 
 }

@@ -225,16 +225,13 @@ struct DashboardActionStrip: View {
             Task { await model.runDryRun() }
         }
         .accessibilityIdentifier("summary.dry-run-button")
-        DashboardActionButton("Review Queues", systemImage: "tray.full", disabled: model.findings.isEmpty) {
-            navigate("Queues")
-        }
-        DashboardActionButton("Export", systemImage: "square.and.arrow.up", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {
-            exportEvidenceReportUsingDefaults()
-        }
-        DashboardActionButton("Manual Review", systemImage: "folder", disabled: model.findings.isEmpty) {
+        DashboardActionButton("Cleanup Flow", systemImage: "arrow.right.circle", disabled: model.findings.isEmpty) {
             navigate("Queues")
         }
         .accessibilityIdentifier("summary.manual-review-button")
+        DashboardActionButton("Export", systemImage: "square.and.arrow.up", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {
+            exportEvidenceReportUsingDefaults()
+        }
     }
 
     private func exportEvidenceReportUsingDefaults() {
@@ -369,10 +366,11 @@ struct DashboardQueuePanel: View {
     let navigate: (String) -> Void
 
     var body: some View {
-        SectionBox(title: "Review Queues") {
+        SectionBox(title: "Cleanup Flow") {
             VStack(spacing: 8) {
                 ForEach(model.queueSummaries.prefix(6)) { queue in
                     Button {
+                        model.recordReviewSelection(queue.queueID)
                         navigate("Queues")
                     } label: {
                         HStack(alignment: .firstTextBaseline) {
@@ -5328,20 +5326,28 @@ struct TopOffendersView: View {
 struct ReviewQueuesView: View {
     let model: DashboardModel
     let onOpenFinding: (Finding) -> Void
-    @State private var selectedQueue = ReviewQueueID.safeMaintenance
+    let onNavigate: (DashboardSection) -> Void
+    @State private var selectedQueue: ReviewQueueID
     @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue
     @AppStorage(RyddiAppStorageKey.redactUserTextByDefault) private var redactUserTextByDefault = false
+
+    init(
+        model: DashboardModel,
+        onOpenFinding: @escaping (Finding) -> Void,
+        onNavigate: @escaping (DashboardSection) -> Void
+    ) {
+        self.model = model
+        self.onOpenFinding = onOpenFinding
+        self.onNavigate = onNavigate
+        _selectedQueue = State(initialValue: model.reviewedQueueID ?? .safeMaintenance)
+    }
 
     private var report: ReviewQueueReport {
         model.reviewQueueReport
     }
 
     private var detailReport: ReviewQueueDetailReport {
-        FindingAnalytics.reviewQueueDetailReport(
-            findings: model.findings,
-            queueID: selectedQueue,
-            limit: 80
-        )
+        model.reviewQueueDetailReport(for: selectedQueue, limit: 40)
     }
 
     private var selectedPlanIDs: Set<Finding.ID> {
@@ -5377,7 +5383,7 @@ struct ReviewQueuesView: View {
                 }
 
                 if model.findings.isEmpty {
-                    ContentUnavailableView("No scan yet", systemImage: "tray", description: Text("Run Scan to populate review queues."))
+                    ContentUnavailableView("No scan yet", systemImage: "tray", description: Text("Run Scan to build your cleanup flow."))
                 } else {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 16) {
@@ -5398,6 +5404,7 @@ struct ReviewQueuesView: View {
                                 onBuildPlan: { Task { await model.buildPlan() } },
                                 onDryRun: { Task { await model.runDryRun() } },
                                 onExport: exportEvidenceReportUsingDefaults,
+                                onOpenWorkflow: openSelectedQueueWorkflow,
                                 onOpenFinding: onOpenFinding
                             )
                             .frame(width: 760)
@@ -5421,6 +5428,7 @@ struct ReviewQueuesView: View {
                                 onBuildPlan: { Task { await model.buildPlan() } },
                                 onDryRun: { Task { await model.runDryRun() } },
                                 onExport: exportEvidenceReportUsingDefaults,
+                                onOpenWorkflow: openSelectedQueueWorkflow,
                                 onOpenFinding: onOpenFinding
                             )
                         }
@@ -5442,11 +5450,31 @@ struct ReviewQueuesView: View {
         }
     }
 
+    private func openSelectedQueueWorkflow() {
+        switch selectedQueue {
+        case .safeMaintenance:
+            Task { await model.buildPlan() }
+        case .quitAppFirst:
+            onNavigate(.active)
+        case .useNativeTool:
+            let category = detailReport.dominantCategory.lowercased()
+            onNavigate(category.contains("container") || category.contains("vm") ? .containers : .packages)
+        case .valuableHistory:
+            onNavigate(.largeOld)
+        case .personalAppAssets:
+            onNavigate(.policy)
+        case .unknown:
+            if let finding = detailReport.rows.first?.finding {
+                onOpenFinding(finding)
+            }
+        }
+    }
+
     private var reviewQueueTitle: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Review Queues")
+            Text("Cleanup Flow")
                 .font(.largeTitle.bold())
-            Text("Work through scan results by cleanup intent before making a dry-run plan.")
+            Text("Start with safe cleanup, handle app or tool blockers next, and keep valuable data outside cleanup plans.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -5522,16 +5550,30 @@ struct ReviewQueueRail: View {
     let onSelect: (ReviewQueueID) -> Void
 
     var body: some View {
-        SectionBox(title: "Queues") {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(queues) { queue in
-                    Button {
-                        selectedQueue = queue.queueID
-                        modelRecordSelection(queue.queueID)
-                    } label: {
-                        ReviewQueueSummaryRow(queue: queue, isSelected: selectedQueue == queue.queueID)
+        SectionBox(title: "Your next steps") {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(CleanupFlowStage.allCases) { stage in
+                    VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(stage.title)
+                                .font(.caption.weight(.semibold))
+                            Text(stage.guidance)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.horizontal, 10)
+
+                        ForEach(queues.filter { $0.queueID.cleanupFlowStage == stage }) { queue in
+                            Button {
+                                selectedQueue = queue.queueID
+                                modelRecordSelection(queue.queueID)
+                            } label: {
+                                ReviewQueueSummaryRow(queue: queue, isSelected: selectedQueue == queue.queueID)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .accessibilityIdentifier("review-queues.list")
@@ -5553,6 +5595,7 @@ struct ReviewQueueDecisionPanel: View {
     let onBuildPlan: () -> Void
     let onDryRun: () -> Void
     let onExport: () -> Void
+    let onOpenWorkflow: () -> Void
     let onOpenFinding: (Finding) -> Void
 
     var body: some View {
@@ -5671,17 +5714,32 @@ struct ReviewQueueDecisionPanel: View {
 
     private var actionButtons: some View {
         HStack(spacing: 8) {
-            Button(action: onBuildPlan) {
-                Label("Plan Eligible", systemImage: "checklist")
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!hasFindings || isWorking)
+            switch detailReport.queueID.cleanupFlowStage {
+            case .safeCleanup:
+                Button(action: onBuildPlan) {
+                    Label("Build Safe Plan", systemImage: "checklist")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!hasFindings || isWorking)
 
-            Button(action: onDryRun) {
-                Label("Dry Run", systemImage: "play.circle")
+                Button(action: onDryRun) {
+                    Label("Dry Run", systemImage: "play.circle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canRunDryRun || isWorking)
+            case .needsAction:
+                Button(action: onOpenWorkflow) {
+                    Label(detailReport.queueID.cleanupFlowActionLabel, systemImage: detailReport.queueID.cleanupFlowActionSymbol)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(detailReport.rows.isEmpty || isWorking)
+            case .keepOrInspect:
+                Button(action: onOpenWorkflow) {
+                    Label(detailReport.queueID.cleanupFlowActionLabel, systemImage: detailReport.queueID.cleanupFlowActionSymbol)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(detailReport.rows.isEmpty || isWorking)
             }
-            .buttonStyle(.bordered)
-            .disabled(!canRunDryRun || isWorking)
 
             Button(action: onExport) {
                 Label("Export", systemImage: "square.and.arrow.up")
@@ -6022,6 +6080,28 @@ private extension ReviewQueueID {
         case .valuableHistory: .archiveCandidate
         case .personalAppAssets: .protectByDefault
         case .unknown: .reviewInFinder
+        }
+    }
+
+    var cleanupFlowActionLabel: String {
+        switch self {
+        case .safeMaintenance: "Build Safe Plan"
+        case .quitAppFirst: "Review Active Apps"
+        case .useNativeTool: "Open Native Cleanup"
+        case .valuableHistory: "Review Archives"
+        case .personalAppAssets: "Review Protections"
+        case .unknown: "Inspect Largest Item"
+        }
+    }
+
+    var cleanupFlowActionSymbol: String {
+        switch self {
+        case .safeMaintenance: "checklist"
+        case .quitAppFirst: "xmark.app"
+        case .useNativeTool: "terminal"
+        case .valuableHistory: "archivebox"
+        case .personalAppAssets: "hand.raised"
+        case .unknown: "magnifyingglass"
         }
     }
 

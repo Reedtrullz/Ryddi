@@ -142,6 +142,20 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
         )
     }
 
+    public func recordReviewSelection(updatedAt: Date = Date()) -> ScanSession {
+        guard let findingDigest else {
+            return copy(
+                updatedAt: updatedAt,
+                planDigest: .some(nil),
+                dryRunReceiptID: .some(nil),
+                executionReceiptID: .some(nil),
+                stage: .invalidated,
+                invalidationReasons: [.findingsChanged]
+            )
+        }
+        return recordReviewSelection(findingDigest: findingDigest, updatedAt: updatedAt)
+    }
+
     public func recordPlan(planDigest: String, updatedAt: Date = Date()) -> ScanSession {
         copy(
             updatedAt: updatedAt,

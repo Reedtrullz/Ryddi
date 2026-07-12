@@ -6,7 +6,7 @@ extension DashboardModel {
         guard overview != nil || !findings.isEmpty else { return }
         reviewedQueueID = queueID
         currentScanSession = sessionForCurrentFindings(updatedAt: updatedAt)
-            .recordReviewSelection(findingDigest: actionCenterFindingDigest, updatedAt: updatedAt)
+            .recordReviewSelection(updatedAt: updatedAt)
     }
 
     private func recordScanSession(updatedAt: Date) throws {
@@ -37,11 +37,13 @@ extension DashboardModel {
     }
 
     private func sessionForCurrentFindings(updatedAt: Date) -> ScanSession {
+        let scopeDigest = actionCenterScopeDigest
+        let policyDigest = actionCenterPolicyDigest
         if let currentScanSession,
-           currentScanSession.scopeDigest == actionCenterScopeDigest,
+           currentScanSession.scopeDigest == scopeDigest,
            currentScanSession.ruleVersion == actionCenterRuleVersion,
-           currentScanSession.policyDigest == actionCenterPolicyDigest,
-           currentScanSession.findingDigest == actionCenterFindingDigest,
+           currentScanSession.policyDigest == policyDigest,
+           currentScanSession.findingDigest != nil,
            currentScanSession.stage != .invalidated {
             return currentScanSession
         }
@@ -83,7 +85,8 @@ extension DashboardModel {
                 let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
                     .withScanCoverage(scanResult.coverage)
                 let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
-                return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries), scanResult.coverage)
+                let reviewQueues = FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: 40)
+                return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries), scanResult.coverage, reviewQueues)
             }.value
             lastScannedScopeLabel = result.0
             scanScopes = result.1
@@ -93,6 +96,7 @@ extension DashboardModel {
             userPathPolicy = result.5
             permissionReport = result.6
             scanCoverage = result.7
+            reviewQueueReport = result.8
             diskStatus = DiskStatusReader().snapshot()
             _ = try ScanHistoryStore().save(overview: result.3)
             loadHistory()
