@@ -140,6 +140,9 @@ Non-claims:
 - [ ] `docs/COMPETITIVE_RESEARCH.md` does not overclaim implemented features.
 - [ ] CI is green on the release commit.
 - [ ] Release notes say automation is report-first.
+- [ ] Release notes document the primary app flow as Scan, Plan, Dry Run, exact-path Confirm, Trash, and Recovery.
+- [ ] Release notes say only selected auto-safe Trash actions can execute; direct deletion, compression, holding moves, remote cleanup, and scheduled cleanup remain disabled.
+- [ ] Release notes document one-time 15-minute authorization, final identity/rule/policy/symlink/gate/open-handle checks, non-atomic pathname caveat, and no immediate free-space gain until Trash is emptied.
 - [ ] Release notes say menu bar status is disk-pressure/report-only, not RAM cleaning or performance optimization.
 - [ ] Release notes say duplicate review uses local hashes and does not automatically select or delete duplicates.
 - [ ] Release notes say Apps & Leftovers related files are review-only; app uninstall previews and dry-run receipts are evidence for manual Finder removal, and `apps uninstall --yes` is rejected.

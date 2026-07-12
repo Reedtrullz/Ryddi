@@ -43,9 +43,9 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 | Inspect in native tools | Copy path, reveal in Finder, Quick Look, and open Terminal for reviewed findings. | app finding action buttons |
 | Protect valuable data | Default preserve/never-touch for user documents, creative assets, credentials, browser profiles, VM/container state, and Codex history. | rule pack and executor protected-class checks |
 | Handle active files | Check open handles before planning/execution, surface process names in an active-handle review, and skip active paths. | `LsofOpenFileChecker`, `ActiveFileReviewScanner`, `PlanBuilder`, `ReclaimerExecutor`, `reclaimer active`, app Active Handles |
-| Avoid blind deletes | Build a dry-run plan first; receipts are review evidence and core filesystem mutation remains disabled until an identity-bound macOS primitive is available. | `ReclaimPlan`, `ExecutionReceipt`, app Dry Run/Review |
+| Avoid blind deletes | Build a current dry-run plan first. Direct deletion remains disabled; selected auto-safe Trash actions require a matching clean receipt, one-time identity-bound authorization, exact-path confirmation, and final-state checks. | `ReclaimPlan`, `ExecutionReceipt`, `TrashExecutionAuthorization`, app Dry Run/Confirm |
 | Export receipts | Convert saved dry-run/execution receipts into local Markdown with action counts, before/after free-space fields, skipped/errors, optional path privacy controls, and non-claims. | `ExecutionReceiptReportBuilder`, `ReportPrivacyOptions`, `reclaimer receipts export`, app Audit History export |
-| Manual cleanup evidence | Keep core filesystem actions report-first and direct users to Finder/manual recovery; no cache delete, Trash, compression, hold move, audit prune, or issue-package replacement runs automatically. | `ReclaimerExecutor`, app Review Queues |
+| Recoverable cleanup evidence | Keep direct cache deletion, compression, hold moves, audit pruning, and issue-package replacement disabled. Only explicitly confirmed auto-safe Trash actions may run, and each action records Done/Skipped/Error plus the resulting Trash path when available. | `ReclaimerExecutor`, `TrashExecutionReadiness`, app Action Center and Recovery Center |
 | Review holding records | List holding metadata and reveal held paths in Finder for manual recovery; Ryddi does not restore or expire them automatically. | `HoldingStore`, `reclaimer holding`, app Holding Area |
 | Review recovery | Combine holding records and saved receipts into a recovery view that separates manual Finder recovery from Trash review, dry-run/skipped no-ops, native-tool guidance, and manual core-action outcomes. | `RecoveryCenter`, `reclaimer recovery`, app Recovery Center |
 | Prefer native cleanup | Report Docker/Colima/package-manager cleanup as native-tool receipts with command, purpose, risk, expected effect, audit save support, and explicit non-claims. Only Homebrew cleanup, Docker builder prune, and npm cache clean have narrow same-process preview/perform lanes; broad Docker, VM, volume, project, and package-store actions remain guidance-only. | `NativeToolGuidance`, `NativeMaintenanceExecutor`, `NativeToolExecutor`, `NativeActionExecutor`, `reclaimer native`, app native receipt preview |
@@ -118,7 +118,7 @@ Deferred:
 - RAM/performance optimizer features.
 - Root helper or system-wide cleanup.
 - Mac App Store sandbox packaging.
-- Automatic deletion, Trash, compression, holding moves, audit pruning, or issue-package replacement for local filesystem items.
+- Automatic or unattended deletion, Trash, compression, holding moves, audit pruning, or issue-package replacement. The only core perform lane is an interactive one-use move to Trash for current auto-safe selections.
 - Automatic execution of native Docker/Colima/package-manager cleanup commands; Homebrew is limited to a fresh preview plus one-time same-process capability.
 - Remote cleanup execution, remote Docker prune/reset execution, sudo password management, remote agent installation, secrets inventory, database cleanup, and unattended destructive SSH maintenance.
 - Raw deletion or unattended execution of Docker/Colima VM disks, volumes, package stores, destructive prune/reset commands, or placeholder commands.
@@ -129,7 +129,7 @@ Deferred:
 - `swift test --scratch-path .build` passes.
 - `reclaimer plan --path ~/.codex --no-lsof` classifies Codex sessions as preserve/review, cache/temp as auto-safe, and credentials/state as never-touch.
 - `reclaimer execute --dry-run` never mutates files.
-- App core filesystem reclaim is disabled; a successful dry-run receipt routes to manual Finder review.
+- The app can complete Scan, Plan, Dry Run, Confirm, Trash, and Recovery for current auto-safe Trash selections; direct deletion and all non-Trash core actions remain disabled.
 - `reclaimer holding expire` lists eligible holding records without deleting them; `holding restore` and `recovery restore` reject automatic moves and direct users to Finder.
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
 - `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records typed release-trust keys, and creates a zip/checksum/manifest.

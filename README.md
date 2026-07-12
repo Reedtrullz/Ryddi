@@ -36,7 +36,8 @@ See [PRIVACY.md](PRIVACY.md) for the local-only privacy model and what Ryddi sho
 1. Build or download Ryddi, then open the Summary screen.
 2. Grant Full Disk Access only after reviewing the in-app permission guidance.
 3. Run a scan and review the Next Safe Action, Review Queues, and protected buckets.
-4. Create a dry-run plan before reclaiming anything. Use report exports when you want a shareable evidence package.
+4. Build a plan and run a dry run. If every selected item is an eligible auto-safe Trash action, review the exact paths and explicitly confirm the one-time move to Finder Trash.
+5. Review the receipt and reveal moved items in Trash before deciding whether to empty it. Use report exports when you want a shareable evidence package.
 
 For command-line dogfooding:
 
@@ -111,7 +112,7 @@ Ryddi classifies findings into:
 - `preserveByDefault` - valuable data such as sessions, profiles, assets, archives, or app-managed state
 - `neverTouch` - credentials, config, memories, app bundles, active state DBs, and other protected paths
 
-Core filesystem actions are dry-run and manual-review only in this build: a plan and receipt explain what to review in Finder but never authorize a later delete, Trash move, compression, holding move, audit prune, or issue-package replacement. Native maintenance has three narrow exceptions: Homebrew cleanup, Docker builder pruning, and npm cache clearing. Each requires an exact allowlisted command, a fresh bounded preview, explicit `--yes` confirmation, and a one-time capability consumed in the same process. Docker volumes/images/containers/VM state, project dependencies, Codex history, and arbitrary package-manager commands remain guidance-only.
+Direct cache deletion, compression, holding moves, audit pruning, and issue-package replacement remain disabled. The app has one narrow recoverable filesystem lane: a current clean dry run may mint a 15-minute, one-use capability for selected `autoSafe` `.trash` items. The confirmation sheet lists exact paths; immediately before each move Ryddi rechecks file identity, classification, user policy, symlinks, typed gates, containment, and recursive open handles. Any changed or blocked item is skipped. A pathname check reduces replacement risk but is not atomic, and moving to Trash does not itself increase free space. Native maintenance separately supports Homebrew cleanup, Docker builder pruning, and npm cache clearing through exact allowlists, fresh bounded previews, explicit confirmation, and one-time same-process capabilities. Docker volumes/images/containers/VM state, project dependencies, Codex history, and arbitrary package-manager commands remain guidance-only.
 
 Every CLI `--output` export must use a new file name in an existing directory. Ryddi binds the write to the verified parent directory and refuses to replace an existing file; issue packages similarly require a new or empty output directory.
 
@@ -425,7 +426,7 @@ swift run --scratch-path .build reclaimer agents retention --profile conservativ
 swift run --scratch-path .build reclaimer agents retention --profile balanced --json --limit 40
 ```
 
-The report groups Codex, Claude, Cursor, Windsurf, and Ollama storage into reclaimable cache, quit-first data, valuable history, protected state, and manual review. It is still report-only: agent sessions, memories, credentials, config, model state, and profiles are not deleted automatically, and cache candidates remain manual Finder review after normal plan and dry-run evidence.
+The report groups Codex, Claude, Cursor, Windsurf, and Ollama storage into reclaimable cache, quit-first data, valuable history, protected state, and manual review. The focused report itself is read-only. In the main app cleanup flow, narrowly matched Codex rebuildable cache can become an explicitly confirmed Trash move after a matching clean dry run. Agent sessions, memories, credentials, config, model state, profiles, and unknown agent data never enter that lane.
 
 Retention profiles are also report-only. `conservative`, `balanced`, and `aggressive` change the age thresholds used to recommend old cache cleanup plans, quit-then-cleanup review, compression review for old sessions/history, and protected-state keep rules. They do not delete, compress, move, or modify agent files.
 

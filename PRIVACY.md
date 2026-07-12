@@ -110,7 +110,7 @@ Ryddi can write:
 - a per-user LaunchAgent plist if you install report scheduling;
 - same-process Homebrew cleanup, Docker builder prune, or npm cache clean only after an explicit confirmation and fresh bounded preview; each action has an exact allowlist and a local receipt.
 
-Core filesystem cleanup is manual-only in this build. Holding records are retained for manual Finder review. Native actions are still review-first: only the exact Homebrew, Docker builder, and npm cache lanes can perform, and they do not touch VM disks, Docker volumes/images/containers, project dependencies, Codex history, or arbitrary tool-owned state.
+Core filesystem cleanup is report-first. The app can move only explicitly confirmed, current-session `autoSafe` Trash selections after a matching clean dry run and final identity, classification, policy, symlink, age-gate, containment, and recursive open-handle checks. The one-time authorization stays in memory and expires after 15 minutes. Receipts can store original paths, resulting Trash paths, file identity metadata, and skipped/error reasons locally. Ryddi does not empty Trash; moving an item there does not immediately reclaim space, and the final pathname check is not atomic. Direct cache deletion, compression, holding moves, remote cleanup, and scheduled destructive work remain disabled. Holding records are retained for manual Finder review. Native actions are still review-first: only the exact Homebrew, Docker builder, and npm cache lanes can perform, and they do not touch VM disks, Docker volumes/images/containers, project dependencies, Codex history, or arbitrary tool-owned state.
 
 ## What Ryddi Should Never Touch Automatically
 
