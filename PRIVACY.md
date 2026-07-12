@@ -62,7 +62,7 @@ User rule packs store local classification rules you import. These entries can i
 
 Saved scope sets store local scan root names and paths for reuse. Ryddi does not upload scope sets. Scope-set export writes local JSON and can reveal usernames, project names, app names, client folders, or personal folder structure, so review exports before sharing. Importing a scope set changes only what roots Ryddi scans when selected; it does not grant cleanup permission or change safety classification.
 
-Evidence report export reads scan findings, disk status, scan coverage, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them.
+Evidence report export reads scan findings, disk status, scan coverage, storage-accounting fields, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, logical/allocated size fields, clone-sharing notes, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them. Bounded or degraded coverage is preserved in the report so an incomplete scan is not presented as a complete reclaim map.
 
 Issue package export writes a small local diagnostics folder with `manifest.json`, `report.md`, `non-claims.md`, `local-summary.json`, and optionally `remote-summary.json`. It summarizes local audit counts, latest scan-session state, and selected redacted remote evidence. It does not copy raw audit JSON, raw SSH config, private keys, passwords, tokens, or arbitrary filesystem data. Redaction is best-effort and not a secrets inventory; review the package before sharing it.
 
@@ -108,9 +108,9 @@ Ryddi can write:
 - compact local scan-history snapshots for growth comparisons, retained for review rather than automatically pruned;
 - app-managed holding-area metadata;
 - a per-user LaunchAgent plist if you install report scheduling;
-- same-process Homebrew cleanup only after an explicit confirmation and fresh bounded preview.
+- same-process Homebrew cleanup, Docker builder prune, or npm cache clean only after an explicit confirmation and fresh bounded preview; each action has an exact allowlist and a local receipt.
 
-Core filesystem cleanup is manual-only in this build. Holding records are retained for manual Finder review, while Homebrew is the narrow native-tool exception with a fresh same-process preview capability.
+Core filesystem cleanup is manual-only in this build. Holding records are retained for manual Finder review. Native actions are still review-first: only the exact Homebrew, Docker builder, and npm cache lanes can perform, and they do not touch VM disks, Docker volumes/images/containers, project dependencies, Codex history, or arbitrary tool-owned state.
 
 ## What Ryddi Should Never Touch Automatically
 

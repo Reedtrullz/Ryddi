@@ -111,9 +111,30 @@ Ryddi classifies findings into:
 - `preserveByDefault` - valuable data such as sessions, profiles, assets, archives, or app-managed state
 - `neverTouch` - credentials, config, memories, app bundles, active state DBs, and other protected paths
 
-Core filesystem actions are dry-run and manual-review only in this build: a plan and receipt explain what to review in Finder but never authorize a later delete, Trash move, compression, holding move, audit prune, or issue-package replacement. Homebrew cleanup is the narrow exception: it runs a fresh bounded preview and consumes a one-time capability in the same process.
+Core filesystem actions are dry-run and manual-review only in this build: a plan and receipt explain what to review in Finder but never authorize a later delete, Trash move, compression, holding move, audit prune, or issue-package replacement. Native maintenance has three narrow exceptions: Homebrew cleanup, Docker builder pruning, and npm cache clearing. Each requires an exact allowlisted command, a fresh bounded preview, explicit `--yes` confirmation, and a one-time capability consumed in the same process. Docker volumes/images/containers/VM state, project dependencies, Codex history, and arbitrary package-manager commands remain guidance-only.
 
 Every CLI `--output` export must use a new file name in an existing directory. Ryddi binds the write to the verified parent directory and refuses to replace an existing file; issue packages similarly require a new or empty output directory.
+
+## Storage Truth And Bounded Scans
+
+Ryddi keeps four storage claims separate:
+
+- logical bytes: the file-size view exposed by the filesystem;
+- allocated bytes: the local block-allocation estimate used for ranking;
+- shared-clone or hard-link bytes: storage that may be shared with another path and therefore is not an independent reclaim promise;
+- observed reclaim: a positive before/after free-space delta recorded only after a successful native perform action.
+
+Broad scans are bounded. The JSON and app trust surfaces report `Complete`, `Bounded`, or `Degraded` coverage, measured and skipped items, roots that could not be read, and a non-claim when totals are estimates. Use a targeted rescan before treating a bounded result as action evidence:
+
+```bash
+swift run --scratch-path .build reclaimer overview \
+  --preset developer \
+  --measurement-budget 25000 \
+  --measurement-depth 8 \
+  --json
+```
+
+`--no-deduplicate-hardlinks` is available for diagnostic comparison only. It does not make shared clone storage independently reclaimable. A smoke check is available at `Scripts/storage-truth-smoke.sh`; it uses a disposable fixture and never runs cleanup.
 
 ## Build
 
@@ -328,7 +349,7 @@ The permission advisor reports readable, denied, missing, and unknown scopes; re
 
 ## Native Command Receipts
 
-Native-tool findings stay review-first. `reclaimer native` builds local command guidance for Docker, Colima, Homebrew, and package-manager storage without executing those commands. `reclaimer native run --command-id brew.preview --dry-run --save-audit` and `reclaimer native homebrew cleanup --dry-run --save-audit` run Homebrew's exact bounded preview command and save its output as a native command receipt; other native dry-run selections remain synthetic and cannot authorize cleanup. `reclaimer native run --yes` and `reclaimer native homebrew cleanup --yes` run Homebrew's actual bounded preview immediately before the paired cleanup in the same process. Saved previews remain exportable evidence but can never authorize a later invocation. Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside that Homebrew lane, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
+Native-tool findings stay review-first. `reclaimer native` builds local command guidance for Docker, Colima, Homebrew, and package-manager storage without executing those commands. `reclaimer native run --command-id brew.preview --dry-run --save-audit` and `reclaimer native homebrew cleanup --dry-run --save-audit` run Homebrew's exact bounded preview command; `docker.builder-prune` uses `docker system df -v` as its preview, and `npm.cache-clean` uses `npm cache verify`. The Docker and npm actions can perform only their exact paired commands after an explicit same-process `--yes` confirmation. Saved previews remain exportable evidence but can never authorize a later invocation. Docker system/volume prune, Colima stop/delete/reset, VM deletion, images/containers/volumes, project dependencies, remote cleanup, raw deletes, and root-helper flows remain guidance-only.
 
 Saved native command receipts can be retrieved with `reclaimer native receipts list` and exported with `reclaimer native receipts export --path-style redacted --output RECEIPT.md`. Exporting a receipt summarizes local evidence only; it does not rerun the native command or prove exact APFS reclaim.
 
