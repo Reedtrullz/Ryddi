@@ -7,6 +7,8 @@ app_name="Ryddi"
 bundle_id="com.reidar.ryddi"
 bundle_version="${RYDDI_VERSION:-0.3.0}"
 bundle_build="${RYDDI_BUILD_NUMBER:-3}"
+source_commit="${RYDDI_SOURCE_COMMIT:-$(git -C "$root" rev-parse HEAD)}"
+build_date="${RYDDI_BUILD_DATE:-$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
 signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
 dist="$root/dist"
 app="$dist/$app_name.app"
@@ -77,6 +79,16 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+build_metadata="$app/Contents/Resources/Ryddi-build.json"
+build_metadata_plist="$app/Contents/Resources/.Ryddi-build.plist"
+/usr/bin/plutil -create xml1 "$build_metadata_plist"
+/usr/bin/plutil -insert version -string "$bundle_version" "$build_metadata_plist"
+/usr/bin/plutil -insert build -string "$bundle_build" "$build_metadata_plist"
+/usr/bin/plutil -insert sourceCommit -string "$source_commit" "$build_metadata_plist"
+/usr/bin/plutil -insert buildDate -string "$build_date" "$build_metadata_plist"
+/usr/bin/plutil -convert json -o "$build_metadata" "$build_metadata_plist"
+rm "$build_metadata_plist"
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app"

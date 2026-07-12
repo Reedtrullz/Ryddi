@@ -21,6 +21,25 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("bundle_build=\"${RYDDI_BUILD_NUMBER:-3}\""))
     }
 
+    func testPackageAppWritesEmbeddedBuildMetadataBeforeSigning() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/package-app.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("Ryddi-build.json"))
+        XCTAssertTrue(script.contains("source_commit="))
+        XCTAssertTrue(script.contains("build_date="))
+        XCTAssertTrue(script.contains("-create xml1 \"$build_metadata_plist\""))
+        XCTAssertTrue(script.contains("-insert version -string \"$bundle_version\" \"$build_metadata_plist\""))
+        XCTAssertTrue(script.contains("-insert build -string \"$bundle_build\" \"$build_metadata_plist\""))
+        XCTAssertTrue(script.contains("-insert sourceCommit -string \"$source_commit\" \"$build_metadata_plist\""))
+        XCTAssertTrue(script.contains("-insert buildDate -string \"$build_date\" \"$build_metadata_plist\""))
+        XCTAssertTrue(script.contains("-convert json -o \"$build_metadata\" \"$build_metadata_plist\""))
+        XCTAssertTrue(script.contains("rm \"$build_metadata_plist\""))
+
+        let metadataWrite = try XCTUnwrap(script.range(of: "Ryddi-build.json"))
+        let signing = try XCTUnwrap(script.range(of: "codesign --force"))
+        XCTAssertLessThan(metadataWrite.lowerBound, signing.lowerBound)
+    }
+
     func testReleaseCheckHidesBuildDirectoryForPackagedCliSmokes() throws {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 
