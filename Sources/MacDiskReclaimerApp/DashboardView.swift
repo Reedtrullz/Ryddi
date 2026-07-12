@@ -2,7 +2,7 @@ import SwiftUI
 import ReclaimerCore
 
 struct DashboardView: View {
-    @State private var model = DashboardModel()
+    @Bindable var model: DashboardModel
     @AppStorage(RyddiAppStorageKey.defaultScanPreset) private var defaultScanPresetRaw = ScanScopePreset.developer.rawValue
     @AppStorage(RyddiAppStorageKey.includeUserRulesByDefault) private var includeUserRulesByDefault = false
     @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue

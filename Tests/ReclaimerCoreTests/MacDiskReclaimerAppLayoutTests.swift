@@ -30,7 +30,7 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertFalse(appEntry.contains("final class DashboardModel"))
         XCTAssertTrue(dashboard.contains("struct DashboardView: View"))
         XCTAssertTrue(status.contains("struct StatusMenuView: View"))
-        XCTAssertTrue(status.contains("final class StatusMenuModel"))
+        XCTAssertFalse(status.contains("final class StatusMenuModel"))
         XCTAssertTrue(pathActions.contains("enum PathActions"))
     }
 
@@ -245,12 +245,16 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         let source = try appSource()
 
         XCTAssertTrue(
-            source.contains("listScanSessionsResult(limit: 1)"),
-            "DashboardModel Summary should read scan-session history with typed warnings instead of ignoring corrupt audit files."
+            source.contains("auditHistoryState"),
+            "DashboardModel should retain asynchronously loaded scan-session audit warnings as state."
         )
         XCTAssertTrue(
-            source.contains("sessionHistoryWarnings:") && source.contains(".warnings"),
+            source.contains("sessionHistoryWarnings:") && source.contains("auditHistoryState.warnings"),
             "DashboardModel actionCenterReport should pass scan-session history warnings into ActionCenterInput."
+        )
+        XCTAssertFalse(
+            source.contains("private var actionCenterScanSessionHistory"),
+            "Computed Action Center evaluation must not read AuditStore from disk."
         )
         XCTAssertTrue(
             source.contains("latestScanSession: evidence.session,"),
@@ -260,6 +264,29 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             source.contains("recentPlans.first") || source.contains("recentReceipts.first"),
             "Saved audit plans and receipts must not be presented as current dashboard evidence."
         )
+    }
+
+    func testDashboardPresentationUsesAtomicSnapshotInsteadOfViewTimeScanAnalytics() throws {
+        let model = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardModel.swift"),
+            encoding: .utf8
+        )
+        let scanPlan = try dashboardModelScanPlanSource()
+        let content = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/DashboardContentViews.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(model.contains("var presentationSnapshot: ScanPresentationSnapshot?"))
+        XCTAssertTrue(model.contains("var isUpdatingPresentation"))
+        XCTAssertTrue(scanPlan.contains("ScanPresentationSnapshot.build("))
+        XCTAssertTrue(scanPlan.contains("Task.detached"))
+        XCTAssertTrue(content.contains("Updating results"))
+        XCTAssertFalse(content.contains("FindingAnalytics."))
+        XCTAssertFalse(content.contains("model.largeOldReviewReport("))
+        XCTAssertFalse(content.contains("model.archiveReviewReport("))
     }
 
     func testScanResultCommitIsBoundToLatestRequestIdentity() throws {

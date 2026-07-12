@@ -2,11 +2,11 @@ import SwiftUI
 
 @main
 struct MacDiskReclaimerApp: App {
-    @State private var statusModel = StatusMenuModel()
+    @State private var appModel = RyddiAppModel()
 
     var body: some Scene {
         WindowGroup("Ryddi", id: "dashboard") {
-            DashboardView()
+            DashboardView(model: appModel.dashboard)
                 .frame(
                     minWidth: RyddiWindowLayout.minimumContentWidth,
                     minHeight: RyddiWindowLayout.minimumContentHeight
@@ -19,9 +19,11 @@ struct MacDiskReclaimerApp: App {
         }
 
         MenuBarExtra {
-            StatusMenuView(model: statusModel)
+            StatusMenuView(model: appModel.dashboard) {
+                await appModel.scanFromMenuBar()
+            }
         } label: {
-            Label(statusModel.menuTitle, systemImage: statusModel.symbolName)
+            Label(appModel.menuTitle, systemImage: appModel.symbolName)
         }
         .menuBarExtraStyle(.window)
 

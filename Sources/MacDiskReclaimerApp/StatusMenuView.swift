@@ -5,7 +5,8 @@ import AppKit
 #endif
 
 struct StatusMenuView: View {
-    @Bindable var model: StatusMenuModel
+    @Bindable var model: DashboardModel
+    let scanAction: @MainActor () async -> Void
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -38,29 +39,35 @@ struct StatusMenuView: View {
                 HStack {
                     Text("Last report scan")
                     Spacer()
-                    Text(model.lastReportDate?.formatted(date: .omitted, time: .shortened) ?? "Not run")
+                    Text(model.lastScanDate?.formatted(date: .omitted, time: .shortened) ?? "Not run")
                         .foregroundStyle(.secondary)
                 }
                 HStack {
                     Text("Report findings")
                     Spacer()
-                    Text(model.lastOverview.map { "\($0.findingCount)" } ?? "-")
+                    Text(model.overview.map { "\($0.findingCount)" } ?? "-")
                         .foregroundStyle(.secondary)
                 }
                 HStack {
                     Text("Auto-safe bytes")
                     Spacer()
-                    Text(model.lastOverview.map { ByteFormat.string($0.expectedAutoSafeBytes) } ?? "-")
+                    Text(model.overview.map { ByteFormat.string($0.expectedAutoSafeBytes) } ?? "-")
                         .foregroundStyle(.secondary)
                 }
                 HStack {
                     Text("Automation")
                     Spacer()
-                    Text(model.launchAgentInstalled ? "Installed" : "Off")
+                    Text(model.launchAgentStatus.installed ? "Installed" : "Off")
                         .foregroundStyle(.secondary)
                 }
             }
             .font(.caption)
+
+            if model.overview != nil {
+                Text("Open Ryddi to review")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if model.isWorking {
                 ProgressView("Working...")
@@ -84,13 +91,13 @@ struct StatusMenuView: View {
                 }
 
                 Button {
-                    model.refresh()
+                    model.refreshAutomation()
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
 
                 Button {
-                    Task { await model.runReportScan() }
+                    Task { await scanAction() }
                 } label: {
                     Label("Scan", systemImage: "magnifyingglass")
                 }
@@ -100,7 +107,7 @@ struct StatusMenuView: View {
         .padding(14)
         .frame(width: 340)
         .onAppear {
-            model.refresh()
+            model.refreshAutomation()
         }
     }
 }
@@ -124,59 +131,6 @@ struct DiskPressureBadge: View {
         case .warning: .orange
         case .critical: .red
         case .unknown: .gray
-        }
-    }
-}
-
-@MainActor
-@Observable
-final class StatusMenuModel {
-    var diskStatus: DiskStatusSnapshot = DiskStatusReader().snapshot()
-    var lastOverview: ScanOverview?
-    var lastReportDate: Date?
-    var launchAgentInstalled = false
-    var isWorking = false
-    var error: String?
-
-    var menuTitle: String {
-        guard let freeBytes = diskStatus.displayFreeBytes else {
-            return "Ryddi"
-        }
-        return "Ryddi \(ByteFormat.string(freeBytes))"
-    }
-
-    var symbolName: String {
-        switch diskStatus.pressure {
-        case .healthy: "externaldrive.fill"
-        case .warning: "exclamationmark.triangle.fill"
-        case .critical: "xmark.octagon.fill"
-        case .unknown: "questionmark.circle.fill"
-        }
-    }
-
-    func refresh() {
-        diskStatus = DiskStatusReader().snapshot()
-        launchAgentInstalled = FileManager.default.fileExists(atPath: LaunchAgentManager().installedPath().path)
-        error = nil
-    }
-
-    func runReportScan() async {
-        isWorking = true
-        defer { isWorking = false }
-        do {
-            let result = try await Task.detached {
-                let scopes = DefaultScopes.scopes(for: .developer, includeUnavailable: true)
-                let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
-                let findings = scanner.scan(scopes: scopes, options: ScanOptions(includeOpenFileStatus: false))
-                let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
-                _ = try ScanHistoryStore().save(overview: overview)
-                return overview
-            }.value
-            lastOverview = result
-            lastReportDate = Date()
-            refresh()
-        } catch {
-            self.error = error.localizedDescription
         }
     }
 }
