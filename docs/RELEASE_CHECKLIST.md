@@ -12,7 +12,7 @@ Human review follows [QA_V0.3.md](QA_V0.3.md).
 - [ ] `Scripts/app-e2e-smoke.sh` launches the packaged app with a disposable temporary fixture, proves scan/plan/dry-run and app-uninstall dry-run, and preserves protected browser, Codex, symlink, and app-bundle fixtures without Full Disk Access.
 - [ ] `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` captures a non-empty Ryddi-window-only screenshot on the manual QA Mac.
 - [ ] `Scripts/run-packaged-app-e2e.sh` passes from an Accessibility-approved Mac account, drives Scan through confirmed Trash, preserves protected fixtures, captures three window sizes, and reports `trashArtifactCleaned=true`.
-- [ ] `Export Diagnostic Summary` writes a local JSON file containing typed timing/count metadata only; inspect `log show --predicate 'subsystem == "com.reidar.ryddi"' --last 5m` and confirm no private path or command payload appears.
+- [ ] `Export Diagnostic Summary` writes a local JSON file containing typed timing/count metadata only; inspect `log show --info --predicate 'subsystem == "com.reidar.ryddi"' --last 5m` and confirm no private path or command payload appears.
 - [ ] `dist/Ryddi-developer-preview.zip` exists and preserves `Ryddi.app` as its parent item.
 - [ ] `dist/Ryddi-developer-preview.zip.sha256` exists and matches the generated zip.
 - [ ] `dist/Ryddi-release-manifest.txt` records bundle id, version, rules resource path, signing state, performed verification, and non-claims.

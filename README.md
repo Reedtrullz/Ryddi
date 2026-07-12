@@ -735,7 +735,11 @@ The release-only lane runs `Scripts/run-packaged-app-e2e.sh` through macOS Acces
 
 ## Local Diagnostics
 
-Ryddi records privacy-safe macOS unified-log events for typed workflow operations, timings, counts, stages, and coarse error kinds. It does not intentionally put paths, filenames, SSH targets, aliases, usernames, rule text, command output, or file contents in those events. **More > Export Diagnostic Summary** writes a bounded JSON summary locally and never uploads it. Inspect recent events with `log show --predicate 'subsystem == "com.reidar.ryddi"' --last 5m`.
+Ryddi records privacy-safe macOS unified-log events for typed workflow operations, timings, counts, stages, and coarse error kinds. It does not intentionally put paths, filenames, SSH targets, aliases, usernames, rule text, command output, or file contents in those events. **More > Export Diagnostic Summary** writes a bounded JSON summary locally and never uploads it. Inspect recent events with `log show --info --predicate 'subsystem == "com.reidar.ryddi"' --last 5m`.
+
+## macOS Interaction
+
+The supported minimum dashboard size is 980×680. The primary task order is **Scan → Review → Plan → Dry Run → Confirm → Trash → Recover**. Keyboard commands keep the evidence gates intact: `⌘R` scans, `⌥⌘P` builds a plan, `⌥⌘D` runs the dry run, `⌥⌘R` opens the exact-path reclaim confirmation when current evidence is ready, and `⌘1` opens Cleanup Flow. VoiceOver and keyboard traversal remain manual release checks in [Ryddi v0.3 Human QA](docs/QA_V0.3.md); automated AX proof verifies control discovery, activation, and geometry but does not claim to replace a human screen-reader review.
 
 ## Repository Layout
 

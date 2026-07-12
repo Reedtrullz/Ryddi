@@ -39,6 +39,7 @@ struct GuidedSummaryView: View {
             )
         }
         .accessibilityIdentifier(AccessibilityID.flowStatus)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 
     @ViewBuilder

@@ -4,10 +4,12 @@ struct DashboardCommandActions {
     var canScan: Bool
     var canPlan: Bool
     var canDryRun: Bool
+    var canReclaim: Bool
     var canExport: Bool
     var scan: () -> Void
     var buildPlan: () -> Void
     var dryRun: () -> Void
+    var reclaim: () -> Void
     var exportReport: () -> Void
     var exportRedactedReport: () -> Void
     var openSection: (DashboardSection) -> Void
@@ -47,6 +49,12 @@ struct DashboardCommands: Commands {
             }
             .keyboardShortcut("d", modifiers: [.command, .option])
             .disabled(actions?.canDryRun != true)
+
+            Button("Review and Reclaim") {
+                actions?.reclaim()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .option])
+            .disabled(actions?.canReclaim != true)
 
             Divider()
 

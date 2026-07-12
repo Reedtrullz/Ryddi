@@ -275,10 +275,12 @@ struct DashboardView: View {
             canScan: !model.isWorking,
             canPlan: !model.findings.isEmpty && !model.isWorking,
             canDryRun: (model.plan != nil || !model.findings.isEmpty) && !model.isWorking,
+            canReclaim: model.trashExecutionReadiness.isReady && !model.isWorking,
             canExport: model.overview != nil && !model.findings.isEmpty && !model.isWorking,
             scan: { Task { await model.scan() } },
             buildPlan: { Task { await model.buildPlan() } },
             dryRun: { Task { await model.runDryRun() } },
+            reclaim: { Task { await model.prepareTrashExecution() } },
             exportReport: exportEvidenceReportUsingDefaults,
             exportRedactedReport: { Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) } },
             openSection: { selectSection($0) }

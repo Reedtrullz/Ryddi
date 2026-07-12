@@ -210,3 +210,21 @@ enum RyddiLog {
 - The largest SwiftUI and CLI monoliths shrink through behavior-preserving feature extraction.
 - Local diagnostics explain latency and state changes without collecting private content.
 - The packaged app carries a validated macOS icon.
+
+## Execution Status (2026-07-12)
+
+Automated implementation is complete through the unsigned release gate:
+
+- Packaged AX drives Scan, Plan, Dry Run, exact-path confirmation, Trash, and recovery result; protected fixture hashes remain unchanged and the receipt-identified test Trash artifact is removed.
+- Minimum (980×680), regular (1280×800), and wide (1600×1000) screenshots plus AX geometry containment checks pass.
+- `DashboardContentViews.swift` is 3,987 lines and `ReclaimerCLI.swift` is 2,238 lines after behavior-preserving extraction commits.
+- Privacy-safe diagnostics, signposts, coarse error/event metadata, local JSON export, and unified-log inspection pass without private payload fields.
+- The generated Ryddi icon round-trips through `iconutil`, all ten iconset representations exist, and the packaged resource hash matches the source `.icns`.
+- Full verification passed with 519 tests, 1 intentional skip, 0 failures; warnings-as-errors build, script syntax, packaged AX E2E, and unsigned `Scripts/release-check.sh` passed.
+
+Manual release evidence remains intentionally open:
+
+- Human VoiceOver traversal and announcements at 980×680.
+- Human sidebar collapse/restore review at the minimum size.
+- Finder, Dock, About, and app-switcher icon screenshots.
+- Developer ID signing, notarization, stapling, Gatekeeper, and signed packaged-AX release proof.

@@ -64,6 +64,15 @@ final class AppFlowContractTests: XCTestCase {
         XCTAssertTrue(source.contains("responsiveChecks"))
     }
 
+    func testTaskOrderCommandsIncludeKeyboardReclaimAndUpdatingStatus() throws {
+        let commands = try appSource(named: "DashboardCommands.swift")
+        let summary = try appSource(named: "GuidedSummaryView.swift")
+        XCTAssertTrue(commands.contains("canReclaim"))
+        XCTAssertTrue(commands.contains("Review and Reclaim"))
+        XCTAssertTrue(commands.contains(".keyboardShortcut(\"r\", modifiers: [.command, .option])"))
+        XCTAssertTrue(summary.contains(".accessibilityAddTraits(.updatesFrequently)"))
+    }
+
     private func appSource(named name: String) throws -> String {
         try String(
             contentsOf: repoRoot().appendingPathComponent("Sources/MacDiskReclaimerApp/\(name)"),

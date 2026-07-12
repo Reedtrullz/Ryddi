@@ -19,6 +19,7 @@ Record the artifact filename, SHA-256, source commit, macOS version, Mac model, 
 - [ ] Remote report export is redacted and Remote Targets report-only controls expose probe, scan, and export, never reclaim.
 - [ ] The minimum window and a narrow supported window keep the sidebar, toolbar fallback, Summary metrics, and detail content usable without incoherent overlap.
 - [ ] VoiceOver can find the primary Summary action and announces Scan, Plan, Dry Run, Reclaim, Permissions, Review Queues, and Remote Targets controls meaningfully.
+- [ ] Keyboard task order works at 980×680: `⌘R` Scan, `⌥⌘P` Plan, `⌥⌘D` Dry Run, `⌥⌘R` exact-path confirmation, and `⌘1` Cleanup Flow; disabled commands remain unavailable until their evidence gate is current.
 
 ## Required Screenshots
 
