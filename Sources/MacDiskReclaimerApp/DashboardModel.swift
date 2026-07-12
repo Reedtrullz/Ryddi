@@ -103,7 +103,12 @@ final class DashboardModel {
     var reviewedQueueID: ReviewQueueID?
     var reviewQueueReport: ReviewQueueReport = .empty()
     var hasAppliedStoredSettings = false
+    var scanRequestCoordinator = ScanRequestCoordinator()
     private var e2eScopeRoot: URL?
+
+    var activeScanRequest: ScanRequestIdentity? {
+        scanRequestCoordinator.activeRequest
+    }
 
     var selectedScopePlan: ScanScopePlan {
         if let e2eScopeRoot {
@@ -154,13 +159,23 @@ final class DashboardModel {
         reviewQueueReport = FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: 40)
     }
 
+    var currentEvidence: CurrentEvidenceSnapshot {
+        CurrentEvidenceResolver.resolve(
+            session: currentScanSession,
+            plan: plan,
+            dryRunReceipt: lastDryRunReceipt,
+            executionReceipt: lastExecutionReceipt
+        )
+    }
+
     var trustReadinessReport: TrustReadinessReport {
-        TrustReadinessBuilder.build(
+        let evidence = currentEvidence
+        return TrustReadinessBuilder.build(
             diskStatus: diskStatus,
             permissionSummary: permissionReport,
             findings: findings,
-            latestPlan: plan ?? recentPlans.first,
-            latestReceipt: lastExecutionReceipt ?? lastDryRunReceipt ?? recentReceipts.first,
+            latestPlan: evidence.plan,
+            latestReceipt: evidence.executionReceipt ?? evidence.dryRunReceipt,
             automationInstalled: launchAgentStatus.installed,
             signingState: "App runtime; verify signed and notarized releases with the manifest",
             releaseTrustEvidence: ReleaseTrustEvidenceLoader.load(),
@@ -169,13 +184,14 @@ final class DashboardModel {
     }
 
     var guidedWorkflowReport: GuidedWorkflowReport {
-        GuidedWorkflowBuilder.build(
+        let evidence = currentEvidence
+        return GuidedWorkflowBuilder.build(
             input: GuidedWorkflowInput(
                 diskStatus: diskStatus,
                 permissionSummary: permissionReport,
                 findings: findings,
-                latestPlan: plan ?? recentPlans.first,
-                latestReceipt: lastExecutionReceipt ?? lastDryRunReceipt ?? recentReceipts.first,
+                latestPlan: evidence.plan,
+                latestReceipt: evidence.executionReceipt ?? evidence.dryRunReceipt,
                 trustReadiness: trustReadinessReport
             )
         )
@@ -183,13 +199,14 @@ final class DashboardModel {
 
     var actionCenterReport: ActionCenterReport {
         let scanSessionHistory = actionCenterScanSessionHistory
+        let evidence = currentEvidence
         return ActionCenterBuilder.build(
             input: ActionCenterInput(
                 permissionReport: permissionReport,
-                latestScanSession: actionCenterScanSession,
+                latestScanSession: evidence.session,
                 findings: findings,
-                currentPlan: plan,
-                latestExecutionReceipt: lastDryRunReceipt ?? lastExecutionReceipt,
+                currentPlan: evidence.plan,
+                latestExecutionReceipt: evidence.executionReceipt ?? evidence.dryRunReceipt,
                 reviewQueueReport: reviewQueueReport,
                 activeFileReviewReport: activeFileReview,
                 browserCacheReport: browserCacheReview,
@@ -205,55 +222,7 @@ final class DashboardModel {
     }
 
     var actionCenterScanSession: ScanSession? {
-        if let currentScanSession {
-            return currentScanSession
-        }
-        return fallbackActionCenterScanSession
-    }
-
-    private var fallbackActionCenterScanSession: ScanSession? {
-        guard overview != nil || !findings.isEmpty || plan != nil || lastDryRunReceipt != nil || lastExecutionReceipt != nil else {
-            return nil
-        }
-
-        let updatedAt = lastExecutionReceipt?.createdAt
-            ?? lastDryRunReceipt?.createdAt
-            ?? plan?.createdAt
-            ?? lastScanDate
-            ?? Date()
-        let hasFindingEvidence = overview != nil || !findings.isEmpty
-
-        return ScanSession(
-            id: "app-summary-\(actionCenterSessionStage.rawValue)",
-            createdAt: lastScanDate ?? updatedAt,
-            updatedAt: updatedAt,
-            appVersion: actionCenterAppVersion,
-            ruleVersion: actionCenterRuleVersion,
-            preset: actionCenterPreset,
-            scopeDigest: actionCenterScopeDigest,
-            policyDigest: actionCenterPolicyDigest,
-            findingDigest: hasFindingEvidence ? actionCenterFindingDigest : nil,
-            planDigest: plan?.id,
-            dryRunReceiptID: nil,
-            executionReceiptID: lastExecutionReceipt?.id,
-            stage: actionCenterSessionStage
-        )
-    }
-
-    private var actionCenterSessionStage: ScanSessionStage {
-        if lastExecutionReceipt != nil {
-            return .executed
-        }
-        if lastDryRunReceipt != nil {
-            return .dryRunReady
-        }
-        if plan != nil {
-            return .planReady
-        }
-        if reviewedQueueID != nil {
-            return .reviewed
-        }
-        return .scanned
+        currentEvidence.session
     }
 
     var actionCenterScopeDigest: String {
@@ -375,6 +344,7 @@ final class DashboardModel {
     }
 
     func resetScanState() {
+        cancelScan()
         findings = []
         reviewQueueReport = .empty()
         scanScopes = []
@@ -388,6 +358,12 @@ final class DashboardModel {
         lastScannedScopeLabel = nil
         currentScanSession = nil
         reviewedQueueID = nil
+    }
+
+    func cancelScan() {
+        guard activeScanRequest != nil else { return }
+        scanRequestCoordinator.invalidate()
+        isWorking = false
     }
 
     func currentScopes(includeUnavailable: Bool) -> [ScanScope] {

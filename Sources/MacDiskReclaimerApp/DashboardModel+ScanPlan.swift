@@ -65,14 +65,37 @@ extension DashboardModel {
         )
     }
     func scan() async {
+        let scopePlan = selectedScopePlan
+        let includeUserRules = includeUserRulesInScans
+        let policy = UserPathPolicyStore().load()
+        let appVersion = actionCenterAppVersion
+        let ruleVersion = actionCenterRuleVersion
+        let preset = scopePlan.preset ?? scanPreset
+        let request = ScanRequestIdentity(
+            preset: preset,
+            scopeDigest: ScanSessionEvidenceBuilder.scopeDigest(
+                appVersion: appVersion,
+                ruleVersion: ruleVersion,
+                preset: preset,
+                scopes: scopePlan.scopes,
+                userPathPolicy: policy
+            ),
+            ruleVersion: ruleVersion,
+            policyDigest: ScanSessionEvidenceBuilder.policyDigest(
+                preset: preset,
+                userPathPolicy: policy
+            )
+        )
+        scanRequestCoordinator.begin(request)
         isWorking = true
-        defer { isWorking = false }
+        defer {
+            if scanRequestCoordinator.finish(request) {
+                isWorking = false
+            }
+        }
         do {
-            let scopePlan = selectedScopePlan
-            let includeUserRules = includeUserRulesInScans
             let result = try await Task.detached {
                 let scopes = scopePlan.scopes
-                let policy = UserPathPolicyStore().load()
                 let scanner = try FileScanner(
                     ruleEngine: try RuleEngine.bundled(includingUserRules: includeUserRules),
                     openFileChecker: NoOpenFilesChecker()
@@ -88,6 +111,7 @@ extension DashboardModel {
                 let reviewQueues = FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: 40)
                 return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries), scanResult.coverage, reviewQueues)
             }.value
+            guard scanRequestCoordinator.accepts(request) else { return }
             lastScannedScopeLabel = result.0
             scanScopes = result.1
             findings = result.2
@@ -107,6 +131,7 @@ extension DashboardModel {
             try recordScanSession(updatedAt: lastScanDate ?? Date())
             error = nil
         } catch {
+            guard scanRequestCoordinator.accepts(request) else { return }
             self.error = error.localizedDescription
         }
     }

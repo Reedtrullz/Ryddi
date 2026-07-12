@@ -46,6 +46,19 @@ enum DashboardDemoData {
         model.lastExecutionReceipt = nil
         model.lastScannedScopeLabel = "Screenshot demo"
         model.lastScanDate = now
+        model.currentScanSession = ScanSession(
+            id: "demo-session",
+            createdAt: now,
+            updatedAt: now,
+            appVersion: model.actionCenterAppVersion,
+            ruleVersion: model.actionCenterRuleVersion,
+            preset: model.actionCenterPreset,
+            scopeDigest: model.actionCenterScopeDigest,
+            policyDigest: model.actionCenterPolicyDigest,
+            findingDigest: model.actionCenterFindingDigest,
+            planDigest: plan.id,
+            stage: .planReady
+        )
         model.diskStatus = DiskStatusSnapshot(
             createdAt: now,
             path: "/System/Volumes/Data",

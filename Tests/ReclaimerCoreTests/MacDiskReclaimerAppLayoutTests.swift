@@ -253,12 +253,33 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             "DashboardModel actionCenterReport should pass scan-session history warnings into ActionCenterInput."
         )
         XCTAssertTrue(
-            source.contains("latestScanSession: actionCenterScanSession,"),
-            "The Summary should pass only the app's current loaded scan session as current evidence, so first-run users still get a primary Scan action."
+            source.contains("latestScanSession: evidence.session,"),
+            "The Summary should pass only the ID-bound current evidence session, so first-run users still get a primary Scan action."
         )
         XCTAssertFalse(
-            source.contains("latestScanSession: actionCenterScanSession ?? scanSessionHistory.sessions.first"),
-            "Saved audit history should provide warnings only; it must not suppress the primary Scan action when no scan is loaded in the app."
+            source.contains("recentPlans.first") || source.contains("recentReceipts.first"),
+            "Saved audit plans and receipts must not be presented as current dashboard evidence."
+        )
+    }
+
+    func testScanResultCommitIsBoundToLatestRequestIdentity() throws {
+        let source = try appSource()
+
+        XCTAssertTrue(
+            source.contains("scanRequestCoordinator.accepts(request)"),
+            "DashboardModel.scan() must reject a result whose request identity is no longer active."
+        )
+        XCTAssertTrue(
+            source.contains("func cancelScan()"),
+            "The app must expose an explicit way to invalidate a long-running scan request."
+        )
+        XCTAssertTrue(
+            source.contains("activeScanRequest != nil"),
+            "Scan configuration controls must key their disabled state to the active scan request."
+        )
+        XCTAssertTrue(
+            source.contains("cancel-scan-button"),
+            "The cancel control needs a stable accessibility identifier for app E2E."
         )
     }
 

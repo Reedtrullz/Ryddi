@@ -104,6 +104,8 @@ struct DashboardView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 320)
+            .disabled(model.activeScanRequest != nil)
+            .accessibilityIdentifier("scan-mode-picker")
 
             Picker("Saved Scope", selection: Binding(
                 get: { model.selectedSavedScopeSetID ?? "" },
@@ -116,7 +118,8 @@ struct DashboardView: View {
             }
             .pickerStyle(.menu)
             .frame(width: 190)
-            .disabled(model.savedScopeSets.isEmpty)
+            .disabled(model.savedScopeSets.isEmpty || model.activeScanRequest != nil)
+            .accessibilityIdentifier("saved-scope-picker")
 
             Button {
                 Task { await model.scan() }
@@ -124,6 +127,16 @@ struct DashboardView: View {
                 Label("Scan", systemImage: "magnifyingglass")
             }
             .disabled(model.isWorking)
+            .accessibilityIdentifier("scan-button")
+
+            if model.activeScanRequest != nil {
+                Button(role: .cancel) {
+                    model.cancelScan()
+                } label: {
+                    Label("Cancel Scan", systemImage: "xmark.circle")
+                }
+                .accessibilityIdentifier("cancel-scan-button")
+            }
 
             Button {
                 Task { await model.buildPlan() }
@@ -142,12 +155,14 @@ struct DashboardView: View {
                         Text(template.name).tag(template.id)
                     }
                 }
+                .disabled(model.activeScanRequest != nil)
                 Toggle(isOn: Binding(
                     get: { model.includeUserRulesInScans },
                     set: { model.setIncludeUserRulesInScans($0) }
                 )) {
                     Label("Include User Rules", systemImage: "slider.horizontal.3")
                 }
+                .disabled(model.activeScanRequest != nil)
                 Divider()
                 Button {
                     Task { await model.runDryRun() }
