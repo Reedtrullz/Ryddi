@@ -78,6 +78,10 @@ final class AppE2EFixtureTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Scripts/release-check.sh"),
             encoding: .utf8
         )
+        let packagedAX = try String(
+            contentsOf: root.appendingPathComponent("Scripts/run-packaged-app-e2e.sh"),
+            encoding: .utf8
+        )
         let ci = try String(
             contentsOf: root.appendingPathComponent(".github/workflows/ci.yml"),
             encoding: .utf8
@@ -95,6 +99,12 @@ final class AppE2EFixtureTests: XCTestCase {
         XCTAssertTrue(smoke.contains("protected-preserved=yes"))
         XCTAssertTrue(releaseCheck.contains("RYDDI_E2E_APP_PATH=\"$app\""))
         XCTAssertTrue(releaseCheck.contains("Scripts/app-e2e-smoke.sh"))
+        XCTAssertTrue(releaseCheck.contains("RYDDI_REQUIRE_PACKAGED_AX_E2E"))
+        XCTAssertTrue(releaseCheck.contains("Scripts/run-packaged-app-e2e.sh"))
+        XCTAssertTrue(releaseCheck.contains("packaged_ax_e2e=$packaged_ax_e2e_status"))
+        XCTAssertTrue(packagedAX.contains("$HOME/.Trash/"))
+        XCTAssertTrue(packagedAX.contains("Refusing to clean an E2E Trash artifact without bounded receipt evidence."))
+        XCTAssertTrue(packagedAX.contains("trashArtifactCleaned"))
         XCTAssertTrue(ci.contains("Fixture-backed app E2E smoke"))
         XCTAssertTrue(ci.contains("timeout-minutes: 10"))
     }

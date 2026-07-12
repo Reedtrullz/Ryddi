@@ -80,10 +80,21 @@ final class PackageAppScriptTests: XCTestCase {
             "notarization_status=$notarization_status",
             "stapler_validated=$stapler_validated",
             "gatekeeper=$gatekeeper_status",
+            "packaged_ax_e2e=$packaged_ax_e2e_status",
+            "packaged_ax_e2e_proof=",
             "sha256=$app_payload_sha",
         ] {
             XCTAssertTrue(script.contains(field), "Missing manifest field: \(field)")
         }
+    }
+
+    func testReleaseCheckIncludesPackagedAccessibilityProofOnlyAfterPassingGate() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("RYDDI_REQUIRE_PACKAGED_AX_E2E"))
+        XCTAssertTrue(script.contains("packaged_ax_e2e_status=\"passed\""))
+        XCTAssertTrue(script.contains("$stage_dir/Packaged-App-E2E"))
+        XCTAssertTrue(script.contains(".trashArtifactCleaned == true"))
     }
 
     func testReleaseWorkflowUploadsStagedDirectoryArtifactAndKeepsPreviewUnsigned() throws {
@@ -93,6 +104,9 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertTrue(workflow.contains("name: Ryddi-developer-preview"))
         XCTAssertTrue(workflow.contains("dist/Ryddi-developer-preview.zip"))
         XCTAssertTrue(workflow.contains("dist/Ryddi-v0.3.0.zip"))
+        XCTAssertTrue(workflow.contains("runs-on: [self-hosted, macOS, ryddi-release]"))
+        XCTAssertTrue(workflow.contains("RYDDI_REQUIRE_PACKAGED_AX_E2E: \"1\""))
+        XCTAssertTrue(workflow.contains("dist/e2e-proof"))
         XCTAssertFalse(workflow.contains("NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}"))
     }
 

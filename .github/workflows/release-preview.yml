@@ -26,7 +26,7 @@ jobs:
 
   signed-release:
     name: Build signed notarized release
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ryddi-release]
     if: ${{ vars.RYDDI_ENABLE_SIGNED_RELEASE == 'true' }}
     steps:
       - name: Check out
@@ -52,6 +52,7 @@ jobs:
           RYDDI_ARTIFACT_BASENAME: Ryddi-v0.3.0
           RYDDI_VERSION: 0.3.0
           RYDDI_BUILD_NUMBER: 3
+          RYDDI_REQUIRE_PACKAGED_AX_E2E: "1"
           CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -67,3 +68,4 @@ jobs:
             dist/Ryddi-v0.3.0.zip
             dist/Ryddi-v0.3.0.zip.sha256
             dist/Ryddi-release-manifest.txt
+            dist/e2e-proof

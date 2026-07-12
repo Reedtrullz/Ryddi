@@ -242,12 +242,15 @@ For a signed `v0.3.0` release gate, provide Developer ID and notarization creden
 
 ```bash
 ./Scripts/release-signing-doctor.sh
-RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 Scripts/release-check.sh
+RYDDI_RELEASE_SIGNING=required \
+RYDDI_REQUIRE_PACKAGED_AX_E2E=1 \
+RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 \
+Scripts/release-check.sh
 ```
 
 The signing doctor checks for a Developer ID Application identity and either a usable `NOTARY_PROFILE` or direct `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD` environment without printing password values. It is a preflight helper only; the release gate and manifest are still the source of truth. Shells such as fish do not search the current directory automatically, so run the script with `./Scripts/...` from the repository root.
 
-The signed release gate must produce `dist/Ryddi-v0.3.0.zip`, `dist/Ryddi-v0.3.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, strict codesign proof, bundle version `0.3.0`, and build `3`. If credentials are missing or any check fails, do not publish the build as `v0.3.0`.
+The signed release gate must produce `dist/Ryddi-v0.3.0.zip`, `dist/Ryddi-v0.3.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, strict codesign, and packaged Accessibility E2E proof, bundle version `0.3.0`, and build `3`. The AX lane requires a logged-in, Accessibility-approved Mac runner; the signed GitHub job therefore uses the `self-hosted`, `macOS`, and `ryddi-release` labels. If credentials, runner approval, or any check fails, do not publish the build as `v0.3.0`.
 
 After downloading a release asset, verify the checksum and inspect the manifest before installing:
 
@@ -727,6 +730,8 @@ Scripts/app-e2e-smoke.sh
 The smoke enforces the 50 GiB disk guard, builds a caller-bounded fixture, launches `Ryddi.app` with `RYDDI_E2E_MODE=1`, attempts a Ryddi-window-only screenshot, and runs packaged CLI scan, plan, core dry run, and app-uninstall dry run. It compares protected browser-profile, Codex-session, symlink, and app-bundle markers afterward. The fixture is under the current temporary directory, cleaned with a trap, requires no Full Disk Access, and never scans or mutates real user cache roots.
 
 Use `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` for the manual screenshot gate. See [Ryddi v0.3 Human QA](docs/QA_V0.3.md) for the required visual and VoiceOver checks.
+
+The release-only lane runs `Scripts/run-packaged-app-e2e.sh` through macOS Accessibility against the packaged app. It drives Scan, Plan, Dry Run, explicit Trash confirmation, and recovery-result presentation; checks protected fixture hashes; captures minimum, regular, and wide window screenshots; and removes only the receipt-identified fixture artifact from Trash afterward. Run it from an Accessibility-approved terminal or self-hosted runner. Ordinary hosted CI intentionally uses the non-destructive fixture smoke because it cannot be assumed to have Accessibility approval.
 
 ## Repository Layout
 

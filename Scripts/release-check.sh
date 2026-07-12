@@ -20,6 +20,7 @@ manifest_path="$dist/Ryddi-release-manifest.txt"
 stage_dir="$dist/$artifact_basename"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/ryddi-release-check.XXXXXX")"
 hidden_build_dir=""
+packaged_ax_e2e_status="not-required"
 
 cleanup() {
   if [[ -n "$hidden_build_dir" && -d "$hidden_build_dir" ]]; then
@@ -89,6 +90,9 @@ stage_release_artifact() {
   rm -rf "$stage_dir"
   mkdir -p "$stage_dir"
   /usr/bin/ditto "$app" "$stage_dir/Ryddi.app"
+  if [[ "$packaged_ax_e2e_status" == "passed" ]]; then
+    /usr/bin/ditto "$dist/e2e-proof" "$stage_dir/Packaged-App-E2E"
+  fi
 
   local payload_probe="$dist/.Ryddi-app-payload.zip"
   rm -f "$payload_probe"
@@ -110,6 +114,8 @@ notarization_status=$notarization_status
 stapler_validated=$stapler_validated
 stapled=$stapler_validated
 gatekeeper=$gatekeeper_status
+packaged_ax_e2e=$packaged_ax_e2e_status
+packaged_ax_e2e_proof=$([[ "$packaged_ax_e2e_status" == "passed" ]] && echo included || echo not-included)
 sha256=$app_payload_sha
 
 Ryddi release evidence
@@ -208,6 +214,18 @@ echo "==> Running fixture-backed app E2E"
 RYDDI_E2E_APP_PATH="$app" \
   RYDDI_E2E_REQUIRE_SCREENSHOT="${RYDDI_E2E_REQUIRE_SCREENSHOT:-0}" \
   "$root/Scripts/app-e2e-smoke.sh"
+
+if [[ "${RYDDI_REQUIRE_PACKAGED_AX_E2E:-0}" == "1" ]]; then
+  echo "==> Running packaged-app Accessibility E2E"
+  RYDDI_E2E_APP_PATH="$app" \
+    RYDDI_E2E_OUTPUT="$dist/e2e-proof" \
+    "$root/Scripts/run-packaged-app-e2e.sh"
+  jq -e '.executionResultVisible == true and .originalCandidateMissing == true and .trashArtifactCleaned == true' \
+    "$dist/e2e-proof/e2e-result.json" >/dev/null
+  packaged_ax_e2e_status="passed"
+else
+  rm -rf "$dist/e2e-proof"
+fi
 
 echo "==> Smoke testing bundled CLI"
 hide_build_dir_for_packaged_smokes

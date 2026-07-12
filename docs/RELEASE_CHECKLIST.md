@@ -11,6 +11,7 @@ Human review follows [QA_V0.3.md](QA_V0.3.md).
 - [ ] `Scripts/package-app.sh` produces `dist/Ryddi.app`.
 - [ ] `Scripts/app-e2e-smoke.sh` launches the packaged app with a disposable temporary fixture, proves scan/plan/dry-run and app-uninstall dry-run, and preserves protected browser, Codex, symlink, and app-bundle fixtures without Full Disk Access.
 - [ ] `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` captures a non-empty Ryddi-window-only screenshot on the manual QA Mac.
+- [ ] `Scripts/run-packaged-app-e2e.sh` passes from an Accessibility-approved Mac account, drives Scan through confirmed Trash, preserves protected fixtures, captures three window sizes, and reports `trashArtifactCleaned=true`.
 - [ ] `dist/Ryddi-developer-preview.zip` exists and preserves `Ryddi.app` as its parent item.
 - [ ] `dist/Ryddi-developer-preview.zip.sha256` exists and matches the generated zip.
 - [ ] `dist/Ryddi-release-manifest.txt` records bundle id, version, rules resource path, signing state, performed verification, and non-claims.
@@ -93,7 +94,8 @@ Human review follows [QA_V0.3.md](QA_V0.3.md).
 ## Signed And Notarized Build
 
 - [ ] `Scripts/release-signing-doctor.sh` reports the Developer ID Application identity and notary credential path are ready without printing password values.
-- [ ] `RYDDI_RELEASE_SIGNING=required RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 Scripts/release-check.sh` exits `0`.
+- [ ] `RYDDI_RELEASE_SIGNING=required RYDDI_REQUIRE_PACKAGED_AX_E2E=1 RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 Scripts/release-check.sh` exits `0` on the Accessibility-approved release Mac.
+- [ ] The signed GitHub release runner has labels `self-hosted`, `macOS`, and `ryddi-release`, is logged into a GUI session, and its runner process has Accessibility approval.
 - [ ] `CODESIGN_IDENTITY` is set to a Developer ID Application certificate.
 - [ ] `RYDDI_VERSION=0.3.0` and `RYDDI_BUILD_NUMBER=3` are used by the packaging scripts.
 - [ ] `Scripts/package-app.sh` signs `dist/Ryddi.app` with Hardened Runtime.
@@ -107,6 +109,7 @@ Human review follows [QA_V0.3.md](QA_V0.3.md).
 - [ ] `codesign --verify --deep --strict --verbose=2 dist/Ryddi.app` passes.
 - [ ] `dist/Ryddi-v0.3.0.zip`, `dist/Ryddi-v0.3.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` exist.
 - [ ] `dist/Ryddi-release-manifest.txt` records signed, accepted notarization, stapled, Gatekeeper, strict codesign, bundle version `0.3.0`, build `3`, notary submission ID, and status JSON path proof.
+- [ ] The manifest records `packaged_ax_e2e=passed` and `packaged_ax_e2e_proof=included`; the staged release contains `Packaged-App-E2E/`.
 - [ ] `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` reports `state` as `stapledAndAccepted`.
 - [ ] The manifest contains parseable release-trust keys: `manifest_schema=ryddi.release-trust.v1`, `codesign_verified=true`, `hardened_runtime=true`, `notarization_status=Accepted`, `stapled=true`, and `gatekeeper=accepted`.
 - [ ] GitHub release artifact, checksum, and release manifest are uploaded.
