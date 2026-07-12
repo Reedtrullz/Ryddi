@@ -10,7 +10,7 @@ struct OverviewView: View {
     let navigate: (String) -> Void
 
     private var topRows: [TopOffenderRow] {
-        Array(FindingAnalytics.topOffenderTable(findings: model.findings, sort: .allocated, group: .none, limit: 8).rows)
+        Array(model.presentationSnapshot?.topOffenders.rows.prefix(8) ?? [])
     }
 
     var body: some View {
@@ -21,6 +21,10 @@ struct OverviewView: View {
                 if model.isWorking {
                     ProgressView("Working")
                         .controlSize(.large)
+                }
+                if model.isUpdatingPresentation {
+                    ProgressView("Updating results")
+                        .controlSize(.small)
                 }
 
                 GuidedSummaryView(
@@ -5248,40 +5252,57 @@ struct GrowthHistoryView: View {
 }
 
 struct TopOffendersView: View {
-    let findings: [Finding]
-    let plan: ReclaimPlan?
-    @State private var sort = TopOffenderSort.allocated
-    @State private var group = TopOffenderGroup.none
+    let model: DashboardModel
 
-    private var table: TopOffenderTable {
-        FindingAnalytics.topOffenderTable(findings: findings, sort: sort, group: group, limit: 80)
+    private var table: TopOffenderTable? {
+        model.presentationSnapshot?.topOffenders
     }
 
     private var displayedRows: [TopOffenderRow] {
-        Array(table.rows.prefix(14))
+        Array(table?.rows.prefix(14) ?? [])
     }
 
     private var displayedSections: [TopOffenderGroupSection] {
-        table.sections.map { section in
+        (table?.sections ?? []).map { section in
             TopOffenderGroupSection(group: section.group, key: section.key, title: section.title, rows: Array(section.rows.prefix(8)))
         }
     }
 
     private var selectedPlanIDs: Set<Finding.ID> {
-        Set(plan?.items.filter(\.selected).map { $0.finding.id } ?? [])
+        Set(model.plan?.items.filter(\.selected).map { $0.finding.id } ?? [])
     }
 
     var body: some View {
         SectionBox(title: "Top Offenders") {
             HStack(spacing: 12) {
-                Picker("Sort", selection: $sort) {
+                Picker("Sort", selection: Binding(
+                    get: { model.presentationTopOffenderSort },
+                    set: { sort in
+                        Task {
+                            await model.setTopOffenderPresentation(
+                                sort: sort,
+                                group: model.presentationTopOffenderGroup
+                            )
+                        }
+                    }
+                )) {
                     ForEach(TopOffenderSort.allCases) { option in
                         Text(option.label).tag(option)
                     }
                 }
                 .pickerStyle(.menu)
 
-                Picker("Group", selection: $group) {
+                Picker("Group", selection: Binding(
+                    get: { model.presentationTopOffenderGroup },
+                    set: { group in
+                        Task {
+                            await model.setTopOffenderPresentation(
+                                sort: model.presentationTopOffenderSort,
+                                group: group
+                            )
+                        }
+                    }
+                )) {
                     ForEach(TopOffenderGroup.allCases) { option in
                         Text(option.label).tag(option)
                     }
@@ -5291,14 +5312,16 @@ struct TopOffendersView: View {
                 Spacer()
             }
 
-            HStack(spacing: 10) {
-                MetricTile(title: "Rows", value: "\(table.rowCount)")
-                MetricTile(title: "Estimated Reclaim", value: ByteFormat.string(table.estimatedImmediateReclaim))
-                MetricTile(title: "Allocated", value: ByteFormat.string(table.allocatedSize))
+            if let table {
+                HStack(spacing: 10) {
+                    MetricTile(title: "Rows", value: "\(table.rowCount)")
+                    MetricTile(title: "Estimated Reclaim", value: ByteFormat.string(table.estimatedImmediateReclaim))
+                    MetricTile(title: "Allocated", value: ByteFormat.string(table.allocatedSize))
+                }
             }
 
             TopOffenderTableScrollContainer {
-                if group == .none {
+                if model.presentationTopOffenderGroup == .none {
                     ForEach(displayedRows) { row in
                         TopOffenderRowView(row: row, isSelectedInPlan: selectedPlanIDs.contains(row.finding.id))
                     }
@@ -5328,7 +5351,7 @@ struct TopOffendersView: View {
                 }
             }
 
-            ForEach(table.nonClaims, id: \.self) { note in
+            ForEach(table?.nonClaims ?? [], id: \.self) { note in
                 Text(note)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -6142,15 +6165,13 @@ private extension ReviewQueueID {
 
 struct LargeOldReviewView: View {
     let model: DashboardModel
-    @State private var mode = LargeOldReviewMode.all
-    @State private var sort = TopOffenderSort.allocated
 
-    private var report: LargeOldReviewReport {
-        model.largeOldReviewReport(mode: mode, sort: sort, limit: 80)
+    private var report: LargeOldReviewReport? {
+        model.presentationSnapshot?.largeOldReview
     }
 
-    private var archiveReport: ArchiveReviewReport {
-        model.archiveReviewReport(mode: mode, sort: sort, limit: 40)
+    private var archiveReport: ArchiveReviewReport? {
+        model.presentationSnapshot?.archiveReview
     }
 
     var body: some View {
@@ -6160,14 +6181,34 @@ struct LargeOldReviewView: View {
                     Text("Large & Old Files")
                         .font(.largeTitle.bold())
                     Spacer()
-                    Picker("Mode", selection: $mode) {
+                    Picker("Mode", selection: Binding(
+                        get: { model.presentationLargeOldMode },
+                        set: { mode in
+                            Task {
+                                await model.setLargeOldPresentation(
+                                    mode: mode,
+                                    sort: model.presentationLargeOldSort
+                                )
+                            }
+                        }
+                    )) {
                         ForEach(LargeOldReviewMode.allCases) { option in
                             Text(option.label).tag(option)
                         }
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 280)
-                    Picker("Sort", selection: $sort) {
+                    Picker("Sort", selection: Binding(
+                        get: { model.presentationLargeOldSort },
+                        set: { sort in
+                            Task {
+                                await model.setLargeOldPresentation(
+                                    mode: model.presentationLargeOldMode,
+                                    sort: sort
+                                )
+                            }
+                        }
+                    )) {
                         Text("Allocated").tag(TopOffenderSort.allocated)
                         Text("Logical").tag(TopOffenderSort.logical)
                         Text("Age").tag(TopOffenderSort.age)
@@ -6178,19 +6219,21 @@ struct LargeOldReviewView: View {
                     .pickerStyle(.menu)
                 }
 
-                HStack(spacing: 12) {
-                    MetricTile(title: "Items", value: "\(report.totalCount)")
-                    MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
-                    MetricTile(title: "Large", value: "\(report.largeCount)")
-                    MetricTile(title: "Old", value: "\(report.oldCount)")
-                    MetricTile(title: "Protected", value: ByteFormat.string(report.protectedBytes))
+                if let report {
+                    HStack(spacing: 12) {
+                        MetricTile(title: "Items", value: "\(report.totalCount)")
+                        MetricTile(title: "Allocated", value: ByteFormat.string(report.totalAllocatedSize))
+                        MetricTile(title: "Large", value: "\(report.largeCount)")
+                        MetricTile(title: "Old", value: "\(report.oldCount)")
+                        MetricTile(title: "Protected", value: ByteFormat.string(report.protectedBytes))
+                    }
                 }
 
                 if model.findings.isEmpty {
                     ContentUnavailableView("No scan yet", systemImage: "doc.text.magnifyingglass", description: Text("Run Scan to build a large and old file review."))
-                } else if report.rows.isEmpty {
+                } else if report?.rows.isEmpty != false {
                     ContentUnavailableView("No large or old review rows", systemImage: "checkmark.circle", description: Text("No current findings matched the selected review mode."))
-                } else {
+                } else if let report, let archiveReport {
                     HStack(alignment: .top, spacing: 14) {
                         ReviewSummaryList(title: "Signals", summaries: report.kindSummaries)
                         ReviewSummaryList(title: "Categories", summaries: Array(report.categorySummaries.prefix(6)))
@@ -6199,8 +6242,8 @@ struct LargeOldReviewView: View {
 
                     ArchiveCandidatePanel(
                         report: archiveReport,
-                        onExport: { Task { await model.exportArchiveReview(mode: mode, sort: sort) } },
-                        onExportRedacted: { Task { await model.exportArchiveReview(mode: mode, sort: sort, pathStyle: .redacted) } }
+                        onExport: { Task { await model.exportArchiveReview(mode: model.presentationLargeOldMode, sort: model.presentationLargeOldSort) } },
+                        onExportRedacted: { Task { await model.exportArchiveReview(mode: model.presentationLargeOldMode, sort: model.presentationLargeOldSort, pathStyle: .redacted) } }
                     )
 
                     if let url = model.lastArchiveReviewExportURL {
@@ -6225,12 +6268,14 @@ struct LargeOldReviewView: View {
                     }
                 }
 
-                SectionBox(title: "Non-Claims") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(report.nonClaims, id: \.self) { note in
-                            Text(note)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                if let report {
+                    SectionBox(title: "Non-Claims") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(report.nonClaims, id: \.self) { note in
+                                Text(note)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }

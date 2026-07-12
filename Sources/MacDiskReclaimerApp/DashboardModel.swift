@@ -102,9 +102,23 @@ final class DashboardModel {
     var currentScanSession: ScanSession?
     var reviewedQueueID: ReviewQueueID?
     var reviewQueueReport: ReviewQueueReport = .empty()
+    var presentationSnapshot: ScanPresentationSnapshot?
+    var isUpdatingPresentation = false
+    var presentationTopOffenderSort: TopOffenderSort = .allocated
+    var presentationTopOffenderGroup: TopOffenderGroup = .none
+    var presentationLargeOldMode: LargeOldReviewMode = .all
+    var presentationLargeOldSort: TopOffenderSort = .allocated
+    var auditHistoryState = AuditStoreScanSessionListResult(sessions: [], warnings: [])
     var hasAppliedStoredSettings = false
     var scanRequestCoordinator = ScanRequestCoordinator()
     private var e2eScopeRoot: URL?
+    var presentationRevision = 0
+
+    init() {
+        Task { [weak self] in
+            await self?.loadActionCenterAuditHistory()
+        }
+    }
 
     var activeScanRequest: ScanRequestIdentity? {
         scanRequestCoordinator.activeRequest
@@ -156,7 +170,7 @@ final class DashboardModel {
     }
 
     func refreshReviewQueueReport() {
-        reviewQueueReport = FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: 40)
+        Task { await refreshPresentationSnapshot() }
     }
 
     var currentEvidence: CurrentEvidenceSnapshot {
@@ -198,7 +212,9 @@ final class DashboardModel {
     }
 
     var actionCenterReport: ActionCenterReport {
-        let scanSessionHistory = actionCenterScanSessionHistory
+        if let presentationSnapshot {
+            return presentationSnapshot.actionCenter
+        }
         let evidence = currentEvidence
         return ActionCenterBuilder.build(
             input: ActionCenterInput(
@@ -212,13 +228,9 @@ final class DashboardModel {
                 browserCacheReport: browserCacheReview,
                 packageCacheReport: packageCacheReview,
                 latestNativeToolExecutionReceipt: recentNativeToolExecutionReceipts.first,
-                sessionHistoryWarnings: scanSessionHistory.warnings
+                sessionHistoryWarnings: auditHistoryState.warnings
             )
         )
-    }
-
-    private var actionCenterScanSessionHistory: AuditStoreScanSessionListResult {
-        (try? AuditStore().listScanSessionsResult(limit: 1)) ?? AuditStoreScanSessionListResult(sessions: [], warnings: [])
     }
 
     var actionCenterScanSession: ScanSession? {
@@ -345,8 +357,11 @@ final class DashboardModel {
 
     func resetScanState() {
         cancelScan()
+        presentationRevision += 1
         findings = []
         reviewQueueReport = .empty()
+        presentationSnapshot = nil
+        isUpdatingPresentation = false
         scanScopes = []
         overview = nil
         scanCoverage = nil
@@ -364,6 +379,7 @@ final class DashboardModel {
         guard activeScanRequest != nil else { return }
         scanRequestCoordinator.invalidate()
         isWorking = false
+        isUpdatingPresentation = false
     }
 
     func currentScopes(includeUnavailable: Bool) -> [ScanScope] {
@@ -389,27 +405,18 @@ final class DashboardModel {
             .map(\.finding)
     }
 
-    func largeOldReviewReport(
-        mode: LargeOldReviewMode = .all,
-        sort: TopOffenderSort = .allocated,
-        limit: Int = 80
-    ) -> LargeOldReviewReport {
-        FindingAnalytics.largeOldReviewReport(findings: findings, mode: mode, sort: sort, limit: limit)
+    func setTopOffenderPresentation(sort: TopOffenderSort, group: TopOffenderGroup) async {
+        guard presentationTopOffenderSort != sort || presentationTopOffenderGroup != group else { return }
+        presentationTopOffenderSort = sort
+        presentationTopOffenderGroup = group
+        await refreshPresentationSnapshot()
     }
 
-    func archiveReviewReport(
-        mode: LargeOldReviewMode = .all,
-        sort: TopOffenderSort = .allocated,
-        limit: Int = 40,
-        pathStyle: ReportPathStyle = .full
-    ) -> ArchiveReviewReport {
-        ArchiveReviewBuilder.build(
-            findings: findings,
-            mode: mode,
-            sort: sort,
-            limit: limit,
-            privacy: ReportPrivacyOptions(pathStyle: pathStyle)
-        )
+    func setLargeOldPresentation(mode: LargeOldReviewMode, sort: TopOffenderSort) async {
+        guard presentationLargeOldMode != mode || presentationLargeOldSort != sort else { return }
+        presentationLargeOldMode = mode
+        presentationLargeOldSort = sort
+        await refreshPresentationSnapshot()
     }
 
     func nativePerformBlockReason(receipt: NativeToolReceipt, command: NativeToolCommand) -> String? {

@@ -265,6 +265,7 @@ public struct ArchiveReviewReport: Codable, Hashable, Identifiable, Sendable {
 
 public enum ArchiveReviewBuilder {
     public static func build(
+        reportID: String = UUID().uuidString,
         title: String = "Ryddi Archive Candidate Review",
         findings: [Finding],
         mode: LargeOldReviewMode = .all,
@@ -297,9 +298,8 @@ public enum ArchiveReviewBuilder {
             compare(lhs, rhs, sort: sort)
         }
         let displayRows = allRows.prefix(max(0, limit)).map { $0 }
-        let id = UUID().uuidString
         let markdown = markdown(
-            id: id,
+            id: reportID,
             title: title,
             createdAt: now,
             mode: mode,
@@ -310,7 +310,7 @@ public enum ArchiveReviewBuilder {
             nonClaims: nonClaims
         )
         return ArchiveReviewReport(
-            id: id,
+            id: reportID,
             createdAt: now,
             title: title,
             mode: mode,

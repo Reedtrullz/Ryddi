@@ -2,11 +2,70 @@ import Foundation
 import ReclaimerCore
 
 extension DashboardModel {
+    func loadActionCenterAuditHistory() async {
+        let state = await Task.detached {
+            (try? AuditStore().listScanSessionsResult(limit: 1))
+                ?? AuditStoreScanSessionListResult(sessions: [], warnings: [])
+        }.value
+        auditHistoryState = state
+        if presentationSnapshot != nil {
+            await refreshPresentationSnapshot()
+        }
+    }
+
+    func refreshPresentationSnapshot(now: Date = Date()) async {
+        guard !findings.isEmpty else { return }
+        presentationRevision += 1
+        let revision = presentationRevision
+        isUpdatingPresentation = true
+        let currentFindings = findings
+        let currentScopes = scanScopes.isEmpty ? selectedScopePlan.scopes : scanScopes
+        let currentCoverage = scanCoverage
+        let currentPermissionReport = permissionReport
+        let evidence = currentEvidence
+        let activeFileReview = activeFileReview
+        let browserCacheReview = browserCacheReview
+        let packageCacheReview = packageCacheReview
+        let latestNativeReceipt = recentNativeToolExecutionReceipts.first
+        let historyWarnings = auditHistoryState.warnings
+        let topSort = presentationTopOffenderSort
+        let topGroup = presentationTopOffenderGroup
+        let largeOldMode = presentationLargeOldMode
+        let largeOldSort = presentationLargeOldSort
+        let snapshot = await Task.detached {
+            ScanPresentationSnapshot.build(
+                findings: currentFindings,
+                scopes: currentScopes,
+                scanCoverage: currentCoverage,
+                permissionReport: currentPermissionReport,
+                latestScanSession: evidence.session,
+                currentPlan: evidence.plan,
+                latestExecutionReceipt: evidence.executionReceipt ?? evidence.dryRunReceipt,
+                activeFileReviewReport: activeFileReview,
+                browserCacheReport: browserCacheReview,
+                packageCacheReport: packageCacheReview,
+                latestNativeToolExecutionReceipt: latestNativeReceipt,
+                sessionHistoryWarnings: historyWarnings,
+                topOffenderSort: topSort,
+                topOffenderGroup: topGroup,
+                largeOldMode: largeOldMode,
+                largeOldSort: largeOldSort,
+                now: now
+            )
+        }.value
+        guard revision == presentationRevision else { return }
+        presentationSnapshot = snapshot
+        overview = snapshot.overview
+        reviewQueueReport = snapshot.reviewQueues
+        isUpdatingPresentation = false
+    }
+
     func recordReviewSelection(_ queueID: ReviewQueueID, updatedAt: Date = Date()) {
         guard overview != nil || !findings.isEmpty else { return }
         reviewedQueueID = queueID
         currentScanSession = sessionForCurrentFindings(updatedAt: updatedAt)
             .recordReviewSelection(updatedAt: updatedAt)
+        Task { await refreshPresentationSnapshot(now: updatedAt) }
     }
 
     private func recordScanSession(updatedAt: Date) throws {
@@ -88,9 +147,16 @@ extension DashboardModel {
         )
         scanRequestCoordinator.begin(request)
         isWorking = true
+        isUpdatingPresentation = true
+        let historyWarnings = auditHistoryState.warnings
+        let topOffenderSort = presentationTopOffenderSort
+        let topOffenderGroup = presentationTopOffenderGroup
+        let largeOldMode = presentationLargeOldMode
+        let largeOldSort = presentationLargeOldSort
         defer {
             if scanRequestCoordinator.finish(request) {
                 isWorking = false
+                isUpdatingPresentation = false
             }
         }
         do {
@@ -105,30 +171,67 @@ extension DashboardModel {
                     options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
                 )
                 let findings = scanResult.findings
-                let overview = FindingAnalytics.overview(findings: findings, scopes: scopes)
-                    .withScanCoverage(scanResult.coverage)
+                let generatedAt = Date()
                 let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
-                let reviewQueues = FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: 40)
-                return (scopePlan.label, scopes, findings, overview, drillDown, policy, PermissionAdvisor.report(scopeSummaries: overview.scopeSummaries), scanResult.coverage, reviewQueues)
+                let findingDigest = ScanSessionEvidenceBuilder.findingDigest(
+                    appVersion: appVersion,
+                    ruleVersion: ruleVersion,
+                    preset: preset,
+                    scopes: scopes,
+                    userPathPolicy: policy,
+                    findings: findings
+                )
+                let session = ScanSession(
+                    id: "app-session-\(UUID().uuidString)",
+                    createdAt: generatedAt,
+                    updatedAt: generatedAt,
+                    appVersion: appVersion,
+                    ruleVersion: ruleVersion,
+                    preset: preset,
+                    scopeDigest: request.scopeDigest,
+                    policyDigest: request.policyDigest,
+                    stage: .notStarted
+                )
+                .recordScan(findingDigest: findingDigest, updatedAt: generatedAt)
+                let presentation = ScanPresentationSnapshot.build(
+                    findings: findings,
+                    scopes: scopes,
+                    scanCoverage: scanResult.coverage,
+                    latestScanSession: session,
+                    sessionHistoryWarnings: historyWarnings,
+                    topOffenderSort: topOffenderSort,
+                    topOffenderGroup: topOffenderGroup,
+                    largeOldMode: largeOldMode,
+                    largeOldSort: largeOldSort,
+                    now: generatedAt
+                )
+                let permissions = PermissionAdvisor.report(
+                    scopeSummaries: presentation.overview.scopeSummaries,
+                    now: generatedAt
+                )
+                return (scopePlan.label, scopes, findings, presentation, drillDown, policy, permissions, scanResult.coverage, session, generatedAt)
             }.value
             guard scanRequestCoordinator.accepts(request) else { return }
             lastScannedScopeLabel = result.0
             scanScopes = result.1
             findings = result.2
-            overview = result.3
+            presentationSnapshot = result.3
+            overview = result.3.overview
             diskDrillDown = result.4
             userPathPolicy = result.5
             permissionReport = result.6
             scanCoverage = result.7
-            reviewQueueReport = result.8
+            reviewQueueReport = result.3.reviewQueues
+            currentScanSession = result.8
+            isUpdatingPresentation = false
             diskStatus = DiskStatusReader().snapshot()
-            _ = try ScanHistoryStore().save(overview: result.3)
+            _ = try ScanHistoryStore().save(overview: result.3.overview)
             loadHistory()
             plan = nil
             lastDryRunReceipt = nil
             lastExecutionReceipt = nil
-            lastScanDate = Date()
-            try recordScanSession(updatedAt: lastScanDate ?? Date())
+            lastScanDate = result.9
+            try AuditStore().saveScanSession(result.8)
             error = nil
         } catch {
             guard scanRequestCoordinator.accepts(request) else { return }
@@ -152,6 +255,7 @@ extension DashboardModel {
         lastDryRunReceipt = nil
         lastExecutionReceipt = nil
         recordPlanSession(builtPlan)
+        await refreshPresentationSnapshot()
         error = nil
     }
 
@@ -186,6 +290,7 @@ extension DashboardModel {
             _ = try AuditStore().save(receipt: receipt)
             loadAudit()
             loadRecovery()
+            await refreshPresentationSnapshot()
         } catch {
             self.error = error.localizedDescription
         }
