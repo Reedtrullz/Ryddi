@@ -13,6 +13,9 @@ public struct NativeActionReceipt: Codable, Identifiable, Hashable, Sendable {
     public let afterDisk: DiskStatusSnapshot?
     public let skippedReason: String?
     public let nonClaims: [String]
+    public let beforeObservedFreeBytes: Int64?
+    public let afterObservedFreeBytes: Int64?
+    public let observedReclaimBytes: Int64?
 
     public init(
         id: String = UUID().uuidString,
@@ -26,7 +29,10 @@ public struct NativeActionReceipt: Codable, Identifiable, Hashable, Sendable {
         beforeDisk: DiskStatusSnapshot?,
         afterDisk: DiskStatusSnapshot?,
         skippedReason: String?,
-        nonClaims: [String]
+        nonClaims: [String],
+        beforeObservedFreeBytes: Int64? = nil,
+        afterObservedFreeBytes: Int64? = nil,
+        observedReclaimBytes: Int64? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -40,6 +46,74 @@ public struct NativeActionReceipt: Codable, Identifiable, Hashable, Sendable {
         self.afterDisk = afterDisk
         self.skippedReason = skippedReason
         self.nonClaims = nonClaims
+        self.beforeObservedFreeBytes = beforeObservedFreeBytes
+        self.afterObservedFreeBytes = afterObservedFreeBytes
+        let candidateObservedReclaim = observedReclaimBytes
+            ?? StorageAccounting.observedReclaimBytes(
+                beforeFreeBytes: beforeObservedFreeBytes,
+                afterFreeBytes: afterObservedFreeBytes
+            )
+        self.observedReclaimBytes = mode == .perform && exitCode == 0 && skippedReason == nil
+            ? candidateObservedReclaim.flatMap { $0 > 0 ? $0 : nil }
+            : nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt
+        case kind
+        case mode
+        case commandDisplay
+        case exitCode
+        case stdoutPreview
+        case stderrPreview
+        case beforeDisk
+        case afterDisk
+        case skippedReason
+        case nonClaims
+        case beforeObservedFreeBytes
+        case afterObservedFreeBytes
+        case observedReclaimBytes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            kind: try container.decode(SafeActionKind.self, forKey: .kind),
+            mode: try container.decode(SafeActionExecutionMode.self, forKey: .mode),
+            commandDisplay: try container.decodeIfPresent([String].self, forKey: .commandDisplay) ?? [],
+            exitCode: try container.decodeIfPresent(Int32.self, forKey: .exitCode),
+            stdoutPreview: try container.decodeIfPresent([String].self, forKey: .stdoutPreview) ?? [],
+            stderrPreview: try container.decodeIfPresent([String].self, forKey: .stderrPreview) ?? [],
+            beforeDisk: try container.decodeIfPresent(DiskStatusSnapshot.self, forKey: .beforeDisk),
+            afterDisk: try container.decodeIfPresent(DiskStatusSnapshot.self, forKey: .afterDisk),
+            skippedReason: try container.decodeIfPresent(String.self, forKey: .skippedReason),
+            nonClaims: try container.decodeIfPresent([String].self, forKey: .nonClaims) ?? [],
+            beforeObservedFreeBytes: try container.decodeIfPresent(Int64.self, forKey: .beforeObservedFreeBytes),
+            afterObservedFreeBytes: try container.decodeIfPresent(Int64.self, forKey: .afterObservedFreeBytes),
+            observedReclaimBytes: try container.decodeIfPresent(Int64.self, forKey: .observedReclaimBytes)
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(commandDisplay, forKey: .commandDisplay)
+        try container.encodeIfPresent(exitCode, forKey: .exitCode)
+        try container.encode(stdoutPreview, forKey: .stdoutPreview)
+        try container.encode(stderrPreview, forKey: .stderrPreview)
+        try container.encodeIfPresent(beforeDisk, forKey: .beforeDisk)
+        try container.encodeIfPresent(afterDisk, forKey: .afterDisk)
+        try container.encodeIfPresent(skippedReason, forKey: .skippedReason)
+        try container.encode(nonClaims, forKey: .nonClaims)
+        try container.encodeIfPresent(beforeObservedFreeBytes, forKey: .beforeObservedFreeBytes)
+        try container.encodeIfPresent(afterObservedFreeBytes, forKey: .afterObservedFreeBytes)
+        try container.encodeIfPresent(observedReclaimBytes, forKey: .observedReclaimBytes)
     }
 }
 
@@ -444,7 +518,9 @@ public final class NativeActionExecutor: @unchecked Sendable {
             beforeDisk: before,
             afterDisk: after,
             skippedReason: output.launchError,
-            nonClaims: Self.homebrewCleanupNonClaims
+            nonClaims: Self.homebrewCleanupNonClaims,
+            beforeObservedFreeBytes: before.displayFreeBytes,
+            afterObservedFreeBytes: after?.displayFreeBytes
         )
     }
 

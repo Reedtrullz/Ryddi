@@ -293,6 +293,8 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
     public let ruleMatches: [RuleMatch]
     public let evidence: [Evidence]
     public let openFileStatus: OpenFileStatus?
+    public let storageAccounting: StorageAccounting?
+    public let measurementCoverage: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -310,7 +312,9 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
         actionKind: ActionKind,
         ruleMatches: [RuleMatch],
         evidence: [Evidence],
-        openFileStatus: OpenFileStatus? = nil
+        openFileStatus: OpenFileStatus? = nil,
+        storageAccounting: StorageAccounting? = nil,
+        measurementCoverage: String? = nil
     ) {
         self.id = id
         self.scopeName = scopeName
@@ -328,6 +332,74 @@ public struct Finding: Codable, Hashable, Identifiable, Sendable {
         self.ruleMatches = ruleMatches
         self.evidence = evidence
         self.openFileStatus = openFileStatus
+        self.storageAccounting = storageAccounting
+        self.measurementCoverage = measurementCoverage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case scopeName
+        case path
+        case displayName
+        case logicalSize
+        case allocatedSize
+        case isDirectory
+        case isSymbolicLink
+        case modificationDate
+        case filesystemIdentity
+        case ownerHint
+        case safetyClass
+        case actionKind
+        case ruleMatches
+        case evidence
+        case openFileStatus
+        case storageAccounting
+        case measurementCoverage
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.scopeName = try container.decode(String.self, forKey: .scopeName)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.displayName = try container.decode(String.self, forKey: .displayName)
+        self.logicalSize = try container.decode(Int64.self, forKey: .logicalSize)
+        self.allocatedSize = try container.decode(Int64.self, forKey: .allocatedSize)
+        self.isDirectory = try container.decode(Bool.self, forKey: .isDirectory)
+        self.isSymbolicLink = try container.decodeIfPresent(Bool.self, forKey: .isSymbolicLink) ?? false
+        self.modificationDate = try container.decodeIfPresent(Date.self, forKey: .modificationDate)
+        self.filesystemIdentity = try container.decodeIfPresent(FilesystemIdentity.self, forKey: .filesystemIdentity)
+        self.ownerHint = try container.decodeIfPresent(String.self, forKey: .ownerHint)
+        self.safetyClass = try container.decode(SafetyClass.self, forKey: .safetyClass)
+        self.actionKind = try container.decode(ActionKind.self, forKey: .actionKind)
+        self.ruleMatches = try container.decodeIfPresent([RuleMatch].self, forKey: .ruleMatches) ?? []
+        self.evidence = try container.decodeIfPresent([Evidence].self, forKey: .evidence) ?? []
+        self.openFileStatus = try container.decodeIfPresent(OpenFileStatus.self, forKey: .openFileStatus)
+        self.storageAccounting = try container.decodeIfPresent(StorageAccounting.self, forKey: .storageAccounting)
+            ?? StorageAccounting.legacyEstimate(logicalBytes: logicalSize, allocatedBytes: allocatedSize)
+        self.measurementCoverage = try container.decodeIfPresent(String.self, forKey: .measurementCoverage)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(scopeName, forKey: .scopeName)
+        try container.encode(path, forKey: .path)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(logicalSize, forKey: .logicalSize)
+        try container.encode(allocatedSize, forKey: .allocatedSize)
+        try container.encode(isDirectory, forKey: .isDirectory)
+        try container.encode(isSymbolicLink, forKey: .isSymbolicLink)
+        try container.encodeIfPresent(modificationDate, forKey: .modificationDate)
+        try container.encodeIfPresent(filesystemIdentity, forKey: .filesystemIdentity)
+        try container.encodeIfPresent(ownerHint, forKey: .ownerHint)
+        try container.encode(safetyClass, forKey: .safetyClass)
+        try container.encode(actionKind, forKey: .actionKind)
+        try container.encode(ruleMatches, forKey: .ruleMatches)
+        try container.encode(evidence, forKey: .evidence)
+        try container.encodeIfPresent(openFileStatus, forKey: .openFileStatus)
+        try container.encodeIfPresent(storageAccounting, forKey: .storageAccounting)
+        try container.encodeIfPresent(measurementCoverage, forKey: .measurementCoverage)
     }
 }
 
@@ -344,13 +416,29 @@ public extension Finding {
     }
 
     var storageAccountingNote: String {
-        if allocatedSize == logicalSize {
-            return "Allocated and logical size are currently the same for this item."
+        guard let storageAccounting else {
+            if allocatedSize == logicalSize {
+                return "Allocated and logical size are currently the same for this item; physical reclaim is not directly observed."
+            }
+            if allocatedSize < logicalSize {
+                return "Allocated size is lower than logical size; this is an estimate and does not promise exact physical reclaim."
+            }
+            return "Allocated size is higher than logical size because filesystem blocks and metadata can consume extra physical space; physical reclaim is not directly observed."
         }
-        if allocatedSize < logicalSize {
-            return "Allocated size is lower than logical size, which can happen with sparse files, compression, clones, or APFS accounting."
+
+        switch storageAccounting.status {
+        case .unknown:
+            return "Physical reclaim is unknown; logical and allocated sizes are evidence only."
+        case .sharedCloneBacked:
+            return "Storage may be backed by shared clone or hard-link extents; deleting this path does not prove those bytes are reclaimable."
+        case .observedDelta:
+            if let physicalReclaimBytes = storageAccounting.physicalReclaimBytes, physicalReclaimBytes > 0 {
+                return "Observed free-space increase: \(ByteFormat.string(physicalReclaimBytes)); this is a measurement for that action, not a promise for future cleanup."
+            }
+            return "No positive free-space increase was observed; logical and allocated sizes remain estimates."
+        case .estimated:
+            return "Estimated immediate reclaim: \(ByteFormat.string(storageAccounting.estimatedImmediateReclaimBytes)); allocated and logical sizes do not promise exact physical reclaim."
         }
-        return "Allocated size is higher than logical size because filesystem blocks and metadata can consume extra physical space."
     }
 
     func withOpenFileStatus(_ status: OpenFileStatus) -> Finding {
@@ -370,7 +458,9 @@ public extension Finding {
             actionKind: actionKind,
             ruleMatches: ruleMatches,
             evidence: evidence,
-            openFileStatus: status
+            openFileStatus: status,
+            storageAccounting: storageAccounting,
+            measurementCoverage: measurementCoverage
         )
     }
 }
