@@ -4,10 +4,16 @@ public protocol Trashing: Sendable {
     func trashItem(at url: URL) throws -> URL
 }
 
-extension FileManager: Trashing {
+public struct FileManagerTrasher: Trashing, @unchecked Sendable {
+    private let fileManager: FileManager
+
+    public init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
     public func trashItem(at url: URL) throws -> URL {
         var resultingURL: NSURL?
-        try trashItem(at: url, resultingItemURL: &resultingURL)
+        try fileManager.trashItem(at: url, resultingItemURL: &resultingURL)
         guard let resultingURL else {
             throw CocoaError(.fileWriteUnknown)
         }
@@ -71,7 +77,7 @@ public final class ReclaimerExecutor: @unchecked Sendable {
         openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
         configuration: ExecutorConfiguration = ExecutorConfiguration(),
         ruleEngine: RuleEngine? = nil,
-        trasher: Trashing = FileManager.default,
+        trasher: Trashing = FileManagerTrasher(),
         identityReader: FileIdentityReader = FileIdentityReader()
     ) {
         self.fileManager = fileManager
