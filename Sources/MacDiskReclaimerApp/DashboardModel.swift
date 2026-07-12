@@ -88,9 +88,7 @@ final class DashboardModel {
             guard let root = DashboardLaunchOptions.e2eScopeRoot else {
                 return PermissionAdvisor.report(scopes: [])
             }
-            return PermissionAdvisor.report(scopes: [
-                ScanScope(name: "E2E fixture", root: root)
-            ])
+            return PermissionAdvisor.report(scopes: DashboardModel.e2eScopes(root: root))
         }
         return PermissionAdvisor.report(scopes: DefaultScopes.scopes(for: .developer, includeUnavailable: true))
     }()
@@ -140,7 +138,7 @@ final class DashboardModel {
             return DefaultScopes.customPlan(
                 label: "E2E fixture",
                 summary: "Disposable fixture scope supplied by the bounded app E2E launch contract.",
-                scopes: [ScanScope(name: "E2E fixture", root: e2eScopeRoot)]
+                scopes: Self.e2eScopes(root: e2eScopeRoot)
             )
         }
         if let selectedSavedScopeSet {
@@ -174,6 +172,16 @@ final class DashboardModel {
         e2eScopeRoot = root.standardizedFileURL
         selectedScopeTemplateID = nil
         selectedSavedScopeSetID = nil
+    }
+
+    private static func e2eScopes(root: URL) -> [ScanScope] {
+        [
+            ScanScope(name: "E2E safe cache", root: root.appendingPathComponent("Library/Caches/Codex", isDirectory: true)),
+            ScanScope(name: "E2E browser profile", root: root.appendingPathComponent("Library/Application Support/Google/Chrome/Default", isDirectory: true)),
+            ScanScope(name: "E2E Codex history", root: root.appendingPathComponent(".codex/sessions", isDirectory: true)),
+            ScanScope(name: "E2E app bundle", root: root.appendingPathComponent("Applications/Ryddi E2E Fixture.app", isDirectory: true)),
+            ScanScope(name: "E2E large-file review", root: root.appendingPathComponent("Downloads", isDirectory: true))
+        ]
     }
 
     func reviewQueueDetailReport(for queueID: ReviewQueueID, limit: Int = 40) -> ReviewQueueDetailReport {

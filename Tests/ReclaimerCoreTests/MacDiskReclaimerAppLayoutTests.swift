@@ -98,8 +98,8 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
 
         XCTAssertTrue(confirmation.contains("struct TrashConfirmationView: View"))
         XCTAssertTrue(confirmation.contains("I reviewed every item above"))
-        XCTAssertTrue(confirmation.contains("trash-confirmation.confirm"))
-        XCTAssertTrue(confirmation.contains("trash-confirmation.cancel"))
+        XCTAssertTrue(confirmation.contains("AccessibilityID.trashConfirm"))
+        XCTAssertTrue(confirmation.contains("AccessibilityID.trashCancel"))
         XCTAssertTrue(dashboard.contains("pendingTrashConfirmation"))
         XCTAssertTrue(summary.contains("prepareTrashExecution"))
         XCTAssertFalse(summary.contains("private var canExecuteCoreReclaim: Bool {\n        false"))

@@ -70,18 +70,18 @@ struct TrashConfirmationView: View {
             }
 
             Toggle("I reviewed every item above", isOn: $reviewed)
-                .accessibilityIdentifier("trash-confirmation.reviewed")
+                .accessibilityIdentifier(AccessibilityID.trashReviewed)
 
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
                     .disabled(isExecuting)
-                    .accessibilityIdentifier("trash-confirmation.cancel")
+                    .accessibilityIdentifier(AccessibilityID.trashCancel)
                 Button("Move to Trash", role: .destructive, action: onConfirm)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!reviewed || isExecuting)
-                    .accessibilityIdentifier("trash-confirmation.confirm")
+                    .accessibilityIdentifier(AccessibilityID.trashConfirm)
             }
         }
         .padding(24)

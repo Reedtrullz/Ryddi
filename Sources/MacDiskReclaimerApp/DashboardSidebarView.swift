@@ -22,6 +22,7 @@ struct DashboardSidebarView: View {
                     ForEach(sections(in: group)) { section in
                         DashboardSidebarRow(section: section)
                             .tag(section)
+                            .accessibilityIdentifier(AccessibilityID.sidebarSection(section))
                     }
                 }
             }
@@ -30,11 +31,13 @@ struct DashboardSidebarView: View {
                 ForEach(trustEssentials) { section in
                     DashboardSidebarRow(section: section)
                         .tag(section)
+                        .accessibilityIdentifier(AccessibilityID.sidebarSection(section))
                 }
                 DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
                     ForEach(advancedSections) { section in
                         DashboardSidebarRow(section: section)
                             .tag(section)
+                            .accessibilityIdentifier(AccessibilityID.sidebarSection(section))
                     }
                 }
             }
@@ -42,6 +45,7 @@ struct DashboardSidebarView: View {
         .listStyle(.sidebar)
         .navigationTitle("Ryddi")
         .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
+        .accessibilityIdentifier(AccessibilityID.sidebar)
     }
 
     private func sections(in group: DashboardSidebarGroup) -> [DashboardSection] {

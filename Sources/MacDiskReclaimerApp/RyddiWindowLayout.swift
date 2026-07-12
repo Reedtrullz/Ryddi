@@ -1,10 +1,10 @@
 import SwiftUI
 
 enum RyddiWindowLayout {
-    static let minimumContentWidth: CGFloat = 1260
-    static let minimumContentHeight: CGFloat = 760
-    static let defaultContentWidth: CGFloat = 1480
-    static let defaultContentHeight: CGFloat = 940
+    static let minimumContentWidth: CGFloat = 980
+    static let minimumContentHeight: CGFloat = 680
+    static let defaultContentWidth: CGFloat = 1440
+    static let defaultContentHeight: CGFloat = 900
     static let topOffenderTableMinimumWidth: CGFloat = 1160
 }
 

@@ -8,6 +8,7 @@ struct DashboardView: View {
     @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue
     @AppStorage(RyddiAppStorageKey.redactUserTextByDefault) private var redactUserTextByDefault = false
     @State private var selectedFinding: Finding.ID?
+    @State private var layoutClass: DashboardLayoutClass = .regular
     @SceneStorage("dashboard.selectedSectionID") private var selectedSectionID = DashboardLaunchOptions.initialSectionID
 
     var body: some View {
@@ -17,7 +18,9 @@ struct DashboardView: View {
                 set: { selectSection($0) }
             ))
         } detail: {
-            switch selectedSection {
+            GeometryReader { proxy in
+                Group {
+                    switch selectedSection {
             case .features:
                 CapabilityMatrixView()
             case .rules:
@@ -90,8 +93,16 @@ struct DashboardView: View {
                     model: model,
                     navigate: selectLegacySection
                 )
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear { layoutClass = .resolve(width: proxy.size.width) }
+                .onChange(of: proxy.size.width) { _, width in
+                    layoutClass = .resolve(width: width)
+                }
             }
         }
+        .navigationSplitViewStyle(.balanced)
         .focusedSceneValue(\.dashboardCommandActions, commandActions)
         .sheet(item: $model.pendingTrashConfirmation, onDismiss: {
             Task { await model.cancelPendingTrashExecution() }
@@ -104,7 +115,8 @@ struct DashboardView: View {
             )
         }
         .toolbar {
-            Picker("Scan Mode", selection: Binding(
+            if layoutClass != .compact {
+                Picker("Scan Mode", selection: Binding(
                 get: { model.scanPreset },
                 set: { model.setScanPreset($0) }
             )) {
@@ -115,9 +127,9 @@ struct DashboardView: View {
             .pickerStyle(.segmented)
             .frame(width: 320)
             .disabled(model.activeScanRequest != nil)
-            .accessibilityIdentifier("scan-mode-picker")
+                .accessibilityIdentifier(AccessibilityID.scanMode)
 
-            Picker("Saved Scope", selection: Binding(
+                Picker("Saved Scope", selection: Binding(
                 get: { model.selectedSavedScopeSetID ?? "" },
                 set: { model.setSavedScopeSet($0.isEmpty ? nil : $0) }
             )) {
@@ -129,7 +141,8 @@ struct DashboardView: View {
             .pickerStyle(.menu)
             .frame(width: 190)
             .disabled(model.savedScopeSets.isEmpty || model.activeScanRequest != nil)
-            .accessibilityIdentifier("saved-scope-picker")
+                .accessibilityIdentifier(AccessibilityID.savedScope)
+            }
 
             Button {
                 Task { await model.scan() }
@@ -137,7 +150,7 @@ struct DashboardView: View {
                 Label("Scan", systemImage: "magnifyingglass")
             }
             .disabled(model.isWorking)
-            .accessibilityIdentifier("scan-button")
+            .accessibilityIdentifier(AccessibilityID.scan)
 
             if model.activeScanRequest != nil {
                 Button(role: .cancel) {
@@ -156,6 +169,27 @@ struct DashboardView: View {
             .disabled(model.findings.isEmpty || model.isWorking)
 
             Menu {
+                if layoutClass == .compact {
+                    Picker("Scan Mode", selection: Binding(
+                        get: { model.scanPreset },
+                        set: { model.setScanPreset($0) }
+                    )) {
+                        ForEach(ScanScopePreset.allCases) { preset in
+                            Text(preset.label).tag(preset)
+                        }
+                    }
+                    Picker("Saved Scope", selection: Binding(
+                        get: { model.selectedSavedScopeSetID ?? "" },
+                        set: { model.setSavedScopeSet($0.isEmpty ? nil : $0) }
+                    )) {
+                        Text("No saved scope").tag("")
+                        ForEach(model.savedScopeSets) { set in
+                            Text(set.name).tag(set.id)
+                        }
+                    }
+                    .disabled(model.savedScopeSets.isEmpty || model.activeScanRequest != nil)
+                    Divider()
+                }
                 Picker("Template", selection: Binding(
                     get: { model.selectedScopeTemplateID ?? "" },
                     set: { model.setScopeTemplate($0.isEmpty ? nil : $0) }

@@ -5491,6 +5491,7 @@ struct ReviewQueuesView: View {
             }
             .padding(24)
         }
+        .accessibilityIdentifier(AccessibilityID.cleanupFlow)
     }
 
     private func exportEvidenceReportUsingDefaults() {
@@ -5621,6 +5622,7 @@ struct ReviewQueueRail: View {
                                 ReviewQueueSummaryRow(queue: queue, isSelected: selectedQueue == queue.queueID)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier(AccessibilityID.queue(queue.queueID))
                         }
                     }
                 }

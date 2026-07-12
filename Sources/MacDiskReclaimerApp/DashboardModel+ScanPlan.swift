@@ -76,17 +76,23 @@ extension DashboardModel {
         try AuditStore().saveScanSession(session)
     }
 
-    private func recordPlanSession(_ plan: ReclaimPlan, updatedAt: Date = Date()) {
+    private func recordPlanSession(_ plan: ReclaimPlan, updatedAt: Date = Date()) throws {
         currentScanSession = sessionForCurrentFindings(updatedAt: updatedAt)
             .recordPlan(planDigest: plan.id, updatedAt: updatedAt)
+        if let currentScanSession {
+            try AuditStore().saveScanSession(currentScanSession)
+        }
     }
 
-    private func recordDryRunSession(_ receipt: ExecutionReceipt, updatedAt: Date? = nil) {
+    private func recordDryRunSession(_ receipt: ExecutionReceipt, updatedAt: Date? = nil) throws {
         guard let plan else { return }
         let transitionDate = updatedAt ?? receipt.createdAt
         currentScanSession = sessionForCurrentFindings(updatedAt: transitionDate)
             .recordPlan(planDigest: plan.id, updatedAt: transitionDate)
             .recordDryRunReceipt(receipt, updatedAt: transitionDate)
+        if let currentScanSession {
+            try AuditStore().saveScanSession(currentScanSession)
+        }
     }
 
     private func recordExecutionSession(_ receipt: ExecutionReceipt, updatedAt: Date? = nil) {
@@ -254,7 +260,12 @@ extension DashboardModel {
         plan = builtPlan
         lastDryRunReceipt = nil
         lastExecutionReceipt = nil
-        recordPlanSession(builtPlan)
+        do {
+            try recordPlanSession(builtPlan)
+        } catch {
+            self.error = "The plan was built, but its audit state could not be saved: \(error.localizedDescription)"
+            return
+        }
         await refreshPresentationSnapshot()
         error = nil
     }
@@ -285,7 +296,7 @@ extension DashboardModel {
             }.value
             lastDryRunReceipt = receipt
             lastExecutionReceipt = nil
-            recordDryRunSession(receipt)
+            try recordDryRunSession(receipt)
             _ = try AuditStore().save(plan: plan)
             _ = try AuditStore().save(receipt: receipt)
             loadAudit()

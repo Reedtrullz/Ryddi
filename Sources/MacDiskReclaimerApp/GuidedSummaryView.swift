@@ -38,32 +38,35 @@ struct GuidedSummaryView: View {
                 systemImage: "clock.arrow.circlepath"
             )
         }
+        .accessibilityIdentifier(AccessibilityID.flowStatus)
     }
 
     @ViewBuilder
     private var primaryActionPanel: some View {
-        if let primary = report.primaryAction {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 16) {
-                    actionText(for: primary)
-                    Spacer(minLength: 12)
-                    actionButton(for: SummaryCommand(action: primary), prominent: true)
-                }
+        Group {
+            if let primary = report.primaryAction {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 16) {
+                        actionText(for: primary)
+                        Spacer(minLength: 12)
+                        actionButton(for: SummaryCommand(action: primary), prominent: true)
+                    }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    actionText(for: primary)
-                    actionButton(for: SummaryCommand(action: primary), prominent: true)
+                    VStack(alignment: .leading, spacing: 12) {
+                        actionText(for: primary)
+                        actionButton(for: SummaryCommand(action: primary), prominent: true)
+                    }
                 }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("No immediate action", systemImage: "checkmark.shield")
+                        .font(.title3.weight(.semibold))
+                    Text("No current Action Center command is available from the app's saved evidence.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("No immediate action", systemImage: "checkmark.shield")
-                    .font(.title3.weight(.semibold))
-                Text("No current Action Center command is available from the app's saved evidence.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -96,7 +99,7 @@ struct GuidedSummaryView: View {
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.green)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("trash-execution.result")
+                    .accessibilityIdentifier(AccessibilityID.trashResult)
             }
 
             ForEach(reclaimBlockReasons, id: \.self) { reason in
@@ -146,7 +149,7 @@ struct GuidedSummaryView: View {
             .controlSize(.large)
             .disabled(isCommandDisabled(command))
             .help(command.reason)
-            .accessibilityIdentifier("summary.primary-action")
+            .accessibilityIdentifier(accessibilityIdentifier(for: command))
         } else {
             Button(role: command.role) {
                 performActionCenterCommand(command)
@@ -167,17 +170,23 @@ struct GuidedSummaryView: View {
     private func accessibilityIdentifier(for command: SummaryCommand) -> String {
         switch command.command {
         case .scan:
-            "summary.scan-button"
+            AccessibilityID.summaryScan
         case .plan:
-            "summary.plan-button"
+            AccessibilityID.summaryPlan
         case .dryRun:
-            "summary.dry-run-button"
+            AccessibilityID.summaryDryRun
         case .reclaim:
-            "summary.reclaim-button"
-        case .actionCenter(let action) where action.kind == .executeSafePlan:
-            "summary.reclaim-button"
-        case .openReviewQueue, .actionCenter:
-            "summary.manual-review-button"
+            AccessibilityID.summaryReclaim
+        case .actionCenter(let action):
+            switch action.kind {
+            case .runScan: AccessibilityID.summaryScan
+            case .runDryRun: AccessibilityID.summaryDryRun
+            case .executeSafePlan: AccessibilityID.summaryReclaim
+            case .grantAccess: "summary.permissions-button"
+            case .reviewQueue, .quitApp, .useNativeTool: AccessibilityID.summaryManualReview
+            }
+        case .openReviewQueue:
+            AccessibilityID.summaryManualReview
         case .openPermissions:
             "summary.permissions-button"
         case .exportReport:
