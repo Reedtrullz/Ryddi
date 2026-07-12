@@ -226,5 +226,6 @@ Manual release evidence remains intentionally open:
 
 - Human VoiceOver traversal and announcements at 980×680.
 - Human sidebar collapse/restore review at the minimum size.
-- Finder, Dock, About, and app-switcher icon screenshots.
-- Developer ID signing, notarization, stapling, Gatekeeper, and signed packaged-AX release proof.
+- Dock and app-switcher icon screenshots. Finder and About evidence were captured from the installed v0.3.0 app.
+
+The credential-backed release gate is now complete. Merge commit `62260b0254ffa205591e53521f60b37ac8f116eb` passed main CI run `29211268860`, 520 local tests with one intentional release-only skip, packaged AX E2E, Developer ID signing, Apple notarization submission `06b83c4a-0135-4458-ad5e-5ae98cbe87ba` with status `Accepted`, stapling, Gatekeeper, strict codesign, typed trust state `stapledAndAccepted`, installed-app verification, and byte-identical GitHub asset readback. Release: https://github.com/Reedtrullz/Ryddi/releases/tag/v0.3.0.

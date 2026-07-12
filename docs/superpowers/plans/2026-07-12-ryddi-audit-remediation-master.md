@@ -91,3 +91,16 @@ flowchart LR
 - [ ] Run unsigned preview release check.
 - [ ] Run signed/notarized release check only with available credentials and retain value-free proof.
 - [ ] Run `git diff --check` and verify no stale audit wording remains with `rg -n "recentPlans.first|recentReceipts.first|automatic filesystem mutation is disabled" Sources README.md FEATURES.md docs`.
+
+## Release Evidence (2026-07-13)
+
+The automated implementation and release gates are complete for merge commit `62260b0254ffa205591e53521f60b37ac8f116eb`:
+
+- PR [#2](https://github.com/Reedtrullz/Ryddi/pull/2) merged after exact-head CI run `29211208733` passed. Main CI run `29211268860` then passed build, the full test suite, and fixture-backed app E2E for the merge commit.
+- The final local signed gate passed `520` tests with `1` intentional release-only skip and `0` failures, packaged Accessibility E2E at 980x680, 1280x800, and 1600x1000, strict Developer ID verification, Apple notarization submission `06b83c4a-0135-4458-ad5e-5ae98cbe87ba` with status `Accepted`, stapler validation, and Gatekeeper assessment.
+- `Ryddi-release-manifest.txt` reports version `0.3.0`, build `3`, source commit `62260b0254ffa205591e53521f60b37ac8f116eb`, `codesign_verified=true`, `hardened_runtime=true`, `notarization_status=Accepted`, `stapled=true`, `gatekeeper=accepted`, and `packaged_ax_e2e=passed`.
+- The typed trust parser reports `state=stapledAndAccepted`. A fresh download of all GitHub assets passed the external checksum and was byte-identical to the locally verified archive and manifest.
+- GitHub Release [v0.3.0](https://github.com/Reedtrullz/Ryddi/releases/tag/v0.3.0) is published from the same commit. The notarized app is installed at `/Applications/Ryddi.app`, passes strict codesign, stapler, and Gatekeeper checks there, and launches successfully.
+- CI exposed two release-only portability issues before publication: a retroactive `FileManager` `Sendable` conformance and an unsuitable hosted-runner disk threshold. Commits `0c019a1` and `6d4bbba` fixed them before merge and final signing.
+
+Human QA remains separate from automated release proof. The About panel and Finder icon were captured, but subjective VoiceOver announcement quality, sidebar collapse/restore at minimum size, and Dock/app-switcher icon appearance are not claimed as human-reviewed.
