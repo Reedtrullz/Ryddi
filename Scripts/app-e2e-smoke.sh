@@ -20,9 +20,14 @@ cleanup() {
 trap cleanup EXIT
 
 available_kib="$(df -Pk /System/Volumes/Data | awk 'NR == 2 { print $4 }')"
-minimum_kib=$((50 * 1024 * 1024))
+minimum_free_gib="${RYDDI_E2E_MIN_FREE_GIB:-30}"
+if ! [[ "$minimum_free_gib" =~ ^[0-9]+$ ]] || (( minimum_free_gib < 1 )); then
+  echo "RYDDI_E2E_MIN_FREE_GIB must be a positive integer." >&2
+  exit 2
+fi
+minimum_kib=$((minimum_free_gib * 1024 * 1024))
 if [[ -z "$available_kib" || "$available_kib" -lt "$minimum_kib" ]]; then
-  echo "Ryddi app E2E requires at least 50 GiB free on /System/Volumes/Data." >&2
+  echo "Ryddi app E2E requires at least $minimum_free_gib GiB free on /System/Volumes/Data." >&2
   exit 1
 fi
 

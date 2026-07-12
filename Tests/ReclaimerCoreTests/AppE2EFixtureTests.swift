@@ -86,6 +86,10 @@ final class AppE2EFixtureTests: XCTestCase {
             contentsOf: root.appendingPathComponent(".github/workflows/ci.yml"),
             encoding: .utf8
         )
+        let releaseWorkflow = try String(
+            contentsOf: root.appendingPathComponent(".github/workflows/release-preview.yml"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(smoke.contains("mktemp -d"))
         XCTAssertTrue(smoke.contains("trap cleanup EXIT"))
@@ -97,6 +101,7 @@ final class AppE2EFixtureTests: XCTestCase {
         XCTAssertTrue(smoke.contains("run_cli execute --dry-run"))
         XCTAssertTrue(smoke.contains("run_cli apps uninstall"))
         XCTAssertTrue(smoke.contains("protected-preserved=yes"))
+        XCTAssertTrue(smoke.contains("RYDDI_E2E_MIN_FREE_GIB:-30"))
         XCTAssertTrue(releaseCheck.contains("RYDDI_E2E_APP_PATH=\"$app\""))
         XCTAssertTrue(releaseCheck.contains("Scripts/app-e2e-smoke.sh"))
         XCTAssertTrue(releaseCheck.contains("RYDDI_REQUIRE_PACKAGED_AX_E2E"))
@@ -107,6 +112,8 @@ final class AppE2EFixtureTests: XCTestCase {
         XCTAssertTrue(packagedAX.contains("trashArtifactCleaned"))
         XCTAssertTrue(ci.contains("Fixture-backed app E2E smoke"))
         XCTAssertTrue(ci.contains("timeout-minutes: 10"))
+        XCTAssertTrue(ci.contains("RYDDI_E2E_MIN_FREE_GIB: \"5\""))
+        XCTAssertTrue(releaseWorkflow.contains("RYDDI_E2E_MIN_FREE_GIB: \"5\""))
     }
 
     private func runFixtureScript(root: URL) throws -> (status: Int32, stdout: String, stderr: String) {

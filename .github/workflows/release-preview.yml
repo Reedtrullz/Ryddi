@@ -12,6 +12,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Release check
+        env:
+          RYDDI_E2E_MIN_FREE_GIB: "5"
         run: Scripts/release-check.sh
 
       - name: Upload developer preview artifact

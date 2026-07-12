@@ -727,7 +727,7 @@ Run the packaged-app smoke against a disposable temporary fixture:
 Scripts/app-e2e-smoke.sh
 ```
 
-The smoke enforces the 50 GiB disk guard, builds a caller-bounded fixture, launches `Ryddi.app` with `RYDDI_E2E_MODE=1`, attempts a Ryddi-window-only screenshot, and runs packaged CLI scan, plan, core dry run, and app-uninstall dry run. It compares protected browser-profile, Codex-session, symlink, and app-bundle markers afterward. The fixture is under the current temporary directory, cleaned with a trap, requires no Full Disk Access, and never scans or mutates real user cache roots.
+The smoke defaults to a 30 GiB disk guard, builds a caller-bounded fixture, launches `Ryddi.app` with `RYDDI_E2E_MODE=1`, attempts a Ryddi-window-only screenshot, and runs packaged CLI scan, plan, core dry run, and app-uninstall dry run. It compares protected browser-profile, Codex-session, symlink, and app-bundle markers afterward. The fixture is under the current temporary directory, cleaned with a trap, requires no Full Disk Access, and never scans or mutates real user cache roots. Hosted CI sets `RYDDI_E2E_MIN_FREE_GIB=5` only for this bounded fixture smoke; autonomous local and signed release work retains the 30 GiB default.
 
 Use `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` for the manual screenshot gate. See [Ryddi v0.3 Human QA](docs/QA_V0.3.md) for the required visual and VoiceOver checks.
 
