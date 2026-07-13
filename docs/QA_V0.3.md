@@ -14,7 +14,7 @@ Record the artifact filename, SHA-256, source commit, macOS version, Mac model, 
 - [ ] Dry run leaves protected browser profiles, Codex sessions, credentials, personal data, app bundles, and symlinks unchanged.
 - [ ] Reclaim remains disabled with an explicit reason until the current plan has a clean matching dry run.
 - [ ] The Homebrew action runs the actual cleanup preview first and does not enable perform from synthetic or stale evidence.
-- [ ] Audit prune dry run does not mutate audit files, directories, packages, or symlinks.
+- [ ] Audit and scan-history retention dry runs mutate nothing; confirmed disposable-fixture retention moves only reviewed identity-matching known JSON to Finder Trash and preserves unknown files, directories, packages, symlinks, and replacements.
 - [ ] An unreachable Remote Target fails without an interactive password or host-key prompt.
 - [ ] Remote report export is redacted and Remote Targets report-only controls expose probe, scan, and export, never reclaim.
 - [ ] The minimum window and a narrow supported window keep the sidebar, toolbar fallback, Summary metrics, and detail content usable without incoherent overlap.

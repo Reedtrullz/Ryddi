@@ -42,18 +42,18 @@ hide_build_dir_for_packaged_smokes() {
   fi
 }
 
-assert_public_manifest_has_no_local_paths() {
-  local manifest="$1"
-  if [[ -n "${HOME:-}" ]] && grep -F "$HOME" "$manifest" >/dev/null 2>&1; then
-    echo "release manifest leaks HOME path: $HOME" >&2
+assert_public_file_has_no_local_paths() {
+  local public_file="$1"
+  if [[ -n "${HOME:-}" ]] && grep -F "$HOME" "$public_file" >/dev/null 2>&1; then
+    echo "public release evidence leaks HOME path: $HOME" >&2
     exit 1
   fi
-  if [[ -n "$root" ]] && grep -F "$root" "$manifest" >/dev/null 2>&1; then
-    echo "release manifest leaks repository path: $root" >&2
+  if [[ -n "$root" ]] && grep -F "$root" "$public_file" >/dev/null 2>&1; then
+    echo "public release evidence leaks repository path: $root" >&2
     exit 1
   fi
-  if grep -Eq '/Users/[^[:space:]]+' "$manifest"; then
-    echo "release manifest leaks a /Users absolute path" >&2
+  if grep -Eq '/Users/[^[:space:]]+' "$public_file"; then
+    echo "public release evidence leaks a /Users absolute path" >&2
     exit 1
   fi
 }
@@ -67,7 +67,11 @@ archive_staged_release() {
   fi
   rm -f "$zip_path" "$checksum_path"
   /usr/bin/ditto -c -k --keepParent "$stage_dir" "$zip_path"
-  shasum -a 256 "$zip_path" >"$checksum_path"
+  (
+    cd "$dist"
+    shasum -a 256 "$(basename "$zip_path")" >"$(basename "$checksum_path")"
+  )
+  assert_public_file_has_no_local_paths "$checksum_path"
   cp "$staged_manifest" "$manifest_path"
 }
 
@@ -106,6 +110,7 @@ release_kind=$release_kind
 version=$bundle_version
 build=$bundle_build
 source_commit=$commit
+source_dirty=$source_dirty
 signing_identity=$signing_identity
 codesign_verified=$codesign_verified
 hardened_runtime=$hardened_runtime
@@ -128,8 +133,12 @@ Non-claims:
 - Gatekeeper acceptance does not by itself prove that a notarization ticket is stapled.
 - Packaging does not grant Full Disk Access or execute cleanup.
 MANIFEST
-  printf '%s  %s\n' "$app_payload_sha" "Ryddi.app" >"$stage_dir/Ryddi-checksums.sha256"
-  assert_public_manifest_has_no_local_paths "$stage_dir/Ryddi-release-manifest.txt"
+  (
+    cd "$stage_dir"
+    shasum -a 256 "Ryddi-release-manifest.txt" >"Ryddi-checksums.sha256"
+  )
+  assert_public_file_has_no_local_paths "$stage_dir/Ryddi-release-manifest.txt"
+  assert_public_file_has_no_local_paths "$stage_dir/Ryddi-checksums.sha256"
   archive_staged_release
 }
 
@@ -141,6 +150,10 @@ cd "$root"
 rm -f "$zip_path" "$checksum_path" "$manifest_path"
 
 if [[ "$signing_required" == "required" ]]; then
+  if [[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]]; then
+    echo "signed releases require a clean Git worktree." >&2
+    exit 1
+  fi
   if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
     echo "RYDDI_RELEASE_SIGNING=required but CODESIGN_IDENTITY is not set." >&2
     exit 1
@@ -171,7 +184,7 @@ if [[ ! -d "$app" ]]; then
 fi
 
 echo "==> Verifying bundle layout"
-for executable in Ryddi reclaimer ReclaimerAgent; do
+for executable in Ryddi reclaimer; do
   if [[ ! -x "$app/Contents/MacOS/$executable" ]]; then
     echo "missing executable: $app/Contents/MacOS/$executable" >&2
     exit 1
@@ -688,58 +701,19 @@ mkdir -p "$fake_brew_bin"
 cat >"$fake_brew_bin/brew" <<'BREW'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == "cleanup" && ( "${2:-}" == "--dry-run" || "${2:-}" == "-n" ) && $# -eq 2 ]]; then
-  printf 'Would remove Homebrew cache fixture\n'
-  exit 0
-fi
-if [[ "${1:-}" == "cleanup" && $# -eq 1 ]]; then
-  printf 'Removed Homebrew cache fixture\n'
-  exit 0
-fi
-printf 'unsupported fake brew command: %s\n' "$*" >&2
-exit 64
+printf 'unsafe PATH shadow executed\n' >"${RYDDI_SHADOW_MARKER:?}"
+exit 99
 BREW
 chmod +x "$fake_brew_bin/brew"
-PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" native run --dry-run --json \
-  --path "$scratch/native-fixture/Library/Caches/Homebrew" \
-  --command-id brew.preview \
-  --min-size 1 \
-  --max-depth 3 \
-  --save-audit >"$scratch/native-run-dry-run.json"
-grep -q '"status" : "dry-run"' "$scratch/native-run-dry-run.json"
-grep -q '"command" : "brew cleanup -n"' "$scratch/native-run-dry-run.json"
-grep -q "Would remove Homebrew cache fixture" "$scratch/native-run-dry-run.json"
-grep -q "only one explicitly selected native-tool command" "$scratch/native-run-dry-run.json"
-find "$scratch/audit" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
-PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew-fresh" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --yes --save-audit --json \
+shadow_marker="$scratch/path-shadow-executed"
+if PATH="$fake_brew_bin" RYDDI_SHADOW_MARKER="$shadow_marker" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --dry-run --json \
   --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
-  --timeout 5 >"$scratch/native-homebrew-fresh-perform.json"
-grep -q '"mode" : "perform"' "$scratch/native-homebrew-fresh-perform.json"
-grep -q "Removed Homebrew cache fixture" "$scratch/native-homebrew-fresh-perform.json"
-RYDDI_AUDIT_ROOT="$scratch/audit-homebrew-fresh" "$app/Contents/MacOS/reclaimer" native receipts list --json >"$scratch/native-homebrew-fresh-receipts.json"
-grep -q '"id" : "brew.preview"' "$scratch/native-homebrew-fresh-receipts.json"
-grep -q '"status" : "dry-run"' "$scratch/native-homebrew-fresh-receipts.json"
-grep -q '"id" : "brew.cleanup"' "$scratch/native-homebrew-fresh-receipts.json"
-grep -q '"status" : "done"' "$scratch/native-homebrew-fresh-receipts.json"
-test "$(find "$scratch/audit-homebrew-fresh" -name 'native-tool-execution-*.json' -type f | wc -l | tr -d '[:space:]')" = "2"
-PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --dry-run --save-audit --json \
-  --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
-  --timeout 5 >"$scratch/native-homebrew-dry-run.json"
-grep -q '"mode" : "dryRun"' "$scratch/native-homebrew-dry-run.json"
-grep -q "Would remove Homebrew cache fixture" "$scratch/native-homebrew-dry-run.json"
-find "$scratch/audit-homebrew" -name 'native-tool-execution-*.json' -print -quit | grep -q 'native-tool-execution-'
-RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native receipts list --json >"$scratch/native-receipts-list.json"
-grep -q '"id" : "brew.preview"' "$scratch/native-receipts-list.json"
-RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native receipts export \
-  --path-style redacted \
-  --output "$scratch/native-receipt-report.md" >"$scratch/native-receipt-export.txt"
-grep -q "Ryddi Native Command Receipt Report" "$scratch/native-receipt-report.md"
-grep -q "Homebrew dry run completed" "$scratch/native-receipt-report.md"
-PATH="$fake_brew_bin:$PATH" RYDDI_AUDIT_ROOT="$scratch/audit-homebrew" "$app/Contents/MacOS/reclaimer" native homebrew cleanup --yes --save-audit --json \
-  --finding-path "$scratch/native-fixture/Library/Caches/Homebrew" \
-  --timeout 5 >"$scratch/native-homebrew-perform.json"
-grep -q '"mode" : "perform"' "$scratch/native-homebrew-perform.json"
-grep -q "Removed Homebrew cache fixture" "$scratch/native-homebrew-perform.json"
+  --timeout 5 >"$scratch/native-shadow-output.json" 2>"$scratch/native-shadow-error.txt"; then
+  echo "packaged native command unexpectedly accepted a PATH-shadowed executable" >&2
+  exit 1
+fi
+test ! -e "$shadow_marker"
+grep -qi "approved tool locations" "$scratch/native-shadow-error.txt"
 RYDDI_AUDIT_ROOT="$scratch/audit" "$app/Contents/MacOS/reclaimer" trash --json \
   --path "$trash_fixture" \
   --limit 20 \
@@ -1379,8 +1353,10 @@ else
 fi
 
 commit="unknown"
+source_dirty="unknown"
 if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   commit="$(git -C "$root" rev-parse HEAD)"
+  source_dirty=$([[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]] && echo true || echo false)
 fi
 notary_status_manifest="not applicable"
 if [[ -n "$notary_status_file" ]]; then

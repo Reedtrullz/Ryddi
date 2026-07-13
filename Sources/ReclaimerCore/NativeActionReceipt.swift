@@ -322,13 +322,15 @@ fileprivate final class NativeHomebrewCleanupCapability: @unchecked Sendable {
     let issuedAt: Date
     let ruleVersion: String
     let findingPath: String
+    let executableResolution: NativeExecutableResolution
 
-    init(executorID: UUID, issuedAt: Date, ruleVersion: String, findingPath: String) {
+    init(executorID: UUID, issuedAt: Date, ruleVersion: String, findingPath: String, executableResolution: NativeExecutableResolution) {
         self.id = UUID()
         self.executorID = executorID
         self.issuedAt = issuedAt
         self.ruleVersion = ruleVersion
         self.findingPath = findingPath
+        self.executableResolution = executableResolution
     }
 }
 
@@ -342,6 +344,7 @@ public final class NativeActionExecutor: @unchecked Sendable {
     private let runner: any ToolCommandRunning
     private let diskStatusReader: DiskStatusReader
     private let configuration: NativeActionExecutionConfiguration
+    private let executableResolver: any NativeExecutableResolving
     private let now: @Sendable () -> Date
     private let executorID = UUID()
     private let capabilityLock = NSLock()
@@ -351,11 +354,14 @@ public final class NativeActionExecutor: @unchecked Sendable {
         runner: any ToolCommandRunning = ProcessToolCommandRunner(),
         diskStatusReader: DiskStatusReader = DiskStatusReader(),
         configuration: NativeActionExecutionConfiguration = NativeActionExecutionConfiguration(),
+        executableResolver: (any NativeExecutableResolving)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.runner = runner
         self.diskStatusReader = diskStatusReader
         self.configuration = configuration
+        self.executableResolver = executableResolver
+            ?? (runner is ProcessToolCommandRunner ? SystemNativeExecutableResolver() : PassthroughNativeExecutableResolver())
         self.now = now
     }
 
@@ -388,14 +394,38 @@ public final class NativeActionExecutor: @unchecked Sendable {
                 reason: "Homebrew cleanup requires an executor-minted same-process preview capability. Saved receipts and digests are evidence only."
             )
         }
-        return runHomebrewCleanup(mode: .dryRun, before: before)
+        do {
+            let resolution = try executableResolver.resolve("brew")
+            return runHomebrewCleanup(mode: .dryRun, before: before, executablePath: resolution.launchPath)
+        } catch {
+            return skippedHomebrewReceipt(
+                mode: .dryRun,
+                commandDisplay: displayCommandParts(for: invocation),
+                before: before,
+                reason: error.localizedDescription
+            )
+        }
     }
 
     public func previewHomebrewCleanup(
         ruleVersion: String = "source",
         findingPath: String = NativeActionReceiptBridge.defaultHomebrewFindingPath
     ) -> NativeHomebrewCleanupPreview {
-        let receipt = executeHomebrewCleanup(mode: .dryRun, userConfirmed: false)
+        let executableResolution: NativeExecutableResolution
+        do {
+            executableResolution = try executableResolver.resolve("brew")
+        } catch {
+            return NativeHomebrewCleanupPreview(
+                receipt: skippedHomebrewReceipt(
+                    mode: .dryRun,
+                    commandDisplay: ["brew", "cleanup", "--dry-run"],
+                    before: diskStatusReader.snapshot(for: configuration.diskStatusPath),
+                    reason: error.localizedDescription
+                ),
+                capability: nil
+            )
+        }
+        let receipt = runHomebrewCleanup(mode: .dryRun, before: diskStatusReader.snapshot(for: configuration.diskStatusPath), executablePath: executableResolution.launchPath)
         guard receipt.exitCode == 0, receipt.skippedReason == nil else {
             return NativeHomebrewCleanupPreview(receipt: receipt, capability: nil)
         }
@@ -404,7 +434,8 @@ public final class NativeActionExecutor: @unchecked Sendable {
             executorID: executorID,
             issuedAt: now(),
             ruleVersion: ruleVersion,
-            findingPath: URL(fileURLWithPath: findingPath).standardizedFileURL.path
+            findingPath: URL(fileURLWithPath: findingPath).standardizedFileURL.path,
+            executableResolution: executableResolution
         )
         capabilityLock.lock()
         outstandingCapabilities[capability.id] = capability
@@ -456,6 +487,20 @@ public final class NativeActionExecutor: @unchecked Sendable {
                 reason: "Homebrew preview capability is stale; run a new preview."
             )
         }
+        let currentResolution: NativeExecutableResolution
+        do {
+            currentResolution = try executableResolver.resolve("brew")
+        } catch {
+            return skippedHomebrewReceipt(mode: .perform, commandDisplay: displayCommandParts(for: invocation), before: before, reason: error.localizedDescription)
+        }
+        guard currentResolution == capability.executableResolution else {
+            return skippedHomebrewReceipt(
+                mode: .perform,
+                commandDisplay: displayCommandParts(for: invocation),
+                before: before,
+                reason: "Homebrew executable identity changed after preview; run a new preview."
+            )
+        }
 
         capabilityLock.lock()
         let mintedCapability = outstandingCapabilities.removeValue(forKey: capability.id)
@@ -468,7 +513,7 @@ public final class NativeActionExecutor: @unchecked Sendable {
                 reason: "Homebrew preview capability has already been used or does not belong to this executor."
             )
         }
-        return runHomebrewCleanup(mode: .perform, before: before)
+        return runHomebrewCleanup(mode: .perform, before: before, executablePath: currentResolution.launchPath)
     }
 
     private func homebrewCleanupInvocation(mode: SafeActionExecutionMode) -> ToolCommandInvocation {
@@ -500,8 +545,13 @@ public final class NativeActionExecutor: @unchecked Sendable {
         )
     }
 
-    private func runHomebrewCleanup(mode: SafeActionExecutionMode, before: DiskStatusSnapshot) -> NativeActionReceipt {
-        let invocation = homebrewCleanupInvocation(mode: mode)
+    private func runHomebrewCleanup(
+        mode: SafeActionExecutionMode,
+        before: DiskStatusSnapshot,
+        executablePath: String? = nil
+    ) -> NativeActionReceipt {
+        let baseInvocation = homebrewCleanupInvocation(mode: mode)
+        let invocation = executablePath.map { baseInvocation.replacingExecutable(with: $0) } ?? baseInvocation
         let output = runner.run(invocation, timeout: configuration.timeout)
         let snapshot = ToolCommandSnapshot(output: output, previewLineLimit: configuration.previewLineLimit)
         let after = output.succeeded && mode == .perform ? diskStatusReader.snapshot(for: configuration.diskStatusPath) : nil
@@ -522,6 +572,6 @@ public final class NativeActionExecutor: @unchecked Sendable {
     }
 
     private func displayCommandParts(for invocation: ToolCommandInvocation) -> [String] {
-        [invocation.executable] + invocation.arguments
+        [URL(fileURLWithPath: invocation.executable).lastPathComponent] + invocation.arguments
     }
 }

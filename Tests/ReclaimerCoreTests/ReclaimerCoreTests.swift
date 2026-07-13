@@ -2800,8 +2800,8 @@ final class ReclaimerCoreTests: XCTestCase {
             category: [BucketSummary(name: "Codex", count: 1, logicalSize: 140, allocatedSize: 140)]
         )
 
-        try store.save(snapshot: older, keepLimit: 5)
-        try store.save(snapshot: newer, keepLimit: 5)
+        try store.save(snapshot: older)
+        try store.save(snapshot: newer)
 
         XCTAssertEqual(store.recent(limit: 2).map(\.id), ["newer", "older"])
         XCTAssertEqual(store.latestGrowthDeltas().first { $0.name == "Codex" }?.deltaAllocatedSize, 40)
@@ -2822,10 +2822,21 @@ final class ReclaimerCoreTests: XCTestCase {
             category: [BucketSummary(name: "Codex", count: 1, logicalSize: 120, allocatedSize: 120)]
         )
 
-        try store.save(snapshot: older, keepLimit: 1)
-        try store.save(snapshot: newer, keepLimit: 1)
+        try store.save(snapshot: older)
+        try store.save(snapshot: newer)
 
         XCTAssertEqual(Set(store.recent(limit: 10).map(\.id)), Set([older.id, newer.id]))
+
+        let plan = store.retentionPlan(keepRecent: 1, now: Date(timeIntervalSince1970: 30))
+        XCTAssertEqual(plan.candidates.map(\.path), [historyRoot.appendingPathComponent("scan-1970-01-01T00-00-10Z-older-no-prune.json").path])
+        let dryRun = store.prune(plan: plan, dryRun: true, trasher: RecordingScanHistoryTrasher())
+        XCTAssertTrue(dryRun.dryRun)
+        XCTAssertEqual(Set(store.recent(limit: 10).map(\.id)), Set([older.id, newer.id]))
+
+        let trasher = RecordingScanHistoryTrasher()
+        let receipt = store.prune(plan: plan, dryRun: false, trasher: trasher)
+        XCTAssertEqual(receipt.deletedCount, 1)
+        XCTAssertEqual(store.recent(limit: 10).map(\.id), [newer.id])
     }
 
     func testGrowthReportIncludesDeltasNonClaimsAndRedactedPaths() {
@@ -5873,5 +5884,15 @@ final class ReclaimerCoreTests: XCTestCase {
             scopeSummaries: [],
             topFindingPaths: []
         )
+    }
+}
+
+private final class RecordingScanHistoryTrasher: Trashing, @unchecked Sendable {
+    private(set) var trashed: [URL] = []
+
+    func trashItem(at url: URL) throws -> URL {
+        trashed.append(url.standardizedFileURL)
+        try FileManager.default.removeItem(at: url)
+        return URL(fileURLWithPath: "/Trash").appendingPathComponent(url.lastPathComponent)
     }
 }

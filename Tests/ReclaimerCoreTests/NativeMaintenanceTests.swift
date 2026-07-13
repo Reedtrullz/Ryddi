@@ -129,6 +129,33 @@ final class NativeMaintenanceTests: XCTestCase {
         XCTAssertEqual(runner.invocations.map(\.displayCommand), ["npm cache verify"])
     }
 
+    func testNativePerformBlocksWhenResolvedExecutableIdentityChanges() {
+        let runner = RecordingMaintenanceRunner()
+        let resolver = SequenceNativeExecutableResolver(paths: ["/approved/npm-v1", "/approved/npm-v2"])
+        let executor = NativeMaintenanceExecutor(
+            runner: runner,
+            configuration: NativeActionExecutionConfiguration(timeout: 2),
+            executableResolver: resolver,
+            now: { Date(timeIntervalSince1970: 100) }
+        )
+        let preview = executor.preview(
+            action: .npmCacheClean,
+            findingPath: "/Users/test/.npm/_cacache",
+            ruleVersion: "rules-test"
+        )
+
+        let receipt = executor.perform(
+            using: preview,
+            userConfirmed: true,
+            findingPath: "/Users/test/.npm/_cacache",
+            ruleVersion: "rules-test"
+        )
+
+        XCTAssertNil(receipt.exitCode)
+        XCTAssertTrue(receipt.skippedReason?.localizedCaseInsensitiveContains("identity changed") ?? false)
+        XCTAssertEqual(runner.invocations.count, 1)
+    }
+
     func testNativeReceiptBridgePreservesMaintenanceCommandIdentity() {
         let receipt = NativeActionReceipt(
             kind: .npmCacheClean,
@@ -188,6 +215,22 @@ final class NativeMaintenanceTests: XCTestCase {
         XCTAssertTrue(commandIDs.contains("docker.prune"))
         XCTAssertTrue(commandIDs.contains("docker.prune-volumes"))
         XCTAssertTrue(commandIDs.contains("npm.cache-clean"))
+    }
+}
+
+private final class SequenceNativeExecutableResolver: NativeExecutableResolving, @unchecked Sendable {
+    private var paths: [String]
+    private let lock = NSLock()
+
+    init(paths: [String]) {
+        self.paths = paths
+    }
+
+    func resolve(_ executable: String) throws -> NativeExecutableResolution {
+        lock.lock()
+        defer { lock.unlock() }
+        let path = paths.count > 1 ? paths.removeFirst() : paths[0]
+        return NativeExecutableResolution(launchPath: path, resolvedPath: path, identity: nil)
     }
 }
 

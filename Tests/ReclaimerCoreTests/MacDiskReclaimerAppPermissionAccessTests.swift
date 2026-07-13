@@ -59,10 +59,8 @@ final class MacDiskReclaimerAppPermissionAccessTests: XCTestCase {
         )
         let refreshBody = try functionBody(named: "refreshPermissions", in: source)
 
-        XCTAssertTrue(
-            refreshBody.contains("PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))"),
-            "Refresh Coverage must probe the selected scopes against the live filesystem."
-        )
+        XCTAssertTrue(refreshBody.contains("PermissionCoverageTransition.refresh"))
+        XCTAssertTrue(refreshBody.contains("currentScopes(includeUnavailable: true)"))
         XCTAssertFalse(
             refreshBody.contains("overview.scopeSummaries"),
             "A prior scan snapshot must not keep a stale permission result after Full Disk Access changes."

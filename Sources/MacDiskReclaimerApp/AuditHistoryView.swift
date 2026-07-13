@@ -28,7 +28,7 @@ struct AuditHistoryView: View {
                     } else {
                         Text("Audit summary has not loaded yet.")
                     }
-                    Text("Pruning is never scheduled. Preview identifies known Ryddi audit JSON candidates, but deletion remains manual Finder work.")
+                    Text("Pruning is never scheduled. Preview identifies known Ryddi audit JSON candidates; confirmed CLI pruning moves only still-matching candidates to Finder Trash.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

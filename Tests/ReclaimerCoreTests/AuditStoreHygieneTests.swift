@@ -39,9 +39,10 @@ final class AuditStoreHygieneTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: scan.path))
     }
 
-    func testAuditPruneDryRunAndConfirmedPruneRemainNonDestructive() throws {
+    func testAuditPruneDryRunIsNonDestructiveAndConfirmedPruneTrashesOnlyReviewedFiles() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
-        let store = AuditStore(root: root)
+        let trasher = RecordingAuditTrasher()
+        let store = AuditStore(root: root, trasher: trasher)
         let oldPlan = try writeFixture("plan-old.json", bytes: 10, daysAgo: 90, root: root)
         let oldScan = try writeFixture("remote-scan-old.json", bytes: 20, daysAgo: 60, root: root)
         let recentProbe = try writeFixture("remote-probe-recent.json", bytes: 30, daysAgo: 1, root: root)
@@ -68,10 +69,12 @@ final class AuditStoreHygieneTests: XCTestCase {
 
         let receipt = try store.prune(plan: plan, dryRun: false)
         XCTAssertFalse(receipt.dryRun)
-        XCTAssertEqual(receipt.deletedCount, 0)
-        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("disabled") }, receipt.errors.joined(separator: "\n"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: oldPlan.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: oldScan.path))
+        XCTAssertEqual(receipt.deletedCount, 2)
+        XCTAssertEqual(Set(receipt.deletedFileIDs), Set(["plan-old.json", "remote-scan-old.json"]))
+        XCTAssertTrue(receipt.errors.isEmpty, receipt.errors.joined(separator: "\n"))
+        XCTAssertEqual(Set(trasher.trashed.map(\.lastPathComponent)), Set(receipt.deletedFileIDs))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldPlan.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldScan.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: recentProbe.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: unknown.path))
         XCTAssertNoThrow(try FileManager.default.destinationOfSymbolicLink(atPath: symlink.path))
@@ -79,19 +82,19 @@ final class AuditStoreHygieneTests: XCTestCase {
 
     func testAuditPruneReceiptListsDeletedFileIDsWithoutFullPaths() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
-        let store = AuditStore(root: root)
+        let store = AuditStore(root: root, trasher: RecordingAuditTrasher())
         _ = try writeFixture("plan-old.json", bytes: 10, daysAgo: 90, root: root)
 
         let plan = store.prunePlan(policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 0), now: Date(timeIntervalSince1970: 2_000_000_000))
         let receipt = try store.prune(plan: plan, dryRun: false)
 
-        XCTAssertTrue(receipt.deletedFileIDs.isEmpty)
+        XCTAssertEqual(receipt.deletedFileIDs, ["plan-old.json"])
         XCTAssertTrue(receipt.deletedFileIDs.allSatisfy { !$0.contains("/") })
     }
 
     func testAuditPruneExcludesKnownLookingDirectoriesAndPackages() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
-        let store = AuditStore(root: root)
+        let store = AuditStore(root: root, trasher: RecordingAuditTrasher())
         let directory = root.appendingPathComponent("plan-old.json", isDirectory: true)
         let package = root.appendingPathComponent("receipt-old.json", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -123,7 +126,7 @@ final class AuditStoreHygieneTests: XCTestCase {
 
     func testAuditPruneLeavesModifiedRegularFileUntouched() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
-        let store = AuditStore(root: root)
+        let store = AuditStore(root: root, trasher: RecordingAuditTrasher())
         let file = try writeFixture("plan-modified.json", bytes: 16, daysAgo: 90, root: root)
         let plan = store.prunePlan(
             policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 0),
@@ -138,13 +141,13 @@ final class AuditStoreHygieneTests: XCTestCase {
         let receipt = try store.prune(plan: plan, dryRun: false)
 
         XCTAssertEqual(receipt.deletedCount, 0)
-        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("disabled") }, receipt.errors.joined(separator: "\n"))
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("identity changed") }, receipt.errors.joined(separator: "\n"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
     func testAuditPruneLeavesSameMetadataReplacementUntouched() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
-        let store = AuditStore(root: root)
+        let store = AuditStore(root: root, trasher: RecordingAuditTrasher())
         let file = try writeFixture("receipt-replaced.json", bytes: 12, daysAgo: 90, root: root)
         let plan = store.prunePlan(
             policy: AuditRetentionPolicy(olderThanDays: 30, keepRecent: 0),
@@ -161,13 +164,13 @@ final class AuditStoreHygieneTests: XCTestCase {
         let receipt = try store.prune(plan: plan, dryRun: false)
 
         XCTAssertEqual(receipt.deletedCount, 0)
-        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("disabled") }, receipt.errors.joined(separator: "\n"))
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("identity changed") }, receipt.errors.joined(separator: "\n"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
     func testLegacyAuditPruneCandidateWithoutIdentityDecodesButCannotDelete() throws {
         let root = tempRoot.appendingPathComponent("audit", isDirectory: true)
-        let store = AuditStore(root: root)
+        let store = AuditStore(root: root, trasher: RecordingAuditTrasher())
         let file = try writeFixture("plan-legacy.json", bytes: 10, daysAgo: 90, root: root)
         let json = """
         {
@@ -192,7 +195,7 @@ final class AuditStoreHygieneTests: XCTestCase {
         let receipt = try store.prune(plan: plan, dryRun: false)
 
         XCTAssertEqual(receipt.deletedCount, 0)
-        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("disabled") })
+        XCTAssertTrue(receipt.errors.contains { $0.localizedCaseInsensitiveContains("no filesystem identity") })
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
@@ -204,6 +207,23 @@ final class AuditStoreHygieneTests: XCTestCase {
         XCTAssertEqual(policy, SafeActionPlanner.defaultAuditRetention)
     }
 
+    func testSavedAuditEvidenceUsesPrivatePermissions() throws {
+        let root = tempRoot.appendingPathComponent("private-audit", isDirectory: true)
+        let store = AuditStore(root: root, trasher: RecordingAuditTrasher())
+        let plan = ReclaimPlan(
+            mode: "report-only",
+            items: [],
+            dryRunSummary: []
+        )
+
+        let url = try store.save(plan: plan)
+        let rootMode = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: root.path)[.posixPermissions] as? NSNumber)
+        let fileMode = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)
+
+        XCTAssertEqual(rootMode.intValue & 0o777, 0o700)
+        XCTAssertEqual(fileMode.intValue & 0o777, 0o600)
+    }
+
     private func writeFixture(_ name: String, bytes: Int, daysAgo: Int, root: URL) throws -> URL {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let url = root.appendingPathComponent(name)
@@ -211,5 +231,15 @@ final class AuditStoreHygieneTests: XCTestCase {
         let date = Date(timeIntervalSince1970: 2_000_000_000 - TimeInterval(daysAgo * 24 * 60 * 60))
         try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
         return url
+    }
+}
+
+private final class RecordingAuditTrasher: Trashing, @unchecked Sendable {
+    private(set) var trashed: [URL] = []
+
+    func trashItem(at url: URL) throws -> URL {
+        trashed.append(url.standardizedFileURL)
+        try FileManager.default.removeItem(at: url)
+        return URL(fileURLWithPath: "/Trash").appendingPathComponent(url.lastPathComponent)
     }
 }

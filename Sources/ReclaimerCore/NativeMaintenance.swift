@@ -90,6 +90,7 @@ private final class NativeMaintenanceCapability: @unchecked Sendable {
     let ruleVersion: String
     let contextName: String?
     let previewDigest: String
+    let executableResolution: NativeExecutableResolution
 
     init(
         executorID: UUID,
@@ -98,7 +99,8 @@ private final class NativeMaintenanceCapability: @unchecked Sendable {
         findingPath: String,
         ruleVersion: String,
         contextName: String?,
-        previewDigest: String
+        previewDigest: String,
+        executableResolution: NativeExecutableResolution
     ) {
         self.executorID = executorID
         self.issuedAt = issuedAt
@@ -107,6 +109,7 @@ private final class NativeMaintenanceCapability: @unchecked Sendable {
         self.ruleVersion = ruleVersion
         self.contextName = contextName
         self.previewDigest = previewDigest
+        self.executableResolution = executableResolution
     }
 }
 
@@ -114,6 +117,7 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
     private let runner: any ToolCommandRunning
     private let diskStatusReader: DiskStatusReader
     private let configuration: NativeActionExecutionConfiguration
+    private let executableResolver: any NativeExecutableResolving
     private let now: @Sendable () -> Date
     private let executorID = UUID()
     private let capabilityLock = NSLock()
@@ -123,11 +127,14 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
         runner: any ToolCommandRunning = ProcessToolCommandRunner(),
         diskStatusReader: DiskStatusReader = DiskStatusReader(),
         configuration: NativeActionExecutionConfiguration = NativeActionExecutionConfiguration(),
+        executableResolver: (any NativeExecutableResolving)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.runner = runner
         self.diskStatusReader = diskStatusReader
         self.configuration = configuration
+        self.executableResolver = executableResolver
+            ?? (runner is ProcessToolCommandRunner ? SystemNativeExecutableResolver() : PassthroughNativeExecutableResolver())
         self.now = now
     }
 
@@ -139,12 +146,27 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
     ) -> NativeMaintenancePreview {
         let normalizedPath = URL(fileURLWithPath: findingPath).standardizedFileURL.path
         let before = diskStatusReader.snapshot(for: configuration.diskStatusPath)
-        let previewInvocation = action.previewInvocation
+        let executableResolution: NativeExecutableResolution
+        do {
+            executableResolution = try executableResolver.resolve(action.previewInvocation.executable)
+        } catch {
+            return failedPreview(
+                action: action,
+                findingPath: normalizedPath,
+                ruleVersion: ruleVersion,
+                contextName: contextName,
+                before: before,
+                invocation: action.previewInvocation,
+                output: ToolCommandOutput(invocation: action.previewInvocation, exitCode: nil, launchError: error.localizedDescription),
+                message: error.localizedDescription
+            )
+        }
+        let previewInvocation = action.previewInvocation.replacingExecutable(with: executableResolution.launchPath)
 
         let resolvedContext: String?
         if action == .dockerBuilderPrune {
             let contextOutput = runner.run(
-                ToolCommandInvocation(executable: "docker", arguments: ["context", "show"]),
+                ToolCommandInvocation(executable: executableResolution.launchPath, arguments: ["context", "show"]),
                 timeout: configuration.timeout
             )
             guard contextOutput.succeeded else {
@@ -174,7 +196,7 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
             let receipt = NativeActionReceipt(
                 kind: action.safeActionKind,
                 mode: .dryRun,
-                commandDisplay: [previewInvocation.executable] + previewInvocation.arguments,
+                commandDisplay: displayCommandParts(for: previewInvocation),
                 exitCode: output.exitCode,
                 stdoutPreview: snapshot.stdoutPreview,
                 stderrPreview: snapshot.stderrPreview,
@@ -197,7 +219,7 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
         let receipt = NativeActionReceipt(
             kind: action.safeActionKind,
             mode: .dryRun,
-            commandDisplay: [previewInvocation.executable] + previewInvocation.arguments,
+            commandDisplay: displayCommandParts(for: previewInvocation),
             exitCode: output.exitCode,
             stdoutPreview: snapshot.stdoutPreview,
             stderrPreview: snapshot.stderrPreview,
@@ -221,7 +243,8 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
             findingPath: normalizedPath,
             ruleVersion: ruleVersion,
             contextName: resolvedContext,
-            previewDigest: digest
+            previewDigest: digest,
+            executableResolution: executableResolution
         )
         capabilityLock.lock()
         outstandingCapabilities[capability.id] = capability
@@ -247,7 +270,7 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
         let action = preview.action
         let normalizedPath = URL(fileURLWithPath: findingPath).standardizedFileURL.path
         let before = diskStatusReader.snapshot(for: configuration.diskStatusPath)
-        let invocation = action.performInvocation
+        let invocation = action.performInvocation.replacingExecutable(with: preview.capability?.executableResolution.launchPath ?? action.performInvocation.executable)
 
         guard userConfirmed else {
             return skippedReceipt(action: action, mode: .perform, before: before, reason: "Native maintenance requires explicit confirmation.")
@@ -278,6 +301,16 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
             return skippedReceipt(action: action, mode: .perform, before: before, reason: "Native preview evidence changed and cannot authorize maintenance.")
         }
 
+        let currentResolution: NativeExecutableResolution
+        do {
+            currentResolution = try executableResolver.resolve(action.performInvocation.executable)
+        } catch {
+            return skippedReceipt(action: action, mode: .perform, before: before, reason: error.localizedDescription)
+        }
+        guard currentResolution == capability.executableResolution else {
+            return skippedReceipt(action: action, mode: .perform, before: before, reason: "Native executable identity changed after preview; run a new preview.")
+        }
+
         capabilityLock.lock()
         let mintedCapability = outstandingCapabilities.removeValue(forKey: capability.id)
         capabilityLock.unlock()
@@ -286,7 +319,7 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
         }
         guard NativeActionAllowlist.validate(NativeActionCommand(
             kind: action.safeActionKind,
-            executable: invocation.executable,
+            executable: action.performInvocation.executable,
             arguments: invocation.arguments
         )) == .allowed else {
             return skippedReceipt(action: action, mode: .perform, before: before, reason: "Native maintenance command was rejected by the exact argv allowlist.")
@@ -298,7 +331,7 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
         return NativeActionReceipt(
             kind: action.safeActionKind,
             mode: .perform,
-            commandDisplay: [invocation.executable] + invocation.arguments,
+            commandDisplay: displayCommandParts(for: invocation),
             exitCode: output.exitCode,
             stdoutPreview: snapshot.stdoutPreview,
             stderrPreview: snapshot.stderrPreview,
@@ -325,7 +358,7 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
         let receipt = NativeActionReceipt(
             kind: action.safeActionKind,
             mode: .dryRun,
-            commandDisplay: [invocation.executable] + invocation.arguments,
+            commandDisplay: displayCommandParts(for: invocation),
             exitCode: output.exitCode,
             stdoutPreview: snapshot.stdoutPreview,
             stderrPreview: snapshot.stderrPreview,
@@ -355,7 +388,7 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
         return NativeActionReceipt(
             kind: action.safeActionKind,
             mode: mode,
-            commandDisplay: [invocation.executable] + invocation.arguments,
+            commandDisplay: displayCommandParts(for: invocation),
             exitCode: nil,
             stdoutPreview: [],
             stderrPreview: [],
@@ -386,6 +419,10 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
             receipt.stderrPreview.joined(separator: "\n")
         ].joined(separator: "\u{001e}")
         return SHA256.hash(data: Data(payload.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func displayCommandParts(for invocation: ToolCommandInvocation) -> [String] {
+        [URL(fileURLWithPath: invocation.executable).lastPathComponent] + invocation.arguments
     }
 }
 

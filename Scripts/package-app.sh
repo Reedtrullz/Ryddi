@@ -8,6 +8,7 @@ bundle_id="com.reidar.ryddi"
 bundle_version="${RYDDI_VERSION:-0.3.0}"
 bundle_build="${RYDDI_BUILD_NUMBER:-3}"
 source_commit="${RYDDI_SOURCE_COMMIT:-$(git -C "$root" rev-parse HEAD)}"
+source_dirty="${RYDDI_SOURCE_DIRTY:-$([[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]] && echo true || echo false)}"
 build_date="${RYDDI_BUILD_DATE:-$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
 signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
 dist="$root/dist"
@@ -35,11 +36,9 @@ fi
 
 swift build --scratch-path "$root/.build" -c "$configuration" --product RyddiApp
 swift build --scratch-path "$root/.build" -c "$configuration" --product reclaimer
-swift build --scratch-path "$root/.build" -c "$configuration" --product ReclaimerAgent
 bin_dir="$(swift build --scratch-path "$root/.build" -c "$configuration" --show-bin-path)"
 binary="$bin_dir/RyddiApp"
 cli_binary="$bin_dir/reclaimer"
-agent_binary="$bin_dir/ReclaimerAgent"
 resource_bundle="$bin_dir/Ryddi_ReclaimerCore.bundle"
 legacy_resource_bundle="$bin_dir/MacDiskReclaimer_ReclaimerCore.bundle"
 selected_resource_bundle=""
@@ -49,7 +48,6 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$icon" "$app/Contents/Resources/Ryddi.icns"
 cp "$binary" "$app/Contents/MacOS/$app_name"
 cp "$cli_binary" "$app/Contents/MacOS/reclaimer"
-cp "$agent_binary" "$app/Contents/MacOS/ReclaimerAgent"
 if [[ -d "$resource_bundle" ]]; then
   selected_resource_bundle="$resource_bundle"
 elif [[ -d "$legacy_resource_bundle" ]]; then
@@ -95,6 +93,7 @@ build_metadata_plist="$app/Contents/Resources/.Ryddi-build.plist"
 /usr/bin/plutil -insert version -string "$bundle_version" "$build_metadata_plist"
 /usr/bin/plutil -insert build -string "$bundle_build" "$build_metadata_plist"
 /usr/bin/plutil -insert sourceCommit -string "$source_commit" "$build_metadata_plist"
+/usr/bin/plutil -insert sourceDirty -string "$source_dirty" "$build_metadata_plist"
 /usr/bin/plutil -insert buildDate -string "$build_date" "$build_metadata_plist"
 /usr/bin/plutil -convert json -o "$build_metadata" "$build_metadata_plist"
 rm "$build_metadata_plist"

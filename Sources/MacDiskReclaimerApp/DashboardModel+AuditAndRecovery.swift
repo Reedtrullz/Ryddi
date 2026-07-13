@@ -152,12 +152,14 @@ extension DashboardModel {
     }
 
     func refreshPermissions() {
-        let previousCoverage = permissionReport.coverageLevel
-        let refreshed = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
-        if previousCoverage != refreshed.coverageLevel {
+        let transition = PermissionCoverageTransition.refresh(
+            previous: permissionReport,
+            scopes: currentScopes(includeUnavailable: true)
+        )
+        if transition.coverageChanged {
             diagnostics.record(.permissionCoverageChanged)
         }
-        permissionReport = refreshed
+        permissionReport = transition.current
         Task { await refreshPresentationSnapshot() }
     }
 

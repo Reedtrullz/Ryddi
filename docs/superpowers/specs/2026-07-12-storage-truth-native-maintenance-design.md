@@ -100,7 +100,7 @@ Each action follows this sequence:
 5. Capture stdout/stderr previews, exit status, `df` before/after, and skipped/failed state in an audit receipt.
 6. Refresh the relevant scan and label the result as observed, estimated, or unverified.
 
-The scheduler and `ReclaimerAgent` remain report/plan-only and must reject these native perform paths.
+The scheduler remains report/plan-only through the packaged `reclaimer` CLI and must reject these native perform paths.
 
 ### 6. App and CLI presentation
 
