@@ -63,9 +63,11 @@ public final class AuditStore: @unchecked Sendable {
     private let root: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let trasher: any Trashing
 
-    public init(root: URL = AuditStore.defaultRoot()) {
-        self.root = root
+    public init(root: URL = AuditStore.defaultRoot(), trasher: any Trashing = FileManagerTrasher()) {
+        self.root = root.standardizedFileURL
+        self.trasher = trasher
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         self.encoder.dateEncodingStrategy = .iso8601
@@ -153,148 +155,192 @@ public final class AuditStore: @unchecked Sendable {
             )
         }
 
+        guard URL(fileURLWithPath: plan.rootPath, isDirectory: true).standardizedFileURL == root else {
+            return AuditPruneReceipt(
+                dryRun: false,
+                planID: plan.id,
+                deletedCount: 0,
+                deletedBytes: 0,
+                errors: ["Audit prune plan root does not match this audit store."]
+            )
+        }
+
+        var trashedIDs: [String] = []
+        var trashedBytes: Int64 = 0
+        var errors: [String] = []
+        for candidate in plan.candidates {
+            let url = URL(fileURLWithPath: candidate.path).standardizedFileURL
+            let filename = url.lastPathComponent
+            guard url.deletingLastPathComponent() == root else {
+                errors.append("Skipped \(filename): path is outside the audit root.")
+                continue
+            }
+            guard knownAuditKind(for: filename) == candidate.kind else {
+                errors.append("Skipped \(filename): audit kind no longer matches the reviewed plan.")
+                continue
+            }
+            guard let plannedIdentity = candidate.filesystemIdentity else {
+                errors.append("Skipped \(filename): legacy candidate has no filesystem identity.")
+                continue
+            }
+            guard let currentIdentity = try? FilesystemIdentity.capture(at: url),
+                  currentIdentity == plannedIdentity,
+                  currentIdentity.isRegularFile,
+                  !currentIdentity.isSymbolicLink,
+                  !currentIdentity.isDirectory,
+                  !currentIdentity.isPackage,
+                  !currentIdentity.isVolume else {
+                errors.append("Skipped \(filename): filesystem identity changed after review.")
+                continue
+            }
+            do {
+                _ = try trasher.trashItem(at: url)
+                trashedIDs.append(filename)
+                trashedBytes += candidate.bytes
+            } catch {
+                errors.append("Skipped \(filename): \(error.localizedDescription)")
+            }
+        }
         return AuditPruneReceipt(
-            id: UUID().uuidString,
-            createdAt: Date(),
             dryRun: false,
             planID: plan.id,
-            deletedCount: 0,
-            deletedBytes: 0,
-            deletedFileIDs: [],
-            errors: ["Confirmed audit pruning is disabled because unlink cannot be bound to the verified audit object. The dry-run plan remains available for manual review."]
+            deletedCount: trashedIDs.count,
+            deletedBytes: trashedBytes,
+            deletedFileIDs: trashedIDs,
+            errors: errors
         )
     }
 
     public func save(plan: ReclaimPlan) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("plan-\(plan.id).json")
-        try encoder.encode(plan).write(to: url, options: .atomic)
+        try writeSecurely(plan, to: url)
         return url
     }
 
     public func save(receipt: ExecutionReceipt) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("receipt-\(receipt.id).json")
-        try encoder.encode(receipt).write(to: url, options: .atomic)
+        try writeSecurely(receipt, to: url)
         return url
     }
 
     public func save(nativeToolReport: NativeToolReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("native-tool-\(nativeToolReport.id).json")
-        try encoder.encode(nativeToolReport).write(to: url, options: .atomic)
+        try writeSecurely(nativeToolReport, to: url)
         return url
     }
 
     public func save(nativeToolExecutionReceipt: NativeToolExecutionReceipt) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("native-tool-execution-\(nativeToolExecutionReceipt.id).json")
-        try encoder.encode(nativeToolExecutionReceipt).write(to: url, options: .atomic)
+        try writeSecurely(nativeToolExecutionReceipt, to: url)
         return url
     }
 
     public func save(containerInventoryReport: ContainerInventoryReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("container-inventory-\(containerInventoryReport.id).json")
-        try encoder.encode(containerInventoryReport).write(to: url, options: .atomic)
+        try writeSecurely(containerInventoryReport, to: url)
         return url
     }
 
     public func save(remoteProbeReport: RemoteProbeReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("remote-probe-\(remoteProbeReport.id).json")
-        try encoder.encode(remoteProbeReport).write(to: url, options: .atomic)
+        try writeSecurely(remoteProbeReport, to: url)
         return url
     }
 
     public func save(remoteScanReport: RemoteScanReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("remote-scan-\(remoteScanReport.id).json")
-        try encoder.encode(remoteScanReport).write(to: url, options: .atomic)
+        try writeSecurely(remoteScanReport, to: url)
         return url
     }
 
     public func save(remoteDogfoodReport report: RemoteDogfoodReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("remote-dogfood-\(report.id).json")
-        try encoder.encode(report).write(to: url, options: .atomic)
+        try writeSecurely(report, to: url)
         return url
     }
 
     public func save(activeFileReviewReport: ActiveFileReviewReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("active-files-\(activeFileReviewReport.id).json")
-        try encoder.encode(activeFileReviewReport).write(to: url, options: .atomic)
+        try writeSecurely(activeFileReviewReport, to: url)
         return url
     }
 
     public func save(trashReviewReport: TrashReviewReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("trash-review-\(trashReviewReport.id).json")
-        try encoder.encode(trashReviewReport).write(to: url, options: .atomic)
+        try writeSecurely(trashReviewReport, to: url)
         return url
     }
 
     public func save(downloadsReviewReport: DownloadsReviewReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("downloads-review-\(downloadsReviewReport.id).json")
-        try encoder.encode(downloadsReviewReport).write(to: url, options: .atomic)
+        try writeSecurely(downloadsReviewReport, to: url)
         return url
     }
 
     public func save(browserCacheReviewReport: BrowserCacheReviewReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("browser-cache-review-\(browserCacheReviewReport.id).json")
-        try encoder.encode(browserCacheReviewReport).write(to: url, options: .atomic)
+        try writeSecurely(browserCacheReviewReport, to: url)
         return url
     }
 
     public func save(packageCacheReviewReport: PackageCacheReviewReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("package-cache-review-\(packageCacheReviewReport.id).json")
-        try encoder.encode(packageCacheReviewReport).write(to: url, options: .atomic)
+        try writeSecurely(packageCacheReviewReport, to: url)
         return url
     }
 
     public func save(projectDependencyReviewReport: ProjectDependencyReviewReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("project-dependency-review-\(projectDependencyReviewReport.id).json")
-        try encoder.encode(projectDependencyReviewReport).write(to: url, options: .atomic)
+        try writeSecurely(projectDependencyReviewReport, to: url)
         return url
     }
 
     public func save(deviceBackupReviewReport: DeviceBackupReviewReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("device-backup-review-\(deviceBackupReviewReport.id).json")
-        try encoder.encode(deviceBackupReviewReport).write(to: url, options: .atomic)
+        try writeSecurely(deviceBackupReviewReport, to: url)
         return url
     }
 
     public func save(xcodeReviewReport: XcodeReviewReport) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("xcode-review-\(xcodeReviewReport.id).json")
-        try encoder.encode(xcodeReviewReport).write(to: url, options: .atomic)
+        try writeSecurely(xcodeReviewReport, to: url)
         return url
     }
 
     public func save(appUninstallPreview: AppUninstallPreview) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("app-uninstall-preview-\(appUninstallPreview.id).json")
-        try encoder.encode(appUninstallPreview).write(to: url, options: .atomic)
+        try writeSecurely(appUninstallPreview, to: url)
         return url
     }
 
     public func save(appUninstallReceipt: AppUninstallExecutionReceipt) throws -> URL {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("app-uninstall-receipt-\(appUninstallReceipt.id).json")
-        try encoder.encode(appUninstallReceipt).write(to: url, options: .atomic)
+        try writeSecurely(appUninstallReceipt, to: url)
         return url
     }
 
     public func saveScanSession(_ session: ScanSession) throws {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try prepareRoot()
         let url = root.appendingPathComponent("\(Self.scanSessionPrefix)\(session.id).json")
-        try encoder.encode(session).write(to: url, options: .atomic)
+        try writeSecurely(session, to: url)
     }
 
     public func latestScanSession() throws -> ScanSession? {
@@ -663,6 +709,16 @@ public final class AuditStore: @unchecked Sendable {
             }
             .prefix(limit)
             .compactMap { try? decoder.decode(AppUninstallExecutionReceipt.self, from: Data(contentsOf: $0)) }
+    }
+
+    private func prepareRoot() throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+    }
+
+    private func writeSecurely<Value: Encodable>(_ value: Value, to url: URL) throws {
+        try encoder.encode(value).write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     private func auditFileRecords() -> [AuditFileRecord] {

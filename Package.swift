@@ -11,8 +11,7 @@ let package = Package(
         .library(name: "ReclaimerCore", targets: ["ReclaimerCore"]),
         .executable(name: "reclaimer", targets: ["reclaimer"]),
         .executable(name: "RyddiApp", targets: ["MacDiskReclaimerApp"]),
-        .executable(name: "MacDiskReclaimerApp", targets: ["MacDiskReclaimerApp"]),
-        .executable(name: "ReclaimerAgent", targets: ["ReclaimerAgent"])
+        .executable(name: "MacDiskReclaimerApp", targets: ["MacDiskReclaimerApp"])
     ],
     targets: [
         .target(
@@ -27,10 +26,6 @@ let package = Package(
         ),
         .executableTarget(
             name: "MacDiskReclaimerApp",
-            dependencies: ["ReclaimerCore"]
-        ),
-        .executableTarget(
-            name: "ReclaimerAgent",
             dependencies: ["ReclaimerCore"]
         ),
         .testTarget(

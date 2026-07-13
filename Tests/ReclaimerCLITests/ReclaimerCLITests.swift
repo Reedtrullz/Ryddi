@@ -201,7 +201,7 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertTrue(guidance.localizedCaseInsensitiveContains("manual"), guidance)
     }
 
-    func testAuditPruneTextStaysManualPreviewOnly() throws {
+    func testAuditPruneTextDefaultsToRecoverablePreview() throws {
         let plan = AuditPrunePlan(
             id: "audit-plan",
             createdAt: Date(timeIntervalSince1970: 1_000),
@@ -233,9 +233,10 @@ final class ReclaimerCLITests: XCTestCase {
         }
 
         XCTAssertTrue(output.contains("Ryddi audit retention preview"), output)
-        XCTAssertTrue(output.localizedCaseInsensitiveContains("does not delete"), output)
+        XCTAssertTrue(output.localizedCaseInsensitiveContains("review only"), output)
+        XCTAssertTrue(output.contains("--yes"), output)
+        XCTAssertTrue(output.localizedCaseInsensitiveContains("Trash"), output)
         XCTAssertFalse(output.contains("Deleted:"), output)
-        XCTAssertFalse(output.contains("--yes"), output)
     }
 
     func testPermissionGuideOutputRefusesExistingFileWithoutOverwritingIt() throws {
@@ -792,12 +793,19 @@ final class ReclaimerCLITests: XCTestCase {
         XCTAssertEqual(chmod(brew.path, S_IRWXU), 0)
 
         let oldPath = getenv("PATH").map { String(cString: $0) }
+        let oldTestRoot = getenv("RYDDI_TEST_NATIVE_TOOL_ROOT").map { String(cString: $0) }
         setenv("PATH", "\(bin.path):\(oldPath ?? "")", 1)
+        setenv("RYDDI_TEST_NATIVE_TOOL_ROOT", bin.path, 1)
         defer {
             if let oldPath {
                 setenv("PATH", oldPath, 1)
             } else {
                 unsetenv("PATH")
+            }
+            if let oldTestRoot {
+                setenv("RYDDI_TEST_NATIVE_TOOL_ROOT", oldTestRoot, 1)
+            } else {
+                unsetenv("RYDDI_TEST_NATIVE_TOOL_ROOT")
             }
         }
         try body()

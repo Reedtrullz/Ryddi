@@ -4,7 +4,7 @@ import ReclaimerCore
 extension ReclaimerCLI {
     static func history(args: [String]) throws {
         guard let subcommand = args.first else {
-            throw CLIError.message("history requires record, list, diff, or report")
+            throw CLIError.message("history requires record, list, diff, report, or prune")
         }
         let options = ParsedOptions(Array(args.dropFirst()))
         let store = ScanHistoryStore()
@@ -90,6 +90,20 @@ extension ReclaimerCLI {
             } else if options.outputPath == nil {
                 print(report.markdown)
             }
+        case "prune":
+            guard options.dryRun || options.yes else {
+                throw CLIError.message("history prune defaults to --dry-run; pass --yes to move still-matching old snapshots to Trash")
+            }
+            let plan = store.retentionPlan(keepRecent: options.keepRecent)
+            let receipt = store.prune(plan: plan, dryRun: !options.yes)
+            if options.json {
+                printJSON(AuditPruneCommandResult(plan: plan, receipt: receipt))
+            } else {
+                print("Ryddi scan-history retention \(receipt.dryRun ? "preview" : "result")")
+                print("Keep recent: \(plan.policy.keepRecent)")
+                print("Candidates: \(plan.candidateCount) (\(ByteFormat.string(plan.candidateBytes)))")
+                print(receipt.dryRun ? "No files changed. Pass --yes to move still-matching candidates to Trash." : "Moved to Trash: \(receipt.deletedCount) (\(ByteFormat.string(receipt.deletedBytes)))")
+            }
         default:
             throw CLIError.message("Unknown history subcommand: \(subcommand)")
         }
@@ -108,15 +122,15 @@ extension ReclaimerCLI {
                 printAuditSummary(summary)
             }
         case "prune":
-            guard options.dryRun else {
-                throw CLIError.message("audit prune is dry-run only because unlink cannot be bound to the verified audit object. Review the plan manually instead.")
+            guard options.dryRun || options.yes else {
+                throw CLIError.message("audit prune defaults to --dry-run; pass --yes to move the reviewed known audit JSON candidates to Trash")
             }
             let policy = AuditRetentionPolicy(
                 olderThanDays: options.auditOlderThanDays,
                 keepRecent: options.keepRecent
             )
             let plan = store.prunePlan(policy: policy)
-            let receipt = try store.prune(plan: plan, dryRun: options.dryRun)
+            let receipt = try store.prune(plan: plan, dryRun: !options.yes)
             if options.json {
                 printJSON(AuditPruneCommandResult(plan: plan, receipt: receipt))
             } else {
@@ -214,11 +228,11 @@ func printAuditPruneResult(plan: AuditPrunePlan, receipt: AuditPruneReceipt) {
     print("Root: \(plan.rootPath)")
     print("Policy: older than \(plan.policy.olderThanDays) days, keep \(plan.policy.keepRecent) recent known files")
     print("Candidates: \(plan.candidateCount) (\(ByteFormat.string(plan.candidateBytes)))")
-    print("Automatic deletion: disabled")
+    print("Action: \(receipt.dryRun ? "dry-run only" : "moved eligible files to Trash")")
     print("Unknown files skipped: \(plan.skippedUnknownPaths.count)")
     print("Symlinks skipped: \(plan.skippedSymlinkPaths.count)")
     if receipt.dryRun {
-        print("\nManual review only. Ryddi does not delete audit JSON; review candidates in Finder.")
+        print("\nReview only. Pass --yes to move still-matching known audit JSON candidates to Trash.")
     }
     if !plan.candidates.isEmpty {
         print("\nCandidates")

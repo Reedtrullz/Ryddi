@@ -112,7 +112,7 @@ Ryddi classifies findings into:
 - `preserveByDefault` - valuable data such as sessions, profiles, assets, archives, or app-managed state
 - `neverTouch` - credentials, config, memories, app bundles, active state DBs, and other protected paths
 
-Direct cache deletion, compression, holding moves, audit pruning, and issue-package replacement remain disabled. The app has one narrow recoverable filesystem lane: a current clean dry run may mint a 15-minute, one-use capability for selected `autoSafe` `.trash` items. The confirmation sheet lists exact paths; immediately before each move Ryddi rechecks file identity, classification, user policy, symlinks, typed gates, containment, and recursive open handles. Any changed or blocked item is skipped. A pathname check reduces replacement risk but is not atomic, and moving to Trash does not itself increase free space. Native maintenance separately supports Homebrew cleanup, Docker builder pruning, and npm cache clearing through exact allowlists, fresh bounded previews, explicit confirmation, and one-time same-process capabilities. Docker volumes/images/containers/VM state, project dependencies, Codex history, and arbitrary package-manager commands remain guidance-only.
+Direct cache deletion, compression, holding moves, and issue-package replacement remain disabled. The app has one narrow recoverable cleanup lane: a current clean dry run may mint a 15-minute, one-use capability for selected `autoSafe` `.trash` items. A separate retention lane defaults to dry run and can explicitly move only still-matching, known Ryddi audit or scan-history JSON records to Finder Trash; it is never scheduled and never touches unknown files, symlinks, directories, or identity-changed records. The confirmation sheet lists exact paths; immediately before each cleanup move Ryddi rechecks file identity, classification, user policy, symlinks, typed gates, containment, and recursive open handles. Any changed or blocked item is skipped. A pathname check reduces replacement risk but is not atomic, and moving to Trash does not itself increase free space. Native maintenance separately supports Homebrew cleanup, Docker builder pruning, and npm cache clearing through exact allowlists, fresh bounded previews, explicit confirmation, and one-time same-process capabilities. Docker volumes/images/containers/VM state, project dependencies, Codex history, and arbitrary package-manager commands remain guidance-only.
 
 Every CLI `--output` export must use a new file name in an existing directory. Ryddi binds the write to the verified parent directory and refuses to replace an existing file; issue packages similarly require a new or empty output directory.
 
@@ -195,6 +195,8 @@ swift run --scratch-path .build reclaimer apps uninstall-preview --app /Applicat
 swift run --scratch-path .build reclaimer agents
 swift run --scratch-path .build reclaimer agents --json --limit 40
 swift run --scratch-path .build reclaimer agents retention --profile balanced
+swift run --scratch-path .build reclaimer audit prune --dry-run --older-than-days 30 --keep-recent 100
+swift run --scratch-path .build reclaimer history prune --dry-run --keep-recent 30
 swift run --scratch-path .build reclaimer packages --json --save-audit
 swift run --scratch-path .build reclaimer projects --json --path ~/Projects --include-vcs-status --save-audit
 swift run --scratch-path .build reclaimer projects policy preserve ~/Projects/ImportantApp --reason "keep demo dependencies"
@@ -747,7 +749,7 @@ The supported minimum dashboard size is 980×680. The primary task order is **Sc
 Sources/ReclaimerCore/       Shared scanner, rules, planner, executor, audit, recovery, holding, scheduler
 Sources/reclaimer/           CLI
 Sources/MacDiskReclaimerApp/ SwiftUI app target
-Sources/ReclaimerAgent/      Scheduled report runner
+Sources/reclaimer/           CLI and scheduled report runner
 Tests/ReclaimerCoreTests/    Safety and fixture tests
 Scripts/                     Packaging and notarization helpers
 ```

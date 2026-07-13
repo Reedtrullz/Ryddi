@@ -122,9 +122,20 @@ public struct ProcessToolCommandRunner: ToolCommandRunning {
     }
 
     public func run(_ invocation: ToolCommandInvocation, timeout: TimeInterval) -> ToolCommandOutput {
+        let effectiveInvocation: ToolCommandInvocation
+        do {
+            let resolution = try SystemNativeExecutableResolver().resolve(invocation.executable)
+            effectiveInvocation = invocation.replacingExecutable(with: resolution.launchPath)
+        } catch {
+            return ToolCommandOutput(
+                invocation: invocation,
+                exitCode: nil,
+                launchError: error.localizedDescription
+            )
+        }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [invocation.executable] + invocation.arguments
+        process.executableURL = URL(fileURLWithPath: effectiveInvocation.executable)
+        process.arguments = effectiveInvocation.arguments
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -152,7 +163,7 @@ public struct ProcessToolCommandRunner: ToolCommandRunning {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             return ToolCommandOutput(
-                invocation: invocation,
+                invocation: effectiveInvocation,
                 exitCode: nil,
                 stdout: "",
                 stderr: "",
@@ -178,7 +189,7 @@ public struct ProcessToolCommandRunner: ToolCommandRunning {
         stderr.append(stderrPipe.fileHandleForReading.availableData)
 
         return ToolCommandOutput(
-            invocation: invocation,
+            invocation: effectiveInvocation,
             exitCode: process.terminationStatus,
             timedOut: timedOut,
             stdout: stdout.stringValue,

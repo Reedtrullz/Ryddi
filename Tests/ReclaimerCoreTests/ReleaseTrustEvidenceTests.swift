@@ -133,12 +133,13 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 
         XCTAssertTrue(
-            script.contains("assert_public_manifest_has_no_local_paths"),
+            script.contains("assert_public_file_has_no_local_paths"),
             "release-check should fail if the public manifest leaks local build paths."
         )
         XCTAssertTrue(script.contains("Artifact directory: $artifact_basename"))
         XCTAssertTrue(script.contains("App payload SHA-256: $app_payload_sha"))
-        XCTAssertTrue(script.contains("printf '%s  %s\\n' \"$app_payload_sha\" \"Ryddi.app\""))
+        XCTAssertTrue(script.contains("shasum -a 256 \"Ryddi-release-manifest.txt\""))
+        XCTAssertFalse(script.contains("printf '%s  %s\\n' \"$app_payload_sha\" \"Ryddi.app\""))
         XCTAssertTrue(script.contains("/usr/bin/ditto -c -k --keepParent \"$stage_dir\" \"$zip_path\""))
         XCTAssertFalse(script.contains("Bundle: $app"))
         XCTAssertFalse(script.contains("Artifact: $zip_path"))
@@ -146,43 +147,25 @@ final class ReleaseTrustEvidenceTests: XCTestCase {
         XCTAssertFalse(script.contains("- swift test --scratch-path \"$root/.build\""))
     }
 
-    func testReleaseCheckSmokesFreshSameProcessHomebrewPreview() throws {
+    func testReleaseCheckRejectsPathShadowedNativeToolsWithoutExecution() throws {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 
         XCTAssertTrue(script.contains("fake-brew-bin"))
         let fakeBrewSetup = try XCTUnwrap(script.range(of: "fake_brew_bin=\"$scratch/fake-brew-bin\""))
-        let explicitPreview = try XCTUnwrap(script.range(of: "native run --dry-run --json"))
+        let explicitPreview = try XCTUnwrap(script.range(of: "native homebrew cleanup --dry-run --json"))
         XCTAssertLessThan(
             fakeBrewSetup.lowerBound,
             explicitPreview.lowerBound,
-            "The explicit brew.preview smoke must install its disposable brew runner before invoking the now-real preview."
+            "The packaged fail-closed smoke must install its disposable shadow before attempting the preview."
         )
-        XCTAssertTrue(
-            script.contains("grep -q \"Would remove Homebrew cache fixture\" \"$scratch/native-run-dry-run.json\"")
-        )
-        XCTAssertFalse(
-            script.contains("grep -q \"Dry run only\" \"$scratch/native-run-dry-run.json\"")
-        )
-        XCTAssertTrue(script.contains("native homebrew cleanup --dry-run --save-audit"))
-        XCTAssertTrue(script.contains("native receipts list --json"))
-        XCTAssertTrue(script.contains("native receipts export"))
-        XCTAssertTrue(script.contains("native homebrew cleanup --yes"))
-        XCTAssertTrue(script.contains("native-homebrew-fresh-perform.json"))
-        XCTAssertTrue(script.contains("native-homebrew-fresh-receipts.json"))
-        XCTAssertTrue(script.contains("grep -q '\"id\" : \"brew.preview\"' \"$scratch/native-homebrew-fresh-receipts.json\""))
-        XCTAssertTrue(script.contains("grep -q '\"id\" : \"brew.cleanup\"' \"$scratch/native-homebrew-fresh-receipts.json\""))
-        XCTAssertTrue(script.contains("grep -q '\"status\" : \"dry-run\"' \"$scratch/native-homebrew-fresh-receipts.json\""))
-        XCTAssertTrue(script.contains("grep -q '\"status\" : \"done\"' \"$scratch/native-homebrew-fresh-receipts.json\""))
-        XCTAssertTrue(script.contains("audit-homebrew-fresh\" -name 'native-tool-execution-*.json' -type f | wc -l"))
-        XCTAssertTrue(script.contains("Removed Homebrew cache fixture"))
+        XCTAssertTrue(script.contains("test ! -e \"$shadow_marker\""))
+        XCTAssertTrue(script.contains("grep -qi \"approved tool locations\""))
+        XCTAssertFalse(script.contains("Removed Homebrew cache fixture"))
         XCTAssertTrue(script.contains("recovery restore \"2026-01-01T00-00-00Z/cache.bin\""))
         XCTAssertTrue(script.contains("unexpectedly succeeded"))
         XCTAssertFalse(script.contains("requires a saved native dry-run receipt"))
         XCTAssertFalse(script.contains("requires a saved Homebrew dry-run receipt"))
-        XCTAssertTrue(
-            script.contains("native homebrew cleanup --yes --save-audit"),
-            "The release gate should still run the same-process Homebrew preview/perform proof."
-        )
+        XCTAssertFalse(script.contains("native homebrew cleanup --yes --save-audit"))
     }
 
     func testReleaseCheckRefusesToReplaceExistingCLIOutput() throws {

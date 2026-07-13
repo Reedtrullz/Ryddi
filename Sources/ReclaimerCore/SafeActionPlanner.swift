@@ -70,7 +70,7 @@ public struct SafeActionPlanner: Sendable {
                     id: "audit-review:\(auditSummary.rootPath)",
                     kind: .auditPrune,
                     title: "Review old Ryddi audit receipts",
-                    detail: "Preview an audit-retention plan, then review candidates manually in Finder. Ryddi does not delete audit JSON.",
+                    detail: "Preview an audit-retention plan, then explicitly move still-matching known audit JSON candidates to Finder Trash.",
                     estimatedBytes: auditSummary.totalKnownBytes,
                     requiredConditions: [.manualReviewRequired, .finalClassificationRequired],
                     commandPreview: [

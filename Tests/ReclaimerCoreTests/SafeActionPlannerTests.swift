@@ -59,7 +59,8 @@ final class SafeActionPlannerTests: XCTestCase {
         XCTAssertEqual(action.commandPreview, ["reclaimer", "audit", "prune", "--dry-run", "--older-than-days", "30", "--keep-recent", "100"])
         XCTAssertEqual(action.requiredConditions, [.manualReviewRequired, .finalClassificationRequired])
         XCTAssertFalse(action.destructive)
-        XCTAssertTrue(action.detail.localizedCaseInsensitiveContains("manual"))
+        XCTAssertTrue(action.detail.localizedCaseInsensitiveContains("Trash"))
+        XCTAssertTrue(action.detail.localizedCaseInsensitiveContains("still-matching"))
     }
 
     func testPlannerDoesNotProduceExecutableActionsForProtectedStorage() {
