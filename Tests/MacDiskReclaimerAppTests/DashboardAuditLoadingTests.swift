@@ -12,13 +12,12 @@ final class DashboardAuditLoadingTests: XCTestCase {
             scanService: NoopAuditScanService(),
             auditSnapshotLoader: loader
         ))
-        var sidebarSelection = DashboardSection.summary
 
         let task = Task { await model.loadAudit() }
         await loader.waitUntilStarted()
 
-        sidebarSelection = .audit
-        XCTAssertEqual(sidebarSelection, .audit)
+        model.includeUserRulesInScans = true
+        XCTAssertTrue(model.includeUserRulesInScans)
         XCTAssertFalse(loader.loadedOnMainThread)
         XCTAssertNil(model.auditStoreSummary)
         XCTAssertTrue(model.recentReceipts.isEmpty)
@@ -47,18 +46,70 @@ final class DashboardAuditLoadingTests: XCTestCase {
         await loader.waitForCallCount(1)
         let newTask = Task { await model.loadAudit() }
         await loader.waitForCallCount(2)
+        let newerActivity = model.activity(for: .auditLoad)
+
+        loader.release(call: 0)
+        await oldTask.value
+        XCTAssertEqual(model.activity(for: .auditLoad), newerActivity)
+        XCTAssertTrue(model.recentReceipts.isEmpty)
 
         loader.release(call: 1)
         await newTask.value
         XCTAssertEqual(model.recentReceipts.map(\.id), ["new"])
-
-        loader.release(call: 0)
-        await oldTask.value
-        XCTAssertEqual(model.recentReceipts.map(\.id), ["new"])
         XCTAssertEqual(model.auditStoreSummary?.rootPath, "/audit/new")
+        XCTAssertEqual(model.activity(for: .auditLoad), .idle)
     }
 
-    private func makeSnapshot(id: String) -> AuditStoreSnapshot {
+    func testAuditLoadRefreshesExistingPresentationWhenHistoryWarningsArrive() async throws {
+        let warning = AuditStoreScanSessionWarning(
+            path: "/audit/scan-session-v1-corrupt.json",
+            kind: .unreadableScanSession,
+            message: "Unreadable fixture"
+        )
+        let model = DashboardModel(dependencies: .testing(
+            scanService: NoopAuditScanService(),
+            auditSnapshotLoader: ImmediateAuditSnapshotLoader(
+                snapshot: makeSnapshot(id: "loaded", warnings: [warning])
+            )
+        ))
+        model.presentationSnapshot = ScanPresentationSnapshot.build(findings: [], scopes: [])
+        let previousRevision = model.presentationRevision
+
+        await model.loadAudit()
+
+        XCTAssertEqual(model.presentationRevision, previousRevision + 1)
+        let presentation = try XCTUnwrap(model.presentationSnapshot)
+        XCTAssertTrue(
+            presentation.actionCenter.nonClaims.contains {
+                $0.contains("scan-session-v1-corrupt.json")
+            }
+        )
+        XCTAssertEqual(model.activity(for: .auditLoad), .idle)
+    }
+
+    func testHoldingAndAuditLoadDefersRecoveryUntilFreshReceiptsApply() async {
+        let loader = BlockingAuditSnapshotLoader(snapshot: makeSnapshot(id: "fresh"))
+        let model = DashboardModel(dependencies: .testing(
+            scanService: NoopAuditScanService(),
+            auditSnapshotLoader: loader
+        ))
+        model.recentReceipts = makeSnapshot(id: "stale").receipts
+
+        let task = Task { await model.loadHoldingAndAudit() }
+        await loader.waitUntilStarted()
+
+        XCTAssertTrue(model.recoveryReport.items.compactMap(\.receiptID).isEmpty)
+
+        loader.release()
+        await task.value
+
+        XCTAssertEqual(model.recoveryReport.items.compactMap(\.receiptID), ["fresh"])
+    }
+
+    private func makeSnapshot(
+        id: String,
+        warnings: [AuditStoreScanSessionWarning] = []
+    ) -> AuditStoreSnapshot {
         let receipt = ExecutionReceipt(
             id: id,
             ruleVersion: "test",
@@ -93,7 +144,7 @@ final class DashboardAuditLoadingTests: XCTestCase {
                 symlinkCount: 0,
                 items: []
             ),
-            scanSessions: AuditStoreScanSessionListResult(sessions: [session], warnings: []),
+            scanSessions: AuditStoreScanSessionListResult(sessions: [session], warnings: warnings),
             plans: [],
             receipts: [receipt],
             nativeToolReports: [],
@@ -112,6 +163,14 @@ final class DashboardAuditLoadingTests: XCTestCase {
             xcodeReviewReports: [],
             appUninstallReceipts: []
         )
+    }
+}
+
+private struct ImmediateAuditSnapshotLoader: AuditSnapshotLoading {
+    let snapshot: AuditStoreSnapshot
+
+    func load(limitPerKind: Int) -> AuditStoreSnapshot {
+        snapshot
     }
 }
 

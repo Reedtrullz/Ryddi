@@ -23,6 +23,16 @@ struct FileManagerAuditDirectoryReader: AuditDirectoryReading {
     }
 }
 
+protocol AuditDataReading: Sendable {
+    func read(from url: URL) throws -> Data
+}
+
+struct FileAuditDataReader: AuditDataReading {
+    func read(from url: URL) throws -> Data {
+        try Data(contentsOf: url)
+    }
+}
+
 protocol AuditDecoding: Sendable {
     func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value
 }
@@ -130,12 +140,14 @@ public final class AuditStore: @unchecked Sendable {
     private let encoder: JSONEncoder
     private let decoder: any AuditDecoding
     private let directoryReader: any AuditDirectoryReading
+    private let dataReader: any AuditDataReading
     private let trasher: any Trashing
 
     public init(root: URL = AuditStore.defaultRoot(), trasher: any Trashing = FileManagerTrasher()) {
         self.root = root.standardizedFileURL
         self.trasher = trasher
         self.directoryReader = FileManagerAuditDirectoryReader()
+        self.dataReader = FileAuditDataReader()
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         self.encoder.dateEncodingStrategy = .iso8601
@@ -146,11 +158,13 @@ public final class AuditStore: @unchecked Sendable {
         root: URL,
         trasher: any Trashing = FileManagerTrasher(),
         directoryReader: any AuditDirectoryReading,
+        dataReader: any AuditDataReading = FileAuditDataReader(),
         decoder: any AuditDecoding
     ) {
         self.root = root.standardizedFileURL
         self.trasher = trasher
         self.directoryReader = directoryReader
+        self.dataReader = dataReader
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         self.encoder.dateEncodingStrategy = .iso8601
@@ -165,7 +179,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func summary() -> AuditStoreSummary {
-        summary(from: auditIndex())
+        summary(from: auditIndexOrEmpty())
     }
 
     private func summary(from index: AuditIndex) -> AuditStoreSummary {
@@ -197,7 +211,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func prunePlan(policy: AuditRetentionPolicy, now: Date = Date()) -> AuditPrunePlan {
-        let records = auditFileRecords()
+        let records = auditIndexOrEmpty().records
         let knownRecords = records
             .filter { $0.isEligibleRegularFile && $0.kind != nil }
             .sorted { lhs, rhs in
@@ -438,11 +452,14 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func listScanSessionsResult(limit: Int) throws -> AuditStoreScanSessionListResult {
-        scanSessions(from: auditIndex(), limit: limit, capBeforeDecoding: false)
+        guard limit > 0 else {
+            return AuditStoreScanSessionListResult(sessions: [], warnings: [])
+        }
+        return scanSessions(from: try auditIndex(), limit: limit, capBeforeDecoding: false)
     }
 
     public func snapshot(limitPerKind: Int = 20) -> AuditStoreSnapshot {
-        let index = auditIndex()
+        let index = auditIndexOrEmpty()
         return AuditStoreSnapshot(
             summary: summary(from: index),
             scanSessions: scanSessions(from: index, limit: limitPerKind, capBeforeDecoding: true),
@@ -517,7 +534,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentReceipts(limit: Int = 20) -> [ExecutionReceipt] {
-        decode(ExecutionReceipt.self, kind: .receipt, limit: limit, from: auditIndex())
+        decode(ExecutionReceipt.self, kind: .receipt, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func receipt(id: String) -> ExecutionReceipt? {
@@ -528,7 +545,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentPlans(limit: Int = 20) -> [ReclaimPlan] {
-        decode(ReclaimPlan.self, kind: .plan, limit: limit, from: auditIndex())
+        decode(ReclaimPlan.self, kind: .plan, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func plan(id: String) -> ReclaimPlan? {
@@ -539,7 +556,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentNativeToolReports(limit: Int = 20) -> [NativeToolReport] {
-        decode(NativeToolReport.self, kind: .nativeTool, limit: limit, from: auditIndex())
+        decode(NativeToolReport.self, kind: .nativeTool, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func nativeToolReport(id: String) -> NativeToolReport? {
@@ -550,7 +567,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentNativeToolExecutionReceipts(limit: Int = 20) -> [NativeToolExecutionReceipt] {
-        decode(NativeToolExecutionReceipt.self, kind: .nativeToolExecution, limit: limit, from: auditIndex())
+        decode(NativeToolExecutionReceipt.self, kind: .nativeToolExecution, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func nativeToolExecutionReceipt(id: String) -> NativeToolExecutionReceipt? {
@@ -561,19 +578,19 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentContainerInventoryReports(limit: Int = 20) -> [ContainerInventoryReport] {
-        decode(ContainerInventoryReport.self, kind: .containerInventory, limit: limit, from: auditIndex())
+        decode(ContainerInventoryReport.self, kind: .containerInventory, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentRemoteProbeReports(limit: Int = 20) -> [RemoteProbeReport] {
-        decode(RemoteProbeReport.self, kind: .remoteProbe, limit: limit, from: auditIndex())
+        decode(RemoteProbeReport.self, kind: .remoteProbe, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentRemoteScanReports(limit: Int = 20) -> [RemoteScanReport] {
-        decode(RemoteScanReport.self, kind: .remoteScan, limit: limit, from: auditIndex())
+        decode(RemoteScanReport.self, kind: .remoteScan, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentRemoteDogfoodReports(limit: Int = 20) -> [RemoteDogfoodReport] {
-        decode(RemoteDogfoodReport.self, kind: .remoteDogfood, limit: limit, from: auditIndex())
+        decode(RemoteDogfoodReport.self, kind: .remoteDogfood, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func latestRemoteScanReport(matching target: RemoteTargetReference) -> RemoteScanReport? {
@@ -610,43 +627,47 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentActiveFileReviewReports(limit: Int = 20) -> [ActiveFileReviewReport] {
-        decode(ActiveFileReviewReport.self, kind: .activeFiles, limit: limit, from: auditIndex())
+        decode(ActiveFileReviewReport.self, kind: .activeFiles, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentTrashReviewReports(limit: Int = 20) -> [TrashReviewReport] {
-        decode(TrashReviewReport.self, kind: .trashReview, limit: limit, from: auditIndex())
+        decode(TrashReviewReport.self, kind: .trashReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentDownloadsReviewReports(limit: Int = 20) -> [DownloadsReviewReport] {
-        decode(DownloadsReviewReport.self, kind: .downloadsReview, limit: limit, from: auditIndex())
+        decode(DownloadsReviewReport.self, kind: .downloadsReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentBrowserCacheReviewReports(limit: Int = 20) -> [BrowserCacheReviewReport] {
-        decode(BrowserCacheReviewReport.self, kind: .browserCacheReview, limit: limit, from: auditIndex())
+        decode(BrowserCacheReviewReport.self, kind: .browserCacheReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentPackageCacheReviewReports(limit: Int = 20) -> [PackageCacheReviewReport] {
-        decode(PackageCacheReviewReport.self, kind: .packageCacheReview, limit: limit, from: auditIndex())
+        decode(PackageCacheReviewReport.self, kind: .packageCacheReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentProjectDependencyReviewReports(limit: Int = 20) -> [ProjectDependencyReviewReport] {
-        decode(ProjectDependencyReviewReport.self, kind: .projectDependencyReview, limit: limit, from: auditIndex())
+        decode(ProjectDependencyReviewReport.self, kind: .projectDependencyReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentDeviceBackupReviewReports(limit: Int = 20) -> [DeviceBackupReviewReport] {
-        decode(DeviceBackupReviewReport.self, kind: .deviceBackupReview, limit: limit, from: auditIndex())
+        decode(DeviceBackupReviewReport.self, kind: .deviceBackupReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentXcodeReviewReports(limit: Int = 20) -> [XcodeReviewReport] {
-        decode(XcodeReviewReport.self, kind: .xcodeReview, limit: limit, from: auditIndex())
+        decode(XcodeReviewReport.self, kind: .xcodeReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentAppUninstallReceipts(limit: Int = 20) -> [AppUninstallExecutionReceipt] {
-        decode(AppUninstallExecutionReceipt.self, kind: .appUninstallReceipt, limit: limit, from: auditIndex())
+        decode(AppUninstallExecutionReceipt.self, kind: .appUninstallReceipt, limit: limit, from: auditIndexOrEmpty())
     }
 
-    private func auditIndex() -> AuditIndex {
-        let records = auditFileRecords()
+    private func auditIndexOrEmpty() -> AuditIndex {
+        (try? auditIndex()) ?? AuditIndex(records: [], recordsByKind: [:])
+    }
+
+    private func auditIndex() throws -> AuditIndex {
+        let records = try auditFileRecords()
         var recordsByKind: [AuditFileKind: [AuditFileRecord]] = [:]
 
         for record in records {
@@ -680,7 +701,7 @@ public final class AuditStore: @unchecked Sendable {
         return index.recordsByKind[kind, default: []]
             .prefix(limit)
             .compactMap { record in
-                guard let data = try? Data(contentsOf: record.url) else { return nil }
+                guard let data = try? dataReader.read(from: record.url) else { return nil }
                 return try? decoder.decode(type, from: data)
             }
     }
@@ -697,13 +718,13 @@ public final class AuditStore: @unchecked Sendable {
         let indexedRecords = index.recordsByKind[.scanSession, default: []]
         let records = capBeforeDecoding
             ? Array(indexedRecords.prefix(limit))
-            : indexedRecords
+            : indexedRecords.sorted { $0.url.lastPathComponent < $1.url.lastPathComponent }
         var decodedSessions: [(AuditFileRecord, ScanSession)] = []
         var warnings: [AuditStoreScanSessionWarning] = []
 
         for record in records {
             do {
-                let data = try Data(contentsOf: record.url)
+                let data = try dataReader.read(from: record.url)
                 let session = try decoder.decode(ScanSession.self, from: data)
                 decodedSessions.append((record, session))
             } catch {
@@ -743,19 +764,20 @@ public final class AuditStore: @unchecked Sendable {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private func auditFileRecords() -> [AuditFileRecord] {
+    private func auditFileRecords() throws -> [AuditFileRecord] {
         let keys: Set<URLResourceKey> = [
             .contentModificationDateKey,
             .fileSizeKey,
             .isSymbolicLinkKey
         ]
-        guard let files = try? directoryReader.contentsOfDirectory(
+        guard FileManager.default.fileExists(atPath: root.path) else {
+            return []
+        }
+        let files = try directoryReader.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: Array(keys),
             options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
+        )
         return files.map { url in
             let values = try? url.resourceValues(forKeys: keys)
             let filesystemIdentity = try? FilesystemIdentity.capture(at: url)

@@ -48,14 +48,21 @@ final class AuditStoreSnapshotTests: XCTestCase {
             )
         }
         let decoder = SpyAuditDecoder()
+        let dataReader = SpyAuditDataReader()
         let store = AuditStore(
             root: root,
             directoryReader: SpyAuditDirectoryReader(),
+            dataReader: dataReader,
             decoder: decoder
         )
 
         let snapshot = store.snapshot(limitPerKind: 20)
 
+        XCTAssertEqual(dataReader.readCount, 20)
+        XCTAssertEqual(
+            dataReader.readFilenames,
+            (80..<100).reversed().map { "receipt-receipt-\($0).json" }
+        )
         XCTAssertEqual(decoder.receiptDecodeCount, 20)
         XCTAssertEqual(snapshot.receipts.count, 20)
         XCTAssertEqual(snapshot.receipts.first?.id, "receipt-99")
@@ -79,6 +86,58 @@ final class AuditStoreSnapshotTests: XCTestCase {
         XCTAssertEqual(directoryReader.readCount, 1)
         XCTAssertEqual(snapshot.scanSessions.sessions.map(\.id), ["valid"])
         XCTAssertEqual(snapshot.scanSessions.warnings.map(\.kind), [.unreadableScanSession])
+    }
+
+    func testListScanSessionsResultPropagatesDirectoryEnumerationFailure() {
+        let store = AuditStore(
+            root: root,
+            directoryReader: ThrowingAuditDirectoryReader(),
+            decoder: JSONAuditDecoder()
+        )
+
+        XCTAssertThrowsError(try store.listScanSessionsResult(limit: 20)) { error in
+            let error = error as NSError
+            XCTAssertEqual(error.domain, "AuditStoreSnapshotTests")
+            XCTAssertEqual(error.code, 41)
+        }
+    }
+
+    func testSnapshotFallsBackToEmptyWhenDirectoryEnumerationFails() {
+        let store = AuditStore(
+            root: root,
+            directoryReader: ThrowingAuditDirectoryReader(),
+            decoder: JSONAuditDecoder()
+        )
+
+        let snapshot = store.snapshot(limitPerKind: 20)
+
+        XCTAssertEqual(snapshot.summary.rootPath, root.standardizedFileURL.path)
+        XCTAssertEqual(snapshot.summary.totalKnownFileCount, 0)
+        XCTAssertTrue(snapshot.scanSessions.sessions.isEmpty)
+        XCTAssertTrue(snapshot.scanSessions.warnings.isEmpty)
+        XCTAssertTrue(snapshot.receipts.isEmpty)
+    }
+
+    func testListScanSessionsResultPreservesFilenameOrderedWarnings() throws {
+        let alpha = root.appendingPathComponent("scan-session-v1-alpha.json")
+        let zulu = root.appendingPathComponent("scan-session-v1-zulu.json")
+        try Data("not-json".utf8).write(to: alpha)
+        try Data("also-not-json".utf8).write(to: zulu)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 100)],
+            ofItemAtPath: alpha.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 200)],
+            ofItemAtPath: zulu.path
+        )
+
+        let result = try AuditStore(root: root).listScanSessionsResult(limit: 20)
+
+        XCTAssertEqual(
+            result.warnings.map { URL(fileURLWithPath: $0.path).lastPathComponent },
+            [alpha.lastPathComponent, zulu.lastPathComponent]
+        )
     }
 
     private func makePlan(id: String) -> ReclaimPlan {
@@ -107,6 +166,34 @@ final class AuditStoreSnapshotTests: XCTestCase {
             scopeDigest: "scope",
             policyDigest: "policy"
         )
+    }
+}
+
+private final class SpyAuditDataReader: AuditDataReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private var readURLs: [URL] = []
+
+    var readCount: Int {
+        lock.withLock { readURLs.count }
+    }
+
+    var readFilenames: [String] {
+        lock.withLock { readURLs.map(\.lastPathComponent) }
+    }
+
+    func read(from url: URL) throws -> Data {
+        lock.withLock { readURLs.append(url) }
+        return try Data(contentsOf: url)
+    }
+}
+
+private struct ThrowingAuditDirectoryReader: AuditDirectoryReading {
+    func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options mask: FileManager.DirectoryEnumerationOptions
+    ) throws -> [URL] {
+        throw NSError(domain: "AuditStoreSnapshotTests", code: 41)
     }
 }
 

@@ -1,52 +1,113 @@
-# Task 4 Implementer Report - COMPLETE PENDING REVIEW
+# Task 4 Implementer Report - REVIEW FIX COMPLETE
 
 ## Status
 
-Task 4, "Single-Pass Off-Main Audit Snapshot," is implemented and locally verified from base `ab2c477e5012639aa28fdcf804c7f1561efd8eec`. The implementation is ready for the Task 4 spec and quality review.
+Task 4 review fixes are implemented and locally verified from committed base
+`860648f40b2422969fdb066da3812da3218e85c8`. The branch is ready for independent
+re-review. The follow-up commit containing this report uses the requested message
+`fix: preserve audit snapshot semantics`.
 
-## Preserved RED Evidence
+## Starting State
 
-The interrupted implementer recorded these commands before the requested APIs existed:
+The requested HEAD and branch matched exactly, and disk space was above the stop
+threshold:
+
+```text
+HEAD: 860648f40b2422969fdb066da3812da3218e85c8
+branch: feature/ryddi-v0.3.1-correctness
+available disk: 59Gi
+```
+
+The first `git status --short --branch` was not clean. It already contained
+uncommitted changes in:
+
+```text
+M Sources/ReclaimerCore/AuditStore.swift
+M Tests/ReclaimerCoreTests/AuditStoreSnapshotTests.swift
+```
+
+Those changes directly addressed reviewer findings 1 and 4. They were preserved,
+reviewed, strengthened, and included; they were not reset or attributed to this
+session.
+
+## Fresh RED Evidence
+
+Tests were added before the app implementation changes.
+
+First RED command:
 
 ```bash
-swift test --scratch-path "$PWD/.build" --filter AuditStoreSnapshotTests
 swift test --scratch-path "$PWD/.build" --filter DashboardAuditLoadingTests
 ```
 
-Both exited `1` during compilation. The recorded failures named the missing `AuditStoreSnapshot`, `AuditDirectoryReading`, `AuditDecoding`, `JSONAuditDecoder`, `AuditSnapshotLoading`, injected loader argument, and async audit-loading surface. This resumption preserves that RED evidence as a handoff record; it did not recreate or strengthen the pre-implementation claim.
+Exit `1`. The suite built and ran 3 tests. The new presentation regression failed
+with the expected stale state:
 
-During recovery, the first core-filter runs also exposed two incomplete test fixtures: `ScanSession.updatedAt` was in the wrong argument position, and `RecoveryCenterReport` was asserted through a nonexistent `receipts` property. Those fixtures were corrected against the real APIs. Before the app loader existed, SwiftPM also compiled the already-RED app test target while running the core filter and reported the expected missing `AuditSnapshotLoading` surface.
+```text
+DashboardAuditLoadingTests.swift:80: XCTAssertEqual failed: ("0") is not equal to ("1")
+DashboardAuditLoadingTests.swift:82: XCTAssertTrue failed
+Executed 3 tests, with 2 failures (0 unexpected)
+```
+
+This proved an accepted audit snapshot did not refresh an existing presentation,
+so the new scan-session warning filename never reached Action Center non-claims.
+
+Second RED command after adding the paired holding-and-audit regression:
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter DashboardAuditLoadingTests
+```
+
+Exit `1` during compilation with the expected missing paired API:
+
+```text
+DashboardAuditLoadingTests.swift:98:39: error: value of type 'DashboardModel' has no member 'loadHoldingAndAudit'
+```
+
+Running the core filter at that RED point also exited `1` because SwiftPM compiled
+the already-RED app test target and reported the same missing member.
+
+The AuditStore throwing/order/data-reader implementation and its first focused
+tests were already uncommitted at session start. This report does not claim fresh
+RED chronology for those pre-existing edits.
 
 ## Implementation
 
-- Added immutable `AuditStoreSnapshot` state and a typed audit-file index.
-- `snapshot(limitPerKind:)` performs one injected direct-child directory read, classifies each child once, sorts each kind once, caps before decode, and carries scan-session warnings.
-- Existing `recent*` and scan-session wrappers use the shared typed index/decode helpers. Legacy scan-session result ordering remains decoded-`updatedAt` based, while snapshot mode keeps its single indexed sort.
-- Typed prefix values serialize back to the existing string kinds for prune-plan JSON, and confirmed pruning still revalidates the current kind and filesystem identity before Trash.
-- Added `AuditSnapshotLoading` to `DashboardDependencies`; the live loader creates one snapshot.
-- `DashboardModel.loadAudit()` is async, runs the synchronous loader in a utility detached task, uses the `.auditLoad` UUID as commit authority, and applies one snapshot without suspension on the main actor.
-- Snapshot application updates all audit-backed model state, derives remote comparison state without another audit read, and calls recovery derivation exactly once after assignment.
-- Removed the obsolete scan-session-only startup read and a redundant remote dogfood audit lookup.
-- Updated every existing `loadAudit()` caller to await it directly or from a SwiftUI `Task`; duplicate post-load recovery calls were removed.
-- `AuditHistoryView.swift` required no edit because it has no direct `loadAudit()` caller and reads the snapshot-backed model state.
+- Made shared audit index construction throwing. The throwing legacy scan-session
+  API uses `try`, while nonthrowing summary, snapshot, prune-plan, and `recent*`
+  APIs use the explicit `auditIndexOrEmpty()` fallback.
+- Restored deterministic legacy scan-session traversal by filename before decode,
+  preserving filename-ordered warnings while keeping decoded sessions ordered by
+  `updatedAt` and filename tie-break.
+- Added the injected `AuditDataReading` boundary and routed generic and scan-session
+  reads through it. The cap test now proves only the exact newest 20 receipt files
+  are read, not merely that only 20 decodes occur.
+- Added `loadHoldingAndAudit()`. Paired startup and Recovery Center refresh paths
+  load holding records without deriving recovery, then derive recovery once after
+  the accepted audit snapshot is atomically applied. Standalone Holding refresh
+  still derives recovery immediately.
+- After an accepted snapshot, `loadAudit()` now finishes `.auditLoad` before it
+  conditionally refreshes an existing presentation. `apply(snapshot:)` remains
+  synchronous and has no suspension point.
+- Avoided a duplicate presentation rebuild in the dry-run path while preserving
+  its first-presentation behavior.
+- Strengthened dashboard loading tests to mutate real model state while the loader
+  is blocked and to prove an older completion cannot clear or replace the newer
+  `.auditLoad` activity ID.
 
 ## Files Changed
 
 - `.superpowers/sdd/task-4-report.md`
 - `.superpowers/sdd/progress.md`
 - `Sources/ReclaimerCore/AuditStore.swift`
-- `Sources/ReclaimerCore/AuditStoreHygiene.swift`
-- `Sources/ReclaimerCore/AuditStoreSnapshot.swift`
-- `Sources/MacDiskReclaimerApp/DashboardDependencies.swift`
-- `Sources/MacDiskReclaimerApp/DashboardModel.swift`
 - `Sources/MacDiskReclaimerApp/DashboardModel+AuditAndRecovery.swift`
-- `Sources/MacDiskReclaimerApp/DashboardModel+Remote.swift`
-- `Sources/MacDiskReclaimerApp/DashboardModel+Reviews.swift`
 - `Sources/MacDiskReclaimerApp/DashboardModel+ScanPlan.swift`
-- `Sources/MacDiskReclaimerApp/DashboardContentViews.swift`
 - `Sources/MacDiskReclaimerApp/DashboardView.swift`
+- `Sources/MacDiskReclaimerApp/DashboardContentViews.swift`
 - `Tests/ReclaimerCoreTests/AuditStoreSnapshotTests.swift`
 - `Tests/MacDiskReclaimerAppTests/DashboardAuditLoadingTests.swift`
+
+No `.superpowers/sdd/reviews/` artifact was added.
 
 ## Final Verification
 
@@ -56,21 +117,19 @@ All commands ran from the Task 4 worktree with repo-local `.build`.
 swift test --scratch-path "$PWD/.build" --filter AuditStoreSnapshotTests
 ```
 
-Exit `0`: 3 tests, 0 failures.
+Exit `0`: 6 tests, 0 failures.
 
 ```bash
 swift test --scratch-path "$PWD/.build" --filter DashboardAuditLoadingTests
 ```
 
-Exit `0`: 2 tests, 0 failures.
+Exit `0`: 4 tests, 0 failures.
 
 ```bash
 swift test --scratch-path "$PWD/.build" --filter Audit
 ```
 
-Exit `0`: 47 tests, 0 failures.
-
-Before the full loop:
+Exit `0`: 52 tests, 0 failures.
 
 ```bash
 df -h /System/Volumes/Data
@@ -82,7 +141,7 @@ Reported `59Gi` available, above the `30Gi` stop threshold.
 swift test --scratch-path "$PWD/.build"
 ```
 
-Exit `0`: 563 tests, 1 existing skip, 0 failures.
+Exit `0`: 568 tests, 1 existing release-only performance skip, 0 failures.
 
 ```bash
 swift build --scratch-path "$PWD/.build"
@@ -98,17 +157,26 @@ Exit `0` with no output.
 
 ## Self-Review
 
-- Confirmed `snapshot(limitPerKind:)` has one `auditIndex()` construction and the directory spy observes exactly one read.
-- Confirmed each generic decode prefixes indexed records before reading `Data` or invoking the decoder.
-- Confirmed scan-session snapshot warnings survive decode failures and legacy `listScanSessionsResult` behavior remains covered.
-- Confirmed known-prefix ordering still distinguishes `native-tool-execution-` from `native-tool-` and prune JSON keeps the same raw string values.
-- Confirmed symlinks, directories, packages, volumes, unknown files, stale identities, and legacy identity-free candidates remain excluded or fail closed.
-- Confirmed no independent startup audit-history read remains and all `loadAudit()` call sites await the async API.
-- Confirmed snapshot application has no suspension point, stale operation IDs cannot apply or finish a newer load, and recovery is derived once at the end.
+- Confirmed throwing and fallback audit-index paths are separated by API contract.
+- Confirmed legacy warnings traverse lexical filenames and snapshot reads cap before
+  file contents are loaded.
+- Confirmed paired holding-and-audit call sites no longer derive against stale
+  receipts and accepted snapshot application derives recovery once.
+- Confirmed stale audit loaders neither apply state nor finish a newer activity.
+- Confirmed presentation refresh happens after activity finish and outside atomic
+  snapshot application.
+
+## Concerns
+
+- The two pre-existing uncommitted AuditStore files prevented a truthful fresh RED
+  claim for findings 1 and 4; their behavior is covered by focused final tests.
+- No remaining correctness concern was found in the requested review-fix scope.
 
 ## Non-Claims
 
 - No real cleanup or user audit-data mutation was performed.
-- No remote SSH target was contacted.
-- No app install, signing, notarization, packaging, push, CI, deploy, or release work was performed.
-- No packaged-app, Accessibility, or manual UI run was performed for this unit-focused task.
+- No keychain operation, SSH connection, remote target, or cleanup command was run.
+- No app install, package, signing, notarization, push, CI, deploy, or release work
+  was performed.
+- No packaged-app, Accessibility, or manual UI run was performed for this
+  unit-focused follow-up.

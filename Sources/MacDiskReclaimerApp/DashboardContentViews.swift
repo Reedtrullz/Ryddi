@@ -1353,8 +1353,7 @@ struct RecoveryCenterView: View {
                     Spacer()
                     Button {
                         Task {
-                            model.loadHolding()
-                            await model.loadAudit()
+                            await model.loadHoldingAndAudit()
                         }
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")

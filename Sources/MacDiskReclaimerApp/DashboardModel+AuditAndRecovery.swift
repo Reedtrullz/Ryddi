@@ -88,6 +88,9 @@ extension DashboardModel {
         guard activities.isCurrent(.auditLoad, id: operationID) else { return }
         apply(snapshot)
         activities.finish(.auditLoad, id: operationID)
+        if presentationSnapshot != nil {
+            await refreshPresentationSnapshot()
+        }
     }
 
     private func apply(_ snapshot: AuditStoreSnapshot) {
@@ -150,8 +153,17 @@ extension DashboardModel {
     }
 
     func loadHolding() {
-        heldItems = HoldingStore().list()
+        loadHoldingRecords()
         loadRecovery()
+    }
+
+    func loadHoldingAndAudit() async {
+        loadHoldingRecords()
+        await loadAudit()
+    }
+
+    private func loadHoldingRecords() {
+        heldItems = HoldingStore().list()
     }
 
     func loadRecovery() {

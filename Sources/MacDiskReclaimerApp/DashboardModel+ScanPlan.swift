@@ -408,7 +408,9 @@ extension DashboardModel {
             _ = try AuditStore().save(plan: plan)
             _ = try AuditStore().save(receipt: receipt)
             await loadAudit()
-            await refreshPresentationSnapshot()
+            if presentationSnapshot == nil {
+                await refreshPresentationSnapshot()
+            }
         } catch {
             diagnostics.record(error: .dryRunFailed)
             self.error = error.localizedDescription
