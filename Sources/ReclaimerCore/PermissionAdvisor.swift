@@ -7,9 +7,8 @@ public enum ScopeReadability: Hashable, Sendable {
     case unknown
 
     public static func classify(error: Error) -> ScopeReadability {
-        let error = error as NSError
-        if error.domain == NSPOSIXErrorDomain {
-            switch Int32(error.code) {
+        if let code = normalizedPOSIXCode(in: error) {
+            switch Int32(code) {
             case ENOENT, ENOTDIR:
                 return .missing
             case EACCES, EPERM:
@@ -18,17 +17,28 @@ public enum ScopeReadability: Hashable, Sendable {
                 return .unknown
             }
         }
+        let error = error as NSError
         if error.domain == NSCocoaErrorDomain {
             switch CocoaError.Code(rawValue: error.code) {
             case .fileNoSuchFile:
                 return .missing
-            case .fileReadNoPermission, .fileWriteNoPermission:
-                return .permissionDenied
             default:
                 return .unknown
             }
         }
         return .unknown
+    }
+
+    static func normalizedPOSIXCode(in error: Error) -> Int? {
+        var current: NSError? = error as NSError
+        for _ in 0..<8 {
+            guard let candidate = current else { return nil }
+            if candidate.domain == NSPOSIXErrorDomain {
+                return candidate.code
+            }
+            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return nil
     }
 }
 
@@ -138,17 +148,15 @@ public enum PermissionAdvisor {
     public static func report(
         scopes: [ScanScope],
         now: Date = Date(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        probe: (any ScopeAccessProbing)? = nil
     ) -> PermissionAdvisorReport {
-        report(scopeSummaries: scopeSummaries(scopes: scopes, fileManager: fileManager), now: now)
+        let resolvedProbe = probe ?? FileManagerScopeAccessProbe(fileManager: fileManager)
+        return report(scopeSummaries: scopeSummaries(scopes: scopes, probe: resolvedProbe), now: now)
     }
 
     public static func scopeReadability(at root: URL, fileManager: FileManager = .default) -> ScopeReadability {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) else {
-            return .missing
-        }
-        return fileManager.isReadableFile(atPath: root.path) ? .readable : .permissionDenied
+        FileManagerScopeAccessProbe(fileManager: fileManager).probe(root).state
     }
 
     public static func report(
@@ -227,48 +235,49 @@ public enum PermissionAdvisor {
 
     private static func nonClaims() -> [String] {
         [
-            "This advisory observes current path readability; it cannot prove macOS Full Disk Access is globally enabled.",
+            "This advisory reports only the configured operation result; it cannot prove macOS Full Disk Access is enabled and does not claim that it is enabled.",
             "Readable scope coverage does not mean any item is safe to remove.",
             "Missing roots can be normal when a developer tool is not installed or has not created cache data.",
             "Changing macOS privacy settings is a user-controlled system action; Ryddi does not grant permissions automatically."
         ]
     }
 
-    private static func scopeSummaries(scopes: [ScanScope], fileManager: FileManager) -> [ScopeAccessSummary] {
+    static func scopeSummaries(
+        scopes: [ScanScope],
+        probe: any ScopeAccessProbing
+    ) -> [ScopeAccessSummary] {
         scopes.map { scope in
-            var isDirectory: ObjCBool = false
             let root = scope.root.standardizedFileURL
-            _ = fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory)
-            switch scopeReadability(at: root, fileManager: fileManager) {
-            case .missing:
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: root.path,
-                    permissionState: .missing,
-                    message: "Path is not present on this Mac."
-                )
-            case .permissionDenied:
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: root.path,
-                    permissionState: .denied,
-                    message: "Path exists but is not readable with current permissions."
-                )
-            case .unknown:
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: root.path,
-                    permissionState: .unknown,
-                    message: "Path readability could not be determined."
-                )
-            case .readable:
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: root.path,
-                    permissionState: .readable,
-                    message: isDirectory.boolValue ? "Directory is readable." : "File is readable."
-                )
-            }
+            let result = probe.probe(root)
+            return scopeSummary(scope: scope, result: result)
         }
+    }
+
+    static func scopeSummary(scope: ScanScope, result: ScopeAccessProbeResult) -> ScopeAccessSummary {
+        let permissionState: PermissionState
+        let message: String
+        switch result.state {
+        case .missing:
+            permissionState = .missing
+            message = "Unavailable on this Mac: the configured operation found no path."
+        case .permissionDenied:
+            permissionState = .denied
+            message = "Permission required: the configured operation was denied."
+        case .unknown:
+            permissionState = .unknown
+            message = "Check failed: the configured operation did not produce conclusive access evidence."
+        case .readable:
+            permissionState = .readable
+            message = "Access verified: the configured operation succeeded."
+        }
+        return ScopeAccessSummary(
+            name: scope.name,
+            path: scope.root.standardizedFileURL.path,
+            permissionState: permissionState,
+            message: message,
+            operation: result.operation,
+            errorCode: result.errorCode,
+            detail: result.detail
+        )
     }
 }

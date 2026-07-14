@@ -27,6 +27,6 @@ final class RyddiAppModel {
     }
 
     func scanFromMenuBar() async {
-        await dashboard.scan()
+        dashboard.startScan()
     }
 }

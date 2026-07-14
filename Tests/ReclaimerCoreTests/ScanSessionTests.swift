@@ -84,6 +84,30 @@ final class ScanSessionTests: XCTestCase {
         XCTAssertEqual(recoveryAvailable.executionReceiptID, "recoverable-receipt")
     }
 
+    func testPostExecutionTransitionsRequireFreshScan() {
+        let receipt = makeReceipt(
+            id: "execution-receipt",
+            mode: ExecutionMode.perform.rawValue,
+            action: .trash,
+            status: "done"
+        )
+        let postExecution = makeSession()
+            .recordScan(findingDigest: "finding-v1")
+            .recordPlan(planDigest: "plan-v1")
+            .recordExecutionReceipt(receipt)
+
+        XCTAssertTrue(postExecution.requiresVerificationScan)
+        XCTAssertEqual(postExecution.recordReviewSelection().stage, .recoveryAvailable)
+        XCTAssertEqual(postExecution.recordPlan(planDigest: "plan-v2").stage, .recoveryAvailable)
+        XCTAssertEqual(postExecution.recordDryRunReceipt(receipt).stage, .recoveryAvailable)
+        XCTAssertEqual(postExecution.markReclaimReady().stage, .recoveryAvailable)
+
+        let verified = postExecution.recordScan(findingDigest: "finding-v2")
+        XCTAssertFalse(verified.requiresVerificationScan)
+        XCTAssertEqual(verified.stage, .scanned)
+        XCTAssertNil(verified.executionReceiptID)
+    }
+
     func testPlanSelectionChangeClearsDryRunEvidenceAndBlocksExecuteSafePlan() throws {
         let originalPlan = makePlan(id: "plan-v1", createdAt: Date(timeIntervalSince1970: 1_300))
         let changedPlan = makePlan(id: "plan-v2", createdAt: Date(timeIntervalSince1970: 1_500))

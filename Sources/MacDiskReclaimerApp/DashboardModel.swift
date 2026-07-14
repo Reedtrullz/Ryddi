@@ -84,18 +84,17 @@ final class DashboardModel {
     var lastDiagnosticExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
     var diskStatus: DiskStatusSnapshot = DiskStatusReader().snapshot()
-    var permissionReport: PermissionAdvisorReport = {
-        if DashboardLaunchOptions.isE2EModeRequested {
-            guard let root = DashboardLaunchOptions.e2eScopeRoot else {
-                return PermissionAdvisor.report(scopes: [])
-            }
-            return PermissionAdvisor.report(scopes: DashboardModel.e2eScopes(root: root))
-        }
-        return PermissionAdvisor.report(scopes: DefaultScopes.scopes(for: .developer, includeUnavailable: true))
-    }()
+    var permissionReport = PermissionAdvisor.report(scopes: [])
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
-    var isWorking = false
+    var activities = DashboardActivityRegistry()
+    var isWorking: Bool {
+        activities.isRunning(.scan)
+            || activities.isRunning(.cleanup)
+            || activities.isRunning(.review)
+    }
+    var isScanRunning: Bool { activities.isRunning(.scan) }
+    var isRemoteActivityRunning: Bool { activities.isRunning(.remote) }
     var lastScanDate: Date?
     var launchAgentInstalled = false
     var launchAgentStatus: LaunchAgentStatus = LaunchAgentManager().status()
@@ -113,15 +112,19 @@ final class DashboardModel {
     var auditHistoryState = AuditStoreScanSessionListResult(sessions: [], warnings: [])
     var hasAppliedStoredSettings = false
     var scanRequestCoordinator = ScanRequestCoordinator()
+    @ObservationIgnored var scanTask: Task<Void, Never>?
+    @ObservationIgnored var scanCancellation: ScanCancellationToken?
+    @ObservationIgnored var scanActivityID: UUID?
+    @ObservationIgnored var permissionRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var permissionRefreshRequestID: UUID?
     let trashExecutionAuthorizationRegistry = TrashExecutionAuthorizationRegistry()
     let diagnostics = RyddiDiagnosticRecorder()
+    let dependencies: DashboardDependencies
     private var e2eScopeRoot: URL?
     var presentationRevision = 0
 
-    init() {
-        Task { [weak self] in
-            await self?.loadActionCenterAuditHistory()
-        }
+    init(dependencies: DashboardDependencies = .live) {
+        self.dependencies = dependencies
         Task { [weak self] in
             let report = await Task.detached(priority: .utility) {
                 RuntimeReleaseTrustProbe().inspect()
@@ -133,6 +136,10 @@ final class DashboardModel {
 
     var activeScanRequest: ScanRequestIdentity? {
         scanRequestCoordinator.activeRequest
+    }
+
+    func activity(for kind: DashboardActivityKind) -> DashboardActivityState {
+        activities.state(for: kind)
     }
 
     var selectedScopePlan: ScanScopePlan {
@@ -333,7 +340,7 @@ final class DashboardModel {
             scanPreset = defaultPreset
         }
         includeUserRulesInScans = includeUserRulesByDefault
-        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        refreshPermissions()
     }
 
     func setScanPreset(_ preset: ScanScopePreset) {
@@ -342,7 +349,7 @@ final class DashboardModel {
         selectedScopeTemplateID = nil
         selectedSavedScopeSetID = nil
         resetScanState()
-        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        refreshPermissions()
         error = nil
     }
 
@@ -359,7 +366,7 @@ final class DashboardModel {
             error = nil
         }
         resetScanState()
-        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        refreshPermissions()
     }
 
     func setSavedScopeSet(_ id: String?) {
@@ -375,7 +382,7 @@ final class DashboardModel {
             error = nil
         }
         resetScanState()
-        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        refreshPermissions()
     }
 
     func setIncludeUserRulesInScans(_ include: Bool) {
@@ -406,9 +413,11 @@ final class DashboardModel {
     }
 
     func cancelScan() {
-        guard activeScanRequest != nil else { return }
+        guard scanTask != nil else { return }
+        scanCancellation?.cancel()
+        scanTask?.cancel()
         scanRequestCoordinator.invalidate()
-        isWorking = false
+        activities.markCancelling(.scan)
         isUpdatingPresentation = false
     }
 

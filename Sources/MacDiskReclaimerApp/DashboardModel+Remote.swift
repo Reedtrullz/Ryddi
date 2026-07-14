@@ -15,8 +15,8 @@ extension DashboardModel {
             error = "Enter an SSH alias or host before probing."
             return
         }
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.remote, message: "Probing remote target")
+        defer { activities.finish(.remote, id: activityID) }
         do {
             let report = try await Task.detached {
                 let target = try RemoteTargetResolver().resolve(targetInput)
@@ -24,7 +24,7 @@ extension DashboardModel {
             }.value
             remoteProbeReport = report
             _ = try AuditStore().save(remoteProbeReport: report)
-            loadAudit()
+            await loadAudit()
             error = report.commands.contains { $0.exitCode == 0 } ? nil : "Remote probe did not reach the target with read-only SSH commands."
         } catch {
             self.error = error.localizedDescription
@@ -37,17 +37,16 @@ extension DashboardModel {
             error = "Enter an SSH alias or host before scanning."
             return
         }
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.remote, message: "Scanning remote target")
+        defer { activities.finish(.remote, id: activityID) }
         do {
             let report = try await Task.detached {
                 let target = try RemoteTargetResolver().resolve(targetInput)
                 return RemoteScanBuilder(target: target).scan(preset: .vpsGeneral)
             }.value
             remoteScanReport = report
-            syncRemoteDogfoodReport()
             _ = try AuditStore().save(remoteScanReport: report)
-            loadAudit()
+            await loadAudit()
             error = report.commands.contains { $0.exitCode == 0 } ? nil : "Remote scan did not reach the target with read-only SSH commands."
         } catch {
             self.error = error.localizedDescription
@@ -59,8 +58,8 @@ extension DashboardModel {
             error = "Run a remote scan before exporting a remote report."
             return
         }
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.remote, message: "Exporting remote report")
+        defer { activities.finish(.remote, id: activityID) }
         do {
             let url = try await Task.detached {
                 let privacy = ReportPrivacyOptions(pathStyle: .redacted)
@@ -88,8 +87,8 @@ extension DashboardModel {
             error = "Remote growth export needs at least two saved remote scans."
             return
         }
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.remote, message: "Exporting remote growth report")
+        defer { activities.finish(.remote, id: activityID) }
         do {
             let url = try await Task.detached {
                 let privacy = ReportPrivacyOptions(pathStyle: .redacted)
@@ -120,8 +119,8 @@ extension DashboardModel {
         let store = AuditStore()
         let probe = store.latestRemoteProbeReport(forConcreteTarget: scan.target)
         let previous = store.latestPreviousRemoteScanReport(forConcreteTarget: scan.target, excludingReportID: scan.id)
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.remote, message: "Exporting remote dogfood report")
+        defer { activities.finish(.remote, id: activityID) }
         do {
             let report = RemoteDogfoodReportBuilder.build(
                 probe: probe,

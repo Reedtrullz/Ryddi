@@ -2,6 +2,46 @@ import XCTest
 @testable import ReclaimerCore
 
 final class ActionCenterTests: XCTestCase {
+    func testExecutedSessionMakesVerifyCleanupPrimary() {
+        let receipt = ExecutionReceipt.fixture(
+            id: "execution-receipt-v1",
+            mode: ExecutionMode.perform.rawValue,
+            status: "done",
+            reclaimedBytes: 0
+        )
+        let report = ActionCenterBuilder.build(input: .fixture(
+            permissionReport: .fixture(coverage: .degraded, denied: 1),
+            latestScanSession: .fixture(
+                stage: .executed,
+                findingDigest: "findings-v1",
+                executionReceiptID: receipt.id
+            ),
+            currentPlan: .fixture(expectedReclaim: 3_000),
+            latestExecutionReceipt: receipt
+        ))
+
+        XCTAssertEqual(report.primaryAction?.kind, .verifyCleanup)
+        XCTAssertEqual(report.primaryAction?.title, "Verify Cleanup")
+        XCTAssertFalse(report.actions.contains { $0.kind == .executeSafePlan })
+    }
+
+    func testActionKindsPreserveRawValuesAndDecodeVerifyCleanup() throws {
+        XCTAssertEqual(ActionCenterActionKind.grantAccess.rawValue, "grantAccess")
+        XCTAssertEqual(ActionCenterActionKind.runScan.rawValue, "runScan")
+        XCTAssertEqual(ActionCenterActionKind.reviewQueue.rawValue, "reviewQueue")
+        XCTAssertEqual(ActionCenterActionKind.runDryRun.rawValue, "runDryRun")
+        XCTAssertEqual(ActionCenterActionKind.executeSafePlan.rawValue, "executeSafePlan")
+        XCTAssertEqual(ActionCenterActionKind.quitApp.rawValue, "quitApp")
+        XCTAssertEqual(ActionCenterActionKind.useNativeTool.rawValue, "useNativeTool")
+        XCTAssertEqual(ActionCenterActionKind.verifyCleanup.rawValue, "verifyCleanup")
+
+        let decoded = try JSONDecoder().decode(
+            ActionCenterActionKind.self,
+            from: Data(#""verifyCleanup""#.utf8)
+        )
+        XCTAssertEqual(decoded, .verifyCleanup)
+    }
+
     func testDegradedPermissionsSelectGrantAccess() throws {
         let report = ActionCenterBuilder.build(input: .fixture(
             permissionReport: .fixture(coverage: .degraded, denied: 2),
@@ -469,7 +509,8 @@ private extension ScanSession {
         stage: ScanSessionStage,
         findingDigest: String? = nil,
         planDigest: String? = nil,
-        dryRunReceiptID: String? = nil
+        dryRunReceiptID: String? = nil,
+        executionReceiptID: String? = nil
     ) -> ScanSession {
         ScanSession(
             id: "session-\(stage.rawValue)",
@@ -483,7 +524,7 @@ private extension ScanSession {
             findingDigest: findingDigest,
             planDigest: planDigest,
             dryRunReceiptID: dryRunReceiptID,
-            executionReceiptID: nil,
+            executionReceiptID: executionReceiptID,
             stage: stage
         )
     }

@@ -3,8 +3,8 @@ import ReclaimerCore
 
 extension DashboardModel {
     func checkActiveHandles() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Checking active files")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let baseFindings = findings
             let scopePlan = selectedScopePlan
@@ -33,7 +33,7 @@ extension DashboardModel {
             activeFileReview = report
             applyActiveFileStatuses(from: report)
             _ = try AuditStore().save(activeFileReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -41,8 +41,8 @@ extension DashboardModel {
     }
 
     func scanDuplicates(includePreserveByDefault: Bool = false) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing duplicates")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let currentScopes = scanScopes.isEmpty
                 ? self.currentScopes(includeUnavailable: false)
@@ -65,8 +65,8 @@ extension DashboardModel {
     }
 
     func reviewTrash() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing Trash")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let report = await Task.detached {
                 TrashReviewScanner().review(
@@ -75,7 +75,7 @@ extension DashboardModel {
             }.value
             trashReview = report
             _ = try AuditStore().save(trashReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -83,8 +83,8 @@ extension DashboardModel {
     }
 
     func reviewDownloads() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing Downloads")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let report = await Task.detached {
                 DownloadsReviewScanner().review(
@@ -93,7 +93,7 @@ extension DashboardModel {
             }.value
             downloadsReview = report
             _ = try AuditStore().save(downloadsReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -101,8 +101,8 @@ extension DashboardModel {
     }
 
     func reviewBrowserCaches() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing browser caches")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let report = await Task.detached {
                 BrowserCacheReviewScanner().review(
@@ -111,7 +111,7 @@ extension DashboardModel {
             }.value
             browserCacheReview = report
             _ = try AuditStore().save(browserCacheReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -119,8 +119,8 @@ extension DashboardModel {
     }
 
     func reviewPackageCaches() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing package caches")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let report = await Task.detached {
                 PackageCacheReviewScanner().review(
@@ -129,7 +129,7 @@ extension DashboardModel {
             }.value
             packageCacheReview = report
             _ = try AuditStore().save(packageCacheReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -137,8 +137,8 @@ extension DashboardModel {
     }
 
     func reviewProjectDependencies() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing project dependencies")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let report = await Task.detached {
                 ProjectDependencyReviewScanner().review(
@@ -155,7 +155,7 @@ extension DashboardModel {
             }.value
             projectDependencyReview = report
             _ = try AuditStore().save(projectDependencyReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -163,8 +163,8 @@ extension DashboardModel {
     }
 
     func reviewDeviceBackups() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing device backups")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let report = await Task.detached {
                 DeviceBackupReviewScanner().review(
@@ -173,7 +173,7 @@ extension DashboardModel {
             }.value
             deviceBackupReview = report
             _ = try AuditStore().save(deviceBackupReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -181,8 +181,8 @@ extension DashboardModel {
     }
 
     func reviewXcode() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing Xcode storage")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let report = await Task.detached {
                 XcodeReviewScanner().review(
@@ -191,7 +191,7 @@ extension DashboardModel {
             }.value
             xcodeReview = report
             _ = try AuditStore().save(xcodeReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -199,8 +199,8 @@ extension DashboardModel {
     }
 
     func reviewApps(includeSystemApps: Bool = false, includeOrphans: Bool = true) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing applications")
+        defer { activities.finish(.review, id: activityID) }
         do {
             appReview = try await Task.detached {
                 try AppReviewScanner().scan(
@@ -224,8 +224,8 @@ extension DashboardModel {
             error = "Run an app review before building an uninstall preview."
             return
         }
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Building uninstall preview")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let selector = AppUninstallSelector(
                 appPath: group.appPath,
@@ -250,8 +250,8 @@ extension DashboardModel {
             error = "Build an uninstall preview before running an app uninstall dry run."
             return
         }
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.cleanup, message: "Running uninstall dry run")
+        defer { activities.finish(.cleanup, id: activityID) }
         do {
             let receipt = await Task.detached {
                 let policy = UserPathPolicyStore().load()
@@ -265,7 +265,7 @@ extension DashboardModel {
             lastAppUninstallDryRunReceipt = receipt
             lastAppUninstallReceipt = nil
             _ = try AuditStore().save(appUninstallReceipt: receipt)
-            loadAudit()
+            await loadAudit()
             error = receipt.status == "dry-run" ? nil : receipt.message
         } catch {
             self.error = error.localizedDescription
@@ -273,8 +273,8 @@ extension DashboardModel {
     }
 
     func reviewAgentStorage() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing agent storage")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let includeUserRules = includeUserRulesInScans
             agentStorageReview = try await Task.detached {
@@ -304,8 +304,8 @@ extension DashboardModel {
     }
 
     func reviewAgentRetention(profile: AgentRetentionProfile) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Reviewing agent retention")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let includeUserRules = includeUserRulesInScans
             let existingReview = agentStorageReview
@@ -344,8 +344,12 @@ extension DashboardModel {
     }
 
     func runNativeToolCommand(receipt: NativeToolReceipt, command: NativeToolCommand, perform: Bool) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityKind: DashboardActivityKind = perform ? .cleanup : .review
+        let activityID = activities.begin(
+            activityKind,
+            message: perform ? "Running native cleanup" : "Previewing native cleanup"
+        )
+        defer { activities.finish(activityKind, id: activityID) }
         do {
             let includeUserRules = includeUserRulesInScans
             if perform, let reason = nativePerformBlockReason(receipt: receipt, command: command) {
@@ -428,7 +432,7 @@ extension DashboardModel {
             for executionReceipt in executionReceipts {
                 _ = try auditStore.save(nativeToolExecutionReceipt: executionReceipt)
             }
-            loadAudit()
+            await loadAudit()
             error = executionReceipts.last?.errors.isEmpty == true ? nil : executionReceipts.last?.message
         } catch {
             self.error = error.localizedDescription
@@ -436,15 +440,15 @@ extension DashboardModel {
     }
 
     func inspectContainers() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Inspecting containers")
+        defer { activities.finish(.review, id: activityID) }
         do {
             let report = await Task.detached {
                 ContainerInventoryScanner().inspect()
             }.value
             containerInventory = report
             _ = try AuditStore().save(containerInventoryReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription

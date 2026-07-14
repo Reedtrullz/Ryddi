@@ -6,17 +6,17 @@ on:
       release_ref:
         description: Signed release tag to check out (must equal v<version>)
         required: true
-        default: v0.3.0
+        default: v0.3.1
         type: string
       version:
         description: Bundle and artifact version
         required: true
-        default: 0.3.0
+        default: 0.3.1
         type: string
       build_number:
         description: Monotonic bundle build number
         required: true
-        default: "3"
+        default: "4"
         type: string
 
 jobs:
@@ -62,8 +62,11 @@ jobs:
           set -euo pipefail
           [[ "$RYDDI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$RYDDI_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          test "$RELEASE_REF" = "v0.3.1"
+          test "$RYDDI_VERSION" = "0.3.1"
+          test "$RYDDI_BUILD_NUMBER" = "4"
           test "$RELEASE_REF" = "v$RYDDI_VERSION"
-          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$RELEASE_REF")"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_REF^{commit}")"
           test -z "$(git status --porcelain --untracked-files=normal)"
 
       - name: Import Developer ID certificate

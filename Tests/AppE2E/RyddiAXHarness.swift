@@ -22,8 +22,16 @@ struct HarnessResult: Codable {
     let checkpoints: [Checkpoint]
     let screenshots: [String]
     let responsiveChecks: [ResponsiveCheck]
+    let scanProgressVisible: Bool
+    let cancelledScanBecameIdle: Bool
+    let cancelledScanHadNoLateCommit: Bool
+    let normalScanCompleted: Bool
     let originalCandidateMissing: Bool
     let executionResultVisible: Bool
+    let verificationActionVisible: Bool
+    let candidateRowRemoved: Bool
+    let reclaimActionHidden: Bool
+    let reclaimActionHiddenAfterVerificationScan: Bool
 }
 
 enum HarnessError: Error, CustomStringConvertible {
@@ -36,6 +44,7 @@ enum HarnessError: Error, CustomStringConvertible {
     case windowUnavailable
     case screenshotFailed(String)
     case candidateStillExists(String)
+    case lateCancelledScanCommit(String)
     case elementOutsideWindow(String, String)
 
     var description: String {
@@ -50,6 +59,7 @@ enum HarnessError: Error, CustomStringConvertible {
         case .windowUnavailable: "The packaged app did not expose a main AX window."
         case .screenshotFailed(let path): "Failed to capture a non-empty screenshot at \(path)."
         case .candidateStillExists(let path): "Confirmed Trash candidate still exists at \(path)."
+        case .lateCancelledScanCommit(let path): "Cancelled scan committed late result evidence for \(path)."
         case .elementOutsideWindow(let id, let size): "AX element \(id) extends outside the main window at \(size)."
         }
     }
@@ -85,8 +95,16 @@ enum RyddiAXHarness {
         try checkpoint("launch", started: started, into: &checkpoints) {
             _ = try waitForElement(identifier: "summary.scan-button", root: app, timeout: 15, requireEnabled: true)
         }
+        try checkpoint("cancelled-scan", started: started, into: &checkpoints) {
+            try press("summary.scan-button", root: app)
+            _ = try waitForElement(identifier: "scan-progress", root: app, timeout: 10, requireEnabled: false)
+            try press("cancel-scan-button", root: app)
+            try waitForCancelledScanToBecomeIdle(root: app, timeout: 10)
+            try assertNoLateCancelledScanCommit(path: options.candidatePath, root: app, quietPeriod: 1.2)
+        }
         try checkpoint("scan", started: started, into: &checkpoints) {
             try press("summary.scan-button", root: app)
+            _ = try waitForElement(identifier: "scan-progress", root: app, timeout: 10, requireEnabled: false)
             _ = try waitForElement(identifier: "summary.plan-button", root: app, timeout: 90, requireEnabled: true)
         }
         try checkpoint("plan", started: started, into: &checkpoints) {
@@ -96,6 +114,7 @@ enum RyddiAXHarness {
         try checkpoint("dry-run", started: started, into: &checkpoints) {
             try press("summary.dry-run-button", root: app)
             _ = try waitForElement(identifier: "summary.reclaim-button", root: app, timeout: 60, requireEnabled: true)
+            _ = try waitForText(options.candidatePath, root: app, timeout: 20)
         }
         try checkpoint("confirmation", started: started, into: &checkpoints) {
             try press("summary.reclaim-button", root: app)
@@ -112,10 +131,23 @@ enum RyddiAXHarness {
             requireEnabled: false
         )
         _ = resultElement
+        _ = try waitForElement(
+            identifier: "summary.verify-cleanup-button",
+            root: app,
+            timeout: 30,
+            requireEnabled: true
+        )
+        try assertCandidateRowMissing(path: options.candidatePath, root: app, timeout: 20)
+        try assertElementMissing(identifier: "summary.reclaim-button", root: app, timeout: 20)
         guard !FileManager.default.fileExists(atPath: options.candidatePath) else {
             throw HarnessError.candidateStillExists(options.candidatePath)
         }
         checkpoints.append(.init(name: "trash-result", elapsedMilliseconds: elapsed(started)))
+        try checkpoint("verification-scan", started: started, into: &checkpoints) {
+            try press("summary.verify-cleanup-button", root: app)
+            try waitForVerificationScanCompletion(root: app, timeout: 90)
+            try assertElementMissing(identifier: "summary.reclaim-button", root: app, timeout: 20)
+        }
 
         try FileManager.default.createDirectory(at: options.output, withIntermediateDirectories: true)
         let responsiveProof = try captureResponsiveProof(app: app, pid: running.processIdentifier, output: options.output)
@@ -125,8 +157,16 @@ enum RyddiAXHarness {
             checkpoints: checkpoints,
             screenshots: responsiveProof.screenshots.map(\.lastPathComponent),
             responsiveChecks: responsiveProof.checks,
+            scanProgressVisible: true,
+            cancelledScanBecameIdle: true,
+            cancelledScanHadNoLateCommit: true,
+            normalScanCompleted: true,
             originalCandidateMissing: true,
-            executionResultVisible: true
+            executionResultVisible: true,
+            verificationActionVisible: true,
+            candidateRowRemoved: true,
+            reclaimActionHidden: true,
+            reclaimActionHiddenAfterVerificationScan: true
         )
         let data = try JSONEncoder.pretty.encode(result)
         try data.write(to: options.output.appendingPathComponent("e2e-result.json"), options: .atomic)
@@ -203,6 +243,66 @@ enum RyddiAXHarness {
         throw HarnessError.missingElement(identifier)
     }
 
+    private static func waitForVerificationScanCompletion(
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let verificationFinished = find(identifier: "summary.verify-cleanup-button", root: root) == nil
+            let scanEnabled = find(identifier: "scan-button", root: root).map {
+                boolAttribute(kAXEnabledAttribute as String, element: $0) == true
+            } ?? false
+            let planEnabled = find(identifier: "summary.plan-button", root: root).map {
+                boolAttribute(kAXEnabledAttribute as String, element: $0) == true
+            } ?? false
+            if verificationFinished, scanEnabled, planEnabled {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        } while Date() < deadline
+        dumpTree(root: root)
+        throw HarnessError.missingElement("fresh verification scan completion")
+    }
+
+    private static func waitForCancelledScanToBecomeIdle(
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let scanEnabled = find(identifier: "scan-button", root: root).map {
+                boolAttribute(kAXEnabledAttribute as String, element: $0) == true
+            } ?? false
+            let progressHidden = find(identifier: "scan-progress", root: root) == nil
+            let cancelHidden = find(identifier: "cancel-scan-button", root: root) == nil
+            if scanEnabled, progressHidden, cancelHidden {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        dumpTree(root: root)
+        throw HarnessError.missingElement("cancelled scan idle state")
+    }
+
+    private static func assertNoLateCancelledScanCommit(
+        path: String,
+        root: AXUIElement,
+        quietPeriod: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(quietPeriod)
+        repeat {
+            let planEnabled = find(identifier: "summary.plan-button", root: root).map {
+                boolAttribute(kAXEnabledAttribute as String, element: $0) == true
+            } ?? false
+            if planEnabled || findText(path, root: root) != nil {
+                dumpTree(root: root)
+                throw HarnessError.lateCancelledScanCommit(path)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+    }
+
     private static func find(identifier: String, root: AXUIElement) -> AXUIElement? {
         var queue = [root]
         var visited = 0
@@ -215,6 +315,80 @@ enum RyddiAXHarness {
             queue.append(contentsOf: elementArrayAttribute(kAXChildrenAttribute as String, element: element))
         }
         return nil
+    }
+
+    private static func assertElementMissing(
+        identifier: String,
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if find(identifier: identifier, root: root) == nil {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        } while Date() < deadline
+        throw HarnessError.disabledElement(identifier)
+    }
+
+    private static func assertCandidateRowMissing(
+        path: String,
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if findText(path, root: root) == nil {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        } while Date() < deadline
+        if let element = findText(path, root: root) {
+            let role = stringAttribute(kAXRoleAttribute as String, element: element) ?? "?"
+            let identifier = stringAttribute(kAXIdentifierAttribute as String, element: element) ?? ""
+            let title = stringAttribute(kAXTitleAttribute as String, element: element) ?? ""
+            let description = stringAttribute(kAXDescriptionAttribute as String, element: element) ?? ""
+            let value = stringAttribute(kAXValueAttribute as String, element: element) ?? ""
+            let line = "Stale candidate AX element role=\(role) id=\(identifier) title=\(title) desc=\(description) value=\(value)\n"
+            FileHandle.standardError.write(Data(line.utf8))
+        }
+        dumpTree(root: root)
+        throw HarnessError.candidateStillExists(path)
+    }
+
+    private static func findText(_ text: String, root: AXUIElement) -> AXUIElement? {
+        var queue = [root]
+        var visited = 0
+        while !queue.isEmpty && visited < 8_000 {
+            let element = queue.removeFirst()
+            visited += 1
+            let values = [
+                stringAttribute(kAXTitleAttribute as String, element: element),
+                stringAttribute(kAXDescriptionAttribute as String, element: element),
+                stringAttribute(kAXValueAttribute as String, element: element)
+            ]
+            if values.compactMap({ $0 }).contains(where: { $0.contains(text) }) {
+                return element
+            }
+            queue.append(contentsOf: elementArrayAttribute(kAXChildrenAttribute as String, element: element))
+        }
+        return nil
+    }
+
+    private static func waitForText(
+        _ text: String,
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws -> AXUIElement {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let element = findText(text, root: root) {
+                return element
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        } while Date() < deadline
+        throw HarnessError.missingElement(text)
     }
 
     private static func dumpTree(root: AXUIElement) {
@@ -280,6 +454,7 @@ enum RyddiAXHarness {
         guard let windowFrame = frame(of: window) else { throw HarnessError.windowUnavailable }
         let fixedIDs = ["dashboard-sidebar", "scan-button", "cleanup-flow-status"]
         let primaryIDs = [
+            "summary.verify-cleanup-button",
             "summary.reclaim-button",
             "summary.manual-review-button",
             "summary.dry-run-button",

@@ -14,11 +14,14 @@ final class PackageAppScriptTests: XCTestCase {
         )
     }
 
-    func testPackageAppDefaultsToCurrentReleaseVersion() throws {
-        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/package-app.sh"), encoding: .utf8)
+    func testPackageAppDefaultsToV031CorrectnessRelease() throws {
+        let root = repoRoot()
+        let script = try String(contentsOf: root.appendingPathComponent("Scripts/package-app.sh"), encoding: .utf8)
+        let signingDoctor = try String(contentsOf: root.appendingPathComponent("Scripts/release-signing-doctor.sh"), encoding: .utf8)
 
-        XCTAssertTrue(script.contains("bundle_version=\"${RYDDI_VERSION:-0.3.0}\""))
-        XCTAssertTrue(script.contains("bundle_build=\"${RYDDI_BUILD_NUMBER:-3}\""))
+        XCTAssertTrue(script.contains("bundle_version=\"${RYDDI_VERSION:-0.3.1}\""))
+        XCTAssertTrue(script.contains("bundle_build=\"${RYDDI_BUILD_NUMBER:-4}\""))
+        XCTAssertTrue(signingDoctor.contains("RYDDI_ARTIFACT_BASENAME:-Ryddi-v0.3.1"))
     }
 
     func testPackageAppWritesEmbeddedBuildMetadataBeforeSigning() throws {
@@ -53,6 +56,33 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertLessThan(iconCopy.lowerBound, signing.lowerBound)
     }
 
+    func testPackageSignsNestedCLIThenAppWithoutDeepSigning() throws {
+        let root = repoRoot()
+        let script = try String(
+            contentsOf: root.appendingPathComponent("Scripts/package-app.sh"),
+            encoding: .utf8
+        )
+        let releaseCheck = try String(
+            contentsOf: root.appendingPathComponent("Scripts/release-check.sh"),
+            encoding: .utf8
+        )
+        let nestedSignCommand = "codesign --force --options runtime --timestamp --sign \"$CODESIGN_IDENTITY\" \"$app/Contents/MacOS/reclaimer\""
+        let appSignCommand = "codesign --force --options runtime --timestamp --sign \"$CODESIGN_IDENTITY\" \"$app\""
+        let nestedVerifyCommand = "codesign --verify --strict --verbose=2 \"$app/Contents/MacOS/reclaimer\""
+        let appVerifyCommand = "codesign --verify --deep --strict --verbose=2 \"$app\""
+
+        XCTAssertFalse(script.contains("codesign --force --deep"))
+        let nestedSign = try XCTUnwrap(script.range(of: nestedSignCommand))
+        let appSign = try XCTUnwrap(script.range(of: appSignCommand))
+        let nestedVerify = try XCTUnwrap(script.range(of: nestedVerifyCommand))
+        let appVerify = try XCTUnwrap(script.range(of: appVerifyCommand))
+        XCTAssertLessThan(nestedSign.lowerBound, appSign.lowerBound)
+        XCTAssertLessThan(appSign.lowerBound, nestedVerify.lowerBound)
+        XCTAssertLessThan(nestedVerify.lowerBound, appVerify.lowerBound)
+        XCTAssertTrue(releaseCheck.contains(nestedVerifyCommand))
+        XCTAssertTrue(releaseCheck.contains(appVerifyCommand))
+    }
+
     func testIconGeneratorAndRequiredRepresentationsExist() throws {
         let root = repoRoot()
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Scripts/generate-app-icon.swift").path))
@@ -80,13 +110,47 @@ final class PackageAppScriptTests: XCTestCase {
         )
     }
 
-    func testReleaseCheckDefaultsSignedArtifactsToCurrentRelease() throws {
+    func testReleaseCheckDefaultsSignedArtifactsToV031CorrectnessRelease() throws {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 
-        XCTAssertTrue(script.contains("release_version=\"${RYDDI_VERSION:-0.3.0}\""))
-        XCTAssertTrue(script.contains("release_build=\"${RYDDI_BUILD_NUMBER:-3}\""))
+        XCTAssertTrue(script.contains("release_version=\"${RYDDI_VERSION:-0.3.1}\""))
+        XCTAssertTrue(script.contains("release_build=\"${RYDDI_BUILD_NUMBER:-4}\""))
         XCTAssertTrue(script.contains("artifact_basename=\"Ryddi-v$release_version\""))
         XCTAssertTrue(script.contains("artifact_basename=\"Ryddi-developer-preview\""))
+    }
+
+    func testSignedWorkflowPinsV031TagAndVerifiesItsCommitBeforeCredentials() throws {
+        let workflow = try String(
+            contentsOf: repoRoot().appendingPathComponent(".github/workflows/release-preview.yml"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(workflow.contains("default: v0.3.1"))
+        XCTAssertTrue(workflow.contains("default: 0.3.1"))
+        XCTAssertTrue(workflow.contains("default: \"4\""))
+        XCTAssertTrue(workflow.contains("test \"$RELEASE_REF\" = \"v0.3.1\""))
+        XCTAssertTrue(workflow.contains("test \"$RYDDI_VERSION\" = \"0.3.1\""))
+        XCTAssertTrue(workflow.contains("test \"$RYDDI_BUILD_NUMBER\" = \"4\""))
+        XCTAssertTrue(workflow.contains("git rev-parse \"$RELEASE_REF^{commit}\""))
+
+        let provenance = try XCTUnwrap(workflow.range(of: "Verify immutable release provenance"))
+        let credentials = try XCTUnwrap(workflow.range(of: "Import Developer ID certificate"))
+        XCTAssertLessThan(provenance.lowerBound, credentials.lowerBound)
+    }
+
+    func testReleaseCheckCapturesSourceProvenanceBeforeHidingBuildDirectory() throws {
+        let script = try String(
+            contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"),
+            encoding: .utf8
+        )
+
+        let sourceCapture = try XCTUnwrap(script.range(of: "source_dirty=$([["))
+        let hideBuildDirectory = try XCTUnwrap(script.range(of: "\nhide_build_dir_for_packaged_smokes\n"))
+
+        XCTAssertLessThan(sourceCapture.lowerBound, hideBuildDirectory.lowerBound)
+        XCTAssertTrue(script.contains("if [[ \"$source_dirty\" != \"false\" ]]; then"))
+        XCTAssertTrue(script.contains(#"RYDDI_SOURCE_COMMIT="$commit" \"#))
+        XCTAssertTrue(script.contains(#"RYDDI_SOURCE_DIRTY="$source_dirty" \"#))
     }
 
     func testReleaseCheckStagesProofBesideAppBeforeZippingDirectory() throws {
@@ -115,7 +179,7 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("signed releases require a clean Git worktree"))
         XCTAssertTrue(workflow.contains("Verify immutable release provenance"))
         XCTAssertTrue(workflow.contains("test \"$RELEASE_REF\" = \"v$RYDDI_VERSION\""))
-        XCTAssertTrue(workflow.contains("git rev-list -n 1 \"$RELEASE_REF\""))
+        XCTAssertTrue(workflow.contains("git rev-parse \"$RELEASE_REF^{commit}\""))
         XCTAssertTrue(workflow.contains("if: ${{ always() }}"))
         XCTAssertTrue(workflow.contains("rm -f \"$p12\""))
         XCTAssertTrue(workflow.contains("security delete-keychain \"$keychain\""))

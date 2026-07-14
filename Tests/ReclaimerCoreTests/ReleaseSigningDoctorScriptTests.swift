@@ -34,7 +34,7 @@ final class ReleaseSigningDoctorScriptTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("Developer ID Application identity is available."))
         XCTAssertTrue(result.stdout.contains("Notary profile 'ryddi-profile' is usable."))
         XCTAssertTrue(result.stdout.contains("RYDDI_RELEASE_SIGNING=required"))
-        XCTAssertTrue(result.stdout.contains("RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0"))
+        XCTAssertTrue(result.stdout.contains("RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.1"))
         XCTAssertFalse(result.stdout.contains("secret-app-specific-password"))
         XCTAssertFalse(result.stderr.contains("secret-app-specific-password"))
         XCTAssertTrue(try toolLog().contains("xcrun notarytool history --keychain-profile ryddi-profile --output-format json"))

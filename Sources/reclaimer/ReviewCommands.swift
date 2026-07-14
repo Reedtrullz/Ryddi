@@ -12,14 +12,15 @@ extension ReclaimerCLI {
             scopes: scopes,
             topLimit: options.limit,
             offenderSort: try options.topOffenderSort(),
-            offenderGroup: try options.topOffenderGroup()
+            offenderGroup: try options.topOffenderGroup(),
+            scopeAccessSummaries: result.coverage.scopeAccessSummaries
         ).withScanCoverage(result.coverage)
         if options.saveHistory {
             let url = try ScanHistoryStore().save(overview: overview)
             FileHandle.standardError.write(Data("saved scan snapshot: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(overview)
+            try printJSON(overview)
         } else {
             printOverview(overview)
         }
@@ -37,7 +38,7 @@ extension ReclaimerCLI {
                 limit: options.limit
             )
             if options.json {
-                printJSON(detailReport)
+                try printJSON(detailReport)
             } else {
                 printReviewQueueDetailReport(detailReport)
             }
@@ -48,7 +49,7 @@ extension ReclaimerCLI {
             limitPerQueue: options.limit
         )
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printReviewQueueReport(report)
         }
@@ -66,7 +67,7 @@ extension ReclaimerCLI {
             limit: options.limit
         )
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printLargeOldReviewReport(report)
         }
@@ -84,7 +85,7 @@ extension ReclaimerCLI {
             childLimit: options.limit
         )
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printDiskDrillDown(report)
         }
@@ -98,7 +99,7 @@ extension ReclaimerCLI {
         let report = try DuplicateReviewScanner()
             .scan(scopes: try options.scopes(), options: options.duplicateOptions)
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printDuplicateReview(report, options: options)
         }
@@ -124,7 +125,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved downloads review report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printDownloadsReview(report, options: options)
         }
@@ -151,7 +152,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved browser cache review report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printBrowserCacheReview(report, options: options)
         }
@@ -182,7 +183,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved package cache review report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printPackageCacheReview(report, options: options)
         }
@@ -206,7 +207,7 @@ extension ReclaimerCLI {
         )
         let lane = PackageReclaimLaneBuilder.build(from: review)
         if options.json {
-            printJSON(lane)
+            try printJSON(lane)
         } else {
             printPackageReclaimLane(lane)
         }
@@ -243,7 +244,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved project dependency review report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printProjectDependencyReview(report, options: options)
         }
@@ -259,7 +260,7 @@ extension ReclaimerCLI {
         case "list":
             let policy = store.load()
             if options.json {
-                printJSON(policy)
+                try printJSON(policy)
             } else {
                 printProjectDependencyPolicy(policy)
             }
@@ -281,7 +282,7 @@ extension ReclaimerCLI {
                 reason: options.reason
             )
             if options.json {
-                printJSON(policy)
+                try printJSON(policy)
             } else {
                 print("saved \(decision.label): \(ProjectDependencyPolicy.standardizedPath(args[1]))")
                 printProjectDependencyPolicy(policy)
@@ -300,7 +301,7 @@ extension ReclaimerCLI {
                 reason: options.reason
             )
             if options.json {
-                printJSON(policy)
+                try printJSON(policy)
             } else {
                 print("saved \(decision.label): \(ProjectDependencyPolicy.standardizedPath(args[1]))")
                 printProjectDependencyPolicy(policy)
@@ -311,7 +312,7 @@ extension ReclaimerCLI {
             }
             let policy = try store.remove(projectRootPath: args[1])
             if options.json {
-                printJSON(policy)
+                try printJSON(policy)
             } else {
                 print("removed project dependency policy for: \(ProjectDependencyPolicy.standardizedPath(args[1]))")
                 printProjectDependencyPolicy(policy)
@@ -324,7 +325,7 @@ extension ReclaimerCLI {
                 FileHandle.standardError.write(Data("wrote project dependency policy export: \(url.path)\n".utf8))
             }
             if options.json || options.outputPath == nil {
-                printJSON(document)
+                try printJSON(document)
             } else {
                 printProjectDependencyPolicyExportSummary(document)
             }
@@ -335,7 +336,7 @@ extension ReclaimerCLI {
             let sourceURL = URL(fileURLWithPath: args[1]).standardizedFileURL
             let result = try store.importDocument(from: sourceURL, merge: !options.replacePolicy)
             if options.json {
-                printJSON(result)
+                try printJSON(result)
             } else {
                 printProjectDependencyPolicyImportResult(result)
             }
@@ -366,7 +367,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved device backup review report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printDeviceBackupReview(report, options: options)
         }
@@ -394,7 +395,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved Xcode review report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printXcodeReview(report, options: options)
         }
@@ -418,7 +419,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved trash review report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printTrashReview(report, options: options)
         }
@@ -436,7 +437,7 @@ extension ReclaimerCLI {
         let options = ParsedOptions(args)
         let report = try AppReviewScanner().scan(options: options.appReviewOptions)
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printAppReview(report, options: options)
         }
@@ -463,7 +464,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("wrote app uninstall preview: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(preview)
+            try printJSON(preview)
         } else if options.outputPath == nil {
             printAppUninstallPreview(preview, options: options)
         }
@@ -497,7 +498,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved app uninstall receipt: \(receiptURL.path)\n".utf8))
         }
         if options.json {
-            printJSON(receipt)
+            try printJSON(receipt)
         } else {
             printAppUninstallReceipt(receipt)
         }
@@ -515,7 +516,7 @@ extension ReclaimerCLI {
         let options = ParsedOptions(args)
         let report = try agentStorageReview(options: options)
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printAgentStorageReview(report, options: options)
         }
@@ -530,7 +531,7 @@ extension ReclaimerCLI {
             limit: options.limit
         )
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printAgentRetentionReport(report, options: options)
         }
@@ -552,7 +553,7 @@ extension ReclaimerCLI {
         )
         let preview = AgentRetentionPlanBuilder.build(report: retention, matchingFindings: preparedFindings)
         if options.json {
-            printJSON(preview)
+            try printJSON(preview)
         } else {
             printAgentRetentionPlanPreview(preview)
         }

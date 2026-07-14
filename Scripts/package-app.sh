@@ -5,8 +5,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration="${CONFIGURATION:-release}"
 app_name="Ryddi"
 bundle_id="com.reidar.ryddi"
-bundle_version="${RYDDI_VERSION:-0.3.0}"
-bundle_build="${RYDDI_BUILD_NUMBER:-3}"
+bundle_version="${RYDDI_VERSION:-0.3.1}"
+bundle_build="${RYDDI_BUILD_NUMBER:-4}"
 source_commit="${RYDDI_SOURCE_COMMIT:-$(git -C "$root" rev-parse HEAD)}"
 source_dirty="${RYDDI_SOURCE_DIRTY:-$([[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]] && echo true || echo false)}"
 build_date="${RYDDI_BUILD_DATE:-$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
@@ -99,7 +99,10 @@ build_metadata_plist="$app/Contents/Resources/.Ryddi-build.plist"
 rm "$build_metadata_plist"
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
-  codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app"
+  codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app/Contents/MacOS/reclaimer"
+  codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app"
+  codesign --verify --strict --verbose=2 "$app/Contents/MacOS/reclaimer"
+  codesign --verify --deep --strict --verbose=2 "$app"
 else
   echo "CODESIGN_IDENTITY not set; app bundle left unsigned."
 fi

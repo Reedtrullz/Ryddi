@@ -37,7 +37,7 @@ extension ReclaimerCLI {
         }
         let targets = RemoteTargetResolver().targets()
         if options.json {
-            printJSON(targets)
+            try printJSON(targets)
         } else {
             printRemoteTargets(targets)
         }
@@ -58,7 +58,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved remote probe report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printRemoteProbeReport(report)
         }
@@ -94,7 +94,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("wrote remote report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else if options.outputPath == nil {
             let previous = store.latestPreviousRemoteScanReport(forConcreteTarget: report.target, excludingReportID: report.id)
             let growthSummary = RemoteGrowthSummaryBuilder.build(previous: previous, current: report)
@@ -164,7 +164,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("wrote remote dogfood report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else if options.outputPath == nil {
             print(report.markdown)
         }
@@ -178,7 +178,7 @@ extension ReclaimerCLI {
         let target = try RemoteTargetResolver().resolve(targetInput)
         let report = RemoteScanBuilder(target: target, timeout: options.timeoutSeconds).scan()
         if options.json {
-            printJSON(report.nativeGuidance)
+            try printJSON(report.nativeGuidance)
         } else {
             printRemoteNativeGuidance(report.nativeGuidance, target: report.target)
             print("\nManual command cards")
@@ -195,7 +195,7 @@ extension ReclaimerCLI {
         case "list":
             let reports = store.recentRemoteScanReports(limit: options.limit)
             if options.json {
-                printJSON(reports)
+                try printJSON(reports)
             } else {
                 printRemoteScanHistory(reports)
             }
@@ -214,7 +214,7 @@ extension ReclaimerCLI {
                 FileHandle.standardError.write(Data("wrote remote growth report: \(url.path)\n".utf8))
             }
             if options.json {
-                printJSON(report)
+                try printJSON(report)
             } else if subcommand == "report", options.outputPath == nil {
                 print(report.markdown)
             } else if subcommand == "diff" {

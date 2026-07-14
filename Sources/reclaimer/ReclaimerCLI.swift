@@ -139,7 +139,7 @@ struct ReclaimerCLI {
         )
         try AuditStore().saveScanSession(session)
         if options.json {
-            printJSON(preparedFindings)
+            try printJSON(preparedFindings)
         } else {
             printFindings(preparedFindings, options: options)
         }
@@ -155,14 +155,14 @@ struct ReclaimerCLI {
         case "latest":
             let session = try store.latestScanSession()
             if options.json {
-                printJSON(session)
+                try printJSON(session)
             } else {
                 printLatestScanSession(session)
             }
         case "explain":
             let session = try store.latestScanSession()
             if options.json {
-                printJSON(session)
+                try printJSON(session)
             } else {
                 printScanSessionExplanation(session)
             }
@@ -188,7 +188,7 @@ struct ReclaimerCLI {
             sessionHistoryWarnings: scanSessions.warnings
         ))
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printActionCenter(report)
         }
@@ -199,7 +199,7 @@ struct ReclaimerCLI {
         let path = options.values(after: "--path").first ?? "/System/Volumes/Data"
         let snapshot = DiskStatusReader().snapshot(for: URL(fileURLWithPath: path))
         if options.json {
-            printJSON(snapshot)
+            try printJSON(snapshot)
         } else {
             printDiskStatus(snapshot)
         }
@@ -209,7 +209,7 @@ struct ReclaimerCLI {
         let options = ParsedOptions(args)
         let evidence = ReleaseTrustEvidenceLoader.load(path: options.releaseManifestPath)
         if options.json {
-            printJSON(evidence)
+            try printJSON(evidence)
         } else {
             printReleaseTrustEvidence(evidence)
         }
@@ -221,7 +221,12 @@ struct ReclaimerCLI {
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: NoOpenFilesChecker())
         let result = scanner.scanWithCoverage(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
         let findings = result.findings
-        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        let overview = FindingAnalytics.overview(
+            findings: findings,
+            scopes: scopes,
+            topLimit: options.limit,
+            scopeAccessSummaries: result.coverage.scopeAccessSummaries
+        )
         let store = AuditStore()
         let report = TrustReadinessBuilder.build(
             diskStatus: DiskStatusReader().snapshot(),
@@ -235,7 +240,7 @@ struct ReclaimerCLI {
             scanCoverage: result.coverage
         )
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printTrustReadiness(report)
         }
@@ -253,7 +258,7 @@ struct ReclaimerCLI {
         let options = ParsedOptions(args)
         let plan = try options.scopePlan(includeUnavailable: true)
         if options.json {
-            printJSON(plan)
+            try printJSON(plan)
         } else {
             printScopePlan(plan)
         }
@@ -266,7 +271,7 @@ struct ReclaimerCLI {
         case "list":
             let templates = ScopeTemplateCatalog.all(includeUnavailable: options.includeMissingScopes)
             if options.json {
-                printJSON(templates)
+                try printJSON(templates)
             } else {
                 printScopeTemplates(templates)
             }
@@ -276,7 +281,7 @@ struct ReclaimerCLI {
             }
             let template = try ScopeTemplateCatalog.find(args[1], includeUnavailable: true)
             if options.json {
-                printJSON(template)
+                try printJSON(template)
             } else {
                 printScopeTemplate(template)
             }
@@ -293,7 +298,7 @@ struct ReclaimerCLI {
                 summary: summary
             )
             if options.json {
-                printJSON(set)
+                try printJSON(set)
             } else {
                 print("saved scope set from template: \(template.name)")
                 printSavedScopeSet(set)
@@ -313,7 +318,7 @@ struct ReclaimerCLI {
         case "list":
             let document = try store.loadDocument()
             if options.json {
-                printJSON(document)
+                try printJSON(document)
             } else {
                 printSavedScopeSetDocument(document, path: store.scopeSetURL.path)
             }
@@ -323,7 +328,7 @@ struct ReclaimerCLI {
             }
             let set = try store.find(args[1])
             if options.json {
-                printJSON(set)
+                try printJSON(set)
             } else {
                 printSavedScopeSet(set)
             }
@@ -333,7 +338,7 @@ struct ReclaimerCLI {
             }
             let set = try store.upsert(name: args[1], paths: options.values(after: "--path"), summary: options.summary)
             if options.json {
-                printJSON(set)
+                try printJSON(set)
             } else {
                 print("saved scope set: \(set.name)")
                 printSavedScopeSet(set)
@@ -344,7 +349,7 @@ struct ReclaimerCLI {
             }
             let document = try store.remove(reference: args[1])
             if options.json {
-                printJSON(document)
+                try printJSON(document)
             } else {
                 print("removed saved scope set: \(args[1])")
                 printSavedScopeSetDocument(document, path: store.scopeSetURL.path)
@@ -357,7 +362,7 @@ struct ReclaimerCLI {
                 FileHandle.standardError.write(Data("wrote saved scope sets export: \(url.path)\n".utf8))
             }
             if options.json || options.outputPath == nil {
-                printJSON(document)
+                try printJSON(document)
             } else {
                 printSavedScopeSetDocument(document, path: store.scopeSetURL.path)
             }
@@ -367,7 +372,7 @@ struct ReclaimerCLI {
             }
             let result = try store.importDocument(from: URL(fileURLWithPath: args[1]).standardizedFileURL, merge: !options.replacePolicy)
             if options.json {
-                printJSON(result)
+                try printJSON(result)
             } else {
                 printSavedScopeSetImportResult(result)
             }
@@ -384,7 +389,7 @@ struct ReclaimerCLI {
         let options = ParsedOptions(args)
         let catalog = try options.ruleEngine().catalog()
         if options.json {
-            printJSON(catalog)
+            try printJSON(catalog)
         } else {
             printRuleCatalog(catalog)
         }
@@ -400,7 +405,7 @@ struct ReclaimerCLI {
         case "list":
             let document = try store.loadDocument()
             if options.json {
-                printJSON(document)
+                try printJSON(document)
             } else {
                 printUserRulePackDocument(document, path: store.rulePackURL.path)
             }
@@ -411,7 +416,7 @@ struct ReclaimerCLI {
             let sourceURL = URL(fileURLWithPath: args[1]).standardizedFileURL
             let preview = try store.preview(from: sourceURL)
             if options.json {
-                printJSON(preview)
+                try printJSON(preview)
             } else {
                 printUserRulePackPreview(preview)
             }
@@ -422,7 +427,7 @@ struct ReclaimerCLI {
             let sourceURL = URL(fileURLWithPath: args[1]).standardizedFileURL
             let result = try store.importDocument(from: sourceURL, merge: !options.replacePolicy)
             if options.json {
-                printJSON(result)
+                try printJSON(result)
             } else {
                 printUserRulePackImportResult(result)
             }
@@ -434,7 +439,7 @@ struct ReclaimerCLI {
                 FileHandle.standardError.write(Data("wrote user rule pack export: \(url.path)\n".utf8))
             }
             if options.json || options.outputPath == nil {
-                printJSON(document)
+                try printJSON(document)
             } else {
                 printUserRulePackDocument(document, path: store.rulePackURL.path)
             }
@@ -451,7 +456,7 @@ struct ReclaimerCLI {
         let options = ParsedOptions(args)
         let report = PermissionAdvisor.report(scopes: try options.scopes(includeUnavailable: true))
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printPermissionAdvisorReport(report)
         }
@@ -467,7 +472,7 @@ struct ReclaimerCLI {
             FileHandle.standardError.write(Data("wrote permission walkthrough: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(walkthrough)
+            try printJSON(walkthrough)
         } else if options.outputPath == nil {
             print(walkthrough.markdown)
         }
@@ -487,7 +492,7 @@ struct ReclaimerCLI {
             FileHandle.standardError.write(Data("saved active-file report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printActiveFileReviewReport(report)
         }
@@ -516,7 +521,7 @@ struct ReclaimerCLI {
             FileHandle.standardError.write(Data("saved native-tool report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printNativeToolReport(report, options: options)
         }
@@ -572,7 +577,7 @@ struct ReclaimerCLI {
             FileHandle.standardError.write(Data("saved native-tool execution receipt: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(receipt)
+            try printJSON(receipt)
         } else {
             printNativeActionReceipt(receipt)
         }
@@ -625,7 +630,7 @@ struct ReclaimerCLI {
                 FileHandle.standardError.write(Data("saved native maintenance receipt: \(url.path)\n".utf8))
             }
             if options.json {
-                printJSON(maintenanceReceipt)
+                try printJSON(maintenanceReceipt)
             } else {
                 printNativeActionReceipt(maintenanceReceipt)
             }
@@ -682,7 +687,7 @@ struct ReclaimerCLI {
             FileHandle.standardError.write(Data("saved native-tool execution receipt: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(receipt)
+            try printJSON(receipt)
         } else {
             printNativeToolExecutionReceipt(receipt)
         }
@@ -726,7 +731,7 @@ struct ReclaimerCLI {
         case "list":
             let receipts = store.recentNativeToolExecutionReceipts(limit: options.limit)
             if options.json {
-                printJSON(receipts)
+                try printJSON(receipts)
             } else {
                 printNativeToolExecutionReceipts(receipts)
             }
@@ -751,7 +756,7 @@ struct ReclaimerCLI {
                 FileHandle.standardError.write(Data("saved native command receipt report: \(url.path)\n".utf8))
             }
             if options.json {
-                printJSON(report)
+                try printJSON(report)
             } else if options.outputPath == nil {
                 print(report.markdown)
             }
@@ -768,7 +773,7 @@ struct ReclaimerCLI {
             FileHandle.standardError.write(Data("saved container inventory report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printContainerInventoryReport(report, options: options)
         }
@@ -784,7 +789,7 @@ struct ReclaimerCLI {
         case "list":
             let policy = store.load()
             if options.json {
-                printJSON(policy)
+                try printJSON(policy)
             } else {
                 printUserPathPolicy(policy)
             }
@@ -795,7 +800,7 @@ struct ReclaimerCLI {
             let kind: UserPathPolicyKind = subcommand == "protect" ? .protect : .exclude
             let policy = try store.add(path: args[1], kind: kind, reason: options.reason)
             if options.json {
-                printJSON(policy)
+                try printJSON(policy)
             } else {
                 print("saved \(kind.label): \(UserPathPolicy.standardizedPath(args[1]))")
                 printUserPathPolicy(policy)
@@ -807,7 +812,7 @@ struct ReclaimerCLI {
             let kind = options.policyKind
             let policy = try store.remove(path: args[1], kind: kind)
             if options.json {
-                printJSON(policy)
+                try printJSON(policy)
             } else {
                 print("removed policy entries for: \(UserPathPolicy.standardizedPath(args[1]))")
                 printUserPathPolicy(policy)
@@ -820,7 +825,7 @@ struct ReclaimerCLI {
                 FileHandle.standardError.write(Data("wrote user path policy export: \(url.path)\n".utf8))
             }
             if options.json || options.outputPath == nil {
-                printJSON(document)
+                try printJSON(document)
             } else {
                 printPolicyExportSummary(document)
             }
@@ -831,7 +836,7 @@ struct ReclaimerCLI {
             let sourceURL = URL(fileURLWithPath: args[1]).standardizedFileURL
             let result = try store.importDocument(from: sourceURL, merge: !options.replacePolicy)
             if options.json {
-                printJSON(result)
+                try printJSON(result)
             } else {
                 printPolicyImportResult(result)
             }
@@ -946,7 +951,7 @@ struct ReclaimerCLI {
             }
         }
         if options.json {
-            printJSON(plan)
+            try printJSON(plan)
         } else if options.outputPath == nil {
             printPlan(plan)
         }
@@ -961,7 +966,7 @@ struct ReclaimerCLI {
         case "list":
             let plans = store.recentPlans(limit: options.limit)
             if options.json {
-                printJSON(plans)
+                try printJSON(plans)
             } else {
                 printPlans(plans)
             }
@@ -987,7 +992,7 @@ struct ReclaimerCLI {
                 FileHandle.standardError.write(Data("saved plan report: \(url.path)\n".utf8))
             }
             if options.json {
-                printJSON(report)
+                try printJSON(report)
             } else if options.outputPath == nil {
                 print(report.markdown)
             }
@@ -1009,7 +1014,7 @@ struct ReclaimerCLI {
         }
         let report = FindingExplanationBuilder.build(for: finding)
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else {
             printFindingExplanationReport(report)
         }
@@ -1063,7 +1068,7 @@ struct ReclaimerCLI {
             FileHandle.standardError.write(Data("saved receipt: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(receipt)
+            try printJSON(receipt)
         } else {
             printReceipt(receipt)
         }
@@ -1092,7 +1097,7 @@ struct ReclaimerCLI {
             FileHandle.standardError.write(Data("saved archive review: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else if options.outputPath == nil {
             printArchiveReviewReport(report)
         }
@@ -1111,7 +1116,7 @@ struct ReclaimerCLI {
             let schedule = try options.scheduleConfiguration()
             let preview = manager.preview(cliPath: cli, schedule: schedule)
             if options.json {
-                printJSON(preview)
+                try printJSON(preview)
             } else {
                 printSchedulePreview(preview)
                 print(manager.plist(cliPath: cli, logPath: preview.logPath, schedule: schedule))
@@ -1139,7 +1144,7 @@ struct ReclaimerCLI {
             let options = ParsedOptions(Array(args.dropFirst()))
             let status = manager.status(cliPath: URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path)
             if options.json {
-                printJSON(status)
+                try printJSON(status)
             } else {
                 printLaunchAgentStatus(status)
             }
@@ -1158,7 +1163,7 @@ struct ReclaimerCLI {
         case "list":
             let items = store.list()
             if options.json {
-                printJSON(items)
+                try printJSON(items)
             } else {
                 printHeldItems(items)
             }
@@ -1356,12 +1361,24 @@ struct AuditPruneCommandResult: Encodable {
     let receipt: AuditPruneReceipt
 }
 
-func printJSON<T: Encodable>(_ value: T) {
+func encodedJSON<T: Encodable>(_ value: T) throws -> String {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     encoder.dateEncodingStrategy = .iso8601
-    let data = try! encoder.encode(value)
-    print(String(data: data, encoding: .utf8)!)
+    let data: Data
+    do {
+        data = try encoder.encode(value)
+    } catch {
+        throw CLIError.message("JSON encoding failed: \(error.localizedDescription)")
+    }
+    guard let output = String(data: data, encoding: .utf8) else {
+        throw CLIError.message("JSON encoding failed: encoded output was not valid UTF-8.")
+    }
+    return output
+}
+
+func printJSON<T: Encodable>(_ value: T) throws {
+    print(try encodedJSON(value))
 }
 
 func printLatestScanSession(_ session: ScanSession?) {

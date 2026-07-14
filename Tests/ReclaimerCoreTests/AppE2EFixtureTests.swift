@@ -110,10 +110,73 @@ final class AppE2EFixtureTests: XCTestCase {
         XCTAssertTrue(packagedAX.contains("$HOME/.Trash/"))
         XCTAssertTrue(packagedAX.contains("Refusing to clean an E2E Trash artifact without bounded receipt evidence."))
         XCTAssertTrue(packagedAX.contains("trashArtifactCleaned"))
+        let harness = try String(
+            contentsOf: root.appendingPathComponent("Tests/AppE2E/RyddiAXHarness.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(harness.contains("summary.verify-cleanup-button"))
+        XCTAssertTrue(harness.contains("assertElementMissing(identifier: \"summary.reclaim-button\""))
+        XCTAssertTrue(harness.contains("assertCandidateRowMissing(path: options.candidatePath"))
+        XCTAssertTrue(harness.contains("waitForText(options.candidatePath"))
         XCTAssertTrue(ci.contains("Fixture-backed app E2E smoke"))
         XCTAssertTrue(ci.contains("timeout-minutes: 10"))
         XCTAssertTrue(ci.contains("RYDDI_E2E_MIN_FREE_GIB: \"5\""))
         XCTAssertTrue(releaseWorkflow.contains("RYDDI_E2E_MIN_FREE_GIB: \"5\""))
+    }
+
+    func testPackagedAXHarnessKeepsReclaimBlockedAfterFreshVerificationScan() throws {
+        let root = repoRoot()
+        let harness = try String(
+            contentsOf: root.appendingPathComponent("Tests/AppE2E/RyddiAXHarness.swift"),
+            encoding: .utf8
+        )
+        let packagedAX = try String(
+            contentsOf: root.appendingPathComponent("Scripts/run-packaged-app-e2e.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(harness.contains("try press(\"summary.verify-cleanup-button\", root: app)"))
+        XCTAssertTrue(harness.contains("try waitForVerificationScanCompletion(root: app"))
+        XCTAssertTrue(harness.contains("reclaimActionHiddenAfterVerificationScan: true"))
+        XCTAssertTrue(packagedAX.contains(".reclaimActionHiddenAfterVerificationScan == true"))
+    }
+
+    func testPackagedAXHarnessProvesCancellationAndCurrentCleanupFlow() throws {
+        let root = repoRoot()
+        let harness = try String(
+            contentsOf: root.appendingPathComponent("Tests/AppE2E/RyddiAXHarness.swift"),
+            encoding: .utf8
+        )
+        let packagedAX = try String(
+            contentsOf: root.appendingPathComponent("Scripts/run-packaged-app-e2e.sh"),
+            encoding: .utf8
+        )
+        let releaseCheck = try String(
+            contentsOf: root.appendingPathComponent("Scripts/release-check.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(harness.contains("waitForElement(identifier: \"scan-progress\""))
+        XCTAssertTrue(harness.contains("try press(\"cancel-scan-button\", root: app)"))
+        XCTAssertTrue(harness.contains("waitForCancelledScanToBecomeIdle"))
+        XCTAssertTrue(harness.contains("assertNoLateCancelledScanCommit"))
+        for proof in [
+            "scanProgressVisible: true",
+            "cancelledScanBecameIdle: true",
+            "cancelledScanHadNoLateCommit: true",
+            "normalScanCompleted: true",
+            "candidateRowRemoved: true",
+            "verificationActionVisible: true"
+        ] {
+            XCTAssertTrue(harness.contains(proof), proof)
+        }
+        XCTAssertTrue(packagedAX.contains("RYDDI_E2E_SCAN_DELAY_MILLISECONDS=\"750\""))
+        XCTAssertTrue(packagedAX.contains(".scanProgressVisible == true"))
+        XCTAssertTrue(packagedAX.contains(".cancelledScanBecameIdle == true"))
+        XCTAssertTrue(packagedAX.contains(".cancelledScanHadNoLateCommit == true"))
+        XCTAssertTrue(packagedAX.contains(".normalScanCompleted == true"))
+        XCTAssertTrue(packagedAX.contains("protectedFixtureIntact: true"))
+        XCTAssertTrue(releaseCheck.contains(".protectedFixtureIntact == true"))
     }
 
     private func runFixtureScript(root: URL) throws -> (status: Int32, stdout: String, stderr: String) {

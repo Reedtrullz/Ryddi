@@ -27,6 +27,12 @@ final class ReclaimerCLITests: XCTestCase {
         }
     }
 
+    func testEncodedJSONPropagatesEncoderFailure() {
+        XCTAssertThrowsError(try encodedJSON(ThrowingEncodable())) { error in
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("json"))
+        }
+    }
+
     func testSessionLatestJSONPrintsLatestSavedScanSession() throws {
         let store = AuditStore(root: auditRoot)
         try store.saveScanSession(makeSession(id: "session-old", updatedAt: Date(timeIntervalSince1970: 1_000)))
@@ -836,6 +842,16 @@ final class ReclaimerCLITests: XCTestCase {
 
         let data = FileHandle(fileDescriptor: fds[0], closeOnDealloc: true).readDataToEndOfFile()
         return String(data: data, encoding: .utf8) ?? ""
+    }
+}
+
+private struct ThrowingEncodable: Encodable {
+    private struct FixtureError: LocalizedError {
+        var errorDescription: String? { "fixture encoding failure" }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        throw FixtureError()
     }
 }
 

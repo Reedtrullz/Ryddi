@@ -42,7 +42,8 @@ public struct ScanPresentationSnapshot: Hashable, Sendable {
         largeOldMode: LargeOldReviewMode = .all,
         largeOldSort: TopOffenderSort = .allocated,
         now: Date = Date(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        scopeAccessProbe: (any ScopeAccessProbing)? = nil
     ) -> ScanPresentationSnapshot {
         let reviewQueues = FindingAnalytics.reviewQueueReport(
             findings: findings,
@@ -54,7 +55,9 @@ public struct ScanPresentationSnapshot: Hashable, Sendable {
             scopes: scopes,
             topLimit: 20,
             now: now,
-            fileManager: fileManager
+            fileManager: fileManager,
+            scopeAccessSummaries: scanCoverage?.scopeAccessSummaries,
+            scopeAccessProbe: scopeAccessProbe
         )
         if let scanCoverage {
             overview = overview.withScanCoverage(scanCoverage)

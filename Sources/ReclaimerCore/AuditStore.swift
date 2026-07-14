@@ -1,6 +1,55 @@
 import Darwin
 import Foundation
 
+protocol AuditDirectoryReading: Sendable {
+    func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options mask: FileManager.DirectoryEnumerationOptions
+    ) throws -> [URL]
+}
+
+struct FileManagerAuditDirectoryReader: AuditDirectoryReading {
+    func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options mask: FileManager.DirectoryEnumerationOptions
+    ) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: mask
+        )
+    }
+}
+
+protocol AuditDataReading: Sendable {
+    func read(from url: URL) throws -> Data
+}
+
+struct FileAuditDataReader: AuditDataReading {
+    func read(from url: URL) throws -> Data {
+        try Data(contentsOf: url)
+    }
+}
+
+protocol AuditDecoding: Sendable {
+    func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value
+}
+
+final class JSONAuditDecoder: AuditDecoding, @unchecked Sendable {
+    private let decoder: JSONDecoder
+
+    init() {
+        decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+    }
+
+    func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value {
+        try decoder.decode(type, from: data)
+    }
+}
+
 public enum AuditStoreScanSessionWarningKind: String, Codable, Hashable, Sendable {
     case unreadableScanSession
 }
@@ -31,9 +80,31 @@ public final class AuditStore: @unchecked Sendable {
     private static let scanSessionPrefix = "scan-session-v1-"
     private static let legacyScanSessionPrefix = "scan-session-"
 
+    private enum AuditFileKind: String, CaseIterable {
+        case scanSession = "scan-session-v1"
+        case nativeToolExecution = "native-tool-execution"
+        case projectDependencyReview = "project-dependency-review"
+        case appUninstallPreview = "app-uninstall-preview"
+        case appUninstallReceipt = "app-uninstall-receipt"
+        case browserCacheReview = "browser-cache-review"
+        case packageCacheReview = "package-cache-review"
+        case containerInventory = "container-inventory"
+        case deviceBackupReview = "device-backup-review"
+        case downloadsReview = "downloads-review"
+        case remoteDogfood = "remote-dogfood"
+        case activeFiles = "active-files"
+        case trashReview = "trash-review"
+        case nativeTool = "native-tool"
+        case remoteProbe = "remote-probe"
+        case remoteScan = "remote-scan"
+        case xcodeReview = "xcode-review"
+        case receipt
+        case plan
+    }
+
     private struct AuditFileRecord {
         let url: URL
-        let kind: String?
+        let kind: AuditFileKind?
         let bytes: Int64
         let modifiedAt: Date?
         let isSymlink: Bool
@@ -49,6 +120,11 @@ public final class AuditStore: @unchecked Sendable {
         }
     }
 
+    private struct AuditIndex {
+        let records: [AuditFileRecord]
+        let recordsByKind: [AuditFileKind: [AuditFileRecord]]
+    }
+
     public enum RemoteAuditQueryError: Error, LocalizedError, Equatable {
         case ambiguousSavedTargetQuery(String)
 
@@ -62,17 +138,37 @@ public final class AuditStore: @unchecked Sendable {
 
     private let root: URL
     private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
+    private let decoder: any AuditDecoding
+    private let directoryReader: any AuditDirectoryReading
+    private let dataReader: any AuditDataReading
     private let trasher: any Trashing
 
     public init(root: URL = AuditStore.defaultRoot(), trasher: any Trashing = FileManagerTrasher()) {
         self.root = root.standardizedFileURL
         self.trasher = trasher
+        self.directoryReader = FileManagerAuditDirectoryReader()
+        self.dataReader = FileAuditDataReader()
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         self.encoder.dateEncodingStrategy = .iso8601
-        self.decoder = JSONDecoder()
-        self.decoder.dateDecodingStrategy = .iso8601
+        self.decoder = JSONAuditDecoder()
+    }
+
+    init(
+        root: URL,
+        trasher: any Trashing = FileManagerTrasher(),
+        directoryReader: any AuditDirectoryReading,
+        dataReader: any AuditDataReading = FileAuditDataReader(),
+        decoder: any AuditDecoding
+    ) {
+        self.root = root.standardizedFileURL
+        self.trasher = trasher
+        self.directoryReader = directoryReader
+        self.dataReader = dataReader
+        self.encoder = JSONEncoder()
+        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        self.encoder.dateEncodingStrategy = .iso8601
+        self.decoder = decoder
     }
 
     public static func defaultRoot() -> URL {
@@ -83,9 +179,13 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func summary() -> AuditStoreSummary {
-        let records = auditFileRecords()
+        summary(from: auditIndexOrEmpty())
+    }
+
+    private func summary(from index: AuditIndex) -> AuditStoreSummary {
+        let records = index.records
         let knownRecords = records.filter { $0.isEligibleRegularFile && $0.kind != nil }
-        let grouped = Dictionary(grouping: knownRecords, by: { $0.kind ?? "unknown" })
+        let grouped = Dictionary(grouping: knownRecords, by: { $0.kind?.rawValue ?? "unknown" })
         let items = grouped.map { kind, values in
             AuditStoreSummaryItem(
                 kind: kind,
@@ -111,7 +211,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func prunePlan(policy: AuditRetentionPolicy, now: Date = Date()) -> AuditPrunePlan {
-        let records = auditFileRecords()
+        let records = auditIndexOrEmpty().records
         let knownRecords = records
             .filter { $0.isEligibleRegularFile && $0.kind != nil }
             .sorted { lhs, rhs in
@@ -125,7 +225,7 @@ public final class AuditStore: @unchecked Sendable {
             guard let kind = record.kind else { return nil }
             return AuditPruneCandidate(
                 path: record.url.path,
-                kind: kind,
+                kind: kind.rawValue,
                 bytes: record.bytes,
                 modifiedAt: modifiedAt,
                 filesystemIdentity: record.filesystemIdentity
@@ -175,7 +275,7 @@ public final class AuditStore: @unchecked Sendable {
                 errors.append("Skipped \(filename): path is outside the audit root.")
                 continue
             }
-            guard knownAuditKind(for: filename) == candidate.kind else {
+            guard knownAuditKind(for: filename)?.rawValue == candidate.kind else {
                 errors.append("Skipped \(filename): audit kind no longer matches the reviewed plan.")
                 continue
             }
@@ -355,56 +455,86 @@ public final class AuditStore: @unchecked Sendable {
         guard limit > 0 else {
             return AuditStoreScanSessionListResult(sessions: [], warnings: [])
         }
-        guard FileManager.default.fileExists(atPath: root.path) else {
-            return AuditStoreScanSessionListResult(sessions: [], warnings: [])
-        }
-        let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-        var decodedSessions: [(URL, ScanSession)] = []
-        var warnings: [AuditStoreScanSessionWarning] = []
-        let scanSessionFiles = files
-            .filter { isScanSessionFile($0.lastPathComponent) && $0.pathExtension == "json" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return scanSessions(from: try auditIndex(), limit: limit, capBeforeDecoding: false)
+    }
 
-        for url in scanSessionFiles {
-            do {
-                let data = try Data(contentsOf: url)
-                let session = try decoder.decode(ScanSession.self, from: data)
-                decodedSessions.append((url, session))
-            } catch {
-                warnings.append(AuditStoreScanSessionWarning(
-                    path: url.standardizedFileURL.path,
-                    kind: .unreadableScanSession,
-                    message: "Scan session file could not be read: \(error.localizedDescription)"
-                ))
-            }
-        }
-
-        let sessions = decodedSessions
-            .sorted { lhs, rhs in
-                if lhs.1.updatedAt == rhs.1.updatedAt {
-                    return lhs.0.lastPathComponent > rhs.0.lastPathComponent
-                }
-                return lhs.1.updatedAt > rhs.1.updatedAt
-            }
-            .prefix(limit)
-            .map(\.1)
-
-        return AuditStoreScanSessionListResult(sessions: Array(sessions), warnings: warnings)
+    public func snapshot(limitPerKind: Int = 20) -> AuditStoreSnapshot {
+        let index = auditIndexOrEmpty()
+        return AuditStoreSnapshot(
+            summary: summary(from: index),
+            scanSessions: scanSessions(from: index, limit: limitPerKind, capBeforeDecoding: true),
+            plans: decode(ReclaimPlan.self, kind: .plan, limit: limitPerKind, from: index),
+            receipts: decode(ExecutionReceipt.self, kind: .receipt, limit: limitPerKind, from: index),
+            nativeToolReports: decode(NativeToolReport.self, kind: .nativeTool, limit: limitPerKind, from: index),
+            nativeToolExecutionReceipts: decode(
+                NativeToolExecutionReceipt.self,
+                kind: .nativeToolExecution,
+                limit: limitPerKind,
+                from: index
+            ),
+            containerInventoryReports: decode(
+                ContainerInventoryReport.self,
+                kind: .containerInventory,
+                limit: limitPerKind,
+                from: index
+            ),
+            remoteProbeReports: decode(RemoteProbeReport.self, kind: .remoteProbe, limit: limitPerKind, from: index),
+            remoteScanReports: decode(RemoteScanReport.self, kind: .remoteScan, limit: limitPerKind, from: index),
+            remoteDogfoodReports: decode(
+                RemoteDogfoodReport.self,
+                kind: .remoteDogfood,
+                limit: limitPerKind,
+                from: index
+            ),
+            activeFileReviewReports: decode(
+                ActiveFileReviewReport.self,
+                kind: .activeFiles,
+                limit: limitPerKind,
+                from: index
+            ),
+            trashReviewReports: decode(TrashReviewReport.self, kind: .trashReview, limit: limitPerKind, from: index),
+            downloadsReviewReports: decode(
+                DownloadsReviewReport.self,
+                kind: .downloadsReview,
+                limit: limitPerKind,
+                from: index
+            ),
+            browserCacheReviewReports: decode(
+                BrowserCacheReviewReport.self,
+                kind: .browserCacheReview,
+                limit: limitPerKind,
+                from: index
+            ),
+            packageCacheReviewReports: decode(
+                PackageCacheReviewReport.self,
+                kind: .packageCacheReview,
+                limit: limitPerKind,
+                from: index
+            ),
+            projectDependencyReviewReports: decode(
+                ProjectDependencyReviewReport.self,
+                kind: .projectDependencyReview,
+                limit: limitPerKind,
+                from: index
+            ),
+            deviceBackupReviewReports: decode(
+                DeviceBackupReviewReport.self,
+                kind: .deviceBackupReview,
+                limit: limitPerKind,
+                from: index
+            ),
+            xcodeReviewReports: decode(XcodeReviewReport.self, kind: .xcodeReview, limit: limitPerKind, from: index),
+            appUninstallReceipts: decode(
+                AppUninstallExecutionReceipt.self,
+                kind: .appUninstallReceipt,
+                limit: limitPerKind,
+                from: index
+            )
+        )
     }
 
     public func recentReceipts(limit: Int = 20) -> [ExecutionReceipt] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("receipt-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(ExecutionReceipt.self, from: Data(contentsOf: $0)) }
+        decode(ExecutionReceipt.self, kind: .receipt, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func receipt(id: String) -> ExecutionReceipt? {
@@ -415,18 +545,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentPlans(limit: Int = 20) -> [ReclaimPlan] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("plan-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(ReclaimPlan.self, from: Data(contentsOf: $0)) }
+        decode(ReclaimPlan.self, kind: .plan, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func plan(id: String) -> ReclaimPlan? {
@@ -437,21 +556,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentNativeToolReports(limit: Int = 20) -> [NativeToolReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter {
-                $0.lastPathComponent.hasPrefix("native-tool-")
-                    && !$0.lastPathComponent.hasPrefix("native-tool-execution-")
-            }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(NativeToolReport.self, from: Data(contentsOf: $0)) }
+        decode(NativeToolReport.self, kind: .nativeTool, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func nativeToolReport(id: String) -> NativeToolReport? {
@@ -462,18 +567,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentNativeToolExecutionReceipts(limit: Int = 20) -> [NativeToolExecutionReceipt] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("native-tool-execution-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(NativeToolExecutionReceipt.self, from: Data(contentsOf: $0)) }
+        decode(NativeToolExecutionReceipt.self, kind: .nativeToolExecution, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func nativeToolExecutionReceipt(id: String) -> NativeToolExecutionReceipt? {
@@ -484,63 +578,19 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentContainerInventoryReports(limit: Int = 20) -> [ContainerInventoryReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("container-inventory-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(ContainerInventoryReport.self, from: Data(contentsOf: $0)) }
+        decode(ContainerInventoryReport.self, kind: .containerInventory, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentRemoteProbeReports(limit: Int = 20) -> [RemoteProbeReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("remote-probe-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(RemoteProbeReport.self, from: Data(contentsOf: $0)) }
+        decode(RemoteProbeReport.self, kind: .remoteProbe, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentRemoteScanReports(limit: Int = 20) -> [RemoteScanReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("remote-scan-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(RemoteScanReport.self, from: Data(contentsOf: $0)) }
+        decode(RemoteScanReport.self, kind: .remoteScan, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentRemoteDogfoodReports(limit: Int = 20) -> [RemoteDogfoodReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("remote-dogfood-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(RemoteDogfoodReport.self, from: Data(contentsOf: $0)) }
+        decode(RemoteDogfoodReport.self, kind: .remoteDogfood, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func latestRemoteScanReport(matching target: RemoteTargetReference) -> RemoteScanReport? {
@@ -577,138 +627,131 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     public func recentActiveFileReviewReports(limit: Int = 20) -> [ActiveFileReviewReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("active-files-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(ActiveFileReviewReport.self, from: Data(contentsOf: $0)) }
+        decode(ActiveFileReviewReport.self, kind: .activeFiles, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentTrashReviewReports(limit: Int = 20) -> [TrashReviewReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("trash-review-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(TrashReviewReport.self, from: Data(contentsOf: $0)) }
+        decode(TrashReviewReport.self, kind: .trashReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentDownloadsReviewReports(limit: Int = 20) -> [DownloadsReviewReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("downloads-review-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(DownloadsReviewReport.self, from: Data(contentsOf: $0)) }
+        decode(DownloadsReviewReport.self, kind: .downloadsReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentBrowserCacheReviewReports(limit: Int = 20) -> [BrowserCacheReviewReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("browser-cache-review-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(BrowserCacheReviewReport.self, from: Data(contentsOf: $0)) }
+        decode(BrowserCacheReviewReport.self, kind: .browserCacheReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentPackageCacheReviewReports(limit: Int = 20) -> [PackageCacheReviewReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("package-cache-review-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(PackageCacheReviewReport.self, from: Data(contentsOf: $0)) }
+        decode(PackageCacheReviewReport.self, kind: .packageCacheReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentProjectDependencyReviewReports(limit: Int = 20) -> [ProjectDependencyReviewReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("project-dependency-review-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(ProjectDependencyReviewReport.self, from: Data(contentsOf: $0)) }
+        decode(ProjectDependencyReviewReport.self, kind: .projectDependencyReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentDeviceBackupReviewReports(limit: Int = 20) -> [DeviceBackupReviewReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("device-backup-review-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(DeviceBackupReviewReport.self, from: Data(contentsOf: $0)) }
+        decode(DeviceBackupReviewReport.self, kind: .deviceBackupReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentXcodeReviewReports(limit: Int = 20) -> [XcodeReviewReport] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
-        }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("xcode-review-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
-            .prefix(limit)
-            .compactMap { try? decoder.decode(XcodeReviewReport.self, from: Data(contentsOf: $0)) }
+        decode(XcodeReviewReport.self, kind: .xcodeReview, limit: limit, from: auditIndexOrEmpty())
     }
 
     public func recentAppUninstallReceipts(limit: Int = 20) -> [AppUninstallExecutionReceipt] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
+        decode(AppUninstallExecutionReceipt.self, kind: .appUninstallReceipt, limit: limit, from: auditIndexOrEmpty())
+    }
+
+    private func auditIndexOrEmpty() -> AuditIndex {
+        (try? auditIndex()) ?? AuditIndex(records: [], recordsByKind: [:])
+    }
+
+    private func auditIndex() throws -> AuditIndex {
+        let records = try auditFileRecords()
+        var recordsByKind: [AuditFileKind: [AuditFileRecord]] = [:]
+
+        for record in records {
+            guard record.isEligibleRegularFile, let kind = record.kind else { continue }
+            recordsByKind[kind, default: []].append(record)
         }
-        return files
-            .filter { $0.lastPathComponent.hasPrefix("app-uninstall-receipt-") }
-            .sorted { lhs, rhs in
-                let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return left > right
-            }
+
+        for kind in Array(recordsByKind.keys) {
+            recordsByKind[kind]?.sort(by: Self.isNewerAuditRecord)
+        }
+
+        return AuditIndex(records: records, recordsByKind: recordsByKind)
+    }
+
+    private static func isNewerAuditRecord(_ lhs: AuditFileRecord, _ rhs: AuditFileRecord) -> Bool {
+        let left = lhs.modifiedAt ?? .distantPast
+        let right = rhs.modifiedAt ?? .distantPast
+        if left == right {
+            return lhs.url.lastPathComponent > rhs.url.lastPathComponent
+        }
+        return left > right
+    }
+
+    private func decode<Value: Decodable>(
+        _ type: Value.Type,
+        kind: AuditFileKind,
+        limit: Int,
+        from index: AuditIndex
+    ) -> [Value] {
+        guard limit > 0 else { return [] }
+        return index.recordsByKind[kind, default: []]
             .prefix(limit)
-            .compactMap { try? decoder.decode(AppUninstallExecutionReceipt.self, from: Data(contentsOf: $0)) }
+            .compactMap { record in
+                guard let data = try? dataReader.read(from: record.url) else { return nil }
+                return try? decoder.decode(type, from: data)
+            }
+    }
+
+    private func scanSessions(
+        from index: AuditIndex,
+        limit: Int,
+        capBeforeDecoding: Bool
+    ) -> AuditStoreScanSessionListResult {
+        guard limit > 0 else {
+            return AuditStoreScanSessionListResult(sessions: [], warnings: [])
+        }
+
+        let indexedRecords = index.recordsByKind[.scanSession, default: []]
+        let records = capBeforeDecoding
+            ? Array(indexedRecords.prefix(limit))
+            : indexedRecords.sorted { $0.url.lastPathComponent < $1.url.lastPathComponent }
+        var decodedSessions: [(AuditFileRecord, ScanSession)] = []
+        var warnings: [AuditStoreScanSessionWarning] = []
+
+        for record in records {
+            do {
+                let data = try dataReader.read(from: record.url)
+                let session = try decoder.decode(ScanSession.self, from: data)
+                decodedSessions.append((record, session))
+            } catch {
+                warnings.append(AuditStoreScanSessionWarning(
+                    path: record.url.path,
+                    kind: .unreadableScanSession,
+                    message: "Scan session file could not be read: \(error.localizedDescription)"
+                ))
+            }
+        }
+
+        let sessions: [ScanSession]
+        if capBeforeDecoding {
+            sessions = decodedSessions.map(\.1)
+        } else {
+            sessions = decodedSessions
+                .sorted { lhs, rhs in
+                    if lhs.1.updatedAt == rhs.1.updatedAt {
+                        return lhs.0.url.lastPathComponent > rhs.0.url.lastPathComponent
+                    }
+                    return lhs.1.updatedAt > rhs.1.updatedAt
+                }
+                .prefix(limit)
+                .map(\.1)
+        }
+
+        return AuditStoreScanSessionListResult(sessions: sessions, warnings: warnings)
     }
 
     private func prepareRoot() throws {
@@ -721,19 +764,20 @@ public final class AuditStore: @unchecked Sendable {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private func auditFileRecords() -> [AuditFileRecord] {
+    private func auditFileRecords() throws -> [AuditFileRecord] {
         let keys: Set<URLResourceKey> = [
             .contentModificationDateKey,
             .fileSizeKey,
             .isSymbolicLinkKey
         ]
-        guard let files = try? FileManager.default.contentsOfDirectory(
+        guard FileManager.default.fileExists(atPath: root.path) else {
+            return []
+        }
+        let files = try directoryReader.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: Array(keys),
             options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
+        )
         return files.map { url in
             let values = try? url.resourceValues(forKeys: keys)
             let filesystemIdentity = try? FilesystemIdentity.capture(at: url)
@@ -749,12 +793,12 @@ public final class AuditStore: @unchecked Sendable {
         }
     }
 
-    private func knownAuditKind(for filename: String) -> String? {
+    private func knownAuditKind(for filename: String) -> AuditFileKind? {
         guard filename.hasSuffix(".json") else {
             return nil
         }
         if isScanSessionFile(filename) {
-            return "scan-session-v1"
+            return .scanSession
         }
         for (prefix, kind) in Self.knownAuditPrefixes {
             if filename.hasPrefix(prefix) {
@@ -764,25 +808,25 @@ public final class AuditStore: @unchecked Sendable {
         return nil
     }
 
-    private static let knownAuditPrefixes: [(prefix: String, kind: String)] = [
-        ("native-tool-execution-", "native-tool-execution"),
-        ("project-dependency-review-", "project-dependency-review"),
-        ("app-uninstall-preview-", "app-uninstall-preview"),
-        ("app-uninstall-receipt-", "app-uninstall-receipt"),
-        ("browser-cache-review-", "browser-cache-review"),
-        ("package-cache-review-", "package-cache-review"),
-        ("container-inventory-", "container-inventory"),
-        ("device-backup-review-", "device-backup-review"),
-        ("downloads-review-", "downloads-review"),
-        ("remote-dogfood-", "remote-dogfood"),
-        ("active-files-", "active-files"),
-        ("trash-review-", "trash-review"),
-        ("native-tool-", "native-tool"),
-        ("remote-probe-", "remote-probe"),
-        ("remote-scan-", "remote-scan"),
-        ("xcode-review-", "xcode-review"),
-        ("receipt-", "receipt"),
-        ("plan-", "plan"),
+    private static let knownAuditPrefixes: [(prefix: String, kind: AuditFileKind)] = [
+        ("native-tool-execution-", .nativeToolExecution),
+        ("project-dependency-review-", .projectDependencyReview),
+        ("app-uninstall-preview-", .appUninstallPreview),
+        ("app-uninstall-receipt-", .appUninstallReceipt),
+        ("browser-cache-review-", .browserCacheReview),
+        ("package-cache-review-", .packageCacheReview),
+        ("container-inventory-", .containerInventory),
+        ("device-backup-review-", .deviceBackupReview),
+        ("downloads-review-", .downloadsReview),
+        ("remote-dogfood-", .remoteDogfood),
+        ("active-files-", .activeFiles),
+        ("trash-review-", .trashReview),
+        ("native-tool-", .nativeTool),
+        ("remote-probe-", .remoteProbe),
+        ("remote-scan-", .remoteScan),
+        ("xcode-review-", .xcodeReview),
+        ("receipt-", .receipt),
+        ("plan-", .plan),
     ]
 
     private func isScanSessionFile(_ filename: String) -> Bool {
@@ -800,19 +844,7 @@ public final class AuditStore: @unchecked Sendable {
     }
 
     private func concreteTargetMatches(_ lhs: RemoteTargetReference, _ rhs: RemoteTargetReference) -> Bool {
-        if resolvedTargetMatches(lhs, rhs) {
-            return true
-        }
-        if resolvedTargetConflicts(lhs, rhs) {
-            return false
-        }
-        guard
-            let leftID = normalizedIdentity(lhs.id),
-            let rightID = normalizedIdentity(rhs.id)
-        else {
-            return false
-        }
-        return leftID == rightID
+        RemoteAuditTargetMatcher.concreteTargetsMatch(lhs, rhs)
     }
 
     private func localTargetIdentifiers(_ target: RemoteTargetReference) -> Set<String> {

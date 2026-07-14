@@ -6,7 +6,7 @@ struct DashboardCommandActions {
     var canDryRun: Bool
     var canReclaim: Bool
     var canExport: Bool
-    var scan: () -> Void
+    var startScan: () -> Void
     var buildPlan: () -> Void
     var dryRun: () -> Void
     var reclaim: () -> Void
@@ -33,7 +33,7 @@ struct DashboardCommands: Commands {
     var body: some Commands {
         CommandMenu("Ryddi") {
             Button("Scan") {
-                actions?.scan()
+                actions?.startScan()
             }
             .keyboardShortcut("r", modifiers: [.command])
             .disabled(actions?.canScan != true)

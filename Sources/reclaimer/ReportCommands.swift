@@ -10,7 +10,12 @@ extension ReclaimerCLI {
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: NoOpenFilesChecker())
         let result = scanner.scanWithCoverage(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
         let findings = result.findings
-        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        let overview = FindingAnalytics.overview(
+            findings: findings,
+            scopes: scopes,
+            topLimit: options.limit,
+            scopeAccessSummaries: result.coverage.scopeAccessSummaries
+        )
             .withScanCoverage(result.coverage)
         let queues = FindingAnalytics.reviewQueueReport(findings: findings, limitPerQueue: options.limit)
         let plan = PlanBuilder(openFileChecker: LsofOpenFileChecker()).buildPlan(from: findings, mode: .autoSafeOnly)
@@ -34,7 +39,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("wrote dogfood report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else if options.outputPath == nil {
             print(report.markdown)
         }
@@ -45,8 +50,17 @@ extension ReclaimerCLI {
         try options.validateReportPrivacyOptions()
         let scopes = try options.scopes(includeUnavailable: true)
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-        let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
-        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        let result = scanner.scanWithCoverage(
+            scopes: scopes,
+            options: options.scanOptions(includeOpenFiles: options.includeOpenFiles)
+        )
+        let findings = result.findings
+        let overview = FindingAnalytics.overview(
+            findings: findings,
+            scopes: scopes,
+            topLimit: options.limit,
+            scopeAccessSummaries: result.coverage.scopeAccessSummaries
+        )
         let report = EvidenceReportBuilder.build(
             title: options.reportTitle,
             overview: overview,
@@ -68,7 +82,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved evidence report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else if options.outputPath == nil {
             print(report.markdown)
         }

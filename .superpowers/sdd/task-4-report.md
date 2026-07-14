@@ -1,50 +1,182 @@
-# Task 4 Report: Scene Commands And Keyboard Shortcuts
+# Task 4 Implementer Report - REVIEW FIX COMPLETE
 
-## What I implemented
+## Status
 
-- Added `DashboardCommandActions` and a `FocusedValues.dashboardCommandActions` bridge in `Sources/MacDiskReclaimerApp/DashboardCommands.swift`.
-- Added `DashboardCommands: Commands` with a `CommandMenu("Ryddi")` that wires scene-level actions for scan, plan, dry run, export, redacted export, reclaim, section navigation, and settings.
-- Registered the command set on the main `WindowGroup` scene in `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`.
-- Added a `commandActions` computed property to `DashboardView` and exposed it with `.focusedSceneValue(\.dashboardCommandActions, commandActions)`.
-- Added a layout test that pins the command surface and focused value wiring in `Tests/ReclaimerCoreTests/MacDiskReclaimerAppLayoutTests.swift`.
+Task 4 review fixes are implemented and locally verified from committed base
+`860648f40b2422969fdb066da3812da3218e85c8`. The branch is ready for independent
+re-review. The follow-up commit containing this report uses the requested message
+`fix: preserve audit snapshot semantics`.
 
-## RED evidence
+## Starting State
 
-- The first focused test build failed before the layout test could pass because the new `focusedSceneValue` modifier was accidentally placed outside the `DashboardView` body chain.
-- Compiler evidence from the initial run included:
-  - `expected declaration`
-  - `extraneous '}' at top level`
-  - `cannot find 'model' in scope`
+The requested HEAD and branch matched exactly, and disk space was above the stop
+threshold:
 
-## GREEN evidence
+```text
+HEAD: 860648f40b2422969fdb066da3812da3218e85c8
+branch: feature/ryddi-v0.3.1-correctness
+available disk: 59Gi
+```
 
-- Focused test passed after the brace fix:
-  - `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testDashboardRegistersSceneCommandsAndFocusedActions`
-  - Result: `passed (0 failures)`
-- Full build passed:
-  - `swift build --scratch-path "$PWD/.build"`
-  - Result: `Build complete!`
+The first `git status --short --branch` was not clean. It already contained
+uncommitted changes in:
 
-## Files changed
+```text
+M Sources/ReclaimerCore/AuditStore.swift
+M Tests/ReclaimerCoreTests/AuditStoreSnapshotTests.swift
+```
 
-- `Sources/MacDiskReclaimerApp/DashboardCommands.swift`
-  - `DashboardCommandActions` at lines 3-16
-  - `FocusedValueKey` / `FocusedValues.dashboardCommandActions` at lines 18-27
-  - `DashboardCommands` command menu and shortcuts at lines 29-97
-- `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`
-  - scene `.commands { DashboardCommands() }` at lines 31-42
-  - `.focusedSceneValue(\.dashboardCommandActions, commandActions)` at line 141
-  - `commandActions` property at lines 249-264
-- `Tests/ReclaimerCoreTests/MacDiskReclaimerAppLayoutTests.swift`
-  - added `testDashboardRegistersSceneCommandsAndFocusedActions()` at lines 34-50
+Those changes directly addressed reviewer findings 1 and 4. They were preserved,
+reviewed, strengthened, and included; they were not reset or attributed to this
+session.
 
-## Self-review
+## Fresh RED Evidence
 
-- The implementation follows the task brief closely and keeps the changes scoped to the three owned files.
-- The command menu uses focused actions instead of reaching into the view model directly, which keeps the scene command layer decoupled from the dashboard view hierarchy.
-- The `openSettings()` command compiled cleanly on this SDK, so no macOS 14 fallback was needed.
+Tests were added before the app implementation changes.
+
+First RED command:
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter DashboardAuditLoadingTests
+```
+
+Exit `1`. The suite built and ran 3 tests. The new presentation regression failed
+with the expected stale state:
+
+```text
+DashboardAuditLoadingTests.swift:80: XCTAssertEqual failed: ("0") is not equal to ("1")
+DashboardAuditLoadingTests.swift:82: XCTAssertTrue failed
+Executed 3 tests, with 2 failures (0 unexpected)
+```
+
+This proved an accepted audit snapshot did not refresh an existing presentation,
+so the new scan-session warning filename never reached Action Center non-claims.
+
+Second RED command after adding the paired holding-and-audit regression:
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter DashboardAuditLoadingTests
+```
+
+Exit `1` during compilation with the expected missing paired API:
+
+```text
+DashboardAuditLoadingTests.swift:98:39: error: value of type 'DashboardModel' has no member 'loadHoldingAndAudit'
+```
+
+Running the core filter at that RED point also exited `1` because SwiftPM compiled
+the already-RED app test target and reported the same missing member.
+
+The AuditStore throwing/order/data-reader implementation and its first focused
+tests were already uncommitted at session start. This report does not claim fresh
+RED chronology for those pre-existing edits.
+
+## Implementation
+
+- Made shared audit index construction throwing. The throwing legacy scan-session
+  API uses `try`, while nonthrowing summary, snapshot, prune-plan, and `recent*`
+  APIs use the explicit `auditIndexOrEmpty()` fallback.
+- Restored deterministic legacy scan-session traversal by filename before decode,
+  preserving filename-ordered warnings while keeping decoded sessions ordered by
+  `updatedAt` and filename tie-break.
+- Added the injected `AuditDataReading` boundary and routed generic and scan-session
+  reads through it. The cap test now proves only the exact newest 20 receipt files
+  are read, not merely that only 20 decodes occur.
+- Added `loadHoldingAndAudit()`. Paired startup and Recovery Center refresh paths
+  load holding records without deriving recovery, then derive recovery once after
+  the accepted audit snapshot is atomically applied. Standalone Holding refresh
+  still derives recovery immediately.
+- After an accepted snapshot, `loadAudit()` now finishes `.auditLoad` before it
+  conditionally refreshes an existing presentation. `apply(snapshot:)` remains
+  synchronous and has no suspension point.
+- Avoided a duplicate presentation rebuild in the dry-run path while preserving
+  its first-presentation behavior.
+- Strengthened dashboard loading tests to mutate real model state while the loader
+  is blocked and to prove an older completion cannot clear or replace the newer
+  `.auditLoad` activity ID.
+
+## Files Changed
+
+- `.superpowers/sdd/task-4-report.md`
+- `.superpowers/sdd/progress.md`
+- `Sources/ReclaimerCore/AuditStore.swift`
+- `Sources/MacDiskReclaimerApp/DashboardModel+AuditAndRecovery.swift`
+- `Sources/MacDiskReclaimerApp/DashboardModel+ScanPlan.swift`
+- `Sources/MacDiskReclaimerApp/DashboardView.swift`
+- `Sources/MacDiskReclaimerApp/DashboardContentViews.swift`
+- `Tests/ReclaimerCoreTests/AuditStoreSnapshotTests.swift`
+- `Tests/MacDiskReclaimerAppTests/DashboardAuditLoadingTests.swift`
+
+No `.superpowers/sdd/reviews/` artifact was added.
+
+## Final Verification
+
+All commands ran from the Task 4 worktree with repo-local `.build`.
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter AuditStoreSnapshotTests
+```
+
+Exit `0`: 6 tests, 0 failures.
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter DashboardAuditLoadingTests
+```
+
+Exit `0`: 4 tests, 0 failures.
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter Audit
+```
+
+Exit `0`: 52 tests, 0 failures.
+
+```bash
+df -h /System/Volumes/Data
+```
+
+Reported `59Gi` available, above the `30Gi` stop threshold.
+
+```bash
+swift test --scratch-path "$PWD/.build"
+```
+
+Exit `0`: 568 tests, 1 existing release-only performance skip, 0 failures.
+
+```bash
+swift build --scratch-path "$PWD/.build"
+```
+
+Exit `0`: build complete.
+
+```bash
+git diff --check
+```
+
+Exit `0` with no output.
+
+## Self-Review
+
+- Confirmed throwing and fallback audit-index paths are separated by API contract.
+- Confirmed legacy warnings traverse lexical filenames and snapshot reads cap before
+  file contents are loaded.
+- Confirmed paired holding-and-audit call sites no longer derive against stale
+  receipts and accepted snapshot application derives recovery once.
+- Confirmed stale audit loaders neither apply state nor finish a newer activity.
+- Confirmed presentation refresh happens after activity finish and outside atomic
+  snapshot application.
 
 ## Concerns
 
-- No runtime UI smoke test was performed beyond compilation and the focused layout assertion, so keyboard routing is verified structurally rather than by live interaction.
-- Task 5 still owns persisted settings; this task intentionally stops at scene commands and focused command actions.
+- The two pre-existing uncommitted AuditStore files prevented a truthful fresh RED
+  claim for findings 1 and 4; their behavior is covered by focused final tests.
+- No remaining correctness concern was found in the requested review-fix scope.
+
+## Non-Claims
+
+- No real cleanup or user audit-data mutation was performed.
+- No keychain operation, SSH connection, remote target, or cleanup command was run.
+- No app install, package, signing, notarization, push, CI, deploy, or release work
+  was performed.
+- No packaged-app, Accessibility, or manual UI run was performed for this
+  unit-focused follow-up.

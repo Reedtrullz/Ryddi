@@ -145,7 +145,7 @@ struct DashboardView: View {
             }
 
             Button {
-                Task { await model.scan() }
+                model.startScan()
             } label: {
                 Label("Scan", systemImage: "magnifyingglass")
             }
@@ -158,8 +158,10 @@ struct DashboardView: View {
                 } label: {
                     Label("Cancel Scan", systemImage: "xmark.circle")
                 }
-                .accessibilityIdentifier("cancel-scan-button")
+                .accessibilityIdentifier(AccessibilityID.cancelScan)
             }
+
+            scanActivityToolbarItem
 
             Button {
                 Task { await model.buildPlan() }
@@ -251,9 +253,7 @@ struct DashboardView: View {
                 model.configureE2EScope(e2eScopeRoot)
             }
             model.loadSavedScopeSets()
-            model.loadAudit()
-            model.loadHolding()
-            model.loadRecovery()
+            Task { await model.loadHoldingAndAudit() }
             model.loadHistory()
             model.loadUserPolicy()
             model.refreshAutomation()
@@ -277,7 +277,7 @@ struct DashboardView: View {
             canDryRun: (model.plan != nil || !model.findings.isEmpty) && !model.isWorking,
             canReclaim: model.trashExecutionReadiness.isReady && !model.isWorking,
             canExport: model.overview != nil && !model.findings.isEmpty && !model.isWorking,
-            scan: { Task { await model.scan() } },
+            startScan: { model.startScan() },
             buildPlan: { Task { await model.buildPlan() } },
             dryRun: { Task { await model.runDryRun() } },
             reclaim: { Task { await model.prepareTrashExecution() } },
@@ -285,6 +285,32 @@ struct DashboardView: View {
             exportRedactedReport: { Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) } },
             openSection: { selectSection($0) }
         )
+    }
+
+    @ViewBuilder
+    private var scanActivityToolbarItem: some View {
+        switch model.activity(for: .scan) {
+        case .running(_, _, let progress, let message):
+            HStack(spacing: 6) {
+                if let progress {
+                    ProgressView(value: progress)
+                        .frame(width: 52)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Text(message)
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            .accessibilityIdentifier(AccessibilityID.scanProgress)
+        case .cancelling:
+            ProgressView("Cancelling scan")
+                .controlSize(.small)
+                .accessibilityIdentifier(AccessibilityID.scanProgress)
+        case .idle, .failed:
+            EmptyView()
+        }
     }
 
     private var defaultReportPathStyle: ReportPathStyle {

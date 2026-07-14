@@ -10,7 +10,7 @@ extension DashboardModel {
             resetScanState()
         }
         if overview == nil {
-            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            refreshPermissions()
         }
     }
 
@@ -26,7 +26,7 @@ extension DashboardModel {
             selectedScopeTemplateID = nil
             selectedSavedScopeSetID = set.id
             resetScanState()
-            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            refreshPermissions()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -44,7 +44,7 @@ extension DashboardModel {
             selectedScopeTemplateID = nil
             selectedSavedScopeSetID = set.id
             resetScanState()
-            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            refreshPermissions()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -59,7 +59,7 @@ extension DashboardModel {
                 resetScanState()
             }
             savedScopeSets = SavedScopeSetStore().list()
-            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            refreshPermissions()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -78,27 +78,56 @@ extension DashboardModel {
         }
     }
 
-    func loadAudit() {
-        let store = AuditStore()
-        auditStoreSummary = store.summary()
-        recentPlans = store.recentPlans()
-        recentReceipts = store.recentReceipts()
-        recentNativeToolReports = store.recentNativeToolReports()
-        recentNativeToolExecutionReceipts = store.recentNativeToolExecutionReceipts()
-        recentContainerInventoryReports = store.recentContainerInventoryReports()
-        recentRemoteProbeReports = store.recentRemoteProbeReports()
-        recentRemoteScanReports = store.recentRemoteScanReports()
-        recentRemoteDogfoodReports = store.recentRemoteDogfoodReports()
+    func loadAudit() async {
+        let operationID = activities.begin(.auditLoad, message: "Loading history")
+        let loader = dependencies.auditSnapshotLoader
+        let snapshot = await Task.detached(priority: .utility) {
+            loader.load(limitPerKind: 20)
+        }.value
+
+        guard activities.isCurrent(.auditLoad, id: operationID) else { return }
+        apply(snapshot)
+        activities.finish(.auditLoad, id: operationID)
+        if presentationSnapshot != nil {
+            await refreshPresentationSnapshot()
+        }
+    }
+
+    private func apply(_ snapshot: AuditStoreSnapshot) {
+        auditStoreSummary = snapshot.summary
+        auditHistoryState = snapshot.scanSessions
+        recentPlans = snapshot.plans
+        recentReceipts = snapshot.receipts
+        recentNativeToolReports = snapshot.nativeToolReports
+        recentNativeToolExecutionReceipts = snapshot.nativeToolExecutionReceipts
+        recentContainerInventoryReports = snapshot.containerInventoryReports
+        recentRemoteProbeReports = snapshot.remoteProbeReports
+        recentRemoteScanReports = snapshot.remoteScanReports
+        recentRemoteDogfoodReports = snapshot.remoteDogfoodReports
+        recentActiveFileReviewReports = snapshot.activeFileReviewReports
+        recentTrashReviewReports = snapshot.trashReviewReports
+        recentDownloadsReviewReports = snapshot.downloadsReviewReports
+        recentBrowserCacheReviewReports = snapshot.browserCacheReviewReports
+        recentPackageCacheReviewReports = snapshot.packageCacheReviewReports
+        recentProjectDependencyReviewReports = snapshot.projectDependencyReviewReports
+        recentDeviceBackupReviewReports = snapshot.deviceBackupReviewReports
+        recentXcodeReviewReports = snapshot.xcodeReviewReports
+        recentAppUninstallReceipts = snapshot.appUninstallReceipts
+
         if remoteProbeReport == nil {
             remoteProbeReport = recentRemoteProbeReports.first
         }
         if remoteScanReport == nil {
             remoteScanReport = recentRemoteScanReports.first
         }
-        syncRemoteDogfoodReport()
+        if let remoteScanReport {
+            remoteDogfoodReport = snapshot.latestRemoteDogfoodReport(forConcreteTarget: remoteScanReport.target)
+        } else if remoteDogfoodReport == nil {
+            remoteDogfoodReport = recentRemoteDogfoodReports.first
+        }
         if
             let currentRemoteScan = recentRemoteScanReports.first,
-            let previousRemoteScan = store.latestPreviousRemoteScanReport(
+            let previousRemoteScan = snapshot.latestPreviousRemoteScanReport(
                 forConcreteTarget: currentRemoteScan.target,
                 excludingReportID: currentRemoteScan.id
             )
@@ -111,15 +140,6 @@ extension DashboardModel {
         } else {
             remoteGrowthReport = nil
         }
-        recentActiveFileReviewReports = store.recentActiveFileReviewReports()
-        recentTrashReviewReports = store.recentTrashReviewReports()
-        recentDownloadsReviewReports = store.recentDownloadsReviewReports()
-        recentBrowserCacheReviewReports = store.recentBrowserCacheReviewReports()
-        recentPackageCacheReviewReports = store.recentPackageCacheReviewReports()
-        recentProjectDependencyReviewReports = store.recentProjectDependencyReviewReports()
-        recentDeviceBackupReviewReports = store.recentDeviceBackupReviewReports()
-        recentXcodeReviewReports = store.recentXcodeReviewReports()
-        recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
     }
 
@@ -133,8 +153,17 @@ extension DashboardModel {
     }
 
     func loadHolding() {
-        heldItems = HoldingStore().list()
+        loadHoldingRecords()
         loadRecovery()
+    }
+
+    func loadHoldingAndAudit() async {
+        loadHoldingRecords()
+        await loadAudit()
+    }
+
+    private func loadHoldingRecords() {
+        heldItems = HoldingStore().list()
     }
 
     func loadRecovery() {
@@ -152,28 +181,44 @@ extension DashboardModel {
     }
 
     func refreshPermissions() {
-        let transition = PermissionCoverageTransition.refresh(
-            previous: permissionReport,
-            scopes: currentScopes(includeUnavailable: true)
-        )
-        if transition.coverageChanged {
-            diagnostics.record(.permissionCoverageChanged)
+        let requestID = UUID()
+        let previous = permissionReport
+        let scopes = currentScopes(includeUnavailable: true)
+        let loader = dependencies.permissionReportLoader
+        permissionRefreshRequestID = requestID
+        permissionRefreshTask = Task { [weak self] in
+            let transition = await Task.detached(priority: .utility) {
+                PermissionCoverageTransition.refresh(
+                    previous: previous,
+                    scopes: scopes,
+                    reporter: { loader.load(scopes: $0) }
+                )
+            }.value
+            guard let self, self.permissionRefreshRequestID == requestID else { return }
+            if transition.coverageChanged {
+                self.diagnostics.record(.permissionCoverageChanged)
+            }
+            self.permissionReport = transition.current
+            await self.refreshPresentationSnapshot()
         }
-        permissionReport = transition.current
-        Task { await refreshPresentationSnapshot() }
+    }
+
+    func invalidatePermissionRefresh() {
+        permissionRefreshRequestID = nil
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = nil
     }
 
     func addUserPathRule(path: String, kind: UserPathPolicyKind, reason: String) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Updating path policy")
+        defer { activities.finish(.review, id: activityID) }
         do {
             _ = try UserPathPolicyStore().add(path: path, kind: kind, reason: reason)
             userPathPolicy = UserPathPolicyStore().load()
             error = nil
             if !findings.isEmpty {
-                isWorking = false
+                activities.finish(.review, id: activityID)
                 await scan()
-                isWorking = true
             }
         } catch {
             self.error = error.localizedDescription
@@ -181,16 +226,15 @@ extension DashboardModel {
     }
 
     func removeUserPathRule(_ rule: UserPathRule) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Updating path policy")
+        defer { activities.finish(.review, id: activityID) }
         do {
             _ = try UserPathPolicyStore().remove(path: rule.path, kind: rule.kind)
             userPathPolicy = UserPathPolicyStore().load()
             error = nil
             if !findings.isEmpty {
-                isWorking = false
+                activities.finish(.review, id: activityID)
                 await scan()
-                isWorking = true
             }
         } catch {
             self.error = error.localizedDescription

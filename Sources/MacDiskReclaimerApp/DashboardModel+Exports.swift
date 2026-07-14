@@ -8,8 +8,8 @@ extension DashboardModel {
             return
         }
 
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.auditLoad, message: "Exporting evidence report")
+        defer { activities.finish(.auditLoad, id: activityID) }
         do {
             let currentFindings = findings
             let currentScopes = scanScopes
@@ -33,8 +33,8 @@ extension DashboardModel {
     }
 
     func exportPlanReport(_ plan: ReclaimPlan, pathStyle: ReportPathStyle = .full) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.auditLoad, message: "Exporting plan report")
+        defer { activities.finish(.auditLoad, id: activityID) }
         do {
             let url = try await Task.detached {
                 let report = ReclaimPlanReportBuilder.build(
@@ -51,8 +51,8 @@ extension DashboardModel {
     }
 
     func exportReceiptReport(_ receipt: ExecutionReceipt, pathStyle: ReportPathStyle = .full) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.auditLoad, message: "Exporting receipt report")
+        defer { activities.finish(.auditLoad, id: activityID) }
         do {
             let url = try await Task.detached {
                 let report = ExecutionReceiptReportBuilder.build(
@@ -74,8 +74,8 @@ extension DashboardModel {
             return
         }
 
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.auditLoad, message: "Exporting growth report")
+        defer { activities.finish(.auditLoad, id: activityID) }
         do {
             let current = scanSnapshots[0]
             let previous = scanSnapshots[1]
@@ -101,8 +101,8 @@ extension DashboardModel {
             return
         }
 
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.auditLoad, message: "Exporting archive review")
+        defer { activities.finish(.auditLoad, id: activityID) }
         do {
             let currentFindings = findings
             let url = try await Task.detached {
@@ -123,8 +123,8 @@ extension DashboardModel {
     }
 
     func exportUserPathPolicy() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.auditLoad, message: "Exporting path policy")
+        defer { activities.finish(.auditLoad, id: activityID) }
         do {
             let url = try await Task.detached {
                 let document = UserPathPolicyStore().exportDocument()
@@ -138,8 +138,8 @@ extension DashboardModel {
     }
 
     func exportSavedScopeSets() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.auditLoad, message: "Exporting saved scope sets")
+        defer { activities.finish(.auditLoad, id: activityID) }
         do {
             let url = try await Task.detached {
                 let document = try SavedScopeSetStore().exportDocument()
@@ -154,8 +154,8 @@ extension DashboardModel {
     }
 
     func exportDiagnosticSummary() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.auditLoad, message: "Exporting diagnostics")
+        defer { activities.finish(.auditLoad, id: activityID) }
         do {
             let metadata = diagnostics.metadata(
                 appVersion: actionCenterAppVersion,

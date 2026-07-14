@@ -20,7 +20,7 @@ struct RemoteTargetsView: View {
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
-                    .disabled(model.isWorking)
+                    .disabled(model.isRemoteActivityRunning)
                 }
 
                 SectionBox(title: "Target") {
@@ -47,7 +47,7 @@ struct RemoteTargetsView: View {
                         } label: {
                             Label("Probe", systemImage: "network")
                         }
-                        .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
+                        .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isRemoteActivityRunning)
                         .accessibilityIdentifier("remote-targets.probe-button")
 
                         Button {
@@ -55,7 +55,7 @@ struct RemoteTargetsView: View {
                         } label: {
                             Label("Scan", systemImage: "externaldrive")
                         }
-                        .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isWorking)
+                        .disabled(model.remoteTargetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isRemoteActivityRunning)
                         .accessibilityIdentifier("remote-targets.scan-button")
 
                         Button {
@@ -63,7 +63,7 @@ struct RemoteTargetsView: View {
                         } label: {
                             Label("Export Redacted", systemImage: "eye.slash")
                         }
-                        .disabled(model.remoteScanReport == nil || model.isWorking)
+                        .disabled(model.remoteScanReport == nil || model.isRemoteActivityRunning)
                         .accessibilityIdentifier("remote-targets.export-redacted-button")
 
                         Button {
@@ -71,18 +71,18 @@ struct RemoteTargetsView: View {
                         } label: {
                             Label("Export Growth", systemImage: "chart.line.uptrend.xyaxis")
                         }
-                        .disabled(model.remoteGrowthReport == nil || model.isWorking)
+                        .disabled(model.remoteGrowthReport == nil || model.isRemoteActivityRunning)
 
                         Button {
                             Task { await model.exportRemoteDogfoodReportFromAudit() }
                         } label: {
                             Label("Dogfood Report", systemImage: "doc.text.magnifyingglass")
                         }
-                        .disabled(model.recentRemoteScanReports.isEmpty || model.isWorking)
+                        .disabled(model.recentRemoteScanReports.isEmpty || model.isRemoteActivityRunning)
                     }
                 }
 
-                if model.isWorking {
+                if model.isRemoteActivityRunning {
                     ProgressView("Running read-only remote check...")
                 }
 

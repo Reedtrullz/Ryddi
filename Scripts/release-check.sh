@@ -5,8 +5,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dist="$root/dist"
 app="$dist/Ryddi.app"
 signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
-release_version="${RYDDI_VERSION:-0.3.0}"
-release_build="${RYDDI_BUILD_NUMBER:-3}"
+release_version="${RYDDI_VERSION:-0.3.1}"
+release_build="${RYDDI_BUILD_NUMBER:-4}"
 if [[ -n "${RYDDI_ARTIFACT_BASENAME:-}" ]]; then
   artifact_basename="$RYDDI_ARTIFACT_BASENAME"
 elif [[ "$signing_required" == "required" ]]; then
@@ -149,8 +149,15 @@ fi
 cd "$root"
 rm -f "$zip_path" "$checksum_path" "$manifest_path"
 
+commit="unknown"
+source_dirty="unknown"
+if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  commit="$(git -C "$root" rev-parse HEAD)"
+  source_dirty=$([[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]] && echo true || echo false)
+fi
+
 if [[ "$signing_required" == "required" ]]; then
-  if [[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]]; then
+  if [[ "$source_dirty" != "false" ]]; then
     echo "signed releases require a clean Git worktree." >&2
     exit 1
   fi
@@ -176,7 +183,9 @@ echo "==> Running Swift tests"
 swift test --scratch-path "$root/.build"
 
 echo "==> Building app bundle"
-"$root/Scripts/package-app.sh" >"$scratch/package-app-path.txt"
+RYDDI_SOURCE_COMMIT="$commit" \
+  RYDDI_SOURCE_DIRTY="$source_dirty" \
+  "$root/Scripts/package-app.sh" >"$scratch/package-app-path.txt"
 
 if [[ ! -d "$app" ]]; then
   echo "missing app bundle: $app" >&2
@@ -239,7 +248,18 @@ if [[ "${RYDDI_REQUIRE_PACKAGED_AX_E2E:-0}" == "1" ]]; then
   RYDDI_E2E_APP_PATH="$app" \
     RYDDI_E2E_OUTPUT="$dist/e2e-proof" \
     "$root/Scripts/run-packaged-app-e2e.sh"
-  jq -e '.executionResultVisible == true and .originalCandidateMissing == true and .trashArtifactCleaned == true' \
+  jq -e '
+    .scanProgressVisible == true
+    and .cancelledScanBecameIdle == true
+    and .cancelledScanHadNoLateCommit == true
+    and .normalScanCompleted == true
+    and .executionResultVisible == true
+    and .originalCandidateMissing == true
+    and .candidateRowRemoved == true
+    and .verificationActionVisible == true
+    and .protectedFixtureIntact == true
+    and .trashArtifactCleaned == true
+  ' \
     "$dist/e2e-proof/e2e-result.json" >/dev/null
   packaged_ax_e2e_status="passed"
 else
@@ -1302,6 +1322,7 @@ stapler_validated="false"
 gatekeeper_status="not assessed"
 signing_identity="unsigned"
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+  codesign --verify --strict --verbose=2 "$app/Contents/MacOS/reclaimer"
   codesign --verify --deep --strict --verbose=2 "$app"
   codesign_verified="true"
   signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
@@ -1313,7 +1334,8 @@ if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   fi
   hardened_runtime="true"
   signing_state="signed with Hardened Runtime"
-elif codesign --verify --deep --strict --verbose=2 "$app" >"$scratch/codesign-verify.txt" 2>&1; then
+elif codesign --verify --strict --verbose=2 "$app/Contents/MacOS/reclaimer" >"$scratch/codesign-cli-verify.txt" 2>&1 \
+  && codesign --verify --deep --strict --verbose=2 "$app" >"$scratch/codesign-verify.txt" 2>&1; then
   signing_state="pre-signed outside this script"
   codesign_verified="true"
   signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
@@ -1346,18 +1368,13 @@ if [[ "$signing_required" == "required" ]]; then
   spctl --assess --type execute --verbose "$app"
   spctl_state="accepted"
   gatekeeper_status="accepted"
+  codesign --verify --strict --verbose=2 "$app/Contents/MacOS/reclaimer"
   codesign --verify --deep --strict --verbose=2 "$app"
 else
   notary_status_file=""
   notary_submission=""
 fi
 
-commit="unknown"
-source_dirty="unknown"
-if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  commit="$(git -C "$root" rev-parse HEAD)"
-  source_dirty=$([[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]] && echo true || echo false)
-fi
 notary_status_manifest="not applicable"
 if [[ -n "$notary_status_file" ]]; then
   notary_status_manifest="dist/$(basename "$notary_status_file")"

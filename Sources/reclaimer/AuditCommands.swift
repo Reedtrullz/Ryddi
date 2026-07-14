@@ -12,12 +12,21 @@ extension ReclaimerCLI {
         case "record":
             let scopes = try options.scopes(includeUnavailable: true)
             let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-            let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
-            let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+            let result = scanner.scanWithCoverage(
+                scopes: scopes,
+                options: options.scanOptions(includeOpenFiles: options.includeOpenFiles)
+            )
+            let findings = result.findings
+            let overview = FindingAnalytics.overview(
+                findings: findings,
+                scopes: scopes,
+                topLimit: options.limit,
+                scopeAccessSummaries: result.coverage.scopeAccessSummaries
+            )
             let snapshot = FindingAnalytics.snapshot(from: overview)
             let url = try store.save(snapshot: snapshot)
             if options.json {
-                printJSON(snapshot)
+                try printJSON(snapshot)
             } else {
                 print("saved scan snapshot: \(url.path)")
                 printSnapshot(snapshot)
@@ -25,7 +34,7 @@ extension ReclaimerCLI {
         case "list":
             let snapshots = store.recent(limit: options.limit)
             if options.json {
-                printJSON(snapshots)
+                try printJSON(snapshots)
             } else {
                 printSnapshots(snapshots)
             }
@@ -40,7 +49,7 @@ extension ReclaimerCLI {
                 group: options.growthGroup
             )
             if options.json {
-                printJSON(deltas)
+                try printJSON(deltas)
             } else {
                 printGrowthDeltas(deltas, group: options.growthGroup, current: snapshots[0], previous: snapshots[1], limit: options.limit)
             }
@@ -86,7 +95,7 @@ extension ReclaimerCLI {
                 FileHandle.standardError.write(Data("saved growth report: \(url.path)\n".utf8))
             }
             if options.json {
-                printJSON(report)
+                try printJSON(report)
             } else if options.outputPath == nil {
                 print(report.markdown)
             }
@@ -97,7 +106,7 @@ extension ReclaimerCLI {
             let plan = store.retentionPlan(keepRecent: options.keepRecent)
             let receipt = store.prune(plan: plan, dryRun: !options.yes)
             if options.json {
-                printJSON(AuditPruneCommandResult(plan: plan, receipt: receipt))
+                try printJSON(AuditPruneCommandResult(plan: plan, receipt: receipt))
             } else {
                 print("Ryddi scan-history retention \(receipt.dryRun ? "preview" : "result")")
                 print("Keep recent: \(plan.policy.keepRecent)")
@@ -117,7 +126,7 @@ extension ReclaimerCLI {
         case "summary":
             let summary = store.summary()
             if options.json {
-                printJSON(summary)
+                try printJSON(summary)
             } else {
                 printAuditSummary(summary)
             }
@@ -132,7 +141,7 @@ extension ReclaimerCLI {
             let plan = store.prunePlan(policy: policy)
             let receipt = try store.prune(plan: plan, dryRun: !options.yes)
             if options.json {
-                printJSON(AuditPruneCommandResult(plan: plan, receipt: receipt))
+                try printJSON(AuditPruneCommandResult(plan: plan, receipt: receipt))
             } else {
                 printAuditPruneResult(plan: plan, receipt: receipt)
             }
@@ -150,7 +159,7 @@ extension ReclaimerCLI {
         case "list":
             let receipts = store.recentReceipts(limit: options.limit)
             if options.json {
-                printJSON(receipts)
+                try printJSON(receipts)
             } else {
                 printReceipts(receipts)
             }
@@ -175,7 +184,7 @@ extension ReclaimerCLI {
                 FileHandle.standardError.write(Data("saved receipt report: \(url.path)\n".utf8))
             }
             if options.json {
-                printJSON(report)
+                try printJSON(report)
             } else if options.outputPath == nil {
                 print(report.markdown)
             }
@@ -191,7 +200,7 @@ extension ReclaimerCLI {
         case "list":
             let report = RecoveryCenter.build(limit: options.limit)
             if options.json {
-                printJSON(report)
+                try printJSON(report)
             } else {
                 printRecoveryCenter(report)
             }

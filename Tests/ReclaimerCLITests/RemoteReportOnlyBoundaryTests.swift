@@ -18,4 +18,12 @@ final class RemoteReportOnlyBoundaryTests: XCTestCase {
             XCTAssertFalse(source.contains("Button(\"\(label)\""), "Remote UI must not expose \(label) button")
         }
     }
+
+    func testRemoteTargetsViewUsesTypedRemoteActivityState() throws {
+        let source = try String(contentsOfFile: "Sources/MacDiskReclaimerApp/RemoteTargetsView.swift", encoding: .utf8)
+
+        XCTAssertFalse(source.contains("model.isWorking"))
+        XCTAssertTrue(source.contains("model.isRemoteActivityRunning"))
+        XCTAssertTrue(source.contains("if model.isRemoteActivityRunning"))
+    }
 }

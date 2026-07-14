@@ -30,7 +30,7 @@ extension ReclaimerCLI {
             )
         )
         if options.json {
-            printJSON(manifest)
+            try printJSON(manifest)
         } else {
             print("Ryddi issue package")
             print("Output: \(URL(fileURLWithPath: outputPath).standardizedFileURL.path)")
