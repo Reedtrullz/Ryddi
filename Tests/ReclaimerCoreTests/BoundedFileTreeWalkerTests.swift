@@ -65,6 +65,8 @@ final class BoundedFileTreeWalkerTests: XCTestCase {
         XCTAssertEqual(tree.nodes.count, 1)
         XCTAssertEqual(tree.coverage.measuredItemCount, 1)
         XCTAssertEqual(tree.coverage.scopeCoverage[0].skippedItemCount, 0)
+        XCTAssertEqual(tree.coverage.scopeCoverage[0].state, .bounded)
+        XCTAssertTrue(tree.coverage.scopeCoverage[0].evidence.contains { $0.contains("cancelled") })
         XCTAssertEqual(tree.coverage.state, .bounded)
         XCTAssertTrue(tree.coverage.evidence.contains { $0.contains("cancelled") })
     }

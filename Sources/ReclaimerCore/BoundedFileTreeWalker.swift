@@ -158,6 +158,7 @@ struct BoundedFileTreeWalker {
                 }
                 guard !control.isCancelled else {
                     cancelled = true
+                    metrics[scopeIndex].wasCancelled = true
                     break traversal
                 }
 
@@ -170,6 +171,7 @@ struct BoundedFileTreeWalker {
                     for child in children.sorted(by: { $0.path < $1.path }) {
                         guard !control.isCancelled else {
                             cancelled = true
+                            metrics[scopeIndex].wasCancelled = true
                             break traversal
                         }
                         guard userPathPolicy.matchingRule(for: child.path, kind: .exclude) == nil else {
@@ -212,7 +214,10 @@ struct BoundedFileTreeWalker {
         }
 
         if cancelled {
-            for scopeIndex in scopes.indices where !frontiers[scopeIndex].isEmpty {
+            for scopeIndex in scopes.indices where
+                metrics[scopeIndex].wasCancelled || !frontiers[scopeIndex].isEmpty
+            {
+                metrics[scopeIndex].wasCancelled = true
                 metrics[scopeIndex].evidence.append("Measurement was cancelled before this scope completed.")
             }
         }
@@ -313,7 +318,7 @@ struct BoundedFileTreeWalker {
             let scopeState: ScanCoverageState
             if metric.isPermissionDenied || metric.hasUnreadableDescendant {
                 scopeState = .degraded
-            } else if metric.skippedItemCount > 0 || metric.evidence.contains(where: { $0.contains("cancelled") }) {
+            } else if metric.skippedItemCount > 0 || metric.wasCancelled {
                 scopeState = .bounded
             } else {
                 scopeState = .complete
@@ -381,6 +386,7 @@ private struct ScopeMetrics {
     var isMissing = false
     var isPermissionDenied = false
     var hasUnreadableDescendant = false
+    var wasCancelled = false
     var evidence = [String]()
 }
 
