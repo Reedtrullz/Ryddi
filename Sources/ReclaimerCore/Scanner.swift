@@ -40,14 +40,16 @@ struct FileMeasurement: Hashable {
     let itemCount: Int
 }
 
-struct ScanCancellationToken: Sendable {
-    let isCancelled = false
-}
-
 struct ScanControl: Sendable {
-    let cancellation: ScanCancellationToken
+    private let cancellationCheck: @Sendable () -> Bool
 
-    static let none = ScanControl(cancellation: ScanCancellationToken())
+    init(isCancelled: @escaping @Sendable () -> Bool) {
+        cancellationCheck = isCancelled
+    }
+
+    var isCancelled: Bool { cancellationCheck() }
+
+    static let none = ScanControl(isCancelled: { false })
 }
 
 public final class FileScanner: @unchecked Sendable {

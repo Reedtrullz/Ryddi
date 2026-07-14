@@ -88,7 +88,7 @@ struct BoundedFileTreeWalker {
             var visitedInRound = false
 
             for scopeIndex in scopes.indices {
-                if control.cancellation.isCancelled {
+                if control.isCancelled {
                     cancelled = true
                     break traversal
                 }
@@ -156,7 +156,7 @@ struct BoundedFileTreeWalker {
                     metrics[scopeIndex].skippedItemCount += 1
                     continue
                 }
-                guard !control.cancellation.isCancelled else {
+                guard !control.isCancelled else {
                     cancelled = true
                     break traversal
                 }
@@ -167,9 +167,14 @@ struct BoundedFileTreeWalker {
                         includingPropertiesForKeys: boundedResourceKeys,
                         options: [.skipsPackageDescendants]
                     )
-                    for child in children.sorted(by: { $0.path < $1.path }) where
-                        userPathPolicy.matchingRule(for: child.path, kind: .exclude) == nil
-                    {
+                    for child in children.sorted(by: { $0.path < $1.path }) {
+                        guard !control.isCancelled else {
+                            cancelled = true
+                            break traversal
+                        }
+                        guard userPathPolicy.matchingRule(for: child.path, kind: .exclude) == nil else {
+                            continue
+                        }
                         frontiers[scopeIndex].append(.init(
                             url: child,
                             parentIndex: nodeIndex,
