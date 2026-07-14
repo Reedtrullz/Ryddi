@@ -37,6 +37,24 @@ final class DashboardScanOperationTests: XCTestCase {
         XCTAssertEqual(model.activity(for: .review), .idle)
     }
 
+    func testRemoteActivityTracksNewestInvocation() {
+        let model = DashboardModel(dependencies: .testing(scanService: BlockingScanService()))
+        let old = model.activities.begin(.remote, message: "Old remote operation")
+
+        XCTAssertTrue(model.isRemoteActivityRunning)
+
+        let new = model.activities.begin(.remote, message: "New remote operation")
+        model.activities.finish(.remote, id: old)
+
+        XCTAssertTrue(model.isRemoteActivityRunning)
+        XCTAssertEqual(model.activity(for: .remote).id, new)
+
+        model.activities.finish(.remote, id: new)
+
+        XCTAssertFalse(model.isRemoteActivityRunning)
+        XCTAssertEqual(model.activity(for: .remote), .idle)
+    }
+
     func testWorkingStateHasNoMutableLegacyBridgeOrAssignments() throws {
         let modelSource = try source("Sources/MacDiskReclaimerApp/DashboardModel.swift")
         let isWorkingStart = try XCTUnwrap(modelSource.range(of: "var isWorking: Bool"))

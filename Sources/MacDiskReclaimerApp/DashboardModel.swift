@@ -102,6 +102,7 @@ final class DashboardModel {
             || activities.isRunning(.review)
     }
     var isScanRunning: Bool { activities.isRunning(.scan) }
+    var isRemoteActivityRunning: Bool { activities.isRunning(.remote) }
     var lastScanDate: Date?
     var launchAgentInstalled = false
     var launchAgentStatus: LaunchAgentStatus = LaunchAgentManager().status()
