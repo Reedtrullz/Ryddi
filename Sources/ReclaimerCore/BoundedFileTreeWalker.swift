@@ -58,8 +58,21 @@ struct BoundedFileTreeWalker {
         var frontiers = scopes.map { _ in FIFOFrontier() }
         var metrics = scopes.map { ScopeMetrics(scope: $0) }
         var scopeIssues = [BoundedFileTree.ScopeIssue]()
+        var cancelled = false
+
+        control.progress?(ScanProgress(
+            phase: .measuring,
+            scopeName: nil,
+            measuredItemCount: 0,
+            requestedItemBudget: options.measurementItemBudget
+        ))
 
         for (scopeIndex, scope) in scopes.enumerated() {
+            guard !control.cancellation.isCancelled else {
+                cancelled = true
+                metrics[scopeIndex].wasCancelled = true
+                continue
+            }
             let root = scope.root.standardizedFileURL
             guard userPathPolicy.matchingRule(for: root.path, kind: .exclude) == nil else {
                 continue
@@ -82,14 +95,14 @@ struct BoundedFileTreeWalker {
         var nodes = [BoundedFileTree.Node]()
         var hardLinkIdentityKeys = Set<String>()
         var measuredItemCount = 0
-        var cancelled = false
 
         traversal: while frontiers.contains(where: { !$0.isEmpty }) {
             var visitedInRound = false
 
             for scopeIndex in scopes.indices {
-                if control.isCancelled {
+                if control.cancellation.isCancelled {
                     cancelled = true
+                    metrics[scopeIndex].wasCancelled = true
                     break traversal
                 }
                 guard measuredItemCount < options.measurementItemBudget else {
@@ -108,6 +121,17 @@ struct BoundedFileTreeWalker {
                     metrics[scopeIndex].deepestMeasuredLevel,
                     entry.depth
                 )
+                control.progress?(ScanProgress(
+                    phase: .measuring,
+                    scopeName: scopes[scopeIndex].name,
+                    measuredItemCount: measuredItemCount,
+                    requestedItemBudget: options.measurementItemBudget
+                ))
+                guard !control.cancellation.isCancelled else {
+                    cancelled = true
+                    metrics[scopeIndex].wasCancelled = true
+                    break traversal
+                }
 
                 guard let values = try? entry.url.resourceValues(forKeys: Set(boundedResourceKeys)) else {
                     metrics[scopeIndex].skippedItemCount += 1
@@ -156,7 +180,7 @@ struct BoundedFileTreeWalker {
                     metrics[scopeIndex].skippedItemCount += 1
                     continue
                 }
-                guard !control.isCancelled else {
+                guard !control.cancellation.isCancelled else {
                     cancelled = true
                     metrics[scopeIndex].wasCancelled = true
                     break traversal
@@ -169,7 +193,7 @@ struct BoundedFileTreeWalker {
                         options: [.skipsPackageDescendants]
                     )
                     for child in children.sorted(by: { $0.path < $1.path }) {
-                        guard !control.isCancelled else {
+                        guard !control.cancellation.isCancelled else {
                             cancelled = true
                             metrics[scopeIndex].wasCancelled = true
                             break traversal

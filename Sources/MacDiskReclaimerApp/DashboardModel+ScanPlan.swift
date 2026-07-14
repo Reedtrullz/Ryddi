@@ -1,6 +1,19 @@
 import Foundation
 import ReclaimerCore
 
+private struct DashboardScanOutput: Sendable {
+    let scopeLabel: String
+    let scopes: [ScanScope]
+    let findings: [Finding]
+    let presentation: ScanPresentationSnapshot
+    let drillDown: DiskDrillDownReport
+    let policy: UserPathPolicy
+    let permissions: PermissionAdvisorReport
+    let coverage: ScanCoverage
+    let session: ScanSession
+    let generatedAt: Date
+}
+
 extension DashboardModel {
     func loadActionCenterAuditHistory() async {
         let state = await Task.detached {
@@ -131,9 +144,33 @@ extension DashboardModel {
             stage: .notStarted
         )
     }
+    func startScan() {
+        guard scanTask == nil else { return }
+        let token = ScanCancellationToken()
+        let activityID = activities.begin(.scan, message: "Preparing scan")
+        scanCancellation = token
+        scanActivityID = activityID
+        let progressHandler = scanProgressHandler(activityID: activityID)
+        scanTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performScan(
+                control: ScanControl(cancellation: token, progress: progressHandler),
+                activityID: activityID
+            )
+            self.completeScanOperation(activityID: activityID)
+        }
+    }
+
     func scan() async {
+        startScan()
+        let currentTask = scanTask
+        await currentTask?.value
+    }
+
+    private func performScan(control: ScanControl, activityID: UUID) async {
         let diagnosticSpan = diagnostics.begin(.scan)
         defer { diagnostics.end(diagnosticSpan) }
+        guard !control.cancellation.isCancelled else { return }
         let scopePlan = selectedScopePlan
         let includeUserRules = includeUserRulesInScans
         let policy = UserPathPolicyStore().load()
@@ -156,30 +193,23 @@ extension DashboardModel {
             )
         )
         scanRequestCoordinator.begin(request)
-        isWorking = true
         isUpdatingPresentation = true
         let historyWarnings = auditHistoryState.warnings
         let topOffenderSort = presentationTopOffenderSort
         let topOffenderGroup = presentationTopOffenderGroup
         let largeOldMode = presentationLargeOldMode
         let largeOldSort = presentationLargeOldSort
-        defer {
-            if scanRequestCoordinator.finish(request) {
-                isWorking = false
-                isUpdatingPresentation = false
-            }
-        }
+        defer { _ = scanRequestCoordinator.finish(request) }
         do {
-            let result = try await Task.detached {
+            let scanService = try dependencies.makeScanService(includingUserRules: includeUserRules)
+            let result = await Task.detached { () -> DashboardScanOutput? in
                 let scopes = scopePlan.scopes
-                let scanner = try FileScanner(
-                    ruleEngine: try RuleEngine.bundled(includingUserRules: includeUserRules),
-                    openFileChecker: NoOpenFilesChecker()
-                )
-                let scanResult = scanner.scanWithCoverage(
+                let scanResult = scanService.scanWithCoverage(
                     scopes: scopes,
-                    options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy)
+                    options: ScanOptions(includeOpenFileStatus: false, userPathPolicy: policy),
+                    control: control
                 )
+                guard !control.cancellation.isCancelled else { return nil }
                 let findings = scanResult.findings
                 let generatedAt = Date()
                 let drillDown = DiskDrillDownBuilder.build(findings: findings, scopes: scopes, maxDepth: 3, childLimit: 8)
@@ -219,49 +249,120 @@ extension DashboardModel {
                     scopeSummaries: presentation.overview.scopeSummaries,
                     now: generatedAt
                 )
-                return (scopePlan.label, scopes, findings, presentation, drillDown, policy, permissions, scanResult.coverage, session, generatedAt)
+                guard !control.cancellation.isCancelled else { return nil }
+                return DashboardScanOutput(
+                    scopeLabel: scopePlan.label,
+                    scopes: scopes,
+                    findings: findings,
+                    presentation: presentation,
+                    drillDown: drillDown,
+                    policy: policy,
+                    permissions: permissions,
+                    coverage: scanResult.coverage,
+                    session: session,
+                    generatedAt: generatedAt
+                )
             }.value
-            guard scanRequestCoordinator.accepts(request) else {
+            guard !control.cancellation.isCancelled,
+                  !Task.isCancelled,
+                  activities.isCurrent(.scan, id: activityID),
+                  scanRequestCoordinator.accepts(request),
+                  let result else {
                 diagnostics.record(.staleScanRejected)
                 return
             }
-            lastScannedScopeLabel = result.0
-            scanScopes = result.1
-            findings = result.2
-            presentationSnapshot = result.3
-            overview = result.3.overview
-            diskDrillDown = result.4
-            userPathPolicy = result.5
-            if permissionReport.coverageLevel != result.6.coverageLevel {
+            lastScannedScopeLabel = result.scopeLabel
+            scanScopes = result.scopes
+            findings = result.findings
+            presentationSnapshot = result.presentation
+            overview = result.presentation.overview
+            diskDrillDown = result.drillDown
+            userPathPolicy = result.policy
+            if permissionReport.coverageLevel != result.permissions.coverageLevel {
                 diagnostics.record(.permissionCoverageChanged)
             }
-            permissionReport = result.6
-            scanCoverage = result.7
-            reviewQueueReport = result.3.reviewQueues
-            currentScanSession = result.8
+            permissionReport = result.permissions
+            scanCoverage = result.coverage
+            reviewQueueReport = result.presentation.reviewQueues
+            currentScanSession = result.session
             isUpdatingPresentation = false
             diskStatus = DiskStatusReader().snapshot()
-            _ = try ScanHistoryStore().save(overview: result.3.overview)
+            _ = try ScanHistoryStore().save(overview: result.presentation.overview)
             loadHistory()
             plan = nil
             lastDryRunReceipt = nil
             lastExecutionReceipt = nil
-            lastScanDate = result.9
-            try AuditStore().saveScanSession(result.8)
+            lastScanDate = result.generatedAt
+            try AuditStore().saveScanSession(result.session)
             error = nil
         } catch {
-            guard scanRequestCoordinator.accepts(request) else {
+            guard !control.cancellation.isCancelled,
+                  !Task.isCancelled,
+                  activities.isCurrent(.scan, id: activityID),
+                  scanRequestCoordinator.accepts(request) else {
                 diagnostics.record(.staleScanRejected)
                 return
             }
             diagnostics.record(error: .scanFailed)
             self.error = error.localizedDescription
+            activities.fail(.scan, id: activityID, message: "Scan failed")
         }
     }
 
+    private func completeScanOperation(activityID: UUID) {
+        guard scanActivityID == activityID else { return }
+        activities.finish(.scan, id: activityID)
+        scanActivityID = nil
+        scanCancellation = nil
+        scanTask = nil
+        isUpdatingPresentation = false
+    }
+
+    private func scanProgressHandler(activityID: UUID) -> @Sendable (ScanProgress) -> Void {
+        { [weak self] progress in
+            guard progress.phase != .measuring
+                    || progress.measuredItemCount == 0
+                    || progress.measuredItemCount.isMultiple(of: 100) else { return }
+            Task { @MainActor [weak self] in
+                self?.recordScanProgress(progress, activityID: activityID)
+            }
+        }
+    }
+
+    private func recordScanProgress(_ progress: ScanProgress, activityID: UUID) {
+        let fraction: Double? = progress.requestedItemBudget > 0
+            ? min(1, Double(progress.measuredItemCount) / Double(progress.requestedItemBudget))
+            : nil
+        let message: String
+        switch progress.phase {
+        case .preparing:
+            message = "Preparing scan"
+        case .measuring:
+            let count = progress.measuredItemCount.formatted()
+            if let scopeName = safeProgressScopeName(progress.scopeName) {
+                message = "Measuring \(scopeName): \(count) items"
+            } else {
+                message = "Measured \(count) items"
+            }
+        case .classifying:
+            message = "Classifying \(progress.measuredItemCount.formatted()) items"
+        case .finished:
+            message = "Scan finished"
+        }
+        activities.update(.scan, id: activityID, progress: fraction, message: message)
+    }
+
+    private func safeProgressScopeName(_ scopeName: String?) -> String? {
+        guard let scopeName,
+              !scopeName.contains("/"),
+              !scopeName.contains("\\"),
+              !scopeName.contains("~") else { return nil }
+        return String(scopeName.prefix(80))
+    }
+
     func buildPlan() async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Building plan")
+        defer { activities.finish(.review, id: activityID) }
         await buildPlanWithoutChangingWorkingState()
     }
 
@@ -290,8 +391,8 @@ extension DashboardModel {
     func runDryRun() async {
         let diagnosticSpan = diagnostics.begin(.dryRun)
         defer { diagnostics.end(diagnosticSpan) }
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.cleanup, message: "Preparing dry run")
+        defer { activities.finish(.cleanup, id: activityID) }
         do {
             if plan == nil {
                 await buildPlanWithoutChangingWorkingState()
@@ -376,9 +477,9 @@ extension DashboardModel {
             return
         }
 
-        isWorking = true
+        let activityID = activities.begin(.cleanup, message: "Moving approved items to Trash")
         let diagnosticSpan = diagnostics.begin(.trashExecution)
-        defer { isWorking = false }
+        defer { activities.finish(.cleanup, id: activityID) }
         defer { diagnostics.end(diagnosticSpan) }
         let includeUserRules = includeUserRulesInScans
         let policy = UserPathPolicyStore().load()

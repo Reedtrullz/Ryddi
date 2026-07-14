@@ -36,6 +36,10 @@ let package = Package(
         .testTarget(
             name: "ReclaimerCLITests",
             dependencies: ["reclaimer", "ReclaimerCore"]
+        ),
+        .testTarget(
+            name: "MacDiskReclaimerAppTests",
+            dependencies: ["MacDiskReclaimerApp", "ReclaimerCore"]
         )
     ]
 )

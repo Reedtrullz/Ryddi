@@ -95,7 +95,24 @@ final class DashboardModel {
     }()
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
-    var isWorking = false
+    var activities = DashboardActivityRegistry()
+    var isWorking: Bool {
+        get {
+            activities.isRunning(.scan)
+                || activities.isRunning(.cleanup)
+                || activities.isRunning(.review)
+        }
+        set {
+            if newValue {
+                guard legacyActivityID == nil else { return }
+                legacyActivityID = activities.begin(.review, message: "Working")
+            } else if let legacyActivityID {
+                activities.finish(.review, id: legacyActivityID)
+                self.legacyActivityID = nil
+            }
+        }
+    }
+    var isScanRunning: Bool { activities.isRunning(.scan) }
     var lastScanDate: Date?
     var launchAgentInstalled = false
     var launchAgentStatus: LaunchAgentStatus = LaunchAgentManager().status()
@@ -113,12 +130,18 @@ final class DashboardModel {
     var auditHistoryState = AuditStoreScanSessionListResult(sessions: [], warnings: [])
     var hasAppliedStoredSettings = false
     var scanRequestCoordinator = ScanRequestCoordinator()
+    @ObservationIgnored var scanTask: Task<Void, Never>?
+    @ObservationIgnored var scanCancellation: ScanCancellationToken?
+    @ObservationIgnored var scanActivityID: UUID?
+    @ObservationIgnored var legacyActivityID: UUID?
     let trashExecutionAuthorizationRegistry = TrashExecutionAuthorizationRegistry()
     let diagnostics = RyddiDiagnosticRecorder()
+    let dependencies: DashboardDependencies
     private var e2eScopeRoot: URL?
     var presentationRevision = 0
 
-    init() {
+    init(dependencies: DashboardDependencies = .live) {
+        self.dependencies = dependencies
         Task { [weak self] in
             await self?.loadActionCenterAuditHistory()
         }
@@ -133,6 +156,10 @@ final class DashboardModel {
 
     var activeScanRequest: ScanRequestIdentity? {
         scanRequestCoordinator.activeRequest
+    }
+
+    func activity(for kind: DashboardActivityKind) -> DashboardActivityState {
+        activities.state(for: kind)
     }
 
     var selectedScopePlan: ScanScopePlan {
@@ -406,9 +433,11 @@ final class DashboardModel {
     }
 
     func cancelScan() {
-        guard activeScanRequest != nil else { return }
+        guard scanTask != nil else { return }
+        scanCancellation?.cancel()
+        scanTask?.cancel()
         scanRequestCoordinator.invalidate()
-        isWorking = false
+        activities.markCancelling(.scan)
         isUpdatingPresentation = false
     }
 

@@ -40,18 +40,6 @@ struct FileMeasurement: Hashable {
     let itemCount: Int
 }
 
-struct ScanControl: Sendable {
-    private let cancellationCheck: @Sendable () -> Bool
-
-    init(isCancelled: @escaping @Sendable () -> Bool) {
-        cancellationCheck = isCancelled
-    }
-
-    var isCancelled: Bool { cancellationCheck() }
-
-    static let none = ScanControl(isCancelled: { false })
-}
-
 public final class FileScanner: @unchecked Sendable {
     private let fileManager: FileManager
     private let ruleEngine: RuleEngine
@@ -85,33 +73,62 @@ public final class FileScanner: @unchecked Sendable {
         self.scopeReadabilityProvider = scopeReadabilityProvider
     }
 
-    public func scan(scopes: [ScanScope], options: ScanOptions = ScanOptions()) -> [Finding] {
-        scanWithCoverage(scopes: scopes, options: options).findings
+    public func scan(
+        scopes: [ScanScope],
+        options: ScanOptions = ScanOptions(),
+        control: ScanControl = .none
+    ) -> [Finding] {
+        scanWithCoverage(scopes: scopes, options: options, control: control).findings
     }
 
-    public func scanWithCoverage(scopes: [ScanScope], options: ScanOptions = ScanOptions()) -> ScanResult {
+    public func scanWithCoverage(
+        scopes: [ScanScope],
+        options: ScanOptions = ScanOptions(),
+        control: ScanControl = .none
+    ) -> ScanResult {
+        control.progress?(ScanProgress(
+            phase: .preparing,
+            scopeName: nil,
+            measuredItemCount: 0,
+            requestedItemBudget: options.measurementItemBudget
+        ))
         let tree = BoundedFileTreeWalker(scopeReadabilityProvider: scopeReadabilityProvider).walk(
             scopes: scopes,
             options: options,
             fileManager: fileManager,
             userPathPolicy: options.userPathPolicy,
-            control: .none
+            control: control
         )
-        var findings = tree.nodes.compactMap { node -> Finding? in
-            guard node.absoluteDepth <= max(0, options.maximumFindingDepth) else { return nil }
-            return makeFinding(
-                scope: scopes[node.scopeIndex],
-                node: node,
-                options: options
-            )
+
+        var findings = [Finding]()
+        if !control.cancellation.isCancelled {
+            control.progress?(ScanProgress(
+                phase: .classifying,
+                scopeName: nil,
+                measuredItemCount: tree.coverage.measuredItemCount,
+                requestedItemBudget: options.measurementItemBudget
+            ))
         }
-        findings.append(contentsOf: tree.scopeIssues.map { issue in
-            permissionFinding(
-                scope: scopes[issue.scopeIndex],
-                state: issue.state,
-                message: issue.message
-            )
-        })
+        if !control.cancellation.isCancelled {
+            for node in tree.nodes {
+                guard !control.cancellation.isCancelled else { break }
+                guard node.absoluteDepth <= max(0, options.maximumFindingDepth) else { continue }
+                findings.append(makeFinding(
+                    scope: scopes[node.scopeIndex],
+                    node: node,
+                    options: options
+                ))
+            }
+            if !control.cancellation.isCancelled {
+                findings.append(contentsOf: tree.scopeIssues.map { issue in
+                    permissionFinding(
+                        scope: scopes[issue.scopeIndex],
+                        state: issue.state,
+                        message: issue.message
+                    )
+                })
+            }
+        }
         findings.sort { lhs, rhs in
             if lhs.allocatedSize == rhs.allocatedSize {
                 return lhs.path < rhs.path
@@ -119,6 +136,12 @@ public final class FileScanner: @unchecked Sendable {
             return lhs.allocatedSize > rhs.allocatedSize
         }
         let coveredFindings = findings.map { $0.withMeasurementCoverage(tree.coverage.state.rawValue) }
+        control.progress?(ScanProgress(
+            phase: .finished,
+            scopeName: nil,
+            measuredItemCount: tree.coverage.measuredItemCount,
+            requestedItemBudget: options.measurementItemBudget
+        ))
         return ScanResult(findings: coveredFindings, coverage: tree.coverage)
     }
 
