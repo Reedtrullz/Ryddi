@@ -53,6 +53,33 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertLessThan(iconCopy.lowerBound, signing.lowerBound)
     }
 
+    func testPackageSignsNestedCLIThenAppWithoutDeepSigning() throws {
+        let root = repoRoot()
+        let script = try String(
+            contentsOf: root.appendingPathComponent("Scripts/package-app.sh"),
+            encoding: .utf8
+        )
+        let releaseCheck = try String(
+            contentsOf: root.appendingPathComponent("Scripts/release-check.sh"),
+            encoding: .utf8
+        )
+        let nestedSignCommand = "codesign --force --options runtime --timestamp --sign \"$CODESIGN_IDENTITY\" \"$app/Contents/MacOS/reclaimer\""
+        let appSignCommand = "codesign --force --options runtime --timestamp --sign \"$CODESIGN_IDENTITY\" \"$app\""
+        let nestedVerifyCommand = "codesign --verify --strict --verbose=2 \"$app/Contents/MacOS/reclaimer\""
+        let appVerifyCommand = "codesign --verify --deep --strict --verbose=2 \"$app\""
+
+        XCTAssertFalse(script.contains("codesign --force --deep"))
+        let nestedSign = try XCTUnwrap(script.range(of: nestedSignCommand))
+        let appSign = try XCTUnwrap(script.range(of: appSignCommand))
+        let nestedVerify = try XCTUnwrap(script.range(of: nestedVerifyCommand))
+        let appVerify = try XCTUnwrap(script.range(of: appVerifyCommand))
+        XCTAssertLessThan(nestedSign.lowerBound, appSign.lowerBound)
+        XCTAssertLessThan(appSign.lowerBound, nestedVerify.lowerBound)
+        XCTAssertLessThan(nestedVerify.lowerBound, appVerify.lowerBound)
+        XCTAssertTrue(releaseCheck.contains(nestedVerifyCommand))
+        XCTAssertTrue(releaseCheck.contains(appVerifyCommand))
+    }
+
     func testIconGeneratorAndRequiredRepresentationsExist() throws {
         let root = repoRoot()
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Scripts/generate-app-icon.swift").path))

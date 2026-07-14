@@ -1302,6 +1302,7 @@ stapler_validated="false"
 gatekeeper_status="not assessed"
 signing_identity="unsigned"
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+  codesign --verify --strict --verbose=2 "$app/Contents/MacOS/reclaimer"
   codesign --verify --deep --strict --verbose=2 "$app"
   codesign_verified="true"
   signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
@@ -1313,7 +1314,8 @@ if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   fi
   hardened_runtime="true"
   signing_state="signed with Hardened Runtime"
-elif codesign --verify --deep --strict --verbose=2 "$app" >"$scratch/codesign-verify.txt" 2>&1; then
+elif codesign --verify --strict --verbose=2 "$app/Contents/MacOS/reclaimer" >"$scratch/codesign-cli-verify.txt" 2>&1 \
+  && codesign --verify --deep --strict --verbose=2 "$app" >"$scratch/codesign-verify.txt" 2>&1; then
   signing_state="pre-signed outside this script"
   codesign_verified="true"
   signing_details="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
@@ -1346,6 +1348,7 @@ if [[ "$signing_required" == "required" ]]; then
   spctl --assess --type execute --verbose "$app"
   spctl_state="accepted"
   gatekeeper_status="accepted"
+  codesign --verify --strict --verbose=2 "$app/Contents/MacOS/reclaimer"
   codesign --verify --deep --strict --verbose=2 "$app"
 else
   notary_status_file=""

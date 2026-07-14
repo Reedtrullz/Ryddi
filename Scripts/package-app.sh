@@ -99,7 +99,10 @@ build_metadata_plist="$app/Contents/Resources/.Ryddi-build.plist"
 rm "$build_metadata_plist"
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
-  codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app"
+  codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app/Contents/MacOS/reclaimer"
+  codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app"
+  codesign --verify --strict --verbose=2 "$app/Contents/MacOS/reclaimer"
+  codesign --verify --deep --strict --verbose=2 "$app"
 else
   echo "CODESIGN_IDENTITY not set; app bundle left unsigned."
 fi

@@ -39,7 +39,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("wrote dogfood report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else if options.outputPath == nil {
             print(report.markdown)
         }
@@ -82,7 +82,7 @@ extension ReclaimerCLI {
             FileHandle.standardError.write(Data("saved evidence report: \(url.path)\n".utf8))
         }
         if options.json {
-            printJSON(report)
+            try printJSON(report)
         } else if options.outputPath == nil {
             print(report.markdown)
         }
