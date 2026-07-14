@@ -8,6 +8,7 @@ Implementation and local unsigned release gates are complete. Signed publication
 
 - Aligned package, release-check, signing-doctor, workflow, docs, and release notes on `v0.3.1` build `4`.
 - Made the signed workflow fail closed unless the checked-out ref is the exact `v0.3.1` tag, version is `0.3.1`, build is `4`, and `HEAD` resolves to the tag commit before certificate import.
+- Captured source commit and dirty state once, before the release check temporarily hides `.build`, and passed that immutable snapshot into package metadata and manifest generation.
 - Added packaged Accessibility proof for visible scan progress, cancellation to idle, absence of a late cancelled result, a following successful scan, one receipt-bounded Trash action, immediate row reconciliation, Verify Cleanup, and protected-fixture preservation.
 - Kept the deterministic scan delay test-only: it requires a validated temporary E2E scope and is bounded to `1...2_000` milliseconds.
 - Added `docs/releases/v0.3.1.md` with install evidence and explicit non-claims.
@@ -16,11 +17,12 @@ Implementation and local unsigned release gates are complete. Signed publication
 
 - RED: `PackageAppScriptTests` produced 11 expected failures for stale `v0.3.0 (3)` identity and missing exact-tag checks.
 - RED: `AppE2EFixtureTests` produced 15 expected failures for missing progress, cancellation, late-commit, protected-fixture, and current-flow proof.
+- RED: the clean-source preview exposed contradictory provenance (`Ryddi-build.json` clean, manifest dirty); the regression test then failed until provenance moved before the hidden-build-directory operation and was passed explicitly into packaging.
 - GREEN: focused package, app E2E fixture, accessibility contract, and signing-doctor tests all pass.
 
 ## Verification
 
-- `swift test --scratch-path "$PWD/.build"`: 600 tests passed, 1 intentional skip, 0 failures.
+- `swift test --scratch-path "$PWD/.build"`: 601 tests passed, 1 intentional skip, 0 failures.
 - `swift build --scratch-path "$PWD/.build" -Xswiftc -warnings-as-errors`: passed.
 - `bash -n Scripts/*.sh`: passed.
 - `git diff --check`: passed.
@@ -32,7 +34,7 @@ Implementation and local unsigned release gates are complete. Signed publication
 
 ## Non-Claims
 
-- The current `Ryddi-developer-preview.zip` is unsigned, was built from a dirty pre-commit worktree, and is not a release.
+- Any preview generated before the immutable-provenance fix is invalidated; unsigned developer previews are not releases.
 - No signing, notarization, stapling, Gatekeeper, GitHub CI, publication, or `/Applications` install claim is made here.
 - E2E cleanup was restricted to disposable fixtures and a receipt-verified Trash artifact.
 

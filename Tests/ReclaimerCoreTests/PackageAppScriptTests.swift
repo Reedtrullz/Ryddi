@@ -138,6 +138,21 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertLessThan(provenance.lowerBound, credentials.lowerBound)
     }
 
+    func testReleaseCheckCapturesSourceProvenanceBeforeHidingBuildDirectory() throws {
+        let script = try String(
+            contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"),
+            encoding: .utf8
+        )
+
+        let sourceCapture = try XCTUnwrap(script.range(of: "source_dirty=$([["))
+        let hideBuildDirectory = try XCTUnwrap(script.range(of: "\nhide_build_dir_for_packaged_smokes\n"))
+
+        XCTAssertLessThan(sourceCapture.lowerBound, hideBuildDirectory.lowerBound)
+        XCTAssertTrue(script.contains("if [[ \"$source_dirty\" != \"false\" ]]; then"))
+        XCTAssertTrue(script.contains(#"RYDDI_SOURCE_COMMIT="$commit" \"#))
+        XCTAssertTrue(script.contains(#"RYDDI_SOURCE_DIRTY="$source_dirty" \"#))
+    }
+
     func testReleaseCheckStagesProofBesideAppBeforeZippingDirectory() throws {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 

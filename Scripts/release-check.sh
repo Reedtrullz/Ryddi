@@ -149,8 +149,15 @@ fi
 cd "$root"
 rm -f "$zip_path" "$checksum_path" "$manifest_path"
 
+commit="unknown"
+source_dirty="unknown"
+if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  commit="$(git -C "$root" rev-parse HEAD)"
+  source_dirty=$([[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]] && echo true || echo false)
+fi
+
 if [[ "$signing_required" == "required" ]]; then
-  if [[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]]; then
+  if [[ "$source_dirty" != "false" ]]; then
     echo "signed releases require a clean Git worktree." >&2
     exit 1
   fi
@@ -176,7 +183,9 @@ echo "==> Running Swift tests"
 swift test --scratch-path "$root/.build"
 
 echo "==> Building app bundle"
-"$root/Scripts/package-app.sh" >"$scratch/package-app-path.txt"
+RYDDI_SOURCE_COMMIT="$commit" \
+  RYDDI_SOURCE_DIRTY="$source_dirty" \
+  "$root/Scripts/package-app.sh" >"$scratch/package-app-path.txt"
 
 if [[ ! -d "$app" ]]; then
   echo "missing app bundle: $app" >&2
@@ -1366,12 +1375,6 @@ else
   notary_submission=""
 fi
 
-commit="unknown"
-source_dirty="unknown"
-if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  commit="$(git -C "$root" rev-parse HEAD)"
-  source_dirty=$([[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]] && echo true || echo false)
-fi
 notary_status_manifest="not applicable"
 if [[ -n "$notary_status_file" ]]; then
   notary_status_manifest="dist/$(basename "$notary_status_file")"
