@@ -3285,102 +3285,6 @@ struct PermissionCoverageView: View {
     }
 }
 
-struct PermissionOnboardingView: View {
-    let model: DashboardModel
-    private var walkthrough: PermissionWalkthrough {
-        PermissionWalkthroughBuilder.build(report: model.permissionReport)
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Permissions")
-                    .font(.largeTitle.bold())
-                Text("Permission-required scopes limit scan coverage. Optional paths unavailable on this Mac are reported separately and do not require permission changes.")
-                    .foregroundStyle(.secondary)
-
-                LazyVGrid(columns: DashboardResponsiveGrid.metricColumns, spacing: 12) {
-                    MetricTile(title: "Coverage", value: model.permissionReport.coverageLevel.label)
-                    MetricTile(title: "Readable", value: "\(model.permissionReport.readableCount)")
-                    MetricTile(title: "Permission required", value: "\(model.permissionReport.deniedCount)")
-                    MetricTile(title: "Unavailable on this Mac", value: "\(model.permissionReport.missingCount)")
-                }
-
-                PermissionAccessHelperPanel(
-                    report: model.permissionReport,
-                    onRefresh: { model.refreshPermissions() }
-                )
-
-                SectionBox(title: "Next Steps") {
-                    ForEach(model.permissionReport.recommendedActions, id: \.self) { action in
-                        Text(action)
-                    }
-                    if model.permissionReport.needsFullDiskAccessReview {
-                        Button {
-                            PathActions.openFullDiskAccessSettings()
-                        } label: {
-                            Label("Open Full Disk Access Settings", systemImage: "lock.shield")
-                        }
-                        .help("Open macOS Privacy & Security settings for Full Disk Access")
-                    } else if model.permissionReport.missingCount > 0 {
-                        Text("Unavailable optional paths need no System Settings change.")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                SectionBox(title: "First-run Walkthrough") {
-                    ForEach(walkthrough.steps) { step in
-                        PermissionWalkthroughStepRow(step: step)
-                        if step.id != walkthrough.steps.last?.id {
-                            Divider()
-                        }
-                    }
-                }
-
-                SectionBox(title: "Scope Readback") {
-                    ForEach(model.permissionReport.scopeSummaries) { scope in
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(scopeStatusLabel(scope.permissionState))
-                                .font(.caption.bold())
-                                .foregroundStyle(scope.permissionState == .readable ? .green : .orange)
-                                .frame(width: 142, alignment: .leading)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(scope.name)
-                                    .font(.headline)
-                                Text(scope.path)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .textSelection(.enabled)
-                                Text(scope.message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                        }
-                        Divider()
-                    }
-                }
-
-                SectionBox(title: "Non-claims") {
-                    ForEach(model.permissionReport.nonClaims, id: \.self) { note in
-                        Text(note)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(24)
-        }
-    }
-
-    private func scopeStatusLabel(_ state: PermissionState) -> String {
-        switch state {
-        case .readable: "Readable"
-        case .missing: "Unavailable on this Mac"
-        case .denied: "Permission required"
-        case .unknown: "Not checked"
-        }
-    }
-}
-
 struct PermissionAccessHelperPanel: View {
     let report: PermissionAdvisorReport
     let onRefresh: () -> Void
@@ -3423,10 +3327,15 @@ struct PermissionAccessHelperPanel: View {
                     }
                     .help(PathActions.applicationPath)
 
-                    permissionButton("Refresh Coverage", systemImage: "arrow.clockwise") {
+                    permissionButton("Refresh Access", systemImage: "arrow.clockwise") {
                         onRefresh()
                     }
-                    .help("Re-check which configured scopes are currently readable.")
+                    .help("Refresh Coverage by repeating each configured scope operation.")
+
+                    permissionButton("Relaunch Ryddi", systemImage: "arrow.trianglehead.clockwise") {
+                        PathActions.relaunchApplication()
+                    }
+                    .help("Relaunch Ryddi after changing macOS privacy settings.")
                 }
 
                 Text(accessHelperCopy)
@@ -3460,10 +3369,10 @@ struct PermissionAccessHelperPanel: View {
 
     private var accessHelperCopy: String {
         if report.needsFullDiskAccessReview {
-            return "macOS requires you to grant Full Disk Access manually. Add or enable Ryddi, return here, then refresh coverage or run a fresh scan."
+            return "macOS requires you to change Full Disk Access manually. Add or enable Ryddi, then refresh access. Relaunching Ryddi may be required before the new setting affects these operations."
         }
         if !blockingScopes.isEmpty {
-            return "Some configured scopes still need a fresh permission check. Refresh coverage after changing macOS settings or restart Ryddi if System Settings already lists it."
+            return "Some configured operations failed. Refresh access to retry them; relaunching Ryddi may be required after changing macOS privacy settings."
         }
         if !optionalMissingScopes.isEmpty {
             return "No denied scopes are visible. Missing paths are usually optional tool or app data that has not been created on this Mac."

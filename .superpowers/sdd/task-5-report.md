@@ -1,167 +1,191 @@
-# Task 5 Report: Native Settings With Persisted Preferences
+# Task 5 Implementer Report - IMPLEMENTATION COMPLETE PENDING REVIEW
 
-## Implementation summary
+## Status
 
-- Added a native `DashboardSettingsView` with persisted `@AppStorage` preferences for default scan preset, default inclusion of user rules, default report path style, and default text redaction.
-- Replaced the app's placeholder `SettingsView` scene with `DashboardSettingsView()`.
-- Wired `DashboardView` to read persisted launch defaults for scan preset and include-user-rules behavior.
-- Added `DashboardModel.applyStoredSettings(defaultScanPresetRaw:includeUserRulesByDefault:)` plus a one-shot `hasAppliedStoredSettings` guard so stored defaults apply once at dashboard launch without changing the report-first or remote-safety posture.
-- Added the required focused layout/source test proving the native settings file exists, uses `@AppStorage`, is reachable from the scene-level `Settings` entry point, and calls into `applyStoredSettings`.
+Task 5 operation-based scope access evidence is implemented and locally verified
+from clean committed base `7607bdc7c3ffa7269688eab9ff0bd2ca8f3eb177` on
+`feature/ryddi-v0.3.1-correctness`. The implementation is complete pending
+independent review. The commit containing this report uses the requested message
+`fix: verify scope access with real operations`.
 
-## Files changed
-
-- `Sources/MacDiskReclaimerApp/DashboardSettingsView.swift`
-- `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`
-- `Tests/ReclaimerCoreTests/MacDiskReclaimerAppLayoutTests.swift`
-
-## RED
-
-Command:
-
-```bash
-swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testSettingsAreNativePersistedAndReachable
-```
-
-Output:
+## Starting State
 
 ```text
-Test Case '-[ReclaimerCoreTests.MacDiskReclaimerAppLayoutTests testSettingsAreNativePersistedAndReachable]' started.
-/Users/reidar/Documents/Codex/2026-06-18/help-me-clean-up-my-harddrive/work/Ryddi-remote-targets/Tests/ReclaimerCoreTests/MacDiskReclaimerAppLayoutTests.swift:54: error: -[ReclaimerCoreTests.MacDiskReclaimerAppLayoutTests testSettingsAreNativePersistedAndReachable] : failed: caught error: "Error Domain=NSCocoaErrorDomain Code=260 "The file “DashboardSettingsView.swift” couldn’t be opened because there is no such file." UserInfo={NSFilePath=/Users/reidar/Documents/Codex/2026-06-18/help-me-clean-up-my-harddrive/work/Ryddi-remote-targets/Sources/MacDiskReclaimerApp/DashboardSettingsView.swift, NSURL=file:///Users/reidar/Documents/Codex/2026-06-18/help-me-clean-up-my-harddrive/work/Ryddi-remote-targets/Sources/MacDiskReclaimerApp/DashboardSettingsView.swift, NSUnderlyingError=0xbcd480e10 {Error Domain=NSPOSIXErrorDomain Code=2 "No such file or directory"}}"
-Test Case '-[ReclaimerCoreTests.MacDiskReclaimerAppLayoutTests testSettingsAreNativePersistedAndReachable]' failed (0.236 seconds).
-Executed 1 test, with 1 failure (1 unexpected) in 0.236 seconds
+HEAD: 7607bdc7c3ffa7269688eab9ff0bd2ca8f3eb177
+branch: feature/ryddi-v0.3.1-correctness
+available disk: 58Gi
 ```
 
-## GREEN
-
-Command:
-
-```bash
-swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testSettingsAreNativePersistedAndReachable
-```
-
-Output:
+The committed baseline matched exactly. The worktree already contained the two
+required Task 5 test files as untracked concurrent work:
 
 ```text
-Build complete! (18.75s)
-Test Suite 'Selected tests' started at 2026-07-09 21:23:57.392.
-Test Suite 'RyddiPackageTests.xctest' started at 2026-07-09 21:23:57.395.
-Test Suite 'MacDiskReclaimerAppLayoutTests' started at 2026-07-09 21:23:57.395.
-Test Case '-[ReclaimerCoreTests.MacDiskReclaimerAppLayoutTests testSettingsAreNativePersistedAndReachable]' started.
-Test Case '-[ReclaimerCoreTests.MacDiskReclaimerAppLayoutTests testSettingsAreNativePersistedAndReachable]' passed (0.019 seconds).
-Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:23:57.414.
-Executed 1 test, with 0 failures (0 unexpected) in 0.019 seconds
+?? Tests/MacDiskReclaimerAppTests/PermissionRefreshTests.swift
+?? Tests/ReclaimerCoreTests/ScopeAccessProbeTests.swift
 ```
 
-## Broader build/test verification
+They were preserved, reviewed, used as the test-first surface, and strengthened.
+They were not reset or attributed to this session.
 
-Command:
+## RED Evidence
+
+Both required commands ran before production edits.
 
 ```bash
-swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests
+swift test --scratch-path "$PWD/.build" --filter ScopeAccessProbeTests
 ```
 
-Output:
+Exit `1`. SwiftPM failed to compile on the intended missing Task 5 contracts,
+including `ScopeAccessProbeResult`, `PermissionReportLoading`, the probe-aware
+`ScopeAccessSummary` initializer, and dashboard permission loader/task injection.
 
-```text
-Build complete! (0.14s)
-Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:24:03.454.
-Executed 22 tests, with 0 failures (0 unexpected) in 0.379 seconds
+```bash
+swift test --scratch-path "$PWD/.build" --filter PermissionRefreshTests
 ```
 
-## Self-review
+Exit `1` with the same expected missing dashboard contracts, including no
+`PermissionReportLoading`, no `permissionReportLoader` dependency argument, and
+no `permissionRefreshTask` surface.
 
-- Kept the task scoped to the owned files and current pre-Task-6 monolithic `MacDiskReclaimerApp.swift` layout.
-- Used the exact app-storage keys, settings labels, and `applyStoredSettings` signature from the task brief.
-- Applied stored defaults once at the top of `DashboardView.onAppear`, before the existing model loaders.
-- Left cleanup capabilities, automation behavior, report-first posture, and remote-target safety behavior unchanged.
-- Removed the old placeholder `SettingsView` after switching the scene to `DashboardSettingsView()`.
+## Implementation
+
+- Added `ScopeAccessOperation`, `ScopeAccessProbeResult`, `ScopeAccessProbing`,
+  and `FileManagerScopeAccessProbe`.
+- Metadata identifies the object type first. Directories perform a listing and
+  immediately discard returned names. Regular files are opened read-only and
+  closed without reading. Every other filesystem type stops after metadata, so
+  FIFO, device, socket, and symbolic-link paths are never opened.
+- Nested POSIX `ENOENT`/`ENOTDIR` map to missing, `EACCES`/`EPERM` map to denied,
+  and every other or non-POSIX failure remains unknown. Direct Cocoa 257 is not
+  treated as POSIX `EACCES`.
+- Evidence stores only operation, optional numeric POSIX code, and fixed sanitized
+  detail. Directory entry names, file contents, paths from errors, and raw
+  `userInfo` are not retained in operation evidence.
+- Extended `ScopeAccessSummary` with defaulted optional evidence fields and
+  explicit legacy decoding. Extended `ScanCoverage` with a backward-compatible
+  `rootsUnknown` counter.
+- Routed the same probe contract through `PermissionAdvisor`,
+  `FindingAnalytics.overview`, `FileScanner`, and `BoundedFileTreeWalker` while
+  preserving existing public `PermissionAdvisor` and `FileScanner` call shapes.
+- Missing roots remain non-degrading. Unknown roots degrade coverage separately
+  and produce unknown evidence instead of being counted as permission denied.
+- Added injectable `PermissionReportLoading`. Dashboard refresh runs in a utility
+  detached task and accepts results only for the latest request ID. Scope changes,
+  scan results, and screenshot fixtures cannot be overwritten by stale refreshes.
+- Preserved Task 4 audit snapshot loading and `PermissionCoverageTransition`
+  behavior.
+- Extracted `PermissionOnboardingView` and added the exact states `Access verified`,
+  `Permission required`, `Unavailable on this Mac`, and `Check failed`.
+- Kept `Open Full Disk Access`, `Reveal Ryddi`, `Copy App Path`, `Refresh Access`,
+  and added `Relaunch Ryddi`, including the relaunch-may-be-required explanation.
+  No synthetic Full Disk Access toggle was added.
+
+## Files Changed
+
+- `.superpowers/sdd/progress.md`
+- `.superpowers/sdd/task-5-report.md`
+- `Sources/ReclaimerCore/ScopeAccessProbe.swift`
+- `Sources/ReclaimerCore/PermissionAdvisor.swift`
+- `Sources/ReclaimerCore/FindingAnalytics.swift`
+- `Sources/ReclaimerCore/Scanner.swift`
+- `Sources/ReclaimerCore/BoundedFileTreeWalker.swift`
+- `Sources/ReclaimerCore/ScanCoverage.swift`
+- `Sources/MacDiskReclaimerApp/DashboardDependencies.swift`
+- `Sources/MacDiskReclaimerApp/DashboardModel.swift`
+- `Sources/MacDiskReclaimerApp/DashboardModel+AuditAndRecovery.swift`
+- `Sources/MacDiskReclaimerApp/DashboardModel+ScanPlan.swift`
+- `Sources/MacDiskReclaimerApp/DashboardContentViews.swift`
+- `Sources/MacDiskReclaimerApp/PermissionOnboardingView.swift`
+- `Sources/MacDiskReclaimerApp/DashboardDemoData.swift`
+- `Sources/MacDiskReclaimerApp/PathActions.swift`
+- `Tests/ReclaimerCoreTests/ScopeAccessProbeTests.swift`
+- `Tests/MacDiskReclaimerAppTests/PermissionRefreshTests.swift`
+- `Tests/ReclaimerCoreTests/ScanCoverageSemanticsTests.swift`
+- `Tests/ReclaimerCoreTests/MacDiskReclaimerAppPermissionAccessTests.swift`
+- `Tests/ReclaimerCoreTests/AppAccessibilityContractTests.swift`
+
+## GREEN And Regression Evidence
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter ScopeAccessProbeTests
+```
+
+Exit `0`: 13 tests, 0 failures.
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter PermissionRefreshTests
+```
+
+Exit `0`: 3 tests, 0 failures.
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter Permission
+```
+
+Exit `0`: 23 tests, 0 failures.
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter ScanCoverageSemanticsTests
+```
+
+Exit `0`: 4 tests, 0 failures.
+
+```bash
+swift test --scratch-path "$PWD/.build" --filter BoundedScanTests
+```
+
+Exit `0`: 5 tests, 0 failures.
+
+The combined preservation filter for `PermissionCoverageTransitionTests`,
+`ScanPresentationSnapshotTests`, `RuntimeTrustDashboardContractTests`,
+`ReleaseTrustEvidenceTests`, `BoundedFileTreeWalkerTests`, and
+`DashboardAuditLoadingTests` exited `0`: 28 tests, 1 existing release-only skip,
+0 failures.
+
+After a fresh disk check still reported `58Gi` available:
+
+```bash
+swift test --scratch-path "$PWD/.build"
+```
+
+Exit `0`: 584 tests, 1 existing release-only performance skip, 0 failures.
+
+```bash
+swift build --scratch-path "$PWD/.build"
+```
+
+Exit `0`: build complete.
+
+```bash
+git diff --check
+```
+
+Exit `0` with no output.
+
+## Self-Review
+
+- Confirmed special files stop after metadata and a real FIFO fixture completes
+  without opening or blocking.
+- Confirmed nested POSIX normalization and direct Cocoa 257 separation.
+- Confirmed detail strings cannot include directory entries, file contents, error
+  paths, or raw error metadata.
+- Confirmed legacy `ScanSnapshot` and `ScanCoverage` JSON decode with absent new
+  fields.
+- Confirmed repeated taps and scope changes reject older permission completions.
+- Confirmed Task 4 audit-loading tests remain green.
 
 ## Concerns
 
-- None.
+- The two required test files pre-existed as untracked concurrent work. RED was
+  observed before production edits, but this report does not claim authorship of
+  their initial contents.
+- No remaining correctness concern was found in the requested Task 5 scope.
 
-## Review Fix
+## Non-Claims
 
-### Summary
-
-- Verified the review finding: Task 5 persisted `defaultReportPathStyle` and `redactUserTextByDefault`, but ordinary evidence-report exports still used the hardcoded `exportEvidenceReport()` defaults.
-- Extended the focused settings test so it now proves privacy defaults are read in app source, converted back into `ReportPathStyle`, consumed by ordinary export actions, and kept distinct from explicit redacted export actions.
-- Updated `DashboardView` and `ReviewQueuesView` to read the stored privacy defaults and route ordinary evidence-report exports through them, while preserving explicit redacted actions as `.redacted` plus `redactUserText: true`.
-
-### Exact test commands
-
-```bash
-swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testSettingsAreNativePersistedAndReachable
-swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests
-```
-
-### Pass output
-
-```text
-Build complete! (14.77s)
-Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:32:27.134.
-Executed 1 test, with 0 failures (0 unexpected) in 0.039 seconds
-
-Build complete! (0.14s)
-Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:32:44.051.
-Executed 22 tests, with 0 failures (0 unexpected) in 0.397 seconds
-```
-
-### Files changed
-
-- `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`
-- `Tests/ReclaimerCoreTests/MacDiskReclaimerAppLayoutTests.swift`
-- `.superpowers/sdd/task-5-report.md`
-
-### Self-review
-
-- Kept the fix inside Task 5 ownership and the existing pre-Task-6 single-file app/view layout.
-- Left explicit redacted export actions untouched so the privacy-preserving path remains opt-in and obvious in the UI.
-- Consumed the stored privacy defaults only at app-view export call sites; no `ReclaimerCore` contracts, remote boundaries, or destructive/report-only behavior changed.
-- Accepted a small duplicated helper between `DashboardView` and `ReviewQueuesView` to avoid broader file surgery before the planned Task 6 split.
-
-## Re-review Fix 2
-
-### Summary
-
-- Verified the remaining review finding: `DashboardActionStrip` still had one ordinary `Export` button hardcoded to `.redacted` plus `redactUserText: true`.
-- Strengthened `testSettingsAreNativePersistedAndReachable` so it now asserts that the ordinary `DashboardActionStrip("Export")` path calls `exportEvidenceReportUsingDefaults()`.
-- Updated `DashboardActionStrip` to read the persisted privacy defaults, convert the stored path style, and route its ordinary export action through the same default-based helper shape used by the other ordinary export surfaces.
-
-### Exact test commands
-
-```bash
-swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testSettingsAreNativePersistedAndReachable
-swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests
-```
-
-### Results
-
-```text
-RED
-Build complete! (2.19s)
-Test Case '-[ReclaimerCoreTests.MacDiskReclaimerAppLayoutTests testSettingsAreNativePersistedAndReachable]' failed
-Executed 1 test, with 1 failure (0 unexpected) in 0.233 seconds
-
-GREEN
-Build complete! (14.85s)
-Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:37:45.521.
-Executed 1 test, with 0 failures (0 unexpected) in 0.039 seconds
-
-COVERING
-Build complete! (0.14s)
-Test Suite 'MacDiskReclaimerAppLayoutTests' passed at 2026-07-09 21:37:50.910.
-Executed 22 tests, with 0 failures (0 unexpected) in 0.405 seconds
-```
-
-### Files changed
-
-- `Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift`
-- `Tests/ReclaimerCoreTests/MacDiskReclaimerAppLayoutTests.swift`
-- `.superpowers/sdd/task-5-report.md`
-
-### Self-review
-
-- Kept the change tightly scoped to the one remaining ordinary action-strip export path the reviewer identified.
-- Preserved all explicitly labeled redacted actions as hardcoded `.redacted` plus `redactUserText: true`.
-- Reused the same persisted-default export shape already established for other ordinary evidence-report actions, without touching `ReclaimerCore` or remote/report-only boundaries.
+- No claim is made that Full Disk Access itself is enabled.
+- No real user scan, cleanup, SSH, keychain operation, install, signing,
+  notarization, push, CI, or release operation was performed.
+- No packaged-app or manual UI run was performed; UI coverage here is build and
+  source-contract based.
+- `~/.codex/config.toml` was not modified.

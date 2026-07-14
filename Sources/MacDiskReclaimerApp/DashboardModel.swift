@@ -84,15 +84,7 @@ final class DashboardModel {
     var lastDiagnosticExportURL: URL?
     var lastScopeSetImportResult: SavedScopeSetImportResult?
     var diskStatus: DiskStatusSnapshot = DiskStatusReader().snapshot()
-    var permissionReport: PermissionAdvisorReport = {
-        if DashboardLaunchOptions.isE2EModeRequested {
-            guard let root = DashboardLaunchOptions.e2eScopeRoot else {
-                return PermissionAdvisor.report(scopes: [])
-            }
-            return PermissionAdvisor.report(scopes: DashboardModel.e2eScopes(root: root))
-        }
-        return PermissionAdvisor.report(scopes: DefaultScopes.scopes(for: .developer, includeUnavailable: true))
-    }()
+    var permissionReport = PermissionAdvisor.report(scopes: [])
     var scanSnapshots: [ScanSnapshot] = []
     var growthDeltas: [BucketGrowthDelta] = []
     var activities = DashboardActivityRegistry()
@@ -123,6 +115,8 @@ final class DashboardModel {
     @ObservationIgnored var scanTask: Task<Void, Never>?
     @ObservationIgnored var scanCancellation: ScanCancellationToken?
     @ObservationIgnored var scanActivityID: UUID?
+    @ObservationIgnored var permissionRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var permissionRefreshRequestID: UUID?
     let trashExecutionAuthorizationRegistry = TrashExecutionAuthorizationRegistry()
     let diagnostics = RyddiDiagnosticRecorder()
     let dependencies: DashboardDependencies
@@ -346,7 +340,7 @@ final class DashboardModel {
             scanPreset = defaultPreset
         }
         includeUserRulesInScans = includeUserRulesByDefault
-        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        refreshPermissions()
     }
 
     func setScanPreset(_ preset: ScanScopePreset) {
@@ -355,7 +349,7 @@ final class DashboardModel {
         selectedScopeTemplateID = nil
         selectedSavedScopeSetID = nil
         resetScanState()
-        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        refreshPermissions()
         error = nil
     }
 
@@ -372,7 +366,7 @@ final class DashboardModel {
             error = nil
         }
         resetScanState()
-        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        refreshPermissions()
     }
 
     func setSavedScopeSet(_ id: String?) {
@@ -388,7 +382,7 @@ final class DashboardModel {
             error = nil
         }
         resetScanState()
-        permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+        refreshPermissions()
     }
 
     func setIncludeUserRulesInScans(_ include: Bool) {

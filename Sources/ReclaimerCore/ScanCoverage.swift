@@ -51,6 +51,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
     public let rootsDenied: Int
     public let rootsMissing: Int
     public let rootsPermissionDenied: Int
+    public let rootsUnknown: Int
     public let maximumMeasurementDepth: Int
     public let evidence: [String]
     public let scopeCoverage: [ScanScopeCoverage]
@@ -65,6 +66,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         maximumMeasurementDepth: Int,
         rootsMissing: Int = 0,
         rootsPermissionDenied: Int? = nil,
+        rootsUnknown: Int = 0,
         evidence: [String] = [],
         scopeCoverage: [ScanScopeCoverage] = []
     ) {
@@ -77,6 +79,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         self.rootsDenied = permissionDenied
         self.rootsMissing = rootsMissing
         self.rootsPermissionDenied = permissionDenied
+        self.rootsUnknown = rootsUnknown
         self.maximumMeasurementDepth = maximumMeasurementDepth
         self.evidence = evidence
         self.scopeCoverage = scopeCoverage
@@ -91,6 +94,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         case rootsDenied
         case rootsMissing
         case rootsPermissionDenied
+        case rootsUnknown
         case maximumMeasurementDepth
         case evidence
         case scopeCoverage
@@ -106,6 +110,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         rootsDenied = try container.decode(Int.self, forKey: .rootsDenied)
         rootsMissing = try container.decodeIfPresent(Int.self, forKey: .rootsMissing) ?? 0
         rootsPermissionDenied = try container.decodeIfPresent(Int.self, forKey: .rootsPermissionDenied) ?? 0
+        rootsUnknown = try container.decodeIfPresent(Int.self, forKey: .rootsUnknown) ?? 0
         maximumMeasurementDepth = try container.decode(Int.self, forKey: .maximumMeasurementDepth)
         evidence = try container.decodeIfPresent([String].self, forKey: .evidence) ?? []
         scopeCoverage = try container.decodeIfPresent(
@@ -124,6 +129,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         try container.encode(rootsPermissionDenied, forKey: .rootsDenied)
         try container.encode(rootsMissing, forKey: .rootsMissing)
         try container.encode(rootsPermissionDenied, forKey: .rootsPermissionDenied)
+        try container.encode(rootsUnknown, forKey: .rootsUnknown)
         try container.encode(maximumMeasurementDepth, forKey: .maximumMeasurementDepth)
         try container.encode(evidence, forKey: .evidence)
         try container.encode(scopeCoverage, forKey: .scopeCoverage)

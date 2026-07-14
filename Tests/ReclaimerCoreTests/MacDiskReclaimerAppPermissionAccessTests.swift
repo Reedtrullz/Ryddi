@@ -49,6 +49,13 @@ final class MacDiskReclaimerAppPermissionAccessTests: XCTestCase {
             source.contains("blockingUnavailableScopes"),
             "The access helper should separate denied/unknown blockers from non-blocking missing paths."
         )
+        for state in ["Access verified", "Permission required", "Unavailable on this Mac", "Check failed"] {
+            XCTAssertTrue(source.contains(state), "Missing exact permission state: \(state)")
+        }
+        for action in ["Refresh Access", "Relaunch Ryddi"] {
+            XCTAssertTrue(source.contains(action), "Missing permission action: \(action)")
+        }
+        XCTAssertFalse(source.contains("Toggle(\"Full Disk Access"))
     }
 
     func testRefreshCoverageReprobesCurrentScopesInsteadOfReusingScanSnapshot() throws {

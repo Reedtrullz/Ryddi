@@ -44,33 +44,49 @@ public final class FileScanner: @unchecked Sendable {
     private let fileManager: FileManager
     private let ruleEngine: RuleEngine
     private let openFileChecker: OpenFileChecking
-    private let scopeReadabilityProvider: (URL, FileManager) -> ScopeReadability
+    private let scopeAccessProbe: any ScopeAccessProbing
 
     public convenience init(
         fileManager: FileManager = .default,
         ruleEngine: RuleEngine? = nil,
-        openFileChecker: OpenFileChecking = LsofOpenFileChecker()
+        openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
+        scopeAccessProbe: (any ScopeAccessProbing)? = nil
     ) throws {
         try self.init(
             fileManager: fileManager,
             ruleEngine: ruleEngine,
             openFileChecker: openFileChecker,
-            scopeReadabilityProvider: { root, fileManager in
-                PermissionAdvisor.scopeReadability(at: root, fileManager: fileManager)
-            }
+            resolvedScopeAccessProbe: scopeAccessProbe ?? FileManagerScopeAccessProbe(fileManager: fileManager)
         )
     }
 
-    init(
+    private init(
+        fileManager: FileManager = .default,
+        ruleEngine: RuleEngine? = nil,
+        openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
+        resolvedScopeAccessProbe: any ScopeAccessProbing
+    ) throws {
+        self.fileManager = fileManager
+        self.ruleEngine = try ruleEngine ?? RuleEngine.bundled()
+        self.openFileChecker = openFileChecker
+        self.scopeAccessProbe = resolvedScopeAccessProbe
+    }
+
+    convenience init(
         fileManager: FileManager = .default,
         ruleEngine: RuleEngine? = nil,
         openFileChecker: OpenFileChecking = LsofOpenFileChecker(),
         scopeReadabilityProvider: @escaping (URL, FileManager) -> ScopeReadability
     ) throws {
-        self.fileManager = fileManager
-        self.ruleEngine = try ruleEngine ?? RuleEngine.bundled()
-        self.openFileChecker = openFileChecker
-        self.scopeReadabilityProvider = scopeReadabilityProvider
+        try self.init(
+            fileManager: fileManager,
+            ruleEngine: ruleEngine,
+            openFileChecker: openFileChecker,
+            resolvedScopeAccessProbe: LegacyScopeReadabilityProbe(
+                fileManager: fileManager,
+                provider: scopeReadabilityProvider
+            )
+        )
     }
 
     public func scan(
@@ -92,7 +108,7 @@ public final class FileScanner: @unchecked Sendable {
             measuredItemCount: 0,
             requestedItemBudget: options.measurementItemBudget
         ))
-        let tree = BoundedFileTreeWalker(scopeReadabilityProvider: scopeReadabilityProvider).walk(
+        let tree = BoundedFileTreeWalker(scopeAccessProbe: scopeAccessProbe).walk(
             scopes: scopes,
             options: options,
             fileManager: fileManager,
@@ -306,6 +322,29 @@ public final class FileScanner: @unchecked Sendable {
         )
     }
 
+}
+
+private struct LegacyScopeReadabilityProbe: ScopeAccessProbing, @unchecked Sendable {
+    let fileManager: FileManager
+    let provider: (URL, FileManager) -> ScopeReadability
+
+    func probe(_ url: URL) -> ScopeAccessProbeResult {
+        let state = provider(url, fileManager)
+        return ScopeAccessProbeResult(
+            state: state,
+            operation: .metadata,
+            detail: legacyDetail(for: state)
+        )
+    }
+
+    private func legacyDetail(for state: ScopeReadability) -> String {
+        switch state {
+        case .readable: "Compatibility access check succeeded."
+        case .missing: "Compatibility access check reported a missing path."
+        case .permissionDenied: "Compatibility access check reported permission denied."
+        case .unknown: "Compatibility access check failed with an unknown result."
+        }
+    }
 }
 
 private func storageAccountingNote(logicalSize: Int64, allocatedSize: Int64) -> String {

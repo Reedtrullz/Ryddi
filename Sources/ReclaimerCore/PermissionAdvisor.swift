@@ -138,17 +138,15 @@ public enum PermissionAdvisor {
     public static func report(
         scopes: [ScanScope],
         now: Date = Date(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        probe: (any ScopeAccessProbing)? = nil
     ) -> PermissionAdvisorReport {
-        report(scopeSummaries: scopeSummaries(scopes: scopes, fileManager: fileManager), now: now)
+        let resolvedProbe = probe ?? FileManagerScopeAccessProbe(fileManager: fileManager)
+        return report(scopeSummaries: scopeSummaries(scopes: scopes, probe: resolvedProbe), now: now)
     }
 
     public static func scopeReadability(at root: URL, fileManager: FileManager = .default) -> ScopeReadability {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) else {
-            return .missing
-        }
-        return fileManager.isReadableFile(atPath: root.path) ? .readable : .permissionDenied
+        FileManagerScopeAccessProbe(fileManager: fileManager).probe(root).state
     }
 
     public static func report(
@@ -227,48 +225,45 @@ public enum PermissionAdvisor {
 
     private static func nonClaims() -> [String] {
         [
-            "This advisory observes current path readability; it cannot prove macOS Full Disk Access is globally enabled.",
+            "This advisory reports only the configured operation result; it cannot prove macOS Full Disk Access is enabled and does not claim that it is enabled.",
             "Readable scope coverage does not mean any item is safe to remove.",
             "Missing roots can be normal when a developer tool is not installed or has not created cache data.",
             "Changing macOS privacy settings is a user-controlled system action; Ryddi does not grant permissions automatically."
         ]
     }
 
-    private static func scopeSummaries(scopes: [ScanScope], fileManager: FileManager) -> [ScopeAccessSummary] {
+    private static func scopeSummaries(
+        scopes: [ScanScope],
+        probe: any ScopeAccessProbing
+    ) -> [ScopeAccessSummary] {
         scopes.map { scope in
-            var isDirectory: ObjCBool = false
             let root = scope.root.standardizedFileURL
-            _ = fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory)
-            switch scopeReadability(at: root, fileManager: fileManager) {
+            let result = probe.probe(root)
+            let permissionState: PermissionState
+            let message: String
+            switch result.state {
             case .missing:
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: root.path,
-                    permissionState: .missing,
-                    message: "Path is not present on this Mac."
-                )
+                permissionState = .missing
+                message = "Unavailable on this Mac: the configured operation found no path."
             case .permissionDenied:
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: root.path,
-                    permissionState: .denied,
-                    message: "Path exists but is not readable with current permissions."
-                )
+                permissionState = .denied
+                message = "Permission required: the configured operation was denied."
             case .unknown:
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: root.path,
-                    permissionState: .unknown,
-                    message: "Path readability could not be determined."
-                )
+                permissionState = .unknown
+                message = "Check failed: the configured operation did not produce conclusive access evidence."
             case .readable:
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: root.path,
-                    permissionState: .readable,
-                    message: isDirectory.boolValue ? "Directory is readable." : "File is readable."
-                )
+                permissionState = .readable
+                message = "Access verified: the configured operation succeeded."
             }
+            return ScopeAccessSummary(
+                name: scope.name,
+                path: root.path,
+                permissionState: permissionState,
+                message: message,
+                operation: result.operation,
+                errorCode: result.errorCode,
+                detail: result.detail
+            )
         }
     }
 }

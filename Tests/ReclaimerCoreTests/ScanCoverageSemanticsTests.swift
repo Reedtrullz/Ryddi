@@ -36,6 +36,7 @@ final class ScanCoverageSemanticsTests: XCTestCase {
         XCTAssertEqual(coverage.rootsDenied, 1)
         XCTAssertEqual(coverage.rootsMissing, 0)
         XCTAssertEqual(coverage.rootsPermissionDenied, 0)
+        XCTAssertEqual(coverage.rootsUnknown, 0)
     }
 
     func testMissingOptionalRootIsRecordedWithoutDegradingCoverage() throws {

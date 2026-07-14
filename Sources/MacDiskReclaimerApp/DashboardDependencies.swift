@@ -20,15 +20,28 @@ struct AuditStoreSnapshotLoader: AuditSnapshotLoading {
     }
 }
 
+protocol PermissionReportLoading: Sendable {
+    func load(scopes: [ScanScope]) -> PermissionAdvisorReport
+}
+
+struct PermissionReportLoader: PermissionReportLoading {
+    func load(scopes: [ScanScope]) -> PermissionAdvisorReport {
+        PermissionAdvisor.report(scopes: scopes)
+    }
+}
+
 struct DashboardDependencies: Sendable {
     private let scanServiceFactory: @Sendable (Bool) throws -> any ScanServicing
     let auditSnapshotLoader: any AuditSnapshotLoading
+    let permissionReportLoader: any PermissionReportLoading
 
     init(
         auditSnapshotLoader: any AuditSnapshotLoading = AuditStoreSnapshotLoader(),
+        permissionReportLoader: any PermissionReportLoading = PermissionReportLoader(),
         scanServiceFactory: @escaping @Sendable (Bool) throws -> any ScanServicing
     ) {
         self.auditSnapshotLoader = auditSnapshotLoader
+        self.permissionReportLoader = permissionReportLoader
         self.scanServiceFactory = scanServiceFactory
     }
 
@@ -45,8 +58,12 @@ struct DashboardDependencies: Sendable {
 
     static func testing(
         scanService: any ScanServicing,
-        auditSnapshotLoader: any AuditSnapshotLoading = AuditStoreSnapshotLoader()
+        auditSnapshotLoader: any AuditSnapshotLoading = AuditStoreSnapshotLoader(),
+        permissionReportLoader: any PermissionReportLoading = PermissionReportLoader()
     ) -> DashboardDependencies {
-        DashboardDependencies(auditSnapshotLoader: auditSnapshotLoader) { _ in scanService }
+        DashboardDependencies(
+            auditSnapshotLoader: auditSnapshotLoader,
+            permissionReportLoader: permissionReportLoader
+        ) { _ in scanService }
     }
 }

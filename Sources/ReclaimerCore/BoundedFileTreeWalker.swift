@@ -36,14 +36,19 @@ struct BoundedFileTree {
 }
 
 struct BoundedFileTreeWalker {
-    private let scopeReadabilityProvider: (URL, FileManager) -> ScopeReadability
+    private let scopeAccessProbe: (any ScopeAccessProbing)?
+    private let compatibilityReadabilityProvider: ((URL, FileManager) -> ScopeReadability)?
 
     init(
-        scopeReadabilityProvider: @escaping (URL, FileManager) -> ScopeReadability = { root, fileManager in
-            PermissionAdvisor.scopeReadability(at: root, fileManager: fileManager)
-        }
+        scopeAccessProbe: any ScopeAccessProbing = FileManagerScopeAccessProbe()
     ) {
-        self.scopeReadabilityProvider = scopeReadabilityProvider
+        self.scopeAccessProbe = scopeAccessProbe
+        self.compatibilityReadabilityProvider = nil
+    }
+
+    init(scopeReadabilityProvider: @escaping (URL, FileManager) -> ScopeReadability) {
+        self.scopeAccessProbe = nil
+        self.compatibilityReadabilityProvider = scopeReadabilityProvider
     }
 
     func walk(
@@ -78,15 +83,28 @@ struct BoundedFileTreeWalker {
                 continue
             }
 
-            switch scopeReadabilityProvider(root, fileManager) {
+            let probeResult = accessResult(for: root, fileManager: fileManager)
+            switch probeResult.state {
             case .missing:
                 metrics[scopeIndex].isMissing = true
                 metrics[scopeIndex].evidence.append("This optional scan root was not present on this Mac.")
                 scopeIssues.append(.init(scopeIndex: scopeIndex, state: .missing, message: "Path does not exist."))
-            case .permissionDenied, .unknown:
+            case .permissionDenied:
                 metrics[scopeIndex].isPermissionDenied = true
                 metrics[scopeIndex].evidence.append("This scan root could not be read because permission was denied.")
-                scopeIssues.append(.init(scopeIndex: scopeIndex, state: .denied, message: "Path is not readable with current permissions."))
+                scopeIssues.append(.init(
+                    scopeIndex: scopeIndex,
+                    state: .denied,
+                    message: probeEvidenceMessage(prefix: "Permission required", result: probeResult)
+                ))
+            case .unknown:
+                metrics[scopeIndex].isUnknown = true
+                metrics[scopeIndex].evidence.append("This scan root access check failed without permission-denied evidence.")
+                scopeIssues.append(.init(
+                    scopeIndex: scopeIndex,
+                    state: .unknown,
+                    message: probeEvidenceMessage(prefix: "Access check failed", result: probeResult)
+                ))
             case .readable:
                 frontiers[scopeIndex].append(.init(url: root, parentIndex: nil, depth: 0))
             }
@@ -311,9 +329,10 @@ struct BoundedFileTreeWalker {
         let skippedItemCount = metrics.reduce(0) { $0 + $1.skippedItemCount }
         let rootsMissing = metrics.filter(\.isMissing).count
         let rootsPermissionDenied = metrics.filter(\.isPermissionDenied).count
+        let rootsUnknown = metrics.filter(\.isUnknown).count
         let hasUnreadableDescendant = metrics.contains(where: \.hasUnreadableDescendant)
         let state: ScanCoverageState
-        if rootsPermissionDenied > 0 || hasUnreadableDescendant {
+        if rootsPermissionDenied > 0 || rootsUnknown > 0 || hasUnreadableDescendant {
             state = .degraded
         } else if skippedItemCount > 0 || measuredItemCount >= requestedBudget || cancelled {
             state = .bounded
@@ -328,6 +347,13 @@ struct BoundedFileTreeWalker {
         if rootsPermissionDenied > 0 {
             evidence.append("\(rootsPermissionDenied) scan root(s) could not be read because permission was denied.")
         }
+        if rootsUnknown > 0 {
+            evidence.append(
+                rootsUnknown == 1
+                    ? "1 scan root access check failed without permission-denied evidence."
+                    : "\(rootsUnknown) scan root access checks failed without permission-denied evidence."
+            )
+        }
         if hasUnreadableDescendant {
             evidence.append("One or more descendants could not be read and were not measured.")
         }
@@ -340,7 +366,7 @@ struct BoundedFileTreeWalker {
 
         let scopeCoverage = metrics.map { metric in
             let scopeState: ScanCoverageState
-            if metric.isPermissionDenied || metric.hasUnreadableDescendant {
+            if metric.isPermissionDenied || metric.isUnknown || metric.hasUnreadableDescendant {
                 scopeState = .degraded
             } else if metric.skippedItemCount > 0 || metric.wasCancelled {
                 scopeState = .bounded
@@ -372,9 +398,37 @@ struct BoundedFileTreeWalker {
             maximumMeasurementDepth: measurementDepth,
             rootsMissing: rootsMissing,
             rootsPermissionDenied: rootsPermissionDenied,
+            rootsUnknown: rootsUnknown,
             evidence: evidence,
             scopeCoverage: scopeCoverage
         )
+    }
+
+    private func accessResult(for root: URL, fileManager: FileManager) -> ScopeAccessProbeResult {
+        if let compatibilityReadabilityProvider {
+            let state = compatibilityReadabilityProvider(root, fileManager)
+            let detail = switch state {
+            case .readable: "Compatibility access check succeeded."
+            case .missing: "Compatibility access check reported a missing path."
+            case .permissionDenied: "Compatibility access check reported permission denied."
+            case .unknown: "Compatibility access check failed with an unknown result."
+            }
+            return ScopeAccessProbeResult(state: state, operation: .metadata, detail: detail)
+        }
+        return scopeAccessProbe?.probe(root) ?? ScopeAccessProbeResult(
+            state: .unknown,
+            operation: .metadata,
+            detail: "Access check failed because no probe was configured."
+        )
+    }
+
+    private func probeEvidenceMessage(prefix: String, result: ScopeAccessProbeResult) -> String {
+        var components = ["\(prefix) during \(result.operation.rawValue)."]
+        if let errorCode = result.errorCode {
+            components.append("POSIX code \(errorCode).")
+        }
+        components.append(result.detail)
+        return components.joined(separator: " ")
     }
 }
 
@@ -409,6 +463,7 @@ private struct ScopeMetrics {
     var deepestMeasuredLevel = 0
     var isMissing = false
     var isPermissionDenied = false
+    var isUnknown = false
     var hasUnreadableDescendant = false
     var wasCancelled = false
     var evidence = [String]()

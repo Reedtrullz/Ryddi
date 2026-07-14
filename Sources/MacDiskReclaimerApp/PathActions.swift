@@ -64,4 +64,19 @@ enum PathActions {
         }
         #endif
     }
+
+    @MainActor
+    static func relaunchApplication() {
+        #if os(macOS)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", Bundle.main.bundleURL.path]
+        do {
+            try process.run()
+            NSApp.terminate(nil)
+        } catch {
+            return
+        }
+        #endif
+    }
 }

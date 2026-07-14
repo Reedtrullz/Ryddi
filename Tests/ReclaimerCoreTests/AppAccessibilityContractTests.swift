@@ -45,7 +45,7 @@ final class AppAccessibilityContractTests: XCTestCase {
         XCTAssertTrue(source.contains("configureE2EScope"))
         XCTAssertTrue(source.contains("if e2eScopeRoot != nil"))
         XCTAssertTrue(source.contains("if !DashboardLaunchOptions.isE2EModeRequested"))
-        XCTAssertTrue(source.contains("return PermissionAdvisor.report(scopes: [])"))
+        XCTAssertTrue(source.contains("var permissionReport = PermissionAdvisor.report(scopes: [])"))
     }
 
     private func appSource() throws -> String {

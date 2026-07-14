@@ -8,6 +8,7 @@ enum DashboardDemoData {
     }
 
     static func apply(to model: DashboardModel) {
+        model.invalidatePermissionRefresh()
         let now = Date(timeIntervalSince1970: 1_788_000_000)
         let home = URL(fileURLWithPath: "/Users/ryddi-demo")
         let scopes = [

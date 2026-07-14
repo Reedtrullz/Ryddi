@@ -21,12 +21,47 @@ public struct ScopeAccessSummary: Codable, Hashable, Identifiable, Sendable {
     public let path: String
     public let permissionState: PermissionState
     public let message: String
+    public let operation: ScopeAccessOperation?
+    public let errorCode: Int?
+    public let detail: String?
 
-    public init(name: String, path: String, permissionState: PermissionState, message: String) {
+    public init(
+        name: String,
+        path: String,
+        permissionState: PermissionState,
+        message: String,
+        operation: ScopeAccessOperation? = nil,
+        errorCode: Int? = nil,
+        detail: String? = nil
+    ) {
         self.name = name
         self.path = path
         self.permissionState = permissionState
         self.message = message
+        self.operation = operation
+        self.errorCode = errorCode
+        self.detail = detail
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case path
+        case permissionState
+        case message
+        case operation
+        case errorCode
+        case detail
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        path = try container.decode(String.self, forKey: .path)
+        permissionState = try container.decode(PermissionState.self, forKey: .permissionState)
+        message = try container.decode(String.self, forKey: .message)
+        operation = try container.decodeIfPresent(ScopeAccessOperation.self, forKey: .operation)
+        errorCode = try container.decodeIfPresent(Int.self, forKey: .errorCode)
+        detail = try container.decodeIfPresent(String.self, forKey: .detail)
     }
 }
 
@@ -1068,7 +1103,8 @@ public enum FindingAnalytics {
         offenderSort: TopOffenderSort = .allocated,
         offenderGroup: TopOffenderGroup = .none,
         now: Date = Date(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        scopeAccessProbe: (any ScopeAccessProbing)? = nil
     ) -> ScanOverview {
         let accountingFindings = nonOverlappingFindings(findings)
         let totalLogical = accountingFindings.reduce(0) { $0 + $1.logicalSize }
@@ -1101,7 +1137,12 @@ public enum FindingAnalytics {
             safetySummaries: bucket(accountingFindings, by: { $0.safetyClass.label }),
             categorySummaries: bucket(accountingFindings, by: { $0.primaryCategory }),
             scopeSizeSummaries: bucket(accountingFindings, by: { $0.scopeName }),
-            scopeSummaries: scopeSummaries(scopes: scopes, fileManager: fileManager),
+            scopeSummaries: PermissionAdvisor.report(
+                scopes: scopes,
+                now: now,
+                fileManager: fileManager,
+                probe: scopeAccessProbe
+            ).scopeSummaries,
             mapNodes: mapNodes(from: accountingFindings),
             ownerSummaries: ownerSummaries(from: ownerAttributionFindings(findings)),
             topFindings: offenderTable.rows.map(\.finding),
@@ -1354,35 +1395,6 @@ public enum FindingAnalytics {
                 return $0.name < $1.name
             }
             return $0.allocatedSize > $1.allocatedSize
-        }
-    }
-
-    private static func scopeSummaries(scopes: [ScanScope], fileManager: FileManager) -> [ScopeAccessSummary] {
-        scopes.map { scope in
-            var isDirectory: ObjCBool = false
-            let exists = fileManager.fileExists(atPath: scope.root.path, isDirectory: &isDirectory)
-            if !exists {
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: scope.root.path,
-                    permissionState: .missing,
-                    message: "Path is not present on this Mac."
-                )
-            }
-            if !fileManager.isReadableFile(atPath: scope.root.path) {
-                return ScopeAccessSummary(
-                    name: scope.name,
-                    path: scope.root.path,
-                    permissionState: .denied,
-                    message: "Path exists but is not readable with current permissions. Full Disk Access may be needed for broader scans."
-                )
-            }
-            return ScopeAccessSummary(
-                name: scope.name,
-                path: scope.root.path,
-                permissionState: .readable,
-                message: isDirectory.boolValue ? "Directory is readable." : "File is readable."
-            )
         }
     }
 

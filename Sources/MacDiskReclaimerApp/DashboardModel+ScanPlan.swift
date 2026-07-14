@@ -269,6 +269,7 @@ extension DashboardModel {
             if permissionReport.coverageLevel != result.permissions.coverageLevel {
                 diagnostics.record(.permissionCoverageChanged)
             }
+            invalidatePermissionRefresh()
             permissionReport = result.permissions
             scanCoverage = result.coverage
             reviewQueueReport = result.presentation.reviewQueues

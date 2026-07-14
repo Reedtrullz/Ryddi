@@ -10,7 +10,7 @@ extension DashboardModel {
             resetScanState()
         }
         if overview == nil {
-            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            refreshPermissions()
         }
     }
 
@@ -26,7 +26,7 @@ extension DashboardModel {
             selectedScopeTemplateID = nil
             selectedSavedScopeSetID = set.id
             resetScanState()
-            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            refreshPermissions()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -44,7 +44,7 @@ extension DashboardModel {
             selectedScopeTemplateID = nil
             selectedSavedScopeSetID = set.id
             resetScanState()
-            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            refreshPermissions()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -59,7 +59,7 @@ extension DashboardModel {
                 resetScanState()
             }
             savedScopeSets = SavedScopeSetStore().list()
-            permissionReport = PermissionAdvisor.report(scopes: currentScopes(includeUnavailable: true))
+            refreshPermissions()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -181,15 +181,32 @@ extension DashboardModel {
     }
 
     func refreshPermissions() {
-        let transition = PermissionCoverageTransition.refresh(
-            previous: permissionReport,
-            scopes: currentScopes(includeUnavailable: true)
-        )
-        if transition.coverageChanged {
-            diagnostics.record(.permissionCoverageChanged)
+        let requestID = UUID()
+        let previous = permissionReport
+        let scopes = currentScopes(includeUnavailable: true)
+        let loader = dependencies.permissionReportLoader
+        permissionRefreshRequestID = requestID
+        permissionRefreshTask = Task { [weak self] in
+            let transition = await Task.detached(priority: .utility) {
+                PermissionCoverageTransition.refresh(
+                    previous: previous,
+                    scopes: scopes,
+                    reporter: { loader.load(scopes: $0) }
+                )
+            }.value
+            guard let self, self.permissionRefreshRequestID == requestID else { return }
+            if transition.coverageChanged {
+                self.diagnostics.record(.permissionCoverageChanged)
+            }
+            self.permissionReport = transition.current
+            await self.refreshPresentationSnapshot()
         }
-        permissionReport = transition.current
-        Task { await refreshPresentationSnapshot() }
+    }
+
+    func invalidatePermissionRefresh() {
+        permissionRefreshRequestID = nil
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = nil
     }
 
     func addUserPathRule(path: String, kind: UserPathPolicyKind, reason: String) async {
