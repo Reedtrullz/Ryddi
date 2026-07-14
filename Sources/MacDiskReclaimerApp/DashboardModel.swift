@@ -97,20 +97,9 @@ final class DashboardModel {
     var growthDeltas: [BucketGrowthDelta] = []
     var activities = DashboardActivityRegistry()
     var isWorking: Bool {
-        get {
-            activities.isRunning(.scan)
-                || activities.isRunning(.cleanup)
-                || activities.isRunning(.review)
-        }
-        set {
-            if newValue {
-                guard legacyActivityID == nil else { return }
-                legacyActivityID = activities.begin(.review, message: "Working")
-            } else if let legacyActivityID {
-                activities.finish(.review, id: legacyActivityID)
-                self.legacyActivityID = nil
-            }
-        }
+        activities.isRunning(.scan)
+            || activities.isRunning(.cleanup)
+            || activities.isRunning(.review)
     }
     var isScanRunning: Bool { activities.isRunning(.scan) }
     var lastScanDate: Date?
@@ -133,7 +122,6 @@ final class DashboardModel {
     @ObservationIgnored var scanTask: Task<Void, Never>?
     @ObservationIgnored var scanCancellation: ScanCancellationToken?
     @ObservationIgnored var scanActivityID: UUID?
-    @ObservationIgnored var legacyActivityID: UUID?
     let trashExecutionAuthorizationRegistry = TrashExecutionAuthorizationRegistry()
     let diagnostics = RyddiDiagnosticRecorder()
     let dependencies: DashboardDependencies

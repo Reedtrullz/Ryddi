@@ -335,7 +335,7 @@ struct GuidedSummaryView: View {
         case .actionCenter(let action):
             performActionCenterAction(action)
         case .scan:
-            Task { await model.scan() }
+            model.startScan()
         case .plan:
             Task { await model.buildPlan() }
         case .dryRun:
@@ -356,7 +356,7 @@ struct GuidedSummaryView: View {
         case .grantAccess:
             navigate("Permissions")
         case .runScan:
-            Task { await model.scan() }
+            model.startScan()
         case .reviewQueue:
             if let queueID = ReviewQueueID.parse(action.sourceIDs.first ?? "") {
                 model.recordReviewSelection(queueID)

@@ -218,7 +218,7 @@ struct DashboardActionStrip: View {
     @ViewBuilder
     private var actionButtons: some View {
         DashboardActionButton("Scan", systemImage: "magnifyingglass", prominent: true, disabled: model.isWorking) {
-            Task { await model.scan() }
+            model.startScan()
         }
         .accessibilityIdentifier("summary.scan-button")
         DashboardActionButton("Plan", systemImage: "checklist", disabled: model.findings.isEmpty || model.isWorking) {

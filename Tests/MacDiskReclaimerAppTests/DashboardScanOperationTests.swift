@@ -13,21 +13,53 @@ final class DashboardScanOperationTests: XCTestCase {
         await fake.waitUntilStarted()
         model.cancelScan()
         await fake.waitUntilCancelled()
-        await waitUntil { model.activity(for: .scan) == .idle }
+        let becameIdle = await waitUntil { model.activity(for: .scan) == .idle }
 
+        XCTAssertTrue(becameIdle)
         XCTAssertTrue(model.findings.isEmpty)
         XCTAssertEqual(model.activity(for: .scan), .idle)
         XCTAssertNil(model.activeScanRequest)
     }
 
     func testOldOperationCannotClearNewOperation() {
-        var registry = DashboardActivityRegistry()
-        let old = registry.begin(.review, message: "Old")
-        let new = registry.begin(.review, message: "New")
+        let model = DashboardModel(dependencies: .testing(scanService: BlockingScanService()))
+        let old = model.activities.begin(.review, message: "Old")
+        let new = model.activities.begin(.review, message: "New")
 
-        registry.finish(.review, id: old)
+        model.activities.finish(.review, id: old)
 
-        XCTAssertEqual(registry.state(for: .review).id, new)
+        XCTAssertTrue(model.isWorking)
+        XCTAssertEqual(model.activity(for: .review).id, new)
+
+        model.activities.finish(.review, id: new)
+
+        XCTAssertFalse(model.isWorking)
+        XCTAssertEqual(model.activity(for: .review), .idle)
+    }
+
+    func testWorkingStateHasNoMutableLegacyBridgeOrAssignments() throws {
+        let modelSource = try source("Sources/MacDiskReclaimerApp/DashboardModel.swift")
+        let isWorkingStart = try XCTUnwrap(modelSource.range(of: "var isWorking: Bool"))
+        let isScanRunningStart = try XCTUnwrap(
+            modelSource.range(of: "var isScanRunning: Bool", range: isWorkingStart.upperBound..<modelSource.endIndex)
+        )
+        let isWorkingDeclaration = modelSource[isWorkingStart.lowerBound..<isScanRunningStart.lowerBound]
+
+        XCTAssertFalse(isWorkingDeclaration.contains("set"))
+        XCTAssertFalse(modelSource.contains("legacyActivityID"))
+
+        let appSourceRoot = repositoryRoot.appendingPathComponent("Sources/MacDiskReclaimerApp", isDirectory: true)
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(
+            at: appSourceRoot,
+            includingPropertiesForKeys: nil
+        ))
+        for case let fileURL as URL in enumerator where fileURL.pathExtension == "swift" {
+            let contents = try String(contentsOf: fileURL, encoding: .utf8)
+            XCTAssertNil(
+                contents.range(of: #"isWorking\s*="# , options: .regularExpression),
+                "Mutable isWorking assignment remains in \(fileURL.lastPathComponent)"
+            )
+        }
     }
 
     func testScanProgressMessageDoesNotExposePersonalPath() async {
@@ -43,24 +75,41 @@ final class DashboardScanOperationTests: XCTestCase {
 
         model.startScan()
         await fake.waitUntilStarted()
-        await Task.yield()
+        let receivedSanitizedProgress = await waitUntil {
+            model.activity(for: .scan).message == "Measured 100 items"
+        }
 
+        XCTAssertTrue(receivedSanitizedProgress)
+        XCTAssertEqual(model.activity(for: .scan).message, "Measured 100 items")
         XCTAssertFalse(model.activity(for: .scan).message.contains("/Users/"))
 
         model.cancelScan()
         await fake.waitUntilCancelled()
-        await waitUntil { model.activity(for: .scan) == .idle }
+        let becameIdle = await waitUntil { model.activity(for: .scan) == .idle }
+        XCTAssertTrue(becameIdle)
     }
 
     private func waitUntil(
         timeout: Duration = .seconds(2),
         condition: @escaping @MainActor () -> Bool
-    ) async {
+    ) async -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
         while !condition(), clock.now < deadline {
             await Task.yield()
         }
+        return condition()
+    }
+
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func source(_ relativePath: String) throws -> String {
+        try String(contentsOf: repositoryRoot.appendingPathComponent(relativePath), encoding: .utf8)
     }
 }
 

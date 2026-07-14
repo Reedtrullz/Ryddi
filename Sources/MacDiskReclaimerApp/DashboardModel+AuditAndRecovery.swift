@@ -164,16 +164,15 @@ extension DashboardModel {
     }
 
     func addUserPathRule(path: String, kind: UserPathPolicyKind, reason: String) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Updating path policy")
+        defer { activities.finish(.review, id: activityID) }
         do {
             _ = try UserPathPolicyStore().add(path: path, kind: kind, reason: reason)
             userPathPolicy = UserPathPolicyStore().load()
             error = nil
             if !findings.isEmpty {
-                isWorking = false
+                activities.finish(.review, id: activityID)
                 await scan()
-                isWorking = true
             }
         } catch {
             self.error = error.localizedDescription
@@ -181,16 +180,15 @@ extension DashboardModel {
     }
 
     func removeUserPathRule(_ rule: UserPathRule) async {
-        isWorking = true
-        defer { isWorking = false }
+        let activityID = activities.begin(.review, message: "Updating path policy")
+        defer { activities.finish(.review, id: activityID) }
         do {
             _ = try UserPathPolicyStore().remove(path: rule.path, kind: rule.kind)
             userPathPolicy = UserPathPolicyStore().load()
             error = nil
             if !findings.isEmpty {
-                isWorking = false
+                activities.finish(.review, id: activityID)
                 await scan()
-                isWorking = true
             }
         } catch {
             self.error = error.localizedDescription

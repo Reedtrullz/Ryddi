@@ -4,13 +4,21 @@ public final class ScanCancellationToken: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
     private let externalCancellationCheck: (@Sendable () -> Bool)?
+    private let allowsCancellation: Bool
 
     public init() {
         externalCancellationCheck = nil
+        allowsCancellation = true
+    }
+
+    fileprivate init(allowsCancellation: Bool) {
+        externalCancellationCheck = nil
+        self.allowsCancellation = allowsCancellation
     }
 
     init(isCancelled: @escaping @Sendable () -> Bool) {
         externalCancellationCheck = isCancelled
+        allowsCancellation = true
     }
 
     public var isCancelled: Bool {
@@ -18,6 +26,7 @@ public final class ScanCancellationToken: @unchecked Sendable {
     }
 
     public func cancel() {
+        guard allowsCancellation else { return }
         lock.withLock { cancelled = true }
     }
 }
@@ -64,5 +73,5 @@ public struct ScanControl: Sendable {
         self.init(cancellation: ScanCancellationToken(isCancelled: isCancelled))
     }
 
-    public static let none = ScanControl(cancellation: ScanCancellationToken())
+    public static let none = ScanControl(cancellation: ScanCancellationToken(allowsCancellation: false))
 }

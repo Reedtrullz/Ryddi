@@ -14,6 +14,29 @@ final class ScanControlTests: XCTestCase {
         XCTAssertTrue(token.isCancelled)
     }
 
+    func testCancellingNoneCannotCancelSubsequentDefaultScans() throws {
+        ScanControl.none.cancellation.cancel()
+        XCTAssertFalse(ScanControl.none.cancellation.isCancelled)
+
+        let fixture = try ScanControlFixture(fileCount: 2)
+        let scanner = try FileScanner()
+        let scopes = [ScanScope(name: "Fixture", root: fixture.root)]
+        let options = ScanOptions(
+            minimumFindingSize: 0,
+            maximumFindingDepth: 1,
+            measurementDepth: 1,
+            measurementItemBudget: 10
+        )
+
+        for _ in 0..<2 {
+            let result = scanner.scanWithCoverage(scopes: scopes, options: options)
+
+            XCTAssertEqual(result.coverage.state, .complete)
+            XCTAssertGreaterThan(result.coverage.measuredItemCount, 0)
+            XCTAssertFalse(result.coverage.evidence.contains { $0.localizedCaseInsensitiveContains("cancelled") })
+        }
+    }
+
     func testCancelledWalkerStopsBeforeBudget() throws {
         let fixture = try ScanControlFixture(fileCount: 120)
         let token = ScanCancellationToken()

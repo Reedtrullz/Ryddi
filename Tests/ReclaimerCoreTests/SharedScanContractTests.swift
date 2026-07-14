@@ -25,7 +25,18 @@ final class SharedScanContractTests: XCTestCase {
 
         XCTAssertTrue(appModel.contains("let dashboard: DashboardModel"))
         XCTAssertTrue(appModel.contains("func scanFromMenuBar() async"))
-        XCTAssertTrue(appModel.contains("await dashboard.scan()"))
+        XCTAssertTrue(appModel.contains("dashboard.startScan()"))
+        XCTAssertFalse(appModel.contains("dashboard.scan()"))
+    }
+
+    func testVisibleScanTriggersStartTheSharedOperationDirectly() throws {
+        let dashboard = try source("Sources/MacDiskReclaimerApp/DashboardContentViews.swift")
+        let guided = try source("Sources/MacDiskReclaimerApp/GuidedSummaryView.swift")
+
+        XCTAssertTrue(dashboard.contains("model.startScan()"))
+        XCTAssertFalse(dashboard.contains("model.scan()"))
+        XCTAssertEqual(guided.components(separatedBy: "model.startScan()").count - 1, 2)
+        XCTAssertFalse(guided.contains("model.scan()"))
     }
 
     private func source(_ relativePath: String) throws -> String {
