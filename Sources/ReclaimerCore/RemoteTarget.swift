@@ -672,6 +672,7 @@ public final class RemoteTargetResolver: @unchecked Sendable {
     private let configURL: URL
     private let knownHostsURL: URL
     private let runner: any ToolCommandRunning
+    private let knownHostsInspector: KnownHostsInspector
 
     public init(
         configURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh/config"),
@@ -681,6 +682,7 @@ public final class RemoteTargetResolver: @unchecked Sendable {
         self.configURL = configURL.standardizedFileURL
         self.knownHostsURL = knownHostsURL.standardizedFileURL
         self.runner = runner
+        self.knownHostsInspector = KnownHostsInspector(runner: runner)
     }
 
     public func targets() -> [RemoteTargetReference] {
@@ -705,7 +707,7 @@ public final class RemoteTargetResolver: @unchecked Sendable {
         let fields = Self.parseSSHConfigDump(output.stdout)
         let host = fields["hostname"] ?? trimmed
         let port = fields["port"].flatMap(Int.init)
-        let knownHost = knownHostState(host: host, port: port)
+        let knownHost = knownHostsInspector.inspect(host: host, port: port, file: knownHostsURL)
         let alias = targets().contains { $0.input == trimmed } ? trimmed : nil
         return RemoteTargetReference(
             input: trimmed,
@@ -713,7 +715,7 @@ public final class RemoteTargetResolver: @unchecked Sendable {
             resolvedUser: fields["user"],
             resolvedHost: host,
             resolvedPort: port,
-            knownHostsState: knownHost.state,
+            knownHostsState: knownHost.state.rawValue,
             fingerprint: knownHost.fingerprint
         )
     }
@@ -788,23 +790,6 @@ public final class RemoteTargetResolver: @unchecked Sendable {
         }
         regex += "$"
         return value.range(of: regex, options: [.regularExpression]) != nil
-    }
-
-    private func knownHostState(host: String, port: Int?) -> (state: String, fingerprint: String?) {
-        guard let text = try? String(contentsOf: knownHostsURL, encoding: .utf8) else {
-            return ("unknown", nil)
-        }
-        let hostTokens = [host, port.map { "[\(host)]:\($0)" }].compactMap { $0 }
-        for line in text.split(whereSeparator: \.isNewline).map(String.init) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
-            let fields = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
-            guard fields.count >= 3 else { continue }
-            let hosts = fields[0].split(separator: ",").map(String.init)
-            guard hosts.contains(where: { hostTokens.contains($0) }) else { continue }
-            return ("known", "\(fields[1]):\(String(fields[2].prefix(12)))")
-        }
-        return ("unknown", nil)
     }
 
     private static func expandTilde(_ value: String) -> String {

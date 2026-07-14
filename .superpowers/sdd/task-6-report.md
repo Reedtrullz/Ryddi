@@ -1,62 +1,72 @@
-# Task 6 Report: Split App Shell Files
+# Task 6 Report: Correct Known-Hosts Evidence
 
-Date: 2026-07-09 22:05 CEST
+Date: 2026-07-14
 
 ## Status
 
-Complete. `MacDiskReclaimerApp.swift` is reduced to scene declarations only and is under the 90-line acceptance threshold.
+Implementation and local review complete. Subagent review was unavailable because
+the account reached its subagent usage limit, so the controller performed the
+task review and reran focused and full verification directly.
 
-## RED/GREEN/build evidence
+## RED Evidence
 
-- RED: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testAppEntrypointAndShellTypesAreSplitIntoFocusedFiles`
-  - Result: exit 1. Build completed, then the focused test failed because `Sources/MacDiskReclaimerApp/DashboardView.swift` did not exist.
-- GREEN: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testAppEntrypointAndShellTypesAreSplitIntoFocusedFiles`
-  - Result: exit 0. Executed 1 test, 0 failures.
-- Layout slice: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests`
-  - First result: exit 1. Executed 24 tests, 1 failure in `testDashboardNavigationUsesTypedSectionsAndSceneStorage` because the helper still sliced the old monolithic app source from `DashboardView` to `OverviewView`.
-  - Fix: changed `dashboardViewSource()` to read `Sources/MacDiskReclaimerApp/DashboardView.swift` directly; assertions were unchanged.
-  - Final result: exit 0. Executed 24 tests, 0 failures.
-- Build: `swift build --scratch-path "$PWD/.build"`
-  - Result: exit 0. Build complete.
-- Whitespace: `git diff --check`
-  - Result: exit 0.
-
-## Line counts after split
-
-```text
-32    Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift
-19    Sources/MacDiskReclaimerApp/RyddiWindowLayout.swift
-245   Sources/MacDiskReclaimerApp/DashboardView.swift
-6672  Sources/MacDiskReclaimerApp/DashboardContentViews.swift
-67    Sources/MacDiskReclaimerApp/PathActions.swift
-182   Sources/MacDiskReclaimerApp/StatusMenuView.swift
+```bash
+swift test --scratch-path "$PWD/.build" --filter KnownHostsInspectorTests
 ```
 
-## Files moved
+Exit `1`: the focused test target could not find `KnownHostsInspector` or
+`KnownHostEvidence`. This was the intended pre-implementation failure.
 
-- `RyddiWindowLayout` and `DashboardResponsiveGrid` moved to `Sources/MacDiskReclaimerApp/RyddiWindowLayout.swift`.
-- `DashboardView` moved to `Sources/MacDiskReclaimerApp/DashboardView.swift`.
-- The untouched remaining detail/support-view declarations moved to `Sources/MacDiskReclaimerApp/DashboardContentViews.swift`.
-- `PathActions` moved to `Sources/MacDiskReclaimerApp/PathActions.swift`.
-- `StatusMenuView`, `DiskPressureBadge`, and `StatusMenuModel` moved to `Sources/MacDiskReclaimerApp/StatusMenuView.swift`.
+## Implementation
 
-## Access/import changes
+- Added `KnownHostsInspector` and `KnownHostEvidence`.
+- Resolves literal and hashed entries through `/usr/bin/ssh-keygen -F` rather
+  than parsing host tokens in `known_hosts` directly.
+- Uses bracketed host syntax for nondefault ports, including IPv6 hosts.
+- Parses at most 512,000 bytes and 128 output lines.
+- Accepts only a valid key type followed by valid base64 key bytes.
+- Computes the full `SHA256:<base64-without-padding>` fingerprint with
+  CryptoKit.
+- Distinguishes a clean no-match (`unknown`) from launch, timeout, missing-file,
+  or command failures (`unavailable`).
+- `RemoteTargetResolver` now uses the inspector for resolved host and port
+  evidence.
+- Moved the resolver/config/include regression test from the monolithic core
+  test file into `KnownHostsInspectorTests.swift`.
+- Left `RemoteSSHCommandRunner` unchanged; its `StrictHostKeyChecking=yes`
+  contract remains independently tested.
 
-- `RyddiWindowLayout` changed from `private enum` to module-internal `enum` so `MacDiskReclaimerApp.swift` can reference it after the split.
-- `MacDiskReclaimerApp.swift` now imports only `SwiftUI`.
-- `RyddiWindowLayout.swift` imports `SwiftUI`.
-- `DashboardView.swift` imports `SwiftUI` and `ReclaimerCore`.
-- `DashboardContentViews.swift` imports `SwiftUI`, `ReclaimerCore`, `UniformTypeIdentifiers`, and macOS-only `AppKit`.
-- `PathActions.swift` imports `Foundation` and macOS-only `AppKit`.
-- `StatusMenuView.swift` imports `SwiftUI`, `ReclaimerCore`, and macOS-only `AppKit`.
+## Verification
 
-## Self-review
+```text
+KnownHostsInspectorTests: 7 tests, 0 failures
+RemoteTarget filter: 7 tests, 0 failures
+RemoteSSH filter: 3 tests, 0 failures
+Full suite: 596 tests, 1 existing release-only skip, 0 failures
+swift build: exit 0
+git diff --check: exit 0
+```
 
-- Mechanical comparison against `HEAD:Sources/MacDiskReclaimerApp/MacDiskReclaimerApp.swift` found `DashboardView`, `DashboardContentViews`, `PathActions`, and `StatusMenuView` declaration text identical after extraction.
-- `RyddiWindowLayout` was identical except for the required access widening from `private` to module-internal.
-- No `DashboardModel` files or model behavior were edited.
-- Existing tests still cover Task 4 focused command actions and Task 5 persisted export settings through the app target source aggregate.
+A disposable local `ssh-keygen` behavior probe also confirmed:
 
-## Concerns
+```text
+no match: exit 1, empty stdout/stderr
+missing known_hosts file: exit 255 with stderr
+```
 
-- Full `swift test` was not run; verification used the requested focused boundary test, layout test slice, `swift build`, and diff checks.
+## Local Review
+
+- The runner receives one argument per field, so host and file values are not
+  shell-interpreted.
+- Hashed host tokens are never decoded or exposed by Ryddi; OpenSSH performs the
+  lookup.
+- Fingerprints are calculated from decoded key bytes, not from truncated key
+  text.
+- Malformed or over-bound output cannot produce a `known` result.
+- Unknown display evidence does not weaken SSH host-key enforcement.
+
+## Non-Claims
+
+- No live SSH target was contacted.
+- No private key, SSH agent, password, Keychain, cleanup, signing, install, CI,
+  push, tag, notarization, or release action was performed.
