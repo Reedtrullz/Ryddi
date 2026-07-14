@@ -41,23 +41,13 @@ final class ScopeAccessProbeTests: XCTestCase {
     }
 
     func testExistingDirectoryWhoseListingIsDeniedIsNotReadable() {
-        let underlying = NSError(
-            domain: NSPOSIXErrorDomain,
-            code: Int(EPERM),
-            userInfo: ["private-entry": "do-not-record"]
-        )
-        let error = NSError(
-            domain: NSCocoaErrorDomain,
-            code: 257,
-            userInfo: [NSUnderlyingErrorKey: underlying, NSFilePathErrorKey: "/Users/private/secret"]
-        )
-        let fileManager = StubProbeFileManager(
-            fileType: .typeDirectory,
-            listingError: error,
-            directoryEntries: ["private-name"]
-        )
+        let fileManager = StubProbeFileManager(fileType: .typeDirectory)
+        let directoryAccess = SpyDirectoryAccessOperation(errorCode: EPERM)
 
-        let result = FileManagerScopeAccessProbe(fileManager: fileManager)
+        let result = FileManagerScopeAccessProbe(
+            fileManager: fileManager,
+            directoryAccessOperation: directoryAccess
+        )
             .probe(URL(fileURLWithPath: "/protected"))
 
         XCTAssertEqual(result.state, .permissionDenied)
@@ -67,18 +57,21 @@ final class ScopeAccessProbeTests: XCTestCase {
         XCTAssertFalse(result.detail.contains("secret"))
     }
 
-    func testDirectoryEntryNamesAreDiscardedFromEvidence() {
-        let fileManager = StubProbeFileManager(
-            fileType: .typeDirectory,
-            directoryEntries: ["customer-secrets.db"]
-        )
+    func testDirectoryProbeUsesOneBoundedOperationWithoutMaterializingNames() {
+        let fileManager = StubProbeFileManager(fileType: .typeDirectory)
+        let directoryAccess = SpyDirectoryAccessOperation(errorCode: nil)
 
-        let result = FileManagerScopeAccessProbe(fileManager: fileManager)
+        let result = FileManagerScopeAccessProbe(
+            fileManager: fileManager,
+            directoryAccessOperation: directoryAccess
+        )
             .probe(URL(fileURLWithPath: "/fixture"))
 
         XCTAssertEqual(result.state, .readable)
         XCTAssertEqual(result.operation, .listDirectory)
-        XCTAssertFalse(result.detail.contains("customer-secrets.db"))
+        XCTAssertEqual(directoryAccess.callCount, 1)
+        XCTAssertEqual(directoryAccess.maximumEntriesRequested, [1])
+        XCTAssertEqual(fileManager.contentsOfDirectoryCallCount, 0)
     }
 
     func testMissingPathUsesNormalizedENOENTEvidence() {
@@ -267,19 +260,14 @@ private struct FixedScopeAccessProbe: ScopeAccessProbing {
 private final class StubProbeFileManager: FileManager, @unchecked Sendable {
     private let fileType: FileAttributeType
     private let metadataError: Error?
-    private let listingError: Error?
-    private let directoryEntries: [String]
+    private(set) var contentsOfDirectoryCallCount = 0
 
     init(
         fileType: FileAttributeType = .typeRegular,
-        metadataError: Error? = nil,
-        listingError: Error? = nil,
-        directoryEntries: [String] = []
+        metadataError: Error? = nil
     ) {
         self.fileType = fileType
         self.metadataError = metadataError
-        self.listingError = listingError
-        self.directoryEntries = directoryEntries
         super.init()
     }
 
@@ -291,9 +279,30 @@ private final class StubProbeFileManager: FileManager, @unchecked Sendable {
     }
 
     override func contentsOfDirectory(atPath path: String) throws -> [String] {
-        if let listingError {
-            throw listingError
-        }
-        return directoryEntries
+        contentsOfDirectoryCallCount += 1
+        return ["this-name-must-never-be-materialized"]
+    }
+}
+
+private final class SpyDirectoryAccessOperation: DirectoryAccessOperating, @unchecked Sendable {
+    private let lock = NSLock()
+    private let errorCode: Int32?
+    private var requestedEntryLimits = [Int]()
+
+    init(errorCode: Int32?) {
+        self.errorCode = errorCode
+    }
+
+    var callCount: Int {
+        lock.withLock { requestedEntryLimits.count }
+    }
+
+    var maximumEntriesRequested: [Int] {
+        lock.withLock { requestedEntryLimits }
+    }
+
+    func accessDirectory(atPath path: String, maximumEntryCount: Int) -> Int32? {
+        lock.withLock { requestedEntryLimits.append(maximumEntryCount) }
+        return errorCode
     }
 }

@@ -1104,6 +1104,7 @@ public enum FindingAnalytics {
         offenderGroup: TopOffenderGroup = .none,
         now: Date = Date(),
         fileManager: FileManager = .default,
+        scopeAccessSummaries: [ScopeAccessSummary]? = nil,
         scopeAccessProbe: (any ScopeAccessProbing)? = nil
     ) -> ScanOverview {
         let accountingFindings = nonOverlappingFindings(findings)
@@ -1137,7 +1138,7 @@ public enum FindingAnalytics {
             safetySummaries: bucket(accountingFindings, by: { $0.safetyClass.label }),
             categorySummaries: bucket(accountingFindings, by: { $0.primaryCategory }),
             scopeSizeSummaries: bucket(accountingFindings, by: { $0.scopeName }),
-            scopeSummaries: PermissionAdvisor.report(
+            scopeSummaries: scopeAccessSummaries ?? PermissionAdvisor.report(
                 scopes: scopes,
                 now: now,
                 fileManager: fileManager,

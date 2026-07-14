@@ -70,6 +70,93 @@ final class BoundedFileTreeWalkerTests: XCTestCase {
         XCTAssertEqual(tree.coverage.state, .bounded)
         XCTAssertTrue(tree.coverage.evidence.contains { $0.contains("cancelled") })
     }
+
+    func testPostProbeMissingRootRemainsMissingWithoutPermissionEvidence() throws {
+        let fixture = try ScannerFixture()
+        let root = try fixture.directory("vanishing-root")
+        let probe = RemovingReadableScopeAccessProbe()
+        let scanner = try FileScanner(
+            openFileChecker: NoOpenFilesChecker(),
+            scopeAccessProbe: probe
+        )
+
+        let result = scanner.scanWithCoverage(
+            scopes: [ScanScope(name: "Vanishing", root: root)],
+            options: ScanOptions(minimumFindingSize: 0, measurementItemBudget: 10)
+        )
+
+        XCTAssertEqual(result.coverage.state, .complete)
+        XCTAssertEqual(result.coverage.rootsMissing, 1)
+        XCTAssertEqual(result.coverage.rootsPermissionDenied, 0)
+        XCTAssertEqual(result.coverage.rootsUnknown, 0)
+        XCTAssertEqual(result.coverage.scopeAccessSummaries?.first?.permissionState, .missing)
+        XCTAssertEqual(result.coverage.scopeAccessSummaries?.first?.operation, .metadata)
+        XCTAssertEqual(result.coverage.scopeAccessSummaries?.first?.errorCode, Int(ENOENT))
+        XCTAssertFalse(result.coverage.evidence.joined().contains("permission"))
+    }
+
+    func testPostProbeUnknownListingFailureDoesNotBecomePermissionDenied() throws {
+        let fixture = try ScannerFixture()
+        let root = try fixture.directory("listing-failure")
+        let fileManager = ThrowingDirectoryFileManager(error: POSIXError(.EIO))
+        let scanner = try FileScanner(
+            fileManager: fileManager,
+            openFileChecker: NoOpenFilesChecker(),
+            scopeAccessProbe: FixedReadableScopeAccessProbe()
+        )
+
+        let result = scanner.scanWithCoverage(
+            scopes: [ScanScope(name: "Unknown listing", root: root)],
+            options: ScanOptions(minimumFindingSize: 0, measurementItemBudget: 10)
+        )
+
+        XCTAssertEqual(result.coverage.state, .degraded)
+        XCTAssertEqual(result.coverage.rootsMissing, 0)
+        XCTAssertEqual(result.coverage.rootsPermissionDenied, 0)
+        XCTAssertEqual(result.coverage.rootsUnknown, 1)
+        XCTAssertEqual(result.coverage.scopeAccessSummaries?.first?.permissionState, .unknown)
+        XCTAssertEqual(result.coverage.scopeAccessSummaries?.first?.operation, .listDirectory)
+        XCTAssertEqual(result.coverage.scopeAccessSummaries?.first?.errorCode, Int(EIO))
+        XCTAssertFalse(result.coverage.evidence.joined().contains("permission was denied"))
+    }
+}
+
+private struct FixedReadableScopeAccessProbe: ScopeAccessProbing {
+    func probe(_ url: URL) -> ScopeAccessProbeResult {
+        ScopeAccessProbeResult(
+            state: .readable,
+            operation: .listDirectory,
+            detail: "Directory access succeeded."
+        )
+    }
+}
+
+private struct RemovingReadableScopeAccessProbe: ScopeAccessProbing {
+    func probe(_ url: URL) -> ScopeAccessProbeResult {
+        try? FileManager.default.removeItem(at: url)
+        return ScopeAccessProbeResult(
+            state: .readable,
+            operation: .listDirectory,
+            detail: "Directory access succeeded before the path disappeared."
+        )
+    }
+}
+
+private final class ThrowingDirectoryFileManager: FileManager, @unchecked Sendable {
+    private let error: Error
+
+    init(error: Error) {
+        self.error = error
+        super.init()
+    }
+
+    override func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options mask: FileManager.DirectoryEnumerationOptions = []
+    ) throws -> [URL] {
+        throw error
+    }
 }
 
 private final class CancellationProbe: @unchecked Sendable {

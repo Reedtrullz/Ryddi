@@ -55,6 +55,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
     public let maximumMeasurementDepth: Int
     public let evidence: [String]
     public let scopeCoverage: [ScanScopeCoverage]
+    public let scopeAccessSummaries: [ScopeAccessSummary]?
 
     public init(
         state: ScanCoverageState,
@@ -68,7 +69,8 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         rootsPermissionDenied: Int? = nil,
         rootsUnknown: Int = 0,
         evidence: [String] = [],
-        scopeCoverage: [ScanScopeCoverage] = []
+        scopeCoverage: [ScanScopeCoverage] = [],
+        scopeAccessSummaries: [ScopeAccessSummary]? = nil
     ) {
         let permissionDenied = rootsPermissionDenied ?? rootsDenied
         self.state = state
@@ -83,6 +85,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         self.maximumMeasurementDepth = maximumMeasurementDepth
         self.evidence = evidence
         self.scopeCoverage = scopeCoverage
+        self.scopeAccessSummaries = scopeAccessSummaries
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -98,6 +101,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         case maximumMeasurementDepth
         case evidence
         case scopeCoverage
+        case scopeAccessSummaries
     }
 
     public init(from decoder: Decoder) throws {
@@ -117,6 +121,10 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
             [ScanScopeCoverage].self,
             forKey: .scopeCoverage
         ) ?? []
+        scopeAccessSummaries = try container.decodeIfPresent(
+            [ScopeAccessSummary].self,
+            forKey: .scopeAccessSummaries
+        )
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -133,6 +141,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         try container.encode(maximumMeasurementDepth, forKey: .maximumMeasurementDepth)
         try container.encode(evidence, forKey: .evidence)
         try container.encode(scopeCoverage, forKey: .scopeCoverage)
+        try container.encodeIfPresent(scopeAccessSummaries, forKey: .scopeAccessSummaries)
     }
 
     public var nonClaim: String {

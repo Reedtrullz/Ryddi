@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public enum ScopeAccessOperation: String, Codable, Hashable, Sendable {
@@ -29,11 +30,44 @@ public protocol ScopeAccessProbing: Sendable {
     func probe(_ url: URL) -> ScopeAccessProbeResult
 }
 
+protocol DirectoryAccessOperating: Sendable {
+    func accessDirectory(atPath path: String, maximumEntryCount: Int) -> Int32?
+}
+
+private struct POSIXDirectoryAccessOperation: DirectoryAccessOperating {
+    func accessDirectory(atPath path: String, maximumEntryCount: Int) -> Int32? {
+        path.withCString { pathPointer in
+            guard let directory = opendir(pathPointer) else { return errno }
+
+            errno = 0
+            if maximumEntryCount > 0 {
+                _ = readdir(directory)
+            }
+            let readError = errno
+            let closeResult = closedir(directory)
+            if readError != 0 {
+                return readError
+            }
+            return closeResult == 0 ? nil : errno
+        }
+    }
+}
+
 public struct FileManagerScopeAccessProbe: ScopeAccessProbing, @unchecked Sendable {
     private let fileManager: FileManager
+    private let directoryAccessOperation: any DirectoryAccessOperating
 
     public init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
+        self.directoryAccessOperation = POSIXDirectoryAccessOperation()
+    }
+
+    init(
+        fileManager: FileManager,
+        directoryAccessOperation: any DirectoryAccessOperating
+    ) {
+        self.fileManager = fileManager
+        self.directoryAccessOperation = directoryAccessOperation
     }
 
     public func probe(_ url: URL) -> ScopeAccessProbeResult {
@@ -49,21 +83,25 @@ public struct FileManagerScopeAccessProbe: ScopeAccessProbing, @unchecked Sendab
             }
             fileType = type
         } catch {
-            return failure(error, operation: .metadata)
+            return .failure(error, operation: .metadata)
         }
 
         switch fileType {
         case .typeDirectory:
-            do {
-                _ = try fileManager.contentsOfDirectory(atPath: url.path)
-                return ScopeAccessProbeResult(
-                    state: .readable,
-                    operation: .listDirectory,
-                    detail: "Directory listing succeeded; returned entry names were discarded."
+            if let errorCode = directoryAccessOperation.accessDirectory(
+                atPath: url.path,
+                maximumEntryCount: 1
+            ) {
+                return .failure(
+                    NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode)),
+                    operation: .listDirectory
                 )
-            } catch {
-                return failure(error, operation: .listDirectory)
             }
+            return ScopeAccessProbeResult(
+                state: .readable,
+                operation: .listDirectory,
+                detail: "Directory access succeeded after reading at most one entry; its name was discarded."
+            )
         case .typeRegular:
             do {
                 let handle = try FileHandle(forReadingFrom: url)
@@ -74,7 +112,7 @@ public struct FileManagerScopeAccessProbe: ScopeAccessProbing, @unchecked Sendab
                     detail: "Regular file opened read-only and closed without reading contents."
                 )
             } catch {
-                return failure(error, operation: .openFile)
+                return .failure(error, operation: .openFile)
             }
         default:
             return ScopeAccessProbeResult(
@@ -85,39 +123,22 @@ public struct FileManagerScopeAccessProbe: ScopeAccessProbing, @unchecked Sendab
         }
     }
 
-    private func failure(_ error: Error, operation: ScopeAccessOperation) -> ScopeAccessProbeResult {
-        let code = normalizedPOSIXCode(in: error)
-        let state: ScopeReadability
-        switch code {
-        case Int(ENOENT), Int(ENOTDIR):
-            state = .missing
-        case Int(EACCES), Int(EPERM):
-            state = .permissionDenied
-        default:
-            state = .unknown
-        }
+}
+
+extension ScopeAccessProbeResult {
+    static func failure(_ error: Error, operation: ScopeAccessOperation) -> ScopeAccessProbeResult {
+        let code = ScopeReadability.normalizedPOSIXCode(in: error)
+        let state = ScopeReadability.classify(error: error)
 
         return ScopeAccessProbeResult(
             state: state,
             operation: operation,
             errorCode: code,
-            detail: detail(for: state, operation: operation, hasPOSIXCode: code != nil)
+            detail: failureDetail(for: state, operation: operation, hasPOSIXCode: code != nil)
         )
     }
 
-    private func normalizedPOSIXCode(in error: Error) -> Int? {
-        var current: NSError? = error as NSError
-        for _ in 0..<8 {
-            guard let candidate = current else { return nil }
-            if candidate.domain == NSPOSIXErrorDomain {
-                return candidate.code
-            }
-            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
-        }
-        return nil
-    }
-
-    private func detail(
+    private static func failureDetail(
         for state: ScopeReadability,
         operation: ScopeAccessOperation,
         hasPOSIXCode: Bool

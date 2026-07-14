@@ -12,8 +12,17 @@ extension ReclaimerCLI {
         case "record":
             let scopes = try options.scopes(includeUnavailable: true)
             let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: options.noLsof ? NoOpenFilesChecker() : LsofOpenFileChecker())
-            let findings = scanner.scan(scopes: scopes, options: options.scanOptions(includeOpenFiles: options.includeOpenFiles))
-            let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+            let result = scanner.scanWithCoverage(
+                scopes: scopes,
+                options: options.scanOptions(includeOpenFiles: options.includeOpenFiles)
+            )
+            let findings = result.findings
+            let overview = FindingAnalytics.overview(
+                findings: findings,
+                scopes: scopes,
+                topLimit: options.limit,
+                scopeAccessSummaries: result.coverage.scopeAccessSummaries
+            )
             let snapshot = FindingAnalytics.snapshot(from: overview)
             let url = try store.save(snapshot: snapshot)
             if options.json {

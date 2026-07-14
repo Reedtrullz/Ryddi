@@ -3288,6 +3288,7 @@ struct PermissionCoverageView: View {
 struct PermissionAccessHelperPanel: View {
     let report: PermissionAdvisorReport
     let onRefresh: () -> Void
+    @State private var relaunchFailureMessage: String?
 
     private var blockingScopes: [ScopeAccessSummary] {
         report.blockingUnavailableScopes.sorted { lhs, rhs in
@@ -3333,7 +3334,12 @@ struct PermissionAccessHelperPanel: View {
                     .help("Refresh Coverage by repeating each configured scope operation.")
 
                     permissionButton("Relaunch Ryddi", systemImage: "arrow.trianglehead.clockwise") {
-                        PathActions.relaunchApplication()
+                        Task {
+                            let result = await PathActions.relaunchApplication()
+                            if case .failure(let failure) = result {
+                                relaunchFailureMessage = failure.message
+                            }
+                        }
                     }
                     .help("Relaunch Ryddi after changing macOS privacy settings.")
                 }
@@ -3364,6 +3370,19 @@ struct PermissionAccessHelperPanel: View {
                     }
                 }
             }
+        }
+        .alert(
+            "Relaunch Failed",
+            isPresented: Binding(
+                get: { relaunchFailureMessage != nil },
+                set: { if !$0 { relaunchFailureMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                relaunchFailureMessage = nil
+            }
+        } message: {
+            Text(relaunchFailureMessage ?? "Ryddi is still running.")
         }
     }
 

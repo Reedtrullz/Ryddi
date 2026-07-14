@@ -12,7 +12,8 @@ extension ReclaimerCLI {
             scopes: scopes,
             topLimit: options.limit,
             offenderSort: try options.topOffenderSort(),
-            offenderGroup: try options.topOffenderGroup()
+            offenderGroup: try options.topOffenderGroup(),
+            scopeAccessSummaries: result.coverage.scopeAccessSummaries
         ).withScanCoverage(result.coverage)
         if options.saveHistory {
             let url = try ScanHistoryStore().save(overview: overview)

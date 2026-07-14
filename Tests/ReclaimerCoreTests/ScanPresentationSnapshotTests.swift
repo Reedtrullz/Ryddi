@@ -62,6 +62,36 @@ final class ScanPresentationSnapshotTests: XCTestCase {
         XCTAssertEqual(first.reviewQueues.queues.reduce(0) { $0 + $1.count }, findings.count)
     }
 
+    func testScanCoverageEvidencePreventsPresentationReprobe() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RyddiSingleProbe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scope = ScanScope(name: "Single probe", root: root)
+        let probe = CountingStateChangingScopeAccessProbe()
+        let scanner = try FileScanner(
+            openFileChecker: NoOpenFilesChecker(),
+            scopeAccessProbe: probe
+        )
+
+        let result = scanner.scanWithCoverage(
+            scopes: [scope],
+            options: ScanOptions(minimumFindingSize: 0, measurementItemBudget: 10)
+        )
+        let snapshot = ScanPresentationSnapshot.build(
+            findings: result.findings,
+            scopes: [scope],
+            scanCoverage: result.coverage,
+            scopeAccessProbe: probe
+        )
+
+        XCTAssertEqual(probe.callCount, 1)
+        let scopeAccessSummaries = try XCTUnwrap(result.coverage.scopeAccessSummaries)
+        XCTAssertEqual(scopeAccessSummaries.count, 1)
+        XCTAssertEqual(snapshot.overview.scopeSummaries, scopeAccessSummaries)
+        XCTAssertEqual(snapshot.overview.scopeSummaries.first?.permissionState, .readable)
+    }
+
     // Release-only guard: 5,000 findings must build within a generous five-second ceiling.
     func testBuild5000FindingsCompletesWithinFiveSecondsInRelease() throws {
         #if DEBUG
@@ -135,5 +165,34 @@ final class ScanPresentationSnapshotTests: XCTestCase {
                 evidence: [Evidence(kind: "fixture", message: "Fixture evidence")]
             )
         }
+    }
+}
+
+private final class CountingStateChangingScopeAccessProbe: ScopeAccessProbing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+
+    var callCount: Int {
+        lock.withLock { calls }
+    }
+
+    func probe(_ url: URL) -> ScopeAccessProbeResult {
+        let currentCall = lock.withLock {
+            calls += 1
+            return calls
+        }
+        if currentCall == 1 {
+            return ScopeAccessProbeResult(
+                state: .readable,
+                operation: .listDirectory,
+                detail: "First operation succeeded."
+            )
+        }
+        return ScopeAccessProbeResult(
+            state: .permissionDenied,
+            operation: .listDirectory,
+            errorCode: Int(EACCES),
+            detail: "A later probe would disagree."
+        )
     }
 }

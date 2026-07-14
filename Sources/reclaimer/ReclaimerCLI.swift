@@ -221,7 +221,12 @@ struct ReclaimerCLI {
         let scanner = try FileScanner(ruleEngine: try options.ruleEngine(), openFileChecker: NoOpenFilesChecker())
         let result = scanner.scanWithCoverage(scopes: scopes, options: options.scanOptions(includeOpenFiles: false))
         let findings = result.findings
-        let overview = FindingAnalytics.overview(findings: findings, scopes: scopes, topLimit: options.limit)
+        let overview = FindingAnalytics.overview(
+            findings: findings,
+            scopes: scopes,
+            topLimit: options.limit,
+            scopeAccessSummaries: result.coverage.scopeAccessSummaries
+        )
         let store = AuditStore()
         let report = TrustReadinessBuilder.build(
             diskStatus: DiskStatusReader().snapshot(),

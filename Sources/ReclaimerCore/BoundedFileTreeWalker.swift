@@ -84,6 +84,7 @@ struct BoundedFileTreeWalker {
             }
 
             let probeResult = accessResult(for: root, fileManager: fileManager)
+            metrics[scopeIndex].accessResult = probeResult
             switch probeResult.state {
             case .missing:
                 metrics[scopeIndex].isMissing = true
@@ -151,17 +152,18 @@ struct BoundedFileTreeWalker {
                     break traversal
                 }
 
-                guard let values = try? entry.url.resourceValues(forKeys: Set(boundedResourceKeys)) else {
-                    metrics[scopeIndex].skippedItemCount += 1
-                    metrics[scopeIndex].hasUnreadableDescendant = true
-                    if entry.depth == 0 {
-                        metrics[scopeIndex].isPermissionDenied = true
-                        scopeIssues.append(.init(
-                            scopeIndex: scopeIndex,
-                            state: .denied,
-                            message: "Path is not readable with current permissions."
-                        ))
-                    }
+                let values: URLResourceValues
+                do {
+                    values = try entry.url.resourceValues(forKeys: Set(boundedResourceKeys))
+                } catch {
+                    recordTraversalFailure(
+                        error,
+                        operation: .metadata,
+                        entryDepth: entry.depth,
+                        scopeIndex: scopeIndex,
+                        metrics: &metrics,
+                        scopeIssues: &scopeIssues
+                    )
                     continue
                 }
 
@@ -226,16 +228,14 @@ struct BoundedFileTreeWalker {
                         ))
                     }
                 } catch {
-                    metrics[scopeIndex].skippedItemCount += 1
-                    metrics[scopeIndex].hasUnreadableDescendant = true
-                    if entry.depth == 0 {
-                        metrics[scopeIndex].isPermissionDenied = true
-                        scopeIssues.append(.init(
-                            scopeIndex: scopeIndex,
-                            state: .denied,
-                            message: "Could not list directory contents."
-                        ))
-                    }
+                    recordTraversalFailure(
+                        error,
+                        operation: .listDirectory,
+                        entryDepth: entry.depth,
+                        scopeIndex: scopeIndex,
+                        metrics: &metrics,
+                        scopeIssues: &scopeIssues
+                    )
                 }
             }
 
@@ -400,8 +400,71 @@ struct BoundedFileTreeWalker {
             rootsPermissionDenied: rootsPermissionDenied,
             rootsUnknown: rootsUnknown,
             evidence: evidence,
-            scopeCoverage: scopeCoverage
+            scopeCoverage: scopeCoverage,
+            scopeAccessSummaries: metrics.compactMap { metric in
+                metric.accessResult.map { result in
+                    PermissionAdvisor.scopeSummary(scope: metric.scope, result: result)
+                }
+            }
         )
+    }
+
+    private func recordTraversalFailure(
+        _ error: Error,
+        operation: ScopeAccessOperation,
+        entryDepth: Int,
+        scopeIndex: Int,
+        metrics: inout [ScopeMetrics],
+        scopeIssues: inout [BoundedFileTree.ScopeIssue]
+    ) {
+        let result = ScopeAccessProbeResult.failure(error, operation: operation)
+        if entryDepth == 0 {
+            metrics[scopeIndex].isMissing = false
+            metrics[scopeIndex].isPermissionDenied = false
+            metrics[scopeIndex].isUnknown = false
+            metrics[scopeIndex].accessResult = result
+            let state: PermissionState
+            let prefix: String
+            switch result.state {
+            case .missing:
+                metrics[scopeIndex].isMissing = true
+                metrics[scopeIndex].evidence.append("This optional scan root disappeared during measurement.")
+                state = .missing
+                prefix = "Path disappeared"
+            case .permissionDenied:
+                metrics[scopeIndex].skippedItemCount += 1
+                metrics[scopeIndex].isPermissionDenied = true
+                state = .denied
+                prefix = "Permission required"
+            case .unknown:
+                metrics[scopeIndex].skippedItemCount += 1
+                metrics[scopeIndex].isUnknown = true
+                state = .unknown
+                prefix = "Access check failed"
+            case .readable:
+                return
+            }
+            scopeIssues.append(.init(
+                scopeIndex: scopeIndex,
+                state: state,
+                message: probeEvidenceMessage(prefix: prefix, result: result)
+            ))
+            return
+        }
+
+        metrics[scopeIndex].skippedItemCount += 1
+        switch result.state {
+        case .missing:
+            metrics[scopeIndex].evidence.append("A queued descendant disappeared before it could be measured.")
+        case .permissionDenied:
+            metrics[scopeIndex].hasUnreadableDescendant = true
+            metrics[scopeIndex].evidence.append("A descendant operation was denied and was not measured.")
+        case .unknown:
+            metrics[scopeIndex].hasUnreadableDescendant = true
+            metrics[scopeIndex].evidence.append("A descendant operation failed without permission-denied evidence.")
+        case .readable:
+            break
+        }
     }
 
     private func accessResult(for root: URL, fileManager: FileManager) -> ScopeAccessProbeResult {
@@ -467,6 +530,7 @@ private struct ScopeMetrics {
     var hasUnreadableDescendant = false
     var wasCancelled = false
     var evidence = [String]()
+    var accessResult: ScopeAccessProbeResult?
 }
 
 private extension FileMeasurement {

@@ -7,9 +7,8 @@ public enum ScopeReadability: Hashable, Sendable {
     case unknown
 
     public static func classify(error: Error) -> ScopeReadability {
-        let error = error as NSError
-        if error.domain == NSPOSIXErrorDomain {
-            switch Int32(error.code) {
+        if let code = normalizedPOSIXCode(in: error) {
+            switch Int32(code) {
             case ENOENT, ENOTDIR:
                 return .missing
             case EACCES, EPERM:
@@ -18,17 +17,28 @@ public enum ScopeReadability: Hashable, Sendable {
                 return .unknown
             }
         }
+        let error = error as NSError
         if error.domain == NSCocoaErrorDomain {
             switch CocoaError.Code(rawValue: error.code) {
             case .fileNoSuchFile:
                 return .missing
-            case .fileReadNoPermission, .fileWriteNoPermission:
-                return .permissionDenied
             default:
                 return .unknown
             }
         }
         return .unknown
+    }
+
+    static func normalizedPOSIXCode(in error: Error) -> Int? {
+        var current: NSError? = error as NSError
+        for _ in 0..<8 {
+            guard let candidate = current else { return nil }
+            if candidate.domain == NSPOSIXErrorDomain {
+                return candidate.code
+            }
+            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return nil
     }
 }
 
@@ -232,38 +242,42 @@ public enum PermissionAdvisor {
         ]
     }
 
-    private static func scopeSummaries(
+    static func scopeSummaries(
         scopes: [ScanScope],
         probe: any ScopeAccessProbing
     ) -> [ScopeAccessSummary] {
         scopes.map { scope in
             let root = scope.root.standardizedFileURL
             let result = probe.probe(root)
-            let permissionState: PermissionState
-            let message: String
-            switch result.state {
-            case .missing:
-                permissionState = .missing
-                message = "Unavailable on this Mac: the configured operation found no path."
-            case .permissionDenied:
-                permissionState = .denied
-                message = "Permission required: the configured operation was denied."
-            case .unknown:
-                permissionState = .unknown
-                message = "Check failed: the configured operation did not produce conclusive access evidence."
-            case .readable:
-                permissionState = .readable
-                message = "Access verified: the configured operation succeeded."
-            }
-            return ScopeAccessSummary(
-                name: scope.name,
-                path: root.path,
-                permissionState: permissionState,
-                message: message,
-                operation: result.operation,
-                errorCode: result.errorCode,
-                detail: result.detail
-            )
+            return scopeSummary(scope: scope, result: result)
         }
+    }
+
+    static func scopeSummary(scope: ScanScope, result: ScopeAccessProbeResult) -> ScopeAccessSummary {
+        let permissionState: PermissionState
+        let message: String
+        switch result.state {
+        case .missing:
+            permissionState = .missing
+            message = "Unavailable on this Mac: the configured operation found no path."
+        case .permissionDenied:
+            permissionState = .denied
+            message = "Permission required: the configured operation was denied."
+        case .unknown:
+            permissionState = .unknown
+            message = "Check failed: the configured operation did not produce conclusive access evidence."
+        case .readable:
+            permissionState = .readable
+            message = "Access verified: the configured operation succeeded."
+        }
+        return ScopeAccessSummary(
+            name: scope.name,
+            path: scope.root.standardizedFileURL.path,
+            permissionState: permissionState,
+            message: message,
+            operation: result.operation,
+            errorCode: result.errorCode,
+            detail: result.detail
+        )
     }
 }
