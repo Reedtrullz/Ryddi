@@ -27,6 +27,7 @@ struct HarnessResult: Codable {
     let verificationActionVisible: Bool
     let candidateRowRemoved: Bool
     let reclaimActionHidden: Bool
+    let reclaimActionHiddenAfterVerificationScan: Bool
 }
 
 enum HarnessError: Error, CustomStringConvertible {
@@ -128,6 +129,11 @@ enum RyddiAXHarness {
             throw HarnessError.candidateStillExists(options.candidatePath)
         }
         checkpoints.append(.init(name: "trash-result", elapsedMilliseconds: elapsed(started)))
+        try checkpoint("verification-scan", started: started, into: &checkpoints) {
+            try press("summary.verify-cleanup-button", root: app)
+            try waitForVerificationScanCompletion(root: app, timeout: 90)
+            try assertElementMissing(identifier: "summary.reclaim-button", root: app, timeout: 20)
+        }
 
         try FileManager.default.createDirectory(at: options.output, withIntermediateDirectories: true)
         let responsiveProof = try captureResponsiveProof(app: app, pid: running.processIdentifier, output: options.output)
@@ -141,7 +147,8 @@ enum RyddiAXHarness {
             executionResultVisible: true,
             verificationActionVisible: true,
             candidateRowRemoved: true,
-            reclaimActionHidden: true
+            reclaimActionHidden: true,
+            reclaimActionHiddenAfterVerificationScan: true
         )
         let data = try JSONEncoder.pretty.encode(result)
         try data.write(to: options.output.appendingPathComponent("e2e-result.json"), options: .atomic)
@@ -216,6 +223,28 @@ enum RyddiAXHarness {
         dumpTree(root: root)
         if foundDisabled { throw HarnessError.disabledElement(identifier) }
         throw HarnessError.missingElement(identifier)
+    }
+
+    private static func waitForVerificationScanCompletion(
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let verificationFinished = find(identifier: "summary.verify-cleanup-button", root: root) == nil
+            let scanEnabled = find(identifier: "scan-button", root: root).map {
+                boolAttribute(kAXEnabledAttribute as String, element: $0) == true
+            } ?? false
+            let planEnabled = find(identifier: "summary.plan-button", root: root).map {
+                boolAttribute(kAXEnabledAttribute as String, element: $0) == true
+            } ?? false
+            if verificationFinished, scanEnabled, planEnabled {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        } while Date() < deadline
+        dumpTree(root: root)
+        throw HarnessError.missingElement("fresh verification scan completion")
     }
 
     private static func find(identifier: String, root: AXUIElement) -> AXUIElement? {

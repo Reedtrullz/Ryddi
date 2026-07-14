@@ -80,6 +80,7 @@ jq -e '
   and .verificationActionVisible == true
   and .candidateRowRemoved == true
   and .reclaimActionHidden == true
+  and .reclaimActionHiddenAfterVerificationScan == true
 ' "$output/e2e-result.json" >/dev/null
 
 test "$(shasum -a 256 "$browser_marker" | awk '{print $1}')" = "$browser_before"

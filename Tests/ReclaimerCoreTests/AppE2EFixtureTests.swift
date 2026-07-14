@@ -124,6 +124,23 @@ final class AppE2EFixtureTests: XCTestCase {
         XCTAssertTrue(releaseWorkflow.contains("RYDDI_E2E_MIN_FREE_GIB: \"5\""))
     }
 
+    func testPackagedAXHarnessKeepsReclaimBlockedAfterFreshVerificationScan() throws {
+        let root = repoRoot()
+        let harness = try String(
+            contentsOf: root.appendingPathComponent("Tests/AppE2E/RyddiAXHarness.swift"),
+            encoding: .utf8
+        )
+        let packagedAX = try String(
+            contentsOf: root.appendingPathComponent("Scripts/run-packaged-app-e2e.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(harness.contains("try press(\"summary.verify-cleanup-button\", root: app)"))
+        XCTAssertTrue(harness.contains("try waitForVerificationScanCompletion(root: app"))
+        XCTAssertTrue(harness.contains("reclaimActionHiddenAfterVerificationScan: true"))
+        XCTAssertTrue(packagedAX.contains(".reclaimActionHiddenAfterVerificationScan == true"))
+    }
+
     private func runFixtureScript(root: URL) throws -> (status: Int32, stdout: String, stderr: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
