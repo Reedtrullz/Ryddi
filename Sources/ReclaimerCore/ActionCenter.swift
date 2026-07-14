@@ -3,6 +3,7 @@ import Foundation
 public enum ActionCenterActionKind: String, Codable, CaseIterable, Hashable, Sendable {
     case grantAccess
     case runScan
+    case verifyCleanup
     case reviewQueue
     case runDryRun
     // Emitted only for a current, recoverable, one-time Trash confirmation flow.
@@ -124,6 +125,9 @@ public enum ActionCenterBuilder {
         if let action = scanAction(from: input.latestScanSession) {
             actions.append(action)
         }
+        if let action = verificationAction(from: input.latestScanSession) {
+            actions.append(action)
+        }
         actions.append(contentsOf: quitActions(
             activeFileReport: input.activeFileReviewReport,
             browserCacheReport: input.browserCacheReport
@@ -213,6 +217,20 @@ public enum ActionCenterBuilder {
             return true
         }
         return session.findingDigest == nil
+    }
+
+    private static func verificationAction(from session: ScanSession?) -> ActionCenterAction? {
+        guard let session, session.requiresVerificationScan else {
+            return nil
+        }
+        return ActionCenterAction(
+            id: "cleanup.verify.\(session.executionReceiptID ?? session.id)",
+            kind: .verifyCleanup,
+            title: "Verify Cleanup",
+            reason: "Run a fresh scan to verify the cleanup receipt against current disk state.",
+            priority: 1_100,
+            sourceIDs: [session.executionReceiptID, session.id].compactMap { $0 }
+        )
     }
 
     private static func quitActions(
@@ -337,6 +355,9 @@ public enum ActionCenterBuilder {
         receipt: ExecutionReceipt?,
         session: ScanSession?
     ) -> ActionCenterAction? {
+        guard session?.requiresVerificationScan != true else {
+            return nil
+        }
         guard let plan else {
             return nil
         }

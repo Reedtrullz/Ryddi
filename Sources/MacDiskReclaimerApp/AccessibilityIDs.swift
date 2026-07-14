@@ -9,6 +9,7 @@ enum AccessibilityID {
     static let flowStatus = "cleanup-flow-status"
     static let summaryPrimaryAction = "summary.primary-action"
     static let summaryScan = "summary.scan-button"
+    static let summaryVerifyCleanup = "summary.verify-cleanup-button"
     static let summaryPlan = "summary.plan-button"
     static let summaryDryRun = "summary.dry-run-button"
     static let summaryManualReview = "summary.manual-review-button"

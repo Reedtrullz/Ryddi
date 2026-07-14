@@ -39,6 +39,10 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
     public let stage: ScanSessionStage
     public let invalidationReasons: [ScanSessionInvalidationReason]
 
+    public var requiresVerificationScan: Bool {
+        stage == .executed || stage == .recoveryAvailable
+    }
+
     public init(
         id: String = UUID().uuidString,
         createdAt: Date = Date(),
@@ -119,7 +123,7 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
     }
 
     public func recordScan(findingDigest: String, updatedAt: Date = Date()) -> ScanSession {
-        copy(
+        return copy(
             updatedAt: updatedAt,
             findingDigest: findingDigest,
             planDigest: .some(nil),
@@ -131,7 +135,8 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
     }
 
     public func recordReviewSelection(findingDigest: String, updatedAt: Date = Date()) -> ScanSession {
-        copy(
+        guard !requiresVerificationScan else { return self }
+        return copy(
             updatedAt: updatedAt,
             findingDigest: findingDigest,
             planDigest: .some(nil),
@@ -143,6 +148,7 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
     }
 
     public func recordReviewSelection(updatedAt: Date = Date()) -> ScanSession {
+        guard !requiresVerificationScan else { return self }
         guard let findingDigest else {
             return copy(
                 updatedAt: updatedAt,
@@ -157,7 +163,8 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
     }
 
     public func recordPlan(planDigest: String, updatedAt: Date = Date()) -> ScanSession {
-        copy(
+        guard !requiresVerificationScan else { return self }
+        return copy(
             updatedAt: updatedAt,
             planDigest: planDigest,
             dryRunReceiptID: .some(nil),
@@ -168,7 +175,8 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
     }
 
     public func recordDryRunReceipt(_ receipt: ExecutionReceipt, updatedAt: Date = Date()) -> ScanSession {
-        copy(
+        guard !requiresVerificationScan else { return self }
+        return copy(
             updatedAt: updatedAt,
             dryRunReceiptID: receipt.id,
             executionReceiptID: .some(nil),
@@ -178,7 +186,8 @@ public struct ScanSession: Codable, Identifiable, Hashable, Sendable {
     }
 
     public func markReclaimReady(updatedAt: Date = Date()) -> ScanSession {
-        copy(updatedAt: updatedAt, stage: .reclaimReady, invalidationReasons: [])
+        guard !requiresVerificationScan else { return self }
+        return copy(updatedAt: updatedAt, stage: .reclaimReady, invalidationReasons: [])
     }
 
     public func recordExecutionReceipt(_ receipt: ExecutionReceipt, updatedAt: Date = Date()) -> ScanSession {

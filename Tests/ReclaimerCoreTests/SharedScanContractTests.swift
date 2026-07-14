@@ -35,7 +35,7 @@ final class SharedScanContractTests: XCTestCase {
 
         XCTAssertTrue(dashboard.contains("model.startScan()"))
         XCTAssertFalse(dashboard.contains("model.scan()"))
-        XCTAssertEqual(guided.components(separatedBy: "model.startScan()").count - 1, 2)
+        XCTAssertEqual(guided.components(separatedBy: "model.startScan()").count - 1, 3)
         XCTAssertFalse(guided.contains("model.scan()"))
     }
 

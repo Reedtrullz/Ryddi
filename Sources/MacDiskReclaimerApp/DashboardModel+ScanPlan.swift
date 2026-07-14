@@ -27,7 +27,6 @@ extension DashboardModel {
     }
 
     func refreshPresentationSnapshot(now: Date = Date()) async {
-        guard !findings.isEmpty else { return }
         let diagnosticSpan = diagnostics.begin(.presentation)
         defer { diagnostics.end(diagnosticSpan) }
         presentationRevision += 1
@@ -509,14 +508,25 @@ extension DashboardModel {
             if let currentScanSession {
                 try AuditStore().saveScanSession(currentScanSession)
             }
-            loadAudit()
-            loadRecovery()
+
+            let reconciliation = ExecutionReconciler.reconcile(
+                findings: findings,
+                receipt: receipt
+            )
+            findings = reconciliation.remainingFindings
+            self.plan = nil
+            lastDryRunReceipt = nil
+
+            await refreshPresentationSnapshot()
             diskStatus = DiskStatusReader().snapshot()
             let moved = receipt.actions.filter { $0.status == "done" }.count
             let blocked = receipt.actions.count - moved
             trashExecutionMessage = "Moved \(moved) item\(moved == 1 ? "" : "s") to Trash. \(blocked) skipped."
-            await refreshPresentationSnapshot()
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
+            Task { [weak self] in
+                self?.loadAudit()
+                self?.loadRecovery()
+            }
         } catch {
             diagnostics.record(error: .trashExecutionFailed)
             self.error = error.localizedDescription

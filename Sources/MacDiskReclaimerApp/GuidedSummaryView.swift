@@ -181,6 +181,7 @@ struct GuidedSummaryView: View {
         case .actionCenter(let action):
             switch action.kind {
             case .runScan: AccessibilityID.summaryScan
+            case .verifyCleanup: AccessibilityID.summaryVerifyCleanup
             case .runDryRun: AccessibilityID.summaryDryRun
             case .executeSafePlan: AccessibilityID.summaryReclaim
             case .grantAccess: "summary.permissions-button"
@@ -199,7 +200,7 @@ struct GuidedSummaryView: View {
         var commands = report.actions.dropFirst().map { SummaryCommand(action: $0) }
         let coreKinds = Set(report.actions.map(\.kind))
 
-        if !coreKinds.contains(.runScan) {
+        if !coreKinds.contains(.runScan), !coreKinds.contains(.verifyCleanup) {
             commands.append(.standard(
                 id: "command.scan",
                 title: model.findings.isEmpty ? "Scan" : "Scan Again",
@@ -209,7 +210,7 @@ struct GuidedSummaryView: View {
             ))
         }
 
-        if !model.findings.isEmpty {
+        if !model.findings.isEmpty, !coreKinds.contains(.verifyCleanup) {
             commands.append(.standard(
                 id: "command.plan",
                 title: "Plan",
@@ -219,7 +220,9 @@ struct GuidedSummaryView: View {
             ))
         }
 
-        if model.plan != nil, !coreKinds.contains(.runDryRun) {
+        if model.plan != nil,
+           !coreKinds.contains(.runDryRun),
+           !coreKinds.contains(.verifyCleanup) {
             commands.append(.standard(
                 id: "command.dry-run",
                 title: "Dry Run",
@@ -357,6 +360,8 @@ struct GuidedSummaryView: View {
             navigate("Permissions")
         case .runScan:
             model.startScan()
+        case .verifyCleanup:
+            model.startScan()
         case .reviewQueue:
             if let queueID = ReviewQueueID.parse(action.sourceIDs.first ?? "") {
                 model.recordReviewSelection(queueID)
@@ -396,7 +401,7 @@ struct GuidedSummaryView: View {
 
     private func isActionDisabled(_ action: ActionCenterAction) -> Bool {
         switch action.kind {
-        case .grantAccess, .runScan, .quitApp, .useNativeTool:
+        case .grantAccess, .runScan, .verifyCleanup, .quitApp, .useNativeTool:
             return false
         case .reviewQueue:
             return model.findings.isEmpty
@@ -413,6 +418,8 @@ struct GuidedSummaryView: View {
             "lock.shield"
         case .runScan:
             "magnifyingglass"
+        case .verifyCleanup:
+            "arrow.clockwise.circle"
         case .reviewQueue:
             "tray.full"
         case .runDryRun:
@@ -546,6 +553,8 @@ private struct SummaryCommand: Identifiable {
             "lock.shield"
         case .runScan:
             "magnifyingglass"
+        case .verifyCleanup:
+            "arrow.clockwise.circle"
         case .reviewQueue:
             "tray.full"
         case .runDryRun:

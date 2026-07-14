@@ -110,6 +110,14 @@ final class AppE2EFixtureTests: XCTestCase {
         XCTAssertTrue(packagedAX.contains("$HOME/.Trash/"))
         XCTAssertTrue(packagedAX.contains("Refusing to clean an E2E Trash artifact without bounded receipt evidence."))
         XCTAssertTrue(packagedAX.contains("trashArtifactCleaned"))
+        let harness = try String(
+            contentsOf: root.appendingPathComponent("Tests/AppE2E/RyddiAXHarness.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(harness.contains("summary.verify-cleanup-button"))
+        XCTAssertTrue(harness.contains("assertElementMissing(identifier: \"summary.reclaim-button\""))
+        XCTAssertTrue(harness.contains("assertCandidateRowMissing(path: options.candidatePath"))
+        XCTAssertTrue(harness.contains("waitForText(options.candidatePath"))
         XCTAssertTrue(ci.contains("Fixture-backed app E2E smoke"))
         XCTAssertTrue(ci.contains("timeout-minutes: 10"))
         XCTAssertTrue(ci.contains("RYDDI_E2E_MIN_FREE_GIB: \"5\""))

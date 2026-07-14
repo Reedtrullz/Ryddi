@@ -74,7 +74,13 @@ open_pid=$!
 for proof in "$output/e2e-result.json" "$output/ryddi-minimum.png" "$output/ryddi-regular.png" "$output/ryddi-wide.png"; do
   test -s "$proof" || { echo "Missing packaged-app E2E proof: $proof" >&2; exit 1; }
 done
-jq -e '.originalCandidateMissing == true and .executionResultVisible == true' "$output/e2e-result.json" >/dev/null
+jq -e '
+  .originalCandidateMissing == true
+  and .executionResultVisible == true
+  and .verificationActionVisible == true
+  and .candidateRowRemoved == true
+  and .reclaimActionHidden == true
+' "$output/e2e-result.json" >/dev/null
 
 test "$(shasum -a 256 "$browser_marker" | awk '{print $1}')" = "$browser_before"
 test "$(shasum -a 256 "$codex_marker" | awk '{print $1}')" = "$codex_before"

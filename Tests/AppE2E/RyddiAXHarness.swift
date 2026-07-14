@@ -24,6 +24,9 @@ struct HarnessResult: Codable {
     let responsiveChecks: [ResponsiveCheck]
     let originalCandidateMissing: Bool
     let executionResultVisible: Bool
+    let verificationActionVisible: Bool
+    let candidateRowRemoved: Bool
+    let reclaimActionHidden: Bool
 }
 
 enum HarnessError: Error, CustomStringConvertible {
@@ -96,6 +99,7 @@ enum RyddiAXHarness {
         try checkpoint("dry-run", started: started, into: &checkpoints) {
             try press("summary.dry-run-button", root: app)
             _ = try waitForElement(identifier: "summary.reclaim-button", root: app, timeout: 60, requireEnabled: true)
+            _ = try waitForText(options.candidatePath, root: app, timeout: 20)
         }
         try checkpoint("confirmation", started: started, into: &checkpoints) {
             try press("summary.reclaim-button", root: app)
@@ -112,6 +116,14 @@ enum RyddiAXHarness {
             requireEnabled: false
         )
         _ = resultElement
+        _ = try waitForElement(
+            identifier: "summary.verify-cleanup-button",
+            root: app,
+            timeout: 30,
+            requireEnabled: true
+        )
+        try assertCandidateRowMissing(path: options.candidatePath, root: app, timeout: 20)
+        try assertElementMissing(identifier: "summary.reclaim-button", root: app, timeout: 20)
         guard !FileManager.default.fileExists(atPath: options.candidatePath) else {
             throw HarnessError.candidateStillExists(options.candidatePath)
         }
@@ -126,7 +138,10 @@ enum RyddiAXHarness {
             screenshots: responsiveProof.screenshots.map(\.lastPathComponent),
             responsiveChecks: responsiveProof.checks,
             originalCandidateMissing: true,
-            executionResultVisible: true
+            executionResultVisible: true,
+            verificationActionVisible: true,
+            candidateRowRemoved: true,
+            reclaimActionHidden: true
         )
         let data = try JSONEncoder.pretty.encode(result)
         try data.write(to: options.output.appendingPathComponent("e2e-result.json"), options: .atomic)
@@ -217,6 +232,80 @@ enum RyddiAXHarness {
         return nil
     }
 
+    private static func assertElementMissing(
+        identifier: String,
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if find(identifier: identifier, root: root) == nil {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        } while Date() < deadline
+        throw HarnessError.disabledElement(identifier)
+    }
+
+    private static func assertCandidateRowMissing(
+        path: String,
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if findText(path, root: root) == nil {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        } while Date() < deadline
+        if let element = findText(path, root: root) {
+            let role = stringAttribute(kAXRoleAttribute as String, element: element) ?? "?"
+            let identifier = stringAttribute(kAXIdentifierAttribute as String, element: element) ?? ""
+            let title = stringAttribute(kAXTitleAttribute as String, element: element) ?? ""
+            let description = stringAttribute(kAXDescriptionAttribute as String, element: element) ?? ""
+            let value = stringAttribute(kAXValueAttribute as String, element: element) ?? ""
+            let line = "Stale candidate AX element role=\(role) id=\(identifier) title=\(title) desc=\(description) value=\(value)\n"
+            FileHandle.standardError.write(Data(line.utf8))
+        }
+        dumpTree(root: root)
+        throw HarnessError.candidateStillExists(path)
+    }
+
+    private static func findText(_ text: String, root: AXUIElement) -> AXUIElement? {
+        var queue = [root]
+        var visited = 0
+        while !queue.isEmpty && visited < 8_000 {
+            let element = queue.removeFirst()
+            visited += 1
+            let values = [
+                stringAttribute(kAXTitleAttribute as String, element: element),
+                stringAttribute(kAXDescriptionAttribute as String, element: element),
+                stringAttribute(kAXValueAttribute as String, element: element)
+            ]
+            if values.compactMap({ $0 }).contains(where: { $0.contains(text) }) {
+                return element
+            }
+            queue.append(contentsOf: elementArrayAttribute(kAXChildrenAttribute as String, element: element))
+        }
+        return nil
+    }
+
+    private static func waitForText(
+        _ text: String,
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws -> AXUIElement {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let element = findText(text, root: root) {
+                return element
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        } while Date() < deadline
+        throw HarnessError.missingElement(text)
+    }
+
     private static func dumpTree(root: AXUIElement) {
         var queue: [(AXUIElement, Int)] = [(root, 0)]
         var visited = 0
@@ -280,6 +369,7 @@ enum RyddiAXHarness {
         guard let windowFrame = frame(of: window) else { throw HarnessError.windowUnavailable }
         let fixedIDs = ["dashboard-sidebar", "scan-button", "cleanup-flow-status"]
         let primaryIDs = [
+            "summary.verify-cleanup-button",
             "summary.reclaim-button",
             "summary.manual-review-button",
             "summary.dry-run-button",
