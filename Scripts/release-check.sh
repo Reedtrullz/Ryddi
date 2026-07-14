@@ -5,8 +5,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dist="$root/dist"
 app="$dist/Ryddi.app"
 signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
-release_version="${RYDDI_VERSION:-0.3.0}"
-release_build="${RYDDI_BUILD_NUMBER:-3}"
+release_version="${RYDDI_VERSION:-0.3.1}"
+release_build="${RYDDI_BUILD_NUMBER:-4}"
 if [[ -n "${RYDDI_ARTIFACT_BASENAME:-}" ]]; then
   artifact_basename="$RYDDI_ARTIFACT_BASENAME"
 elif [[ "$signing_required" == "required" ]]; then
@@ -239,7 +239,18 @@ if [[ "${RYDDI_REQUIRE_PACKAGED_AX_E2E:-0}" == "1" ]]; then
   RYDDI_E2E_APP_PATH="$app" \
     RYDDI_E2E_OUTPUT="$dist/e2e-proof" \
     "$root/Scripts/run-packaged-app-e2e.sh"
-  jq -e '.executionResultVisible == true and .originalCandidateMissing == true and .trashArtifactCleaned == true' \
+  jq -e '
+    .scanProgressVisible == true
+    and .cancelledScanBecameIdle == true
+    and .cancelledScanHadNoLateCommit == true
+    and .normalScanCompleted == true
+    and .executionResultVisible == true
+    and .originalCandidateMissing == true
+    and .candidateRowRemoved == true
+    and .verificationActionVisible == true
+    and .protectedFixtureIntact == true
+    and .trashArtifactCleaned == true
+  ' \
     "$dist/e2e-proof/e2e-result.json" >/dev/null
   packaged_ax_e2e_status="passed"
 else

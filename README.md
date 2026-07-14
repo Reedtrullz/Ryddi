@@ -23,9 +23,9 @@ Ryddi treats cleanup as evidence review:
 
 ## Current Status
 
-Ryddi `v0.3.0` is the current trust-release target: a shared Swift core, a CLI, and a SwiftUI app cockpit distributed outside the Mac App Store as a Developer ID signed and Apple-notarized app only when the GitHub release assets pass the signed gate. The safest path today is scan, review, dry run, then reclaim only selected auto-safe items.
+Ryddi `v0.3.0` is the published trust-to-action release. `v0.3.1 (4)` is the current correctness-patch candidate: it tightens scan accounting and cancellation, current-state reconciliation, audit loading, permission evidence, SSH host-key evidence, CLI failure handling, bundle signing, and packaged Accessibility proof. It becomes a release only after the exact tagged source passes the signed, notarized, stapled, Gatekeeper, checksum, and install-readback gates. `v0.4.0` is the planned guided-cleanup milestone.
 
-The release manifest is the source of truth for signed/notarized claims. It must prove Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification before a build is treated as trusted. Local SwiftPM builds and unsigned preview artifacts are useful for testing, but they are not the trust release.
+The release manifest is the source of truth for signed/notarized claims. It must prove Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification before a build is treated as trusted. Local SwiftPM builds and unsigned preview artifacts are useful for testing, but they are not trusted releases.
 
 No telemetry, path uploads, remote analysis, root helper, or Mac App Store sandboxing in v1.
 
@@ -240,24 +240,26 @@ swift build --scratch-path .build
 Scripts/release-check.sh
 ```
 
-For a signed `v0.3.0` release gate, provide Developer ID and notarization credentials, then run:
+For the signed `v0.3.1` release gate, provide Developer ID and notarization credentials, then run:
 
 ```bash
 ./Scripts/release-signing-doctor.sh
 RYDDI_RELEASE_SIGNING=required \
 RYDDI_REQUIRE_PACKAGED_AX_E2E=1 \
-RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.0 \
+RYDDI_VERSION=0.3.1 \
+RYDDI_BUILD_NUMBER=4 \
+RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.1 \
 Scripts/release-check.sh
 ```
 
 The signing doctor checks for a Developer ID Application identity and either a usable `NOTARY_PROFILE` or direct `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD` environment without printing password values. It is a preflight helper only; the release gate and manifest are still the source of truth. Shells such as fish do not search the current directory automatically, so run the script with `./Scripts/...` from the repository root.
 
-The signed release gate must produce `dist/Ryddi-v0.3.0.zip`, `dist/Ryddi-v0.3.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, strict codesign, and packaged Accessibility E2E proof, bundle version `0.3.0`, and build `3`. The AX lane requires a logged-in, Accessibility-approved Mac runner; the signed GitHub job therefore uses the `self-hosted`, `macOS`, and `ryddi-release` labels. If credentials, runner approval, or any check fails, do not publish the build as `v0.3.0`.
+The signed release gate must produce `dist/Ryddi-v0.3.1.zip`, `dist/Ryddi-v0.3.1.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, strict codesign, and packaged Accessibility E2E proof, bundle version `0.3.1`, and build `4`. The AX lane requires a logged-in, Accessibility-approved Mac runner; the signed GitHub job therefore uses the `self-hosted`, `macOS`, and `ryddi-release` labels. If credentials, runner approval, or any check fails, do not publish the build as `v0.3.1`. A local unsigned zip remains a developer preview, even when all non-signing tests pass.
 
 After downloading a release asset, verify the checksum and inspect the manifest before installing:
 
 ```bash
-shasum -a 256 -c Ryddi-v0.3.0.zip.sha256
+shasum -a 256 -c Ryddi-v0.3.1.zip.sha256
 grep -E 'source_commit|notarization_status|stapled|gatekeeper|codesign_verified' Ryddi-release-manifest.txt
 ```
 

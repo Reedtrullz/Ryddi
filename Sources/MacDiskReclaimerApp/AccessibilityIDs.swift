@@ -3,6 +3,8 @@ import ReclaimerCore
 enum AccessibilityID {
     static let sidebar = "dashboard-sidebar"
     static let scan = "scan-button"
+    static let scanProgress = "scan-progress"
+    static let cancelScan = "cancel-scan-button"
     static let scanMode = "scan-mode-picker"
     static let savedScope = "saved-scope-picker"
     static let cleanupFlow = "cleanup-flow"

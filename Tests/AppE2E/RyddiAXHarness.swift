@@ -22,6 +22,10 @@ struct HarnessResult: Codable {
     let checkpoints: [Checkpoint]
     let screenshots: [String]
     let responsiveChecks: [ResponsiveCheck]
+    let scanProgressVisible: Bool
+    let cancelledScanBecameIdle: Bool
+    let cancelledScanHadNoLateCommit: Bool
+    let normalScanCompleted: Bool
     let originalCandidateMissing: Bool
     let executionResultVisible: Bool
     let verificationActionVisible: Bool
@@ -40,6 +44,7 @@ enum HarnessError: Error, CustomStringConvertible {
     case windowUnavailable
     case screenshotFailed(String)
     case candidateStillExists(String)
+    case lateCancelledScanCommit(String)
     case elementOutsideWindow(String, String)
 
     var description: String {
@@ -54,6 +59,7 @@ enum HarnessError: Error, CustomStringConvertible {
         case .windowUnavailable: "The packaged app did not expose a main AX window."
         case .screenshotFailed(let path): "Failed to capture a non-empty screenshot at \(path)."
         case .candidateStillExists(let path): "Confirmed Trash candidate still exists at \(path)."
+        case .lateCancelledScanCommit(let path): "Cancelled scan committed late result evidence for \(path)."
         case .elementOutsideWindow(let id, let size): "AX element \(id) extends outside the main window at \(size)."
         }
     }
@@ -89,8 +95,16 @@ enum RyddiAXHarness {
         try checkpoint("launch", started: started, into: &checkpoints) {
             _ = try waitForElement(identifier: "summary.scan-button", root: app, timeout: 15, requireEnabled: true)
         }
+        try checkpoint("cancelled-scan", started: started, into: &checkpoints) {
+            try press("summary.scan-button", root: app)
+            _ = try waitForElement(identifier: "scan-progress", root: app, timeout: 10, requireEnabled: false)
+            try press("cancel-scan-button", root: app)
+            try waitForCancelledScanToBecomeIdle(root: app, timeout: 10)
+            try assertNoLateCancelledScanCommit(path: options.candidatePath, root: app, quietPeriod: 1.2)
+        }
         try checkpoint("scan", started: started, into: &checkpoints) {
             try press("summary.scan-button", root: app)
+            _ = try waitForElement(identifier: "scan-progress", root: app, timeout: 10, requireEnabled: false)
             _ = try waitForElement(identifier: "summary.plan-button", root: app, timeout: 90, requireEnabled: true)
         }
         try checkpoint("plan", started: started, into: &checkpoints) {
@@ -143,6 +157,10 @@ enum RyddiAXHarness {
             checkpoints: checkpoints,
             screenshots: responsiveProof.screenshots.map(\.lastPathComponent),
             responsiveChecks: responsiveProof.checks,
+            scanProgressVisible: true,
+            cancelledScanBecameIdle: true,
+            cancelledScanHadNoLateCommit: true,
+            normalScanCompleted: true,
             originalCandidateMissing: true,
             executionResultVisible: true,
             verificationActionVisible: true,
@@ -245,6 +263,44 @@ enum RyddiAXHarness {
         } while Date() < deadline
         dumpTree(root: root)
         throw HarnessError.missingElement("fresh verification scan completion")
+    }
+
+    private static func waitForCancelledScanToBecomeIdle(
+        root: AXUIElement,
+        timeout: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let scanEnabled = find(identifier: "scan-button", root: root).map {
+                boolAttribute(kAXEnabledAttribute as String, element: $0) == true
+            } ?? false
+            let progressHidden = find(identifier: "scan-progress", root: root) == nil
+            let cancelHidden = find(identifier: "cancel-scan-button", root: root) == nil
+            if scanEnabled, progressHidden, cancelHidden {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        dumpTree(root: root)
+        throw HarnessError.missingElement("cancelled scan idle state")
+    }
+
+    private static func assertNoLateCancelledScanCommit(
+        path: String,
+        root: AXUIElement,
+        quietPeriod: TimeInterval
+    ) throws {
+        let deadline = Date().addingTimeInterval(quietPeriod)
+        repeat {
+            let planEnabled = find(identifier: "summary.plan-button", root: root).map {
+                boolAttribute(kAXEnabledAttribute as String, element: $0) == true
+            } ?? false
+            if planEnabled || findText(path, root: root) != nil {
+                dumpTree(root: root)
+                throw HarnessError.lateCancelledScanCommit(path)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
     }
 
     private static func find(identifier: String, root: AXUIElement) -> AXUIElement? {

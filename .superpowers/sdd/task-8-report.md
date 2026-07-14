@@ -1,52 +1,41 @@
-# Task 8: Adaptive Apps And Leftovers Layout
+# Task 8: Ryddi v0.3.1 Release Readiness
 
 ## Status
 
-Implemented from base commit `9e2a46852d55f751bce0f57971f3e4ea5e766a43`.
+Implementation and local unsigned release gates are complete. Signed publication remains intentionally pending an exact clean commit, exact-head CI, Developer ID signing, Apple notarization acceptance, stapling, Gatekeeper acceptance, and installed-app readback.
 
 ## Changes
 
-- Added an adaptive `ViewThatFits(in: .horizontal)` workspace with the existing side-by-side rail/detail layout and a stacked fallback.
-- Replaced the fixed `.frame(width: 360)` rail constraint with `minWidth: 280`, `idealWidth: 320`, and `maxWidth: 360`.
-- Added `AppReviewFileTableScrollContainer` using `ScrollView(.horizontal)` and a `minWidth: 720` content frame for the fixed-column file table.
-- Preserved `AppReviewGroupRail`, `AppReviewDetailPanel`, `AppReviewFileHeader`, `AppReviewFileRow`, review-only related-file behavior, and existing preview actions.
+- Aligned package, release-check, signing-doctor, workflow, docs, and release notes on `v0.3.1` build `4`.
+- Made the signed workflow fail closed unless the checked-out ref is the exact `v0.3.1` tag, version is `0.3.1`, build is `4`, and `HEAD` resolves to the tag commit before certificate import.
+- Added packaged Accessibility proof for visible scan progress, cancellation to idle, absence of a late cancelled result, a following successful scan, one receipt-bounded Trash action, immediate row reconciliation, Verify Cleanup, and protected-fixture preservation.
+- Kept the deterministic scan delay test-only: it requires a validated temporary E2E scope and is bounded to `1...2_000` milliseconds.
+- Added `docs/releases/v0.3.1.md` with install evidence and explicit non-claims.
 
 ## TDD Evidence
 
-- RED: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testAppReviewWorkspaceHasAdaptiveFallbackAndTableScrollContainer` failed with 3 expected assertions before implementation.
-- GREEN: The same focused test passed with 0 failures after implementation.
+- RED: `PackageAppScriptTests` produced 11 expected failures for stale `v0.3.0 (3)` identity and missing exact-tag checks.
+- RED: `AppE2EFixtureTests` produced 15 expected failures for missing progress, cancellation, late-commit, protected-fixture, and current-flow proof.
+- GREEN: focused package, app E2E fixture, accessibility contract, and signing-doctor tests all pass.
 
 ## Verification
 
-- `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests`: 25 tests passed, 0 failures.
-- `swift build --scratch-path "$PWD/.build"`: passed.
+- `swift test --scratch-path "$PWD/.build"`: 600 tests passed, 1 intentional skip, 0 failures.
+- `swift build --scratch-path "$PWD/.build" -Xswiftc -warnings-as-errors`: passed.
+- `bash -n Scripts/*.sh`: passed.
 - `git diff --check`: passed.
-- Changed files: `Sources/MacDiskReclaimerApp/AppReviewViews.swift` and `Tests/ReclaimerCoreTests/MacDiskReclaimerAppLayoutTests.swift`.
+- `RYDDI_REQUIRE_PACKAGED_AX_E2E=1 Scripts/release-check.sh`: passed.
+- Preview bundle metadata: `CFBundleShortVersionString=0.3.1`, `CFBundleVersion=4`.
+- Preview checksum: verified with `shasum -a 256 -c`.
+- Packaged AX proof: cancellation and normal scan checkpoints passed; candidate row removed; cleanup verification visible; protected browser profile, Codex session, and app bundle hashes remained unchanged.
+- Responsive AX/screenshots: required controls remained contained at 980x680, 1280x800, and 1600x1000.
 
-## Concerns
+## Non-Claims
 
-- No known concerns from the requested source-shape, layout test, build, and diff checks.
-- Visual UI inspection was not part of the requested verification surface.
+- The current `Ryddi-developer-preview.zip` is unsigned, was built from a dirty pre-commit worktree, and is not a release.
+- No signing, notarization, stapling, Gatekeeper, GitHub CI, publication, or `/Applications` install claim is made here.
+- E2E cleanup was restricted to disposable fixtures and a receipt-verified Trash artifact.
 
-## Commit
+## Next Gate
 
-Task commit subject: `polish: adapt app review layout`.
-
-## Review Fix
-
-Addressed the complete Task 8 review findings without changing other production files:
-
-- Added `.frame(minWidth: 520, maxWidth: .infinity, alignment: .topLeading)` to the horizontal detail panel so the first `ViewThatFits` candidate becomes ineligible when the rail and detail cannot fit together.
-- Lifted `filterText` into `AppReviewWorkspace` and passed `$filterText` into both `AppReviewGroupRail` instances. `AppReviewGroupRail` now uses `@Binding`, so breakpoint changes preserve the search text.
-- Strengthened `testAppReviewWorkspaceHasAdaptiveFallbackAndTableScrollContainer` to assert the concrete detail minimum width, workspace-owned state, binding declaration, and both rail bindings.
-
-### TDD
-
-- RED: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testAppReviewWorkspaceHasAdaptiveFallbackAndTableScrollContainer` failed with 3 expected assertion failures for the missing width contract and shared filter ownership.
-- GREEN: `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests/testAppReviewWorkspaceHasAdaptiveFallbackAndTableScrollContainer` passed: 1 test, 0 failures.
-
-### Verification
-
-- `swift test --scratch-path "$PWD/.build" --filter MacDiskReclaimerAppLayoutTests`: 25 tests passed, 0 failures.
-- `swift build --scratch-path "$PWD/.build"`: passed.
-- `git diff --check`: passed.
+Commit the release-preparation changes, require a clean worktree, push the exact commit, verify exact-head CI, then create and verify the immutable `v0.3.1` tag before running the signed/notarized release gate.

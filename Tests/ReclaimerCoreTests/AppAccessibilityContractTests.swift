@@ -10,6 +10,8 @@ final class AppAccessibilityContractTests: XCTestCase {
             "summary.dry-run-button",
             "summary.manual-review-button",
             "summary.reclaim-button",
+            "scan-progress",
+            "cancel-scan-button",
             "trash-confirmation.reviewed",
             "trash-confirmation.confirm",
             "trash-confirmation.cancel",
@@ -34,6 +36,8 @@ final class AppAccessibilityContractTests: XCTestCase {
 
         XCTAssertTrue(source.contains("RYDDI_E2E_MODE"))
         XCTAssertTrue(source.contains("RYDDI_E2E_SCOPE_ROOT"))
+        XCTAssertTrue(source.contains("RYDDI_E2E_SCAN_DELAY_MILLISECONDS"))
+        XCTAssertTrue(source.contains("(1...2_000).contains(value)"))
         XCTAssertTrue(source.contains("FileManager.default.temporaryDirectory"))
         XCTAssertTrue(source.contains("resolvingSymlinksInPath"))
         XCTAssertTrue(source.contains("temporaryPath + \"/\""))

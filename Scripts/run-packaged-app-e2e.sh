@@ -9,6 +9,7 @@ scratch="$(cd "$scratch" && pwd -P)"
 open_pid=""
 keep_scratch="${RYDDI_E2E_KEEP_SCRATCH:-0}"
 keep_trash="${RYDDI_E2E_KEEP_TRASH:-0}"
+RYDDI_E2E_SCAN_DELAY_MILLISECONDS="750"
 
 cleanup() {
   /usr/bin/osascript -e 'tell application id "com.reidar.ryddi" to quit' >/dev/null 2>&1 || true
@@ -52,6 +53,7 @@ sleep 1
 /usr/bin/open -W -n -F \
   --env "RYDDI_E2E_MODE=1" \
   --env "RYDDI_E2E_SCOPE_ROOT=$fixture" \
+  --env "RYDDI_E2E_SCAN_DELAY_MILLISECONDS=$RYDDI_E2E_SCAN_DELAY_MILLISECONDS" \
   --env "RYDDI_AUDIT_ROOT=$scratch/audit" \
   --env "RYDDI_CONFIG_ROOT=$scratch/config" \
   --env "RYDDI_SCAN_HISTORY_ROOT=$scratch/history" \
@@ -75,7 +77,11 @@ for proof in "$output/e2e-result.json" "$output/ryddi-minimum.png" "$output/rydd
   test -s "$proof" || { echo "Missing packaged-app E2E proof: $proof" >&2; exit 1; }
 done
 jq -e '
-  .originalCandidateMissing == true
+  .scanProgressVisible == true
+  and .cancelledScanBecameIdle == true
+  and .cancelledScanHadNoLateCommit == true
+  and .normalScanCompleted == true
+  and .originalCandidateMissing == true
   and .executionResultVisible == true
   and .verificationActionVisible == true
   and .candidateRowRemoved == true
@@ -110,7 +116,7 @@ if [[ "$keep_trash" != "1" ]]; then
 fi
 result_tmp="$scratch/e2e-result.json"
 jq --argjson cleaned "$([[ "$keep_trash" == "1" ]] && echo false || echo true)" \
-  '. + {trashArtifactCleaned: $cleaned}' "$output/e2e-result.json" >"$result_tmp"
+  '. + {protectedFixtureIntact: true, trashArtifactCleaned: $cleaned}' "$output/e2e-result.json" >"$result_tmp"
 mv "$result_tmp" "$output/e2e-result.json"
 
 echo "Packaged-app AX E2E passed: $output"

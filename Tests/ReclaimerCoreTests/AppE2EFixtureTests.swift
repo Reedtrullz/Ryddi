@@ -141,6 +141,44 @@ final class AppE2EFixtureTests: XCTestCase {
         XCTAssertTrue(packagedAX.contains(".reclaimActionHiddenAfterVerificationScan == true"))
     }
 
+    func testPackagedAXHarnessProvesCancellationAndCurrentCleanupFlow() throws {
+        let root = repoRoot()
+        let harness = try String(
+            contentsOf: root.appendingPathComponent("Tests/AppE2E/RyddiAXHarness.swift"),
+            encoding: .utf8
+        )
+        let packagedAX = try String(
+            contentsOf: root.appendingPathComponent("Scripts/run-packaged-app-e2e.sh"),
+            encoding: .utf8
+        )
+        let releaseCheck = try String(
+            contentsOf: root.appendingPathComponent("Scripts/release-check.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(harness.contains("waitForElement(identifier: \"scan-progress\""))
+        XCTAssertTrue(harness.contains("try press(\"cancel-scan-button\", root: app)"))
+        XCTAssertTrue(harness.contains("waitForCancelledScanToBecomeIdle"))
+        XCTAssertTrue(harness.contains("assertNoLateCancelledScanCommit"))
+        for proof in [
+            "scanProgressVisible: true",
+            "cancelledScanBecameIdle: true",
+            "cancelledScanHadNoLateCommit: true",
+            "normalScanCompleted: true",
+            "candidateRowRemoved: true",
+            "verificationActionVisible: true"
+        ] {
+            XCTAssertTrue(harness.contains(proof), proof)
+        }
+        XCTAssertTrue(packagedAX.contains("RYDDI_E2E_SCAN_DELAY_MILLISECONDS=\"750\""))
+        XCTAssertTrue(packagedAX.contains(".scanProgressVisible == true"))
+        XCTAssertTrue(packagedAX.contains(".cancelledScanBecameIdle == true"))
+        XCTAssertTrue(packagedAX.contains(".cancelledScanHadNoLateCommit == true"))
+        XCTAssertTrue(packagedAX.contains(".normalScanCompleted == true"))
+        XCTAssertTrue(packagedAX.contains("protectedFixtureIntact: true"))
+        XCTAssertTrue(releaseCheck.contains(".protectedFixtureIntact == true"))
+    }
+
     private func runFixtureScript(root: URL) throws -> (status: Int32, stdout: String, stderr: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")

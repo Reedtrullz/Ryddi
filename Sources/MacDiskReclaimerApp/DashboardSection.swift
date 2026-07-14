@@ -185,6 +185,16 @@ enum DashboardLaunchOptions {
         e2eValidation.error
     }
 
+    static var e2eScanDelayMilliseconds: Int {
+        guard e2eScopeRoot != nil,
+              let rawValue = ProcessInfo.processInfo.environment["RYDDI_E2E_SCAN_DELAY_MILLISECONDS"],
+              let value = Int(rawValue),
+              (1...2_000).contains(value) else {
+            return 0
+        }
+        return value
+    }
+
     static var isScreenshotDemo: Bool {
         ProcessInfo.processInfo.environment["RYDDI_SCREENSHOT_DEMO"] == "1"
     }

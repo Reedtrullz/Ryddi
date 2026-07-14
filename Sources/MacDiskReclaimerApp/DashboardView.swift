@@ -158,7 +158,7 @@ struct DashboardView: View {
                 } label: {
                     Label("Cancel Scan", systemImage: "xmark.circle")
                 }
-                .accessibilityIdentifier("cancel-scan-button")
+                .accessibilityIdentifier(AccessibilityID.cancelScan)
             }
 
             scanActivityToolbarItem
@@ -303,9 +303,11 @@ struct DashboardView: View {
                     .font(.caption)
                     .lineLimit(1)
             }
+            .accessibilityIdentifier(AccessibilityID.scanProgress)
         case .cancelling:
             ProgressView("Cancelling scan")
                 .controlSize(.small)
+                .accessibilityIdentifier(AccessibilityID.scanProgress)
         case .idle, .failed:
             EmptyView()
         }

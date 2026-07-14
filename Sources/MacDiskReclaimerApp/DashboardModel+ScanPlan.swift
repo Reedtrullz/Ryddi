@@ -14,6 +14,20 @@ private struct DashboardScanOutput: Sendable {
     let generatedAt: Date
 }
 
+private func waitForE2EScanDelay(
+    milliseconds: Int,
+    cancellation: ScanCancellationToken
+) -> Bool {
+    var remaining = milliseconds
+    while remaining > 0 {
+        guard !cancellation.isCancelled, !Task.isCancelled else { return false }
+        let interval = min(remaining, 25)
+        Thread.sleep(forTimeInterval: Double(interval) / 1_000)
+        remaining -= interval
+    }
+    return !cancellation.isCancelled && !Task.isCancelled
+}
+
 extension DashboardModel {
     func refreshPresentationSnapshot(now: Date = Date()) async {
         let diagnosticSpan = diagnostics.begin(.presentation)
@@ -187,10 +201,17 @@ extension DashboardModel {
         let topOffenderGroup = presentationTopOffenderGroup
         let largeOldMode = presentationLargeOldMode
         let largeOldSort = presentationLargeOldSort
+        let e2eScanDelayMilliseconds = DashboardLaunchOptions.e2eScanDelayMilliseconds
         defer { _ = scanRequestCoordinator.finish(request) }
         do {
             let scanService = try dependencies.makeScanService(includingUserRules: includeUserRules)
             let result = await Task.detached { () -> DashboardScanOutput? in
+                guard waitForE2EScanDelay(
+                    milliseconds: e2eScanDelayMilliseconds,
+                    cancellation: control.cancellation
+                ) else {
+                    return nil
+                }
                 let scopes = scopePlan.scopes
                 let scanResult = scanService.scanWithCoverage(
                     scopes: scopes,
