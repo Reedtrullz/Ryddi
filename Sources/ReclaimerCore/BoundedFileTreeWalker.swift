@@ -1,0 +1,403 @@
+import Foundation
+
+struct BoundedFileTree {
+    struct Node {
+        let parentIndex: Int?
+        let scopeIndex: Int
+        let url: URL
+        let absoluteDepth: Int
+        let resource: ResourceMetadata
+        var measurements: [FileMeasurement]
+
+        var boundedMeasurement: FileMeasurement {
+            measurements.reduce(.zero, +)
+        }
+    }
+
+    struct ResourceMetadata {
+        let isDirectory: Bool
+        let isSymbolicLink: Bool
+        let isPackage: Bool
+        let isRegularFile: Bool
+        let logicalSize: Int64
+        let allocatedSize: Int64
+        let modificationDate: Date?
+    }
+
+    struct ScopeIssue {
+        let scopeIndex: Int
+        let state: PermissionState
+        let message: String
+    }
+
+    let nodes: [Node]
+    let coverage: ScanCoverage
+    let scopeIssues: [ScopeIssue]
+}
+
+struct BoundedFileTreeWalker {
+    private let scopeReadabilityProvider: (URL, FileManager) -> ScopeReadability
+
+    init(
+        scopeReadabilityProvider: @escaping (URL, FileManager) -> ScopeReadability = { root, fileManager in
+            PermissionAdvisor.scopeReadability(at: root, fileManager: fileManager)
+        }
+    ) {
+        self.scopeReadabilityProvider = scopeReadabilityProvider
+    }
+
+    func walk(
+        scopes: [ScanScope],
+        options: ScanOptions,
+        fileManager: FileManager,
+        userPathPolicy: UserPathPolicy,
+        control: ScanControl
+    ) -> BoundedFileTree {
+        let measurementDepth = max(0, options.measurementDepth)
+        let traversalDepth = max(0, options.maximumFindingDepth) + measurementDepth
+        var frontiers = scopes.map { _ in FIFOFrontier() }
+        var metrics = scopes.map { ScopeMetrics(scope: $0) }
+        var scopeIssues = [BoundedFileTree.ScopeIssue]()
+
+        for (scopeIndex, scope) in scopes.enumerated() {
+            let root = scope.root.standardizedFileURL
+            guard userPathPolicy.matchingRule(for: root.path, kind: .exclude) == nil else {
+                continue
+            }
+
+            switch scopeReadabilityProvider(root, fileManager) {
+            case .missing:
+                metrics[scopeIndex].isMissing = true
+                metrics[scopeIndex].evidence.append("This optional scan root was not present on this Mac.")
+                scopeIssues.append(.init(scopeIndex: scopeIndex, state: .missing, message: "Path does not exist."))
+            case .permissionDenied, .unknown:
+                metrics[scopeIndex].isPermissionDenied = true
+                metrics[scopeIndex].evidence.append("This scan root could not be read because permission was denied.")
+                scopeIssues.append(.init(scopeIndex: scopeIndex, state: .denied, message: "Path is not readable with current permissions."))
+            case .readable:
+                frontiers[scopeIndex].append(.init(url: root, parentIndex: nil, depth: 0))
+            }
+        }
+
+        var nodes = [BoundedFileTree.Node]()
+        var hardLinkIdentityKeys = Set<String>()
+        var measuredItemCount = 0
+        var cancelled = false
+
+        traversal: while frontiers.contains(where: { !$0.isEmpty }) {
+            var visitedInRound = false
+
+            for scopeIndex in scopes.indices {
+                if control.cancellation.isCancelled {
+                    cancelled = true
+                    break traversal
+                }
+                guard measuredItemCount < options.measurementItemBudget else {
+                    break traversal
+                }
+                guard let entry = frontiers[scopeIndex].popFirst() else { continue }
+                visitedInRound = true
+
+                guard userPathPolicy.matchingRule(for: entry.url.path, kind: .exclude) == nil else {
+                    continue
+                }
+
+                measuredItemCount += 1
+                metrics[scopeIndex].measuredItemCount += 1
+                metrics[scopeIndex].deepestMeasuredLevel = max(
+                    metrics[scopeIndex].deepestMeasuredLevel,
+                    entry.depth
+                )
+
+                guard let values = try? entry.url.resourceValues(forKeys: Set(boundedResourceKeys)) else {
+                    metrics[scopeIndex].skippedItemCount += 1
+                    metrics[scopeIndex].hasUnreadableDescendant = true
+                    if entry.depth == 0 {
+                        metrics[scopeIndex].isPermissionDenied = true
+                        scopeIssues.append(.init(
+                            scopeIndex: scopeIndex,
+                            state: .denied,
+                            message: "Path is not readable with current permissions."
+                        ))
+                    }
+                    continue
+                }
+
+                let resource = resourceMetadata(
+                    values: values,
+                    url: entry.url,
+                    deduplicateHardLinks: options.deduplicateHardLinks,
+                    hardLinkIdentityKeys: &hardLinkIdentityKeys
+                )
+                var layers = Array(repeating: FileMeasurement.zero, count: measurementDepth + 1)
+                layers[0] = FileMeasurement(
+                    logicalSize: resource.logicalSize,
+                    allocatedSize: resource.allocatedSize,
+                    itemCount: 1
+                )
+                let nodeIndex = nodes.count
+                nodes.append(.init(
+                    parentIndex: entry.parentIndex,
+                    scopeIndex: scopeIndex,
+                    url: entry.url,
+                    absoluteDepth: entry.depth,
+                    resource: resource,
+                    measurements: layers
+                ))
+
+                guard resource.isDirectory,
+                      !resource.isSymbolicLink,
+                      !resource.isPackage,
+                      entry.depth < traversalDepth
+                else {
+                    continue
+                }
+                guard measuredItemCount < options.measurementItemBudget else {
+                    metrics[scopeIndex].skippedItemCount += 1
+                    continue
+                }
+                guard !control.cancellation.isCancelled else {
+                    cancelled = true
+                    break traversal
+                }
+
+                do {
+                    let children = try fileManager.contentsOfDirectory(
+                        at: entry.url,
+                        includingPropertiesForKeys: boundedResourceKeys,
+                        options: [.skipsPackageDescendants]
+                    )
+                    for child in children.sorted(by: { $0.path < $1.path }) where
+                        userPathPolicy.matchingRule(for: child.path, kind: .exclude) == nil
+                    {
+                        frontiers[scopeIndex].append(.init(
+                            url: child,
+                            parentIndex: nodeIndex,
+                            depth: entry.depth + 1
+                        ))
+                    }
+                } catch {
+                    metrics[scopeIndex].skippedItemCount += 1
+                    metrics[scopeIndex].hasUnreadableDescendant = true
+                    if entry.depth == 0 {
+                        metrics[scopeIndex].isPermissionDenied = true
+                        scopeIssues.append(.init(
+                            scopeIndex: scopeIndex,
+                            state: .denied,
+                            message: "Could not list directory contents."
+                        ))
+                    }
+                }
+            }
+
+            if !visitedInRound { break }
+        }
+
+        for scopeIndex in scopes.indices {
+            metrics[scopeIndex].skippedItemCount += frontiers[scopeIndex].remainingCount
+        }
+
+        for nodeIndex in nodes.indices.reversed() {
+            guard let parentIndex = nodes[nodeIndex].parentIndex else { continue }
+            for layerIndex in 0..<measurementDepth {
+                nodes[parentIndex].measurements[layerIndex + 1] =
+                    nodes[parentIndex].measurements[layerIndex + 1]
+                    + nodes[nodeIndex].measurements[layerIndex]
+            }
+        }
+
+        if cancelled {
+            for scopeIndex in scopes.indices where !frontiers[scopeIndex].isEmpty {
+                metrics[scopeIndex].evidence.append("Measurement was cancelled before this scope completed.")
+            }
+        }
+
+        let coverage = makeCoverage(
+            metrics: metrics,
+            requestedBudget: options.measurementItemBudget,
+            measuredItemCount: measuredItemCount,
+            measurementDepth: options.measurementDepth,
+            cancelled: cancelled
+        )
+        return BoundedFileTree(nodes: nodes, coverage: coverage, scopeIssues: scopeIssues)
+    }
+
+    private func resourceMetadata(
+        values: URLResourceValues,
+        url: URL,
+        deduplicateHardLinks: Bool,
+        hardLinkIdentityKeys: inout Set<String>
+    ) -> BoundedFileTree.ResourceMetadata {
+        let isDirectory = values.isDirectory ?? false
+        let isSymbolicLink = values.isSymbolicLink ?? false
+        let isRegularFile = values.isRegularFile ?? false
+        var logicalSize: Int64 = 0
+        var allocatedSize: Int64 = 0
+
+        if !isDirectory, !isSymbolicLink {
+            var isDuplicateHardLink = false
+            if deduplicateHardLinks,
+               isRegularFile,
+               let identity = try? FilesystemIdentity.capture(at: url),
+               let key = identity.fileIdentityKey,
+               (identity.hardLinkCount ?? 1) > 1
+            {
+                isDuplicateHardLink = hardLinkIdentityKeys.contains(key)
+                hardLinkIdentityKeys.insert(key)
+            }
+            if !isDuplicateHardLink {
+                logicalSize = Int64(values.fileSize ?? 0)
+                allocatedSize = Int64(
+                    values.totalFileAllocatedSize
+                    ?? values.fileAllocatedSize
+                    ?? values.fileSize
+                    ?? 0
+                )
+            }
+        }
+
+        return .init(
+            isDirectory: isDirectory,
+            isSymbolicLink: isSymbolicLink,
+            isPackage: values.isPackage ?? false,
+            isRegularFile: isRegularFile,
+            logicalSize: logicalSize,
+            allocatedSize: allocatedSize,
+            modificationDate: values.contentModificationDate
+        )
+    }
+
+    private func makeCoverage(
+        metrics: [ScopeMetrics],
+        requestedBudget: Int,
+        measuredItemCount: Int,
+        measurementDepth: Int,
+        cancelled: Bool
+    ) -> ScanCoverage {
+        let skippedItemCount = metrics.reduce(0) { $0 + $1.skippedItemCount }
+        let rootsMissing = metrics.filter(\.isMissing).count
+        let rootsPermissionDenied = metrics.filter(\.isPermissionDenied).count
+        let hasUnreadableDescendant = metrics.contains(where: \.hasUnreadableDescendant)
+        let state: ScanCoverageState
+        if rootsPermissionDenied > 0 || hasUnreadableDescendant {
+            state = .degraded
+        } else if skippedItemCount > 0 || measuredItemCount >= requestedBudget || cancelled {
+            state = .bounded
+        } else {
+            state = .complete
+        }
+
+        var evidence = [String]()
+        if rootsMissing > 0 {
+            evidence.append("\(rootsMissing) optional scan root(s) were not present on this Mac.")
+        }
+        if rootsPermissionDenied > 0 {
+            evidence.append("\(rootsPermissionDenied) scan root(s) could not be read because permission was denied.")
+        }
+        if hasUnreadableDescendant {
+            evidence.append("One or more descendants could not be read and were not measured.")
+        }
+        if skippedItemCount > 0 || measuredItemCount >= requestedBudget {
+            evidence.append("Measurement stopped at \(requestedBudget) item(s); run a targeted rescan for exact local evidence.")
+        }
+        if cancelled {
+            evidence.append("Measurement was cancelled before all queued items were visited.")
+        }
+
+        let scopeCoverage = metrics.map { metric in
+            let scopeState: ScanCoverageState
+            if metric.isPermissionDenied || metric.hasUnreadableDescendant {
+                scopeState = .degraded
+            } else if metric.skippedItemCount > 0 || metric.evidence.contains(where: { $0.contains("cancelled") }) {
+                scopeState = .bounded
+            } else {
+                scopeState = .complete
+            }
+            var scopeEvidence = metric.evidence
+            if metric.skippedItemCount > 0 {
+                scopeEvidence.append("\(metric.skippedItemCount) queued or unreadable item(s) were not measured.")
+            }
+            return ScanScopeCoverage(
+                scopeName: metric.scope.name,
+                rootPath: metric.scope.root.standardizedFileURL.path,
+                state: scopeState,
+                measuredItemCount: metric.measuredItemCount,
+                skippedItemCount: metric.skippedItemCount,
+                deepestMeasuredLevel: metric.deepestMeasuredLevel,
+                evidence: scopeEvidence
+            )
+        }
+
+        return ScanCoverage(
+            state: state,
+            requestedItemBudget: requestedBudget,
+            measuredItemCount: measuredItemCount,
+            skippedItemCount: skippedItemCount,
+            rootsVisited: metrics.count,
+            rootsDenied: rootsPermissionDenied,
+            maximumMeasurementDepth: measurementDepth,
+            rootsMissing: rootsMissing,
+            rootsPermissionDenied: rootsPermissionDenied,
+            evidence: evidence,
+            scopeCoverage: scopeCoverage
+        )
+    }
+}
+
+private struct FrontierEntry {
+    let url: URL
+    let parentIndex: Int?
+    let depth: Int
+}
+
+private struct FIFOFrontier {
+    private var entries = [FrontierEntry]()
+    private var nextIndex = 0
+
+    var isEmpty: Bool { nextIndex >= entries.count }
+    var remainingCount: Int { entries.count - nextIndex }
+
+    mutating func append(_ entry: FrontierEntry) {
+        entries.append(entry)
+    }
+
+    mutating func popFirst() -> FrontierEntry? {
+        guard !isEmpty else { return nil }
+        defer { nextIndex += 1 }
+        return entries[nextIndex]
+    }
+}
+
+private struct ScopeMetrics {
+    let scope: ScanScope
+    var measuredItemCount = 0
+    var skippedItemCount = 0
+    var deepestMeasuredLevel = 0
+    var isMissing = false
+    var isPermissionDenied = false
+    var hasUnreadableDescendant = false
+    var evidence = [String]()
+}
+
+private extension FileMeasurement {
+    static let zero = FileMeasurement(logicalSize: 0, allocatedSize: 0, itemCount: 0)
+
+    static func + (lhs: FileMeasurement, rhs: FileMeasurement) -> FileMeasurement {
+        FileMeasurement(
+            logicalSize: lhs.logicalSize + rhs.logicalSize,
+            allocatedSize: lhs.allocatedSize + rhs.allocatedSize,
+            itemCount: lhs.itemCount + rhs.itemCount
+        )
+    }
+}
+
+private let boundedResourceKeys: [URLResourceKey] = [
+    .isDirectoryKey,
+    .isSymbolicLinkKey,
+    .isPackageKey,
+    .fileSizeKey,
+    .fileAllocatedSizeKey,
+    .totalFileAllocatedSizeKey,
+    .contentModificationDateKey,
+    .isRegularFileKey
+]

@@ -14,6 +14,34 @@ public enum ScanCoverageState: String, Codable, CaseIterable, Hashable, Sendable
     }
 }
 
+public struct ScanScopeCoverage: Codable, Hashable, Sendable {
+    public let scopeName: String
+    public let rootPath: String
+    public let state: ScanCoverageState
+    public let measuredItemCount: Int
+    public let skippedItemCount: Int
+    public let deepestMeasuredLevel: Int
+    public let evidence: [String]
+
+    public init(
+        scopeName: String,
+        rootPath: String,
+        state: ScanCoverageState,
+        measuredItemCount: Int,
+        skippedItemCount: Int,
+        deepestMeasuredLevel: Int,
+        evidence: [String]
+    ) {
+        self.scopeName = scopeName
+        self.rootPath = rootPath
+        self.state = state
+        self.measuredItemCount = measuredItemCount
+        self.skippedItemCount = skippedItemCount
+        self.deepestMeasuredLevel = deepestMeasuredLevel
+        self.evidence = evidence
+    }
+}
+
 public struct ScanCoverage: Codable, Hashable, Sendable {
     public let state: ScanCoverageState
     public let requestedItemBudget: Int
@@ -25,6 +53,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
     public let rootsPermissionDenied: Int
     public let maximumMeasurementDepth: Int
     public let evidence: [String]
+    public let scopeCoverage: [ScanScopeCoverage]
 
     public init(
         state: ScanCoverageState,
@@ -36,7 +65,8 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         maximumMeasurementDepth: Int,
         rootsMissing: Int = 0,
         rootsPermissionDenied: Int? = nil,
-        evidence: [String] = []
+        evidence: [String] = [],
+        scopeCoverage: [ScanScopeCoverage] = []
     ) {
         let permissionDenied = rootsPermissionDenied ?? rootsDenied
         self.state = state
@@ -49,6 +79,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         self.rootsPermissionDenied = permissionDenied
         self.maximumMeasurementDepth = maximumMeasurementDepth
         self.evidence = evidence
+        self.scopeCoverage = scopeCoverage
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -62,6 +93,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         case rootsPermissionDenied
         case maximumMeasurementDepth
         case evidence
+        case scopeCoverage
     }
 
     public init(from decoder: Decoder) throws {
@@ -76,6 +108,10 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         rootsPermissionDenied = try container.decodeIfPresent(Int.self, forKey: .rootsPermissionDenied) ?? 0
         maximumMeasurementDepth = try container.decode(Int.self, forKey: .maximumMeasurementDepth)
         evidence = try container.decodeIfPresent([String].self, forKey: .evidence) ?? []
+        scopeCoverage = try container.decodeIfPresent(
+            [ScanScopeCoverage].self,
+            forKey: .scopeCoverage
+        ) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -90,6 +126,7 @@ public struct ScanCoverage: Codable, Hashable, Sendable {
         try container.encode(rootsPermissionDenied, forKey: .rootsPermissionDenied)
         try container.encode(maximumMeasurementDepth, forKey: .maximumMeasurementDepth)
         try container.encode(evidence, forKey: .evidence)
+        try container.encode(scopeCoverage, forKey: .scopeCoverage)
     }
 
     public var nonClaim: String {

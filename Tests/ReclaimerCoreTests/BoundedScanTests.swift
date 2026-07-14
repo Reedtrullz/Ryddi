@@ -67,6 +67,25 @@ final class BoundedScanTests: XCTestCase {
         XCTAssertEqual(result.findings.first?.measurementCoverage, ScanCoverageState.complete.rawValue)
     }
 
+    func testLegacyCoverageDecodesWithEmptyScopeCoverage() throws {
+        let json = """
+        {
+          "state": "complete",
+          "requestedItemBudget": 10,
+          "measuredItemCount": 1,
+          "skippedItemCount": 0,
+          "rootsVisited": 1,
+          "rootsDenied": 0,
+          "maximumMeasurementDepth": 1,
+          "evidence": []
+        }
+        """
+
+        let coverage = try JSONDecoder().decode(ScanCoverage.self, from: Data(json.utf8))
+
+        XCTAssertEqual(coverage.scopeCoverage, [])
+    }
+
     func testMissingOptionalRootIsReportedWithoutDegradingCoverage() throws {
         let missing = root.appendingPathComponent("does-not-exist")
         let scanner = try FileScanner(openFileChecker: NoOpenFilesChecker())
