@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation and local unsigned release gates are complete. Signed publication remains intentionally pending an exact clean commit, exact-head CI, Developer ID signing, Apple notarization acceptance, stapling, Gatekeeper acceptance, and installed-app readback.
+Complete. `v0.3.1 (4)` is merged, tagged, signed, notarized, stapled, published, downloaded, independently read back, installed in `/Applications`, and launched from the exact source-bound artifact.
 
 ## Changes
 
@@ -31,13 +31,19 @@ Implementation and local unsigned release gates are complete. Signed publication
 - Preview checksum: verified with `shasum -a 256 -c`.
 - Packaged AX proof: cancellation and normal scan checkpoints passed; candidate row removed; cleanup verification visible; protected browser profile, Codex session, and app bundle hashes remained unchanged.
 - Responsive AX/screenshots: required controls remained contained at 980x680, 1280x800, and 1600x1000.
+- PR [#6](https://github.com/Reedtrullz/Ryddi/pull/6) merged as exact main/tag commit `da6f0d8d2646c796570a4b85cfc423d6d2937dc7`.
+- PR CI [29364495803](https://github.com/Reedtrullz/Ryddi/actions/runs/29364495803) and main CI [29364716397](https://github.com/Reedtrullz/Ryddi/actions/runs/29364716397) passed. Exact-tag preview workflow [29365112746](https://github.com/Reedtrullz/Ryddi/actions/runs/29365112746) passed its hosted release-check and artifact job.
+- Apple notarization submission `fb16b43c-39d6-4a03-8b81-31f80b273dd5` returned `Accepted`; nested CLI/app strict codesign, Hardened Runtime, staple validation, and Gatekeeper passed.
+- Public [Ryddi v0.3.1](https://github.com/Reedtrullz/Ryddi/releases/tag/v0.3.1) assets passed fresh-download outer and staged checksums, manifest, source, version/build, signatures, staple, and Gatekeeper readback.
+- Installed `/Applications/Ryddi.app` reports `0.3.1 (4)`, source `da6f0d8d2646c796570a4b85cfc423d6d2937dc7`, `sourceDirty=false`, and typed trust `stapledAndAccepted`.
 
 ## Non-Claims
 
 - Any preview generated before the immutable-provenance fix is invalidated; unsigned developer previews are not releases.
-- No signing, notarization, stapling, Gatekeeper, GitHub CI, publication, or `/Applications` install claim is made here.
+- The GitHub self-hosted signed job was skipped because no release runner, enabling variable, or release secrets are configured. Signed proof is the local exact-tag gate; GitHub independently proved exact-tag unsigned reproducibility.
 - E2E cleanup was restricted to disposable fixtures and a receipt-verified Trash artifact.
+- No live SSH target or real user data was cleaned during release verification.
 
-## Next Gate
+## Final State
 
-Commit the release-preparation changes, require a clean worktree, push the exact commit, verify exact-head CI, then create and verify the immutable `v0.3.1` tag before running the signed/notarized release gate.
+All Task 8 gates are satisfied. Follow-on product work belongs to the separate v0.4 guided-cleanup plan.
