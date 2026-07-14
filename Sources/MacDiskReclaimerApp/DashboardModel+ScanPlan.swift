@@ -15,17 +15,6 @@ private struct DashboardScanOutput: Sendable {
 }
 
 extension DashboardModel {
-    func loadActionCenterAuditHistory() async {
-        let state = await Task.detached {
-            (try? AuditStore().listScanSessionsResult(limit: 1))
-                ?? AuditStoreScanSessionListResult(sessions: [], warnings: [])
-        }.value
-        auditHistoryState = state
-        if presentationSnapshot != nil {
-            await refreshPresentationSnapshot()
-        }
-    }
-
     func refreshPresentationSnapshot(now: Date = Date()) async {
         let diagnosticSpan = diagnostics.begin(.presentation)
         defer { diagnostics.end(diagnosticSpan) }
@@ -418,8 +407,7 @@ extension DashboardModel {
             try recordDryRunSession(receipt)
             _ = try AuditStore().save(plan: plan)
             _ = try AuditStore().save(receipt: receipt)
-            loadAudit()
-            loadRecovery()
+            await loadAudit()
             await refreshPresentationSnapshot()
         } catch {
             diagnostics.record(error: .dryRunFailed)
@@ -524,8 +512,7 @@ extension DashboardModel {
             trashExecutionMessage = "Moved \(moved) item\(moved == 1 ? "" : "s") to Trash. \(blocked) skipped."
             error = receipt.errors.isEmpty ? nil : receipt.errors.joined(separator: "\n")
             Task { [weak self] in
-                self?.loadAudit()
-                self?.loadRecovery()
+                await self?.loadAudit()
             }
         } catch {
             diagnostics.record(error: .trashExecutionFailed)

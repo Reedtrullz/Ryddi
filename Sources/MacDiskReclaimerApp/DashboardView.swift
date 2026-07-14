@@ -253,9 +253,8 @@ struct DashboardView: View {
                 model.configureE2EScope(e2eScopeRoot)
             }
             model.loadSavedScopeSets()
-            model.loadAudit()
             model.loadHolding()
-            model.loadRecovery()
+            Task { await model.loadAudit() }
             model.loadHistory()
             model.loadUserPolicy()
             model.refreshAutomation()

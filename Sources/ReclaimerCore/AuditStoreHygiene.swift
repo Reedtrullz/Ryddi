@@ -15,6 +15,22 @@ public struct AuditStoreSummary: Codable, Hashable, Sendable {
     public let unknownFileCount: Int
     public let symlinkCount: Int
     public let items: [AuditStoreSummaryItem]
+
+    public init(
+        rootPath: String,
+        totalKnownFileCount: Int,
+        totalKnownBytes: Int64,
+        unknownFileCount: Int,
+        symlinkCount: Int,
+        items: [AuditStoreSummaryItem]
+    ) {
+        self.rootPath = rootPath
+        self.totalKnownFileCount = totalKnownFileCount
+        self.totalKnownBytes = totalKnownBytes
+        self.unknownFileCount = unknownFileCount
+        self.symlinkCount = symlinkCount
+        self.items = items
+    }
 }
 
 public struct AuditRetentionPolicy: Codable, Hashable, Sendable {

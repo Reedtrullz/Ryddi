@@ -132,9 +132,6 @@ final class DashboardModel {
     init(dependencies: DashboardDependencies = .live) {
         self.dependencies = dependencies
         Task { [weak self] in
-            await self?.loadActionCenterAuditHistory()
-        }
-        Task { [weak self] in
             let report = await Task.detached(priority: .utility) {
                 RuntimeReleaseTrustProbe().inspect()
             }.value

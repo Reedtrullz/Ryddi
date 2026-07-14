@@ -24,7 +24,7 @@ extension DashboardModel {
             }.value
             remoteProbeReport = report
             _ = try AuditStore().save(remoteProbeReport: report)
-            loadAudit()
+            await loadAudit()
             error = report.commands.contains { $0.exitCode == 0 } ? nil : "Remote probe did not reach the target with read-only SSH commands."
         } catch {
             self.error = error.localizedDescription
@@ -45,9 +45,8 @@ extension DashboardModel {
                 return RemoteScanBuilder(target: target).scan(preset: .vpsGeneral)
             }.value
             remoteScanReport = report
-            syncRemoteDogfoodReport()
             _ = try AuditStore().save(remoteScanReport: report)
-            loadAudit()
+            await loadAudit()
             error = report.commands.contains { $0.exitCode == 0 } ? nil : "Remote scan did not reach the target with read-only SSH commands."
         } catch {
             self.error = error.localizedDescription

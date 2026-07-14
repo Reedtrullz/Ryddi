@@ -10,10 +10,25 @@ protocol ScanServicing: Sendable {
 
 extension FileScanner: ScanServicing {}
 
+protocol AuditSnapshotLoading: Sendable {
+    func load(limitPerKind: Int) -> AuditStoreSnapshot
+}
+
+struct AuditStoreSnapshotLoader: AuditSnapshotLoading {
+    func load(limitPerKind: Int) -> AuditStoreSnapshot {
+        AuditStore().snapshot(limitPerKind: limitPerKind)
+    }
+}
+
 struct DashboardDependencies: Sendable {
     private let scanServiceFactory: @Sendable (Bool) throws -> any ScanServicing
+    let auditSnapshotLoader: any AuditSnapshotLoading
 
-    init(scanServiceFactory: @escaping @Sendable (Bool) throws -> any ScanServicing) {
+    init(
+        auditSnapshotLoader: any AuditSnapshotLoading = AuditStoreSnapshotLoader(),
+        scanServiceFactory: @escaping @Sendable (Bool) throws -> any ScanServicing
+    ) {
+        self.auditSnapshotLoader = auditSnapshotLoader
         self.scanServiceFactory = scanServiceFactory
     }
 
@@ -28,7 +43,10 @@ struct DashboardDependencies: Sendable {
         )
     }
 
-    static func testing(scanService: any ScanServicing) -> DashboardDependencies {
-        DashboardDependencies { _ in scanService }
+    static func testing(
+        scanService: any ScanServicing,
+        auditSnapshotLoader: any AuditSnapshotLoading = AuditStoreSnapshotLoader()
+    ) -> DashboardDependencies {
+        DashboardDependencies(auditSnapshotLoader: auditSnapshotLoader) { _ in scanService }
     }
 }

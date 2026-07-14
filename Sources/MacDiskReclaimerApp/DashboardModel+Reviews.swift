@@ -33,7 +33,7 @@ extension DashboardModel {
             activeFileReview = report
             applyActiveFileStatuses(from: report)
             _ = try AuditStore().save(activeFileReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -75,7 +75,7 @@ extension DashboardModel {
             }.value
             trashReview = report
             _ = try AuditStore().save(trashReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -93,7 +93,7 @@ extension DashboardModel {
             }.value
             downloadsReview = report
             _ = try AuditStore().save(downloadsReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -111,7 +111,7 @@ extension DashboardModel {
             }.value
             browserCacheReview = report
             _ = try AuditStore().save(browserCacheReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -129,7 +129,7 @@ extension DashboardModel {
             }.value
             packageCacheReview = report
             _ = try AuditStore().save(packageCacheReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -155,7 +155,7 @@ extension DashboardModel {
             }.value
             projectDependencyReview = report
             _ = try AuditStore().save(projectDependencyReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -173,7 +173,7 @@ extension DashboardModel {
             }.value
             deviceBackupReview = report
             _ = try AuditStore().save(deviceBackupReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -191,7 +191,7 @@ extension DashboardModel {
             }.value
             xcodeReview = report
             _ = try AuditStore().save(xcodeReviewReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -265,7 +265,7 @@ extension DashboardModel {
             lastAppUninstallDryRunReceipt = receipt
             lastAppUninstallReceipt = nil
             _ = try AuditStore().save(appUninstallReceipt: receipt)
-            loadAudit()
+            await loadAudit()
             error = receipt.status == "dry-run" ? nil : receipt.message
         } catch {
             self.error = error.localizedDescription
@@ -432,7 +432,7 @@ extension DashboardModel {
             for executionReceipt in executionReceipts {
                 _ = try auditStore.save(nativeToolExecutionReceipt: executionReceipt)
             }
-            loadAudit()
+            await loadAudit()
             error = executionReceipts.last?.errors.isEmpty == true ? nil : executionReceipts.last?.message
         } catch {
             self.error = error.localizedDescription
@@ -448,7 +448,7 @@ extension DashboardModel {
             }.value
             containerInventory = report
             _ = try AuditStore().save(containerInventoryReport: report)
-            loadAudit()
+            await loadAudit()
             error = nil
         } catch {
             self.error = error.localizedDescription

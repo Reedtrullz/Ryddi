@@ -78,27 +78,53 @@ extension DashboardModel {
         }
     }
 
-    func loadAudit() {
-        let store = AuditStore()
-        auditStoreSummary = store.summary()
-        recentPlans = store.recentPlans()
-        recentReceipts = store.recentReceipts()
-        recentNativeToolReports = store.recentNativeToolReports()
-        recentNativeToolExecutionReceipts = store.recentNativeToolExecutionReceipts()
-        recentContainerInventoryReports = store.recentContainerInventoryReports()
-        recentRemoteProbeReports = store.recentRemoteProbeReports()
-        recentRemoteScanReports = store.recentRemoteScanReports()
-        recentRemoteDogfoodReports = store.recentRemoteDogfoodReports()
+    func loadAudit() async {
+        let operationID = activities.begin(.auditLoad, message: "Loading history")
+        let loader = dependencies.auditSnapshotLoader
+        let snapshot = await Task.detached(priority: .utility) {
+            loader.load(limitPerKind: 20)
+        }.value
+
+        guard activities.isCurrent(.auditLoad, id: operationID) else { return }
+        apply(snapshot)
+        activities.finish(.auditLoad, id: operationID)
+    }
+
+    private func apply(_ snapshot: AuditStoreSnapshot) {
+        auditStoreSummary = snapshot.summary
+        auditHistoryState = snapshot.scanSessions
+        recentPlans = snapshot.plans
+        recentReceipts = snapshot.receipts
+        recentNativeToolReports = snapshot.nativeToolReports
+        recentNativeToolExecutionReceipts = snapshot.nativeToolExecutionReceipts
+        recentContainerInventoryReports = snapshot.containerInventoryReports
+        recentRemoteProbeReports = snapshot.remoteProbeReports
+        recentRemoteScanReports = snapshot.remoteScanReports
+        recentRemoteDogfoodReports = snapshot.remoteDogfoodReports
+        recentActiveFileReviewReports = snapshot.activeFileReviewReports
+        recentTrashReviewReports = snapshot.trashReviewReports
+        recentDownloadsReviewReports = snapshot.downloadsReviewReports
+        recentBrowserCacheReviewReports = snapshot.browserCacheReviewReports
+        recentPackageCacheReviewReports = snapshot.packageCacheReviewReports
+        recentProjectDependencyReviewReports = snapshot.projectDependencyReviewReports
+        recentDeviceBackupReviewReports = snapshot.deviceBackupReviewReports
+        recentXcodeReviewReports = snapshot.xcodeReviewReports
+        recentAppUninstallReceipts = snapshot.appUninstallReceipts
+
         if remoteProbeReport == nil {
             remoteProbeReport = recentRemoteProbeReports.first
         }
         if remoteScanReport == nil {
             remoteScanReport = recentRemoteScanReports.first
         }
-        syncRemoteDogfoodReport()
+        if let remoteScanReport {
+            remoteDogfoodReport = snapshot.latestRemoteDogfoodReport(forConcreteTarget: remoteScanReport.target)
+        } else if remoteDogfoodReport == nil {
+            remoteDogfoodReport = recentRemoteDogfoodReports.first
+        }
         if
             let currentRemoteScan = recentRemoteScanReports.first,
-            let previousRemoteScan = store.latestPreviousRemoteScanReport(
+            let previousRemoteScan = snapshot.latestPreviousRemoteScanReport(
                 forConcreteTarget: currentRemoteScan.target,
                 excludingReportID: currentRemoteScan.id
             )
@@ -111,15 +137,6 @@ extension DashboardModel {
         } else {
             remoteGrowthReport = nil
         }
-        recentActiveFileReviewReports = store.recentActiveFileReviewReports()
-        recentTrashReviewReports = store.recentTrashReviewReports()
-        recentDownloadsReviewReports = store.recentDownloadsReviewReports()
-        recentBrowserCacheReviewReports = store.recentBrowserCacheReviewReports()
-        recentPackageCacheReviewReports = store.recentPackageCacheReviewReports()
-        recentProjectDependencyReviewReports = store.recentProjectDependencyReviewReports()
-        recentDeviceBackupReviewReports = store.recentDeviceBackupReviewReports()
-        recentXcodeReviewReports = store.recentXcodeReviewReports()
-        recentAppUninstallReceipts = store.recentAppUninstallReceipts()
         loadRecovery()
     }
 
