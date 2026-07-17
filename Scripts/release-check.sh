@@ -5,8 +5,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dist="$root/dist"
 app="$dist/Ryddi.app"
 signing_required="${RYDDI_RELEASE_SIGNING:-optional}"
-release_version="${RYDDI_VERSION:-0.3.1}"
-release_build="${RYDDI_BUILD_NUMBER:-4}"
+release_version="${RYDDI_VERSION:-0.4.0}"
+release_build="${RYDDI_BUILD_NUMBER:-5}"
 if [[ -n "${RYDDI_ARTIFACT_BASENAME:-}" ]]; then
   artifact_basename="$RYDDI_ARTIFACT_BASENAME"
 elif [[ "$signing_required" == "required" ]]; then

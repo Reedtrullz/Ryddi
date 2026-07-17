@@ -6,17 +6,17 @@ on:
       release_ref:
         description: Signed release tag to check out (must equal v<version>)
         required: true
-        default: v0.3.1
+        default: v0.4.0
         type: string
       version:
         description: Bundle and artifact version
         required: true
-        default: 0.3.1
+        default: 0.4.0
         type: string
       build_number:
         description: Monotonic bundle build number
         required: true
-        default: "4"
+        default: "5"
         type: string
 
 jobs:
@@ -62,9 +62,9 @@ jobs:
           set -euo pipefail
           [[ "$RYDDI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$RYDDI_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]
-          test "$RELEASE_REF" = "v0.3.1"
-          test "$RYDDI_VERSION" = "0.3.1"
-          test "$RYDDI_BUILD_NUMBER" = "4"
+          test "$RELEASE_REF" = "v0.4.0"
+          test "$RYDDI_VERSION" = "0.4.0"
+          test "$RYDDI_BUILD_NUMBER" = "5"
           test "$RELEASE_REF" = "v$RYDDI_VERSION"
           test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_REF^{commit}")"
           test -z "$(git status --porcelain --untracked-files=normal)"
