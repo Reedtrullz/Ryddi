@@ -264,6 +264,9 @@ public enum UserPathPolicyStoreError: Error, LocalizedError, Equatable {
 
 public protocol UserPathPolicyLoading: Sendable {
     func loadResult() -> UserPathPolicyLoadResult
+    func withLockedLoadResult<Result>(
+        _ operation: (UserPathPolicyLoadResult) throws -> Result
+    ) throws -> Result
 }
 
 public final class UserPathPolicyStore: UserPathPolicyLoading, @unchecked Sendable {
@@ -362,6 +365,14 @@ public final class UserPathPolicyStore: UserPathPolicyLoading, @unchecked Sendab
                 ? "The saved path policy was loaded and verified."
                 : "The saved path policy loaded, but its directory or file permissions are broader than 0700/0600. The next save will repair them."
             return UserPathPolicyLoadResult(state: state, policy: policy, detail: detail)
+        }
+    }
+
+    public func withLockedLoadResult<Result>(
+        _ operation: (UserPathPolicyLoadResult) throws -> Result
+    ) throws -> Result {
+        try withExclusiveMutation { _ in
+            try operation(loadResult())
         }
     }
 

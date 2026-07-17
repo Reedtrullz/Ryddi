@@ -109,6 +109,7 @@ public struct OAuthAuthorizationState: Equatable, Sendable, CustomStringConverti
 public struct OAuthAuthorizationCallback: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     fileprivate let authorizationCode: String
 
+    /// Exposes validated callback material only; the future interactive session owns one-use consumption.
     public func withAuthorizationCode<Result>(_ body: (String) throws -> Result) rethrows -> Result {
         try body(authorizationCode)
     }

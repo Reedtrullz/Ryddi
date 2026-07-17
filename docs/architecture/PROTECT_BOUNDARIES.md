@@ -58,7 +58,7 @@ Apple recommends the data-protection Keychain for modern `SecItem` use on macOS 
 
 ### OAuth and Dropbox
 
-Desktop OAuth uses authorization code plus PKCE S256, exact callback state, one-use codes, and no bundled client secret. Dropbox requests only the scopes needed by its read-only adapter and stores a refresh token only when resume is required. Dropbox explicitly recommends PKCE for desktop public clients: [Dropbox OAuth guide](https://developers.dropbox.com/oauth-guide).
+The desktop OAuth foundation provides PKCE S256, exact callback-state validation, and no client-secret field. Consumable one-use exchange ownership, timeout, and provider-code redemption remain deferred to the future app-owned interactive session. Dropbox will request only the scopes needed by its read-only adapter and store a refresh token only when resume is required. Dropbox explicitly recommends PKCE for desktop public clients: [Dropbox OAuth guide](https://developers.dropbox.com/oauth-guide).
 
 ### Google Drive
 

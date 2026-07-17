@@ -669,52 +669,64 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             return trashSkip(item, reason, message, identity: currentIdentity)
         }
 
-        if let policyFailure = validateCurrentUserPathPolicy(
-            for: item,
-            path: url.path,
-            identity: currentIdentity
-        ) {
-            return policyFailure
+        guard let loader = configuration.userPathPolicyLoader else {
+            return trashSkip(
+                item,
+                .userPolicyUnavailable,
+                "Current user policy could not be locked immediately before Trash.",
+                identity: currentIdentity
+            )
         }
 
         do {
-            let resultingURL = try trasher.trashItem(at: url).standardizedFileURL
-            return ExecutionActionReceipt(
-                path: finding.path,
-                action: .trash,
-                status: "done",
-                message: "Moved to Trash.",
-                reclaimedBytes: 0,
-                resultingPath: resultingURL.path,
-                fileIdentity: currentIdentity
-            )
+            return try loader.withLockedLoadResult { result in
+                if let policyFailure = validateCurrentUserPathPolicy(
+                    result,
+                    for: item,
+                    path: url.path,
+                    identity: currentIdentity
+                ) {
+                    return policyFailure
+                }
+
+                do {
+                    let resultingURL = try trasher.trashItem(at: url).standardizedFileURL
+                    return ExecutionActionReceipt(
+                        path: finding.path,
+                        action: .trash,
+                        status: "done",
+                        message: "Moved to Trash.",
+                        reclaimedBytes: 0,
+                        resultingPath: resultingURL.path,
+                        fileIdentity: currentIdentity
+                    )
+                } catch {
+                    return ExecutionActionReceipt(
+                        path: finding.path,
+                        action: .trash,
+                        status: "error",
+                        message: "Trash operation failed: \(error.localizedDescription)",
+                        fileIdentity: currentIdentity,
+                        skipReason: .trashFailed
+                    )
+                }
+            }
         } catch {
-            return ExecutionActionReceipt(
-                path: finding.path,
-                action: .trash,
-                status: "error",
-                message: "Trash operation failed: \(error.localizedDescription)",
-                fileIdentity: currentIdentity,
-                skipReason: .trashFailed
+            return trashSkip(
+                item,
+                .userPolicyUnavailable,
+                "Current user policy could not be locked safely before Trash.",
+                identity: currentIdentity
             )
         }
     }
 
     private func validateCurrentUserPathPolicy(
+        _ result: UserPathPolicyLoadResult,
         for item: ReclaimPlanItem,
         path: String,
         identity: FileIdentity
     ) -> ExecutionActionReceipt? {
-        guard let loader = configuration.userPathPolicyLoader else {
-            return trashSkip(
-                item,
-                .userPolicyUnavailable,
-                "Current user policy could not be reloaded immediately before Trash.",
-                identity: identity
-            )
-        }
-
-        let result = loader.loadResult()
         guard result.canMutate else {
             return trashSkip(
                 item,

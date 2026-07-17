@@ -133,6 +133,40 @@ final class SecretSourceInventoryTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(result.coverage.skippedEntryCount, 2)
     }
 
+    func testSkipsSelectedSymlinkRootWithoutFollowingIt() throws {
+        let externalRoot = try makeDirectory("external-root")
+        _ = try makeFile(at: externalRoot, relativePath: ".env")
+        let selectedRoot = temporaryRoot.appendingPathComponent("selected-root")
+        try FileManager.default.createSymbolicLink(
+            at: selectedRoot,
+            withDestinationURL: externalRoot
+        )
+
+        let result = SecretSourceInventory().scan(roots: [selectedRoot])
+
+        XCTAssertTrue(result.entries.isEmpty)
+        XCTAssertEqual(result.coverage.skippedEntryCount, 1)
+    }
+
+    func testPreservesPrivateTmpSelectedRootNamespace() throws {
+        let directoryName = "RyddiSecretInventory-" + UUID().uuidString
+        let selectedPath = "/private/tmp/\(directoryName)"
+        let selectedRoot = URL(fileURLWithPath: selectedPath, isDirectory: true)
+        let sourcePath = selectedPath + "/.env"
+        try FileManager.default.createDirectory(
+            at: selectedRoot,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(atPath: selectedPath) }
+        try Data("PRIVATE_TMP=fixture\n".utf8).write(
+            to: URL(fileURLWithPath: sourcePath)
+        )
+
+        let result = SecretSourceInventory().scan(roots: [selectedRoot])
+
+        XCTAssertEqual(result.entries.map(\SecretSourceInventoryEntry.path), [sourcePath])
+    }
+
     func testSkipsOversizedAndUnreadableFilesAtMetadataBoundary() throws {
         let selectedRoot = try makeDirectory("selected")
         let allowed = try makeFile(

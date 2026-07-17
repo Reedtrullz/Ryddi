@@ -12,7 +12,7 @@
 
 **Implementation start (2026-07-16):** Provider-neutral package boundaries, inert protection assessments, authentication primitives, Keychain storage, and metadata-only secret discovery may be built and tested from released `v0.3.1`. Protect navigation, app state, provider clients, and every cleanup-authority change remain blocked on the `v0.4` guided-cleanup shell and a separate security review.
 
-**Current foundation evidence (2026-07-17):** `feature/protect-foundation` has focused proof for serialized path-policy mutation, live pre-Trash policy revalidation, hard cloud deadlines, conservative metadata-byte accounting, compiler-enforced Protect isolation, and restart-safe non-sensitive Keychain locators. The complete remediation suite passes `693` tests with `1` intentional skip and `0` failures. Neither executable links a Protect target, no provider is contacted, and no real credential or secret file content is read.
+**Current foundation evidence (2026-07-17):** `feature/protect-foundation` has focused proof for policy mutation serialized through live pre-Trash revalidation and Trash, hard cloud deadlines, conservative metadata-byte accounting, compiler-enforced Protect isolation, and restart-safe non-sensitive Keychain locators. The complete remediation suite passes `696` tests with `1` intentional skip and `0` failures. Neither executable links a Protect target, no provider is contacted, and no real credential or secret file content is read.
 
 ## Release Slices
 

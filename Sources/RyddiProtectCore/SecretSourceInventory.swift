@@ -248,14 +248,13 @@ private extension SecretSourceInventory {
                     metadataFailureCount += 1
                     continue
                 }
-                let standardizedRoot = root.standardizedFileURL
-                let path = standardizedRoot.path
+                let path = root.path
                 guard !path.isEmpty, queuedPaths.insert(path).inserted else {
                     continue
                 }
                 pending.append(PendingEntry(
                     path: path,
-                    name: standardizedRoot.lastPathComponent,
+                    name: root.lastPathComponent,
                     depth: 0
                 ))
             }
@@ -333,7 +332,7 @@ private extension SecretSourceInventory {
                 for name in directoryResult.names.sorted() {
                     let childPath = URL(fileURLWithPath: current.path, isDirectory: true)
                         .appendingPathComponent(name, isDirectory: false)
-                        .standardizedFileURL.path
+                        .path
                     guard childPath != current.path, queuedPaths.insert(childPath).inserted else {
                         continue
                     }
