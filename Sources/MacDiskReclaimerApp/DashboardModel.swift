@@ -16,6 +16,7 @@ final class DashboardModel {
     var overview: ScanOverview?
     var scanCoverage: ScanCoverage?
     var diskDrillDown: DiskDrillDownReport?
+    var latestGuidedMap: GuidedMapSnapshot?
     var plan: ReclaimPlan?
     var lastDryRunReceipt: ExecutionReceipt?
     var lastExecutionReceipt: ExecutionReceipt?
@@ -125,6 +126,7 @@ final class DashboardModel {
 
     init(dependencies: DashboardDependencies = .live) {
         self.dependencies = dependencies
+        self.latestGuidedMap = dependencies.guidedMapStore.loadLatest()
         Task { [weak self] in
             let report = await Task.detached(priority: .utility) {
                 RuntimeReleaseTrustProbe().inspect()

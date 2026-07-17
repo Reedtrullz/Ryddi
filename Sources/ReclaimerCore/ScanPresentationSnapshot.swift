@@ -7,6 +7,7 @@ public struct ScanPresentationSnapshot: Hashable, Sendable {
     public let largeOldReview: LargeOldReviewReport
     public let archiveReview: ArchiveReviewReport
     public let actionCenter: ActionCenterReport
+    public let guidedMap: GuidedMapSnapshot?
 
     public init(
         overview: ScanOverview,
@@ -14,7 +15,8 @@ public struct ScanPresentationSnapshot: Hashable, Sendable {
         topOffenders: TopOffenderTable,
         largeOldReview: LargeOldReviewReport,
         archiveReview: ArchiveReviewReport,
-        actionCenter: ActionCenterReport
+        actionCenter: ActionCenterReport,
+        guidedMap: GuidedMapSnapshot? = nil
     ) {
         self.overview = overview
         self.reviewQueues = reviewQueues
@@ -22,6 +24,7 @@ public struct ScanPresentationSnapshot: Hashable, Sendable {
         self.largeOldReview = largeOldReview
         self.archiveReview = archiveReview
         self.actionCenter = actionCenter
+        self.guidedMap = guidedMap
     }
 
     public static func build(
@@ -44,6 +47,8 @@ public struct ScanPresentationSnapshot: Hashable, Sendable {
         now: Date = Date(),
         fileManager: FileManager = .default,
         scopeAccessProbe: (any ScopeAccessProbing)? = nil
+        ,
+        guidedMap: GuidedMapSnapshot? = nil
     ) -> ScanPresentationSnapshot {
         let reviewQueues = FindingAnalytics.reviewQueueReport(
             findings: findings,
@@ -108,7 +113,8 @@ public struct ScanPresentationSnapshot: Hashable, Sendable {
             topOffenders: topOffenders,
             largeOldReview: largeOldReview,
             archiveReview: archiveReview,
-            actionCenter: actionCenter
+            actionCenter: actionCenter,
+            guidedMap: guidedMap
         )
     }
 

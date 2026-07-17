@@ -242,6 +242,14 @@ extension DashboardModel {
                     stage: .notStarted
                 )
                 .recordScan(findingDigest: findingDigest, updatedAt: generatedAt)
+                let map = GuidedMapBuilder.build(input: GuidedMapInput(
+                    scanID: session.id,
+                    capturedAt: generatedAt,
+                    scopeDescription: scopePlan.label,
+                    coverage: scanResult.coverage,
+                    diskStatus: DiskStatusReader().snapshot(),
+                    drillDown: drillDown
+                ))
                 let presentation = ScanPresentationSnapshot.build(
                     findings: findings,
                     scopes: scopes,
@@ -252,7 +260,8 @@ extension DashboardModel {
                     topOffenderGroup: topOffenderGroup,
                     largeOldMode: largeOldMode,
                     largeOldSort: largeOldSort,
-                    now: generatedAt
+                    now: generatedAt,
+                    guidedMap: map
                 )
                 let permissions = PermissionAdvisor.report(
                     scopeSummaries: presentation.overview.scopeSummaries,
@@ -286,6 +295,7 @@ extension DashboardModel {
             presentationSnapshot = result.presentation
             overview = result.presentation.overview
             diskDrillDown = result.drillDown
+            latestGuidedMap = result.presentation.guidedMap
             userPathPolicy = result.policy
             if permissionReport.coverageLevel != result.permissions.coverageLevel {
                 diagnostics.record(.permissionCoverageChanged)
@@ -298,6 +308,9 @@ extension DashboardModel {
             isUpdatingPresentation = false
             diskStatus = DiskStatusReader().snapshot()
             _ = try ScanHistoryStore().save(overview: result.presentation.overview)
+            if let latestGuidedMap {
+                try dependencies.guidedMapStore.save(latestGuidedMap)
+            }
             loadHistory()
             plan = nil
             lastDryRunReceipt = nil
