@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .library(name: "ReclaimerCore", targets: ["ReclaimerCore"]),
+        .library(name: "RyddiProtectCore", targets: ["RyddiProtectCore"]),
         .executable(name: "reclaimer", targets: ["reclaimer"]),
         .executable(name: "RyddiApp", targets: ["MacDiskReclaimerApp"]),
         .executable(name: "MacDiskReclaimerApp", targets: ["MacDiskReclaimerApp"])
@@ -19,6 +20,14 @@ let package = Package(
             resources: [
                 .process("Resources")
             ]
+        ),
+        .target(
+            name: "RyddiProtectCore",
+            dependencies: []
+        ),
+        .target(
+            name: "RyddiProtectAuth",
+            dependencies: ["RyddiProtectCore"]
         ),
         .executableTarget(
             name: "reclaimer",
@@ -32,6 +41,14 @@ let package = Package(
             name: "ReclaimerCoreTests",
             dependencies: ["ReclaimerCore"],
             exclude: ["Fixtures"]
+        ),
+        .testTarget(
+            name: "RyddiProtectCoreTests",
+            dependencies: ["RyddiProtectCore", "ReclaimerCore"]
+        ),
+        .testTarget(
+            name: "RyddiProtectAuthTests",
+            dependencies: ["RyddiProtectAuth", "RyddiProtectCore"]
         ),
         .testTarget(
             name: "ReclaimerCLITests",
