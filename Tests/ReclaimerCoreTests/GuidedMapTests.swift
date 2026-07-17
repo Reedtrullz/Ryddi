@@ -72,6 +72,23 @@ final class GuidedMapTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(GuidedMapSnapshot.self, from: JSONEncoder().encode(map)), map)
     }
 
+    func testTypedCategoryWinsOverMisleadingFilename() {
+        XCTAssertEqual(
+            GuidedMapBuilder.category(
+                category: "Personal data",
+                path: "/Users/test/Documents/cache-report.txt"
+            ),
+            .personalFiles
+        )
+        XCTAssertEqual(
+            GuidedMapBuilder.category(
+                category: "Developer cache",
+                path: "/Users/test/Library/Caches/build"
+            ),
+            .developerFiles
+        )
+    }
+
     private func finding(id: String, path: String, bytes: Int64, isDirectory: Bool = false) -> Finding {
         Finding(
             id: id,

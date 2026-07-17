@@ -40,6 +40,7 @@ enum HarnessError: Error, CustomStringConvertible {
     case appNotRunning(String)
     case missingElement(String)
     case disabledElement(String)
+    case unexpectedElement(String)
     case actionFailed(String, AXError)
     case windowUnavailable
     case screenshotFailed(String)
@@ -55,6 +56,7 @@ enum HarnessError: Error, CustomStringConvertible {
         case .appNotRunning(let id): "No running application found for bundle identifier \(id)."
         case .missingElement(let id): "Timed out waiting for AX identifier \(id)."
         case .disabledElement(let id): "AX element \(id) remained disabled."
+        case .unexpectedElement(let id): "AX element \(id) remained visible."
         case .actionFailed(let id, let error): "AX action failed for \(id): \(error.rawValue)."
         case .windowUnavailable: "The packaged app did not expose a main AX window."
         case .screenshotFailed(let path): "Failed to capture a non-empty screenshot at \(path)."
@@ -142,6 +144,7 @@ enum RyddiAXHarness {
         try checkpoint("verification-scan", started: started, into: &checkpoints) {
             try press("home.primary-action", root: app)
             try waitForVerificationScanCompletion(root: app, timeout: 90)
+            try assertCandidateRowMissing(path: options.candidatePath, root: app, timeout: 20)
             try assertElementMissing(identifier: "cleanup-review.move-to-trash", root: app, timeout: 20)
         }
 
@@ -323,7 +326,7 @@ enum RyddiAXHarness {
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.15))
         } while Date() < deadline
-        throw HarnessError.disabledElement(identifier)
+        throw HarnessError.unexpectedElement(identifier)
     }
 
     private static func assertCandidateRowMissing(
@@ -368,21 +371,6 @@ enum RyddiAXHarness {
             queue.append(contentsOf: elementArrayAttribute(kAXChildrenAttribute as String, element: element))
         }
         return nil
-    }
-
-    private static func waitForText(
-        _ text: String,
-        root: AXUIElement,
-        timeout: TimeInterval
-    ) throws -> AXUIElement {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if let element = findText(text, root: root) {
-                return element
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
-        } while Date() < deadline
-        throw HarnessError.missingElement(text)
     }
 
     private static func dumpTree(root: AXUIElement) {
@@ -447,15 +435,8 @@ enum RyddiAXHarness {
     ) throws -> [String] {
         guard let windowFrame = frame(of: window) else { throw HarnessError.windowUnavailable }
         let fixedIDs = ["dashboard-sidebar", "scan-button", "home.primary-action"]
-        let primaryIDs = ["home.primary-action"]
-        var elements: [(String, AXUIElement)] = try fixedIDs.map { id in
+        let elements: [(String, AXUIElement)] = try fixedIDs.map { id in
             (id, try waitForElement(identifier: id, root: app, timeout: 10, requireEnabled: false))
-        }
-        if let primaryID = primaryIDs.first(where: { find(identifier: $0, root: app) != nil }),
-           let primary = find(identifier: primaryID, root: app) {
-            elements.append((primaryID, primary))
-        } else {
-            throw HarnessError.missingElement("summary primary action")
         }
 
         for (id, element) in elements {
@@ -519,7 +500,10 @@ enum RyddiAXHarness {
     private static func boolAttribute(_ name: String, element: AXUIElement) -> Bool? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
-        return value as? Bool
+        if let bool = value as? Bool {
+            return bool
+        }
+        return (value as? NSNumber)?.boolValue
     }
 
     private static func elementArrayAttribute(_ name: String, element: AXUIElement) -> [AXUIElement] {
@@ -537,8 +521,12 @@ enum RyddiAXHarness {
               let sizeValue else {
             return nil
         }
-        let positionAX = positionValue as! AXValue
-        let sizeAX = sizeValue as! AXValue
+        guard CFGetTypeID(positionValue) == AXValueGetTypeID(),
+              CFGetTypeID(sizeValue) == AXValueGetTypeID() else {
+            return nil
+        }
+        let positionAX = unsafeBitCast(positionValue, to: AXValue.self)
+        let sizeAX = unsafeBitCast(sizeValue, to: AXValue.self)
         var position = CGPoint.zero
         var size = CGSize.zero
         guard AXValueGetValue(positionAX, .cgPoint, &position),

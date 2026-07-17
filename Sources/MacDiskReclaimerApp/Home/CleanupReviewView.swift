@@ -15,10 +15,6 @@ struct CleanupReviewView: View {
             }
     }
 
-    private var reviewFindingIDs: [String] {
-        reviewFindings.map(\.id)
-    }
-
     var body: some View {
         Group {
             if let request = model.pendingTrashConfirmation {
@@ -61,8 +57,7 @@ struct CleanupReviewView: View {
                 )
             } else {
                 List {
-                    SwiftUI.ForEach(reviewFindingIDs, id: \String.self) { (findingID: String) in
-                        if let finding = reviewFindings.first(where: { $0.id == findingID }) {
+                    SwiftUI.ForEach(reviewFindings) { finding in
                         let eligible = isEligible(finding)
                         Toggle(isOn: Binding(
                             get: { model.reviewSelectionIDs.contains(finding.id) },
@@ -84,7 +79,6 @@ struct CleanupReviewView: View {
                         }
                         .disabled(!eligible)
                         .accessibilityIdentifier("cleanup-review.item.\(finding.id)")
-                        }
                     }
                 }
             }

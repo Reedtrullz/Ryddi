@@ -66,7 +66,7 @@ Record the macOS version, Ryddi commit, appearance, window size, and any issues.
 
 Fill this section only from commands run against the exact candidate commit:
 
-- Unit/source-contract suite: passed, 718 tests with 1 intentional skip and 0 failures.
+- Unit/source-contract suite: passed, 721 tests with 1 intentional skip and 0 failures.
 - Release build/package: passed; the local app is an unsigned developer preview.
 - Release-trust script smoke: passed.
 - Fixture smoke: passed with launch, screenshot, scan, plan, dry run, and protected-marker preservation.

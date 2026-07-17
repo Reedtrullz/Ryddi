@@ -18,6 +18,29 @@ final class HomeJourneyTests: XCTestCase {
         XCTAssertTrue(model.reviewSelectionIDs.isEmpty)
     }
 
+    func testPresentationRefreshPreservesLatestGuidedMap() async {
+        let model = DashboardModel(dependencies: .testing(
+            scanService: EmptyScanService(),
+            guidedMapStore: MemoryGuidedMapStore()
+        ))
+        let map = GuidedMapSnapshot(
+            scanID: "refresh-map",
+            capturedAt: Date(timeIntervalSince1970: 1),
+            scopeDescription: "Test",
+            volumeCapacityBytes: 100,
+            volumeAvailableBytes: 50,
+            measuredAllocatedBytes: 50,
+            evidenceState: .complete,
+            rootID: "root",
+            nodes: []
+        )
+        model.latestGuidedMap = map
+
+        await model.refreshPresentationSnapshot()
+
+        XCTAssertEqual(model.presentationSnapshot?.guidedMap, map)
+    }
+
     func testMapSelectionContractContainsNoCleanupAuthority() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

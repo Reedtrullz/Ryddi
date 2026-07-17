@@ -17,12 +17,16 @@ private struct DashboardScanOutput: Sendable {
 private func waitForE2EScanDelay(
     milliseconds: Int,
     cancellation: ScanCancellationToken
-) -> Bool {
+) async -> Bool {
     var remaining = milliseconds
     while remaining > 0 {
         guard !cancellation.isCancelled, !Task.isCancelled else { return false }
         let interval = min(remaining, 25)
-        Thread.sleep(forTimeInterval: Double(interval) / 1_000)
+        do {
+            try await Task.sleep(for: .milliseconds(interval))
+        } catch {
+            return false
+        }
         remaining -= interval
     }
     return !cancellation.isCancelled && !Task.isCancelled
@@ -49,6 +53,7 @@ extension DashboardModel {
         let topGroup = presentationTopOffenderGroup
         let largeOldMode = presentationLargeOldMode
         let largeOldSort = presentationLargeOldSort
+        let guidedMap = latestGuidedMap
         let snapshot = await Task.detached {
             ScanPresentationSnapshot.build(
                 findings: currentFindings,
@@ -67,7 +72,8 @@ extension DashboardModel {
                 topOffenderGroup: topGroup,
                 largeOldMode: largeOldMode,
                 largeOldSort: largeOldSort,
-                now: now
+                now: now,
+                guidedMap: guidedMap
             )
         }.value
         guard revision == presentationRevision else { return }
@@ -206,7 +212,7 @@ extension DashboardModel {
         do {
             let scanService = try dependencies.makeScanService(includingUserRules: includeUserRules)
             let result = await Task.detached { () -> DashboardScanOutput? in
-                guard waitForE2EScanDelay(
+                guard await waitForE2EScanDelay(
                     milliseconds: e2eScanDelayMilliseconds,
                     cancellation: control.cancellation
                 ) else {
@@ -310,7 +316,8 @@ extension DashboardModel {
             diskStatus = DiskStatusReader().snapshot()
             _ = try ScanHistoryStore().save(overview: result.presentation.overview)
             if let latestGuidedMap {
-                try dependencies.guidedMapStore.save(latestGuidedMap)
+                // The map is a display cache; failure to persist it must not invalidate an accepted scan.
+                try? dependencies.guidedMapStore.save(latestGuidedMap)
             }
             loadHistory()
             plan = nil

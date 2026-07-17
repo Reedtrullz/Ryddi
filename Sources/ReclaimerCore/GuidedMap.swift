@@ -249,13 +249,50 @@ public enum GuidedMapBuilder {
     }
 
     private static func category(for node: DiskDrillDownNode) -> GuidedMapCategory {
-        let value = "\(node.category) \(node.path)".lowercased()
-        if value.contains("application") || value.contains("/applications") { return .applications }
-        if value.contains("developer") || value.contains("xcode") || value.contains("package") || value.contains("container") { return .developerFiles }
-        if value.contains("cache") { return .caches }
-        if value.contains("photo") || value.contains("video") || value.contains("music") || value.contains("media") { return .media }
-        if value.contains("/system") || value.contains("/library") { return .system }
-        if value.contains("document") || value.contains("download") || value.contains("desktop") { return .personalFiles }
+        category(category: node.category, path: node.path)
+    }
+
+    static func category(category: String, path: String) -> GuidedMapCategory {
+        let typedCategory = category.lowercased()
+        if typedCategory.contains("application") { return .applications }
+        if typedCategory.contains("developer")
+            || typedCategory.contains("xcode")
+            || typedCategory.contains("package")
+            || typedCategory.contains("container")
+            || typedCategory.contains("codex") {
+            return .developerFiles
+        }
+        if typedCategory.contains("cache") || typedCategory.contains("temporary") || typedCategory.contains("log") {
+            return .caches
+        }
+        if typedCategory.contains("photo")
+            || typedCategory.contains("video")
+            || typedCategory.contains("music")
+            || typedCategory.contains("media")
+            || typedCategory.contains("creative") {
+            return .media
+        }
+        if typedCategory.contains("system") { return .system }
+        if typedCategory.contains("personal")
+            || typedCategory.contains("document")
+            || typedCategory.contains("download")
+            || typedCategory.contains("desktop") {
+            return .personalFiles
+        }
+
+        let components = Set(
+            URL(fileURLWithPath: path).standardizedFileURL.pathComponents.map {
+                $0.lowercased()
+            }
+        )
+        if !components.isDisjoint(with: ["applications"]) { return .applications }
+        if !components.isDisjoint(with: ["developer", "developers", "xcode", "deriveddata", "node_modules", ".build", ".swiftpm"]) {
+            return .developerFiles
+        }
+        if !components.isDisjoint(with: ["caches", ".cache", "tmp", "temporaryitems", "logs"]) { return .caches }
+        if !components.isDisjoint(with: ["pictures", "photos", "movies", "music"]) { return .media }
+        if components.contains("system") { return .system }
+        if !components.isDisjoint(with: ["documents", "downloads", "desktop"]) { return .personalFiles }
         return .otherMeasured
     }
 }

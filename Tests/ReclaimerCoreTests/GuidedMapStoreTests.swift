@@ -35,6 +35,19 @@ final class GuidedMapStoreTests: XCTestCase {
         XCTAssertEqual(fileMode?.intValue, 0o600)
     }
 
+    func testSymbolicLinkRootIsRejected() throws {
+        let parent = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let target = parent.appendingPathComponent("target", isDirectory: true)
+        let link = parent.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        XCTAssertThrowsError(try GuidedMapStore(root: link).save(snapshot(id: "unsafe", date: 1))) { error in
+            XCTAssertEqual(error as? GuidedMapStoreError, .unsafeRoot)
+        }
+    }
+
     private func temporaryRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ryddi-guided-map-store-\(UUID().uuidString)", isDirectory: true)
