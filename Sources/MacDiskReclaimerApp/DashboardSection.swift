@@ -1,6 +1,45 @@
 import Foundation
 import SwiftUI
 
+enum DashboardPrimaryDestination: String, CaseIterable, Identifiable, Hashable {
+    case home
+    case explore
+    case history
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .home: "Home"
+        case .explore: "Explore"
+        case .history: "History"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .home: "house"
+        case .explore: "square.grid.3x3"
+        case .history: "clock.arrow.circlepath"
+        }
+    }
+
+    static func restoring(_ rawValue: String) -> DashboardPrimaryDestination {
+        if let destination = DashboardPrimaryDestination(rawValue: rawValue.lowercased()) {
+            return destination
+        }
+        switch DashboardSection.fromLegacyID(rawValue) {
+        case .audit, .recovery, .holding, .trash:
+            return .history
+        case .largeOld, .apps, .downloads, .duplicates, .browsers, .deviceBackups,
+             .packages, .projects, .xcode, .containers, .agents, .finding:
+            return .explore
+        default:
+            return .home
+        }
+    }
+}
+
 enum DashboardSidebarGroup: String, CaseIterable, Identifiable {
     case start = "Start"
     case generalMac = "General Mac"

@@ -59,7 +59,8 @@ config_root="$scratch/config"
 history_root="$scratch/history"
 report_root="$scratch/reports"
 holding_root="$scratch/holding"
-mkdir -p "$audit_root" "$config_root" "$history_root" "$report_root" "$holding_root"
+guided_map_root="$scratch/guided-map"
+mkdir -p "$audit_root" "$config_root" "$history_root" "$report_root" "$holding_root" "$guided_map_root"
 
 run_cli() {
   env \
@@ -68,6 +69,7 @@ run_cli() {
     RYDDI_SCAN_HISTORY_ROOT="$history_root" \
     RYDDI_REPORT_ROOT="$report_root" \
     RYDDI_HOLDING_ROOT="$holding_root" \
+    RYDDI_GUIDED_MAP_ROOT="$guided_map_root" \
     "$cli" "$@"
 }
 
@@ -90,6 +92,7 @@ env \
   RYDDI_SCAN_HISTORY_ROOT="$history_root" \
   RYDDI_REPORT_ROOT="$report_root" \
   RYDDI_HOLDING_ROOT="$holding_root" \
+  RYDDI_GUIDED_MAP_ROOT="$guided_map_root" \
   "$app_binary" >"$scratch/app.log" 2>&1 &
 app_pid=$!
 

@@ -6,6 +6,10 @@ final class AppLayoutContractTests: XCTestCase {
         let dashboard = try source("DashboardView.swift")
         let sidebar = try source("DashboardSidebarView.swift")
         let content = try source("DashboardContentViews.swift")
+        let home = try String(
+            contentsOf: repoRoot().appendingPathComponent("Sources/MacDiskReclaimerApp/Home/HomeView.swift"),
+            encoding: .utf8
+        )
         let layout = try source("RyddiWindowLayout.swift")
 
         XCTAssertTrue(app.contains("RyddiWindowLayout.minimumContentWidth"))
@@ -16,7 +20,8 @@ final class AppLayoutContractTests: XCTestCase {
         XCTAssertTrue(content.contains("struct OverviewView: View"))
         XCTAssertTrue(content.contains("ScrollView"))
         XCTAssertTrue(dashboard.contains(".toolbar"))
-        XCTAssertTrue(dashboard.contains("Menu {"))
+        XCTAssertTrue(home.contains("ScrollView"))
+        XCTAssertTrue(home.contains("home.primary-action"))
         XCTAssertTrue(layout.contains("GridItem(.adaptive(minimum:"))
         XCTAssertTrue(content.contains(".lineLimit("))
         XCTAssertTrue(content.contains(".truncationMode("))

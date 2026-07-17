@@ -6,6 +6,10 @@ public enum PlanMode: String, Sendable {
     case reviewAll
 }
 
+public enum PlanSelectionError: Error, Equatable, Sendable {
+    case unknownFindingIDs([String])
+}
+
 public final class PlanBuilder: @unchecked Sendable {
     private let openFileChecker: OpenFileChecking
 
@@ -14,9 +18,37 @@ public final class PlanBuilder: @unchecked Sendable {
     }
 
     public func buildPlan(from findings: [Finding], mode: PlanMode = .autoSafeOnly) -> ReclaimPlan {
+        buildPlanInternal(from: findings, mode: mode, selectedFindingIDs: nil)
+    }
+
+    public func buildPlan(
+        from findings: [Finding],
+        mode: PlanMode = .autoSafeOnly,
+        selectedFindingIDs: Set<String>
+    ) throws -> ReclaimPlan {
+        let knownIDs = Set(findings.map(\.id))
+        let unknownIDs = selectedFindingIDs.subtracting(knownIDs).sorted()
+        guard unknownIDs.isEmpty else {
+            throw PlanSelectionError.unknownFindingIDs(unknownIDs)
+        }
+        return buildPlanInternal(
+            from: findings,
+            mode: mode,
+            selectedFindingIDs: selectedFindingIDs
+        )
+    }
+
+    private func buildPlanInternal(
+        from findings: [Finding],
+        mode: PlanMode,
+        selectedFindingIDs: Set<String>?
+    ) -> ReclaimPlan {
         let knownPaths = findings.map(\.path)
         let potentialSelectedPaths = findings
-            .filter { isSelectionCandidate($0, mode: mode) }
+            .filter {
+                isSelectionCandidate($0, mode: mode)
+                    && (selectedFindingIDs?.contains($0.id) ?? true)
+            }
             .map(\.path)
         let initialItems = findings.map { finding -> ReclaimPlanItem in
             let findingWithOpenStatus = finding.withOpenFileStatusIfNeeded(
@@ -26,7 +58,8 @@ public final class PlanBuilder: @unchecked Sendable {
                 requiresOpenFileCheck: requiresOpenFileCheck(finding, mode: mode)
             )
             let conditions = conditions(for: findingWithOpenStatus)
-            let selected = shouldSelect(findingWithOpenStatus, mode: mode, conditions: conditions)
+            let selected = (selectedFindingIDs?.contains(finding.id) ?? true)
+                && shouldSelect(findingWithOpenStatus, mode: mode, conditions: conditions)
             let reclaim = selected ? estimatedReclaim(for: findingWithOpenStatus) : 0
             return ReclaimPlanItem(
                 finding: findingWithOpenStatus,

@@ -2,6 +2,18 @@
 
 This file tracks the public screenshots and short clips needed before a polished release page. Do not use screenshots that expose private paths, hostnames, project names, usernames, remote targets, receipts, or customer data.
 
+## Required For v0.4 Guided Map
+
+- Home after a user-started scan, showing the treemap, one primary action, and no more than three suggestions.
+- Explore in treemap and keyboard-friendly outline modes, including breadcrumbs and the evidence inspector.
+- Cleanup Review immediately after opening, proving that nothing is preselected.
+- Cleanup Review after explicit selection and a successful safety check.
+- History showing receipt/audit evidence and Recovery.
+- Advanced Settings showing that specialist reports remain available without occupying the main sidebar.
+- Minimum 820×620, regular 1180×760, and wide 1440×900 packaged-app captures.
+
+Use only disposable fixture evidence. A screenshot of the map proves presentation, not cleanup eligibility, actual APFS reclaim, release signing, or notarization.
+
 ## Required For v0.3 Public Release
 
 - Summary screen after a scan, showing the Next Safe Action, disk status, trust readiness, and review queues.
@@ -45,3 +57,4 @@ Supported sections are `Summary`, `Queues`, `Packages`, `Agents`, and `RemoteTar
 - Screenshot assets are visual proof for the synthetic fixture mode, not proof of a real local cleanup scan.
 - Release-trust proof is authoritative in `dist/Ryddi-release-manifest.txt` and `reclaimer release-trust`; screenshots are supporting visuals only.
 - Public release copy should not imply signed/notarized trust for a specific artifact unless the typed release manifest reports `stapledAndAccepted`.
+- Guided Map screenshots do not prove that a map node is safe to remove; cleanup authority begins only after explicit selection and current core safety checks.

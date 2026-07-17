@@ -25,6 +25,10 @@ enum AccessibilityID {
         "sidebar.\(section.rawValue)"
     }
 
+    static func sidebarDestination(_ destination: DashboardPrimaryDestination) -> String {
+        "sidebar.\(destination.rawValue)"
+    }
+
     static func queue(_ id: ReviewQueueID) -> String {
         "queue.\(id.rawValue)"
     }

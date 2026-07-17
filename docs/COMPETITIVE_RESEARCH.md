@@ -1,6 +1,6 @@
 # Ryddi Competitive Research Snapshot
 
-Date: 2026-07-05
+Date: 2026-07-17
 
 This is a product research snapshot for Ryddi, based on current public product pages, GitHub projects, Apple platform guidance, and the MVP scope in this repository. It is not exhaustive, but it is enough to set feature expectations for a credible first public release.
 
@@ -26,6 +26,16 @@ Users will still expect the basics from mature disk tools:
 - signed/notarized builds and a strong privacy statement.
 
 Ryddi's defensible differentiation is the evidence layer: rule matches, why a path is safe or unsafe, what would happen if removed, native-tool recommendations, active-file checks, dry-run receipts, and local audit history.
+
+## Guided Map Product Decision
+
+Ryddi v0.4 adopts the strongest regular-user ideas from the visual analyzers without copying their authority model:
+
+- From DaisyDisk: make spatial understanding the first experience, keep interaction fluid, let users drill down, and distinguish measured disk usage from promises about reclaim.
+- From SquirrelDisk: keep the interface direct, local, and easy to navigate across a hierarchy, with quick Finder-style inspection.
+- Ryddi's added value: evidence states, safety explanations, ranked suggestions, explicit empty selection, current dry-run proof, Trash-first execution, receipts, and verification.
+
+The intended audience differs. DaisyDisk remains the polished choice for people who primarily want to understand disk usage visually and manually decide what to remove. SquirrelDisk is a strong fit for users who want a lightweight, straightforward visual analyzer. Ryddi is for regular Mac users who want both a friendly spatial answer and conservative help deciding what is actually safe to reclaim, while retaining deeper developer tools in Advanced Settings.
 
 ## Competitor Lanes
 
@@ -103,7 +113,7 @@ Ryddi should make permission state visible, avoid root/helper behavior in v1, us
 | Top offenders overview | Baseline for all disk analyzers | Exists/partial | `TopOffenderTable`, CLI overview `--sort/--group`, and app Top Offenders now show path, size, category, safety, age, action, owner, confidence, and conservative reclaim estimate. Future work should add richer row filtering and visual table/detail transitions. |
 | Owner/app/tool grouping | Expected from app uninstallers and increasingly important for developer-cleaner trust | Exists/partial | `ScanOverview.ownerSummaries`, CLI overview, app Top Owners, and evidence reports now group non-overlapping findings by owner hints or category fallback. Future work should deepen app identity confidence. |
 | Rule transparency | Rare in broad cleaners but important for open-source trust | Exists/partial | `reclaimer rules`, app Rule Catalog, and `RuleCatalogReport` expose bundled and opt-in user rule sources, safety/action/category summaries, match hints, conditions, recovery notes, and non-claims. `reclaimer rules user preview/import/export` and app Rule Catalog preview/import/export add local user rule-pack review with validation that rejects cleanup-granting imports. Future work should add shared rule-pack signing and richer provenance review. |
-| Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Exists/partial | Ryddi now has non-overlapping proportional category map nodes plus bounded hierarchical drill-down via `reclaimer drilldown` and app Disk Drilldown. A full treemap/sunburst with richer spatial interaction remains future work. |
+| Visual disk map | Expected by DaisyDisk, GrandPerspective, SquirrelDisk, DiskPilot, Spacie users | Implemented for v0.4 | Home and Explore now use a deterministic hierarchical treemap with breadcrumbs, drill-down, selection inspection, accessible outline parity, search/category/size filters, and display-only persistence. Map interaction never grants cleanup authority. |
 | Evidence details | Rare in broad cleaners, central to Ryddi | Exists/partial | `FindingExplanationReport`, CLI `reclaimer explain`, and app detail view now answer what the path is, why it matched, risk, cleanup permission, exact action semantics, removal effect, recovery path, conditions, next steps, and non-claims. Future work should add richer visual transitions from maps/tables into the same explanation surface. |
 | Review queues | Expected from cleaners that need to turn scan output into action | Exists/partial | `ReviewQueueReport`, `ReviewQueueDetailReport`, CLI `reclaimer queues --queue`, and app Review Queues now separate Safe Maintenance, Quit App First, Use Native Tool, Valuable History, Personal/App Assets, and Unknown findings with counts, bytes, sample rows, single-queue reports, row-to-detail navigation, and non-claims. Future work should add saved queue filters and bulk queue actions. |
 | Dry-run plan | Strong differentiator | Partial | Keep as default. Receipt exports now add action counts and skipped/error visibility; plan diff remains future work. |

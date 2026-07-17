@@ -17,12 +17,16 @@ private struct DashboardScanOutput: Sendable {
 private func waitForE2EScanDelay(
     milliseconds: Int,
     cancellation: ScanCancellationToken
-) -> Bool {
+) async -> Bool {
     var remaining = milliseconds
     while remaining > 0 {
         guard !cancellation.isCancelled, !Task.isCancelled else { return false }
         let interval = min(remaining, 25)
-        Thread.sleep(forTimeInterval: Double(interval) / 1_000)
+        do {
+            try await Task.sleep(for: .milliseconds(interval))
+        } catch {
+            return false
+        }
         remaining -= interval
     }
     return !cancellation.isCancelled && !Task.isCancelled
@@ -49,6 +53,7 @@ extension DashboardModel {
         let topGroup = presentationTopOffenderGroup
         let largeOldMode = presentationLargeOldMode
         let largeOldSort = presentationLargeOldSort
+        let guidedMap = latestGuidedMap
         let snapshot = await Task.detached {
             ScanPresentationSnapshot.build(
                 findings: currentFindings,
@@ -67,7 +72,8 @@ extension DashboardModel {
                 topOffenderGroup: topGroup,
                 largeOldMode: largeOldMode,
                 largeOldSort: largeOldSort,
-                now: now
+                now: now,
+                guidedMap: guidedMap
             )
         }.value
         guard revision == presentationRevision else { return }
@@ -206,7 +212,7 @@ extension DashboardModel {
         do {
             let scanService = try dependencies.makeScanService(includingUserRules: includeUserRules)
             let result = await Task.detached { () -> DashboardScanOutput? in
-                guard waitForE2EScanDelay(
+                guard await waitForE2EScanDelay(
                     milliseconds: e2eScanDelayMilliseconds,
                     cancellation: control.cancellation
                 ) else {
@@ -242,6 +248,14 @@ extension DashboardModel {
                     stage: .notStarted
                 )
                 .recordScan(findingDigest: findingDigest, updatedAt: generatedAt)
+                let map = GuidedMapBuilder.build(input: GuidedMapInput(
+                    scanID: session.id,
+                    capturedAt: generatedAt,
+                    scopeDescription: scopePlan.label,
+                    coverage: scanResult.coverage,
+                    diskStatus: DiskStatusReader().snapshot(),
+                    drillDown: drillDown
+                ))
                 let presentation = ScanPresentationSnapshot.build(
                     findings: findings,
                     scopes: scopes,
@@ -252,7 +266,8 @@ extension DashboardModel {
                     topOffenderGroup: topOffenderGroup,
                     largeOldMode: largeOldMode,
                     largeOldSort: largeOldSort,
-                    now: generatedAt
+                    now: generatedAt,
+                    guidedMap: map
                 )
                 let permissions = PermissionAdvisor.report(
                     scopeSummaries: presentation.overview.scopeSummaries,
@@ -281,11 +296,13 @@ extension DashboardModel {
                 return
             }
             lastScannedScopeLabel = result.scopeLabel
+            reviewSelectionIDs.removeAll()
             scanScopes = result.scopes
             findings = result.findings
             presentationSnapshot = result.presentation
             overview = result.presentation.overview
             diskDrillDown = result.drillDown
+            latestGuidedMap = result.presentation.guidedMap
             userPathPolicy = result.policy
             if permissionReport.coverageLevel != result.permissions.coverageLevel {
                 diagnostics.record(.permissionCoverageChanged)
@@ -298,6 +315,10 @@ extension DashboardModel {
             isUpdatingPresentation = false
             diskStatus = DiskStatusReader().snapshot()
             _ = try ScanHistoryStore().save(overview: result.presentation.overview)
+            if let latestGuidedMap {
+                // The map is a display cache; failure to persist it must not invalidate an accepted scan.
+                try? dependencies.guidedMapStore.save(latestGuidedMap)
+            }
             loadHistory()
             plan = nil
             lastDryRunReceipt = nil
@@ -374,6 +395,63 @@ extension DashboardModel {
         let activityID = activities.begin(.review, message: "Building plan")
         defer { activities.finish(.review, id: activityID) }
         await buildPlanWithoutChangingWorkingState()
+    }
+
+    func toggleReviewSelection(_ findingID: String) {
+        if reviewSelectionIDs.contains(findingID) {
+            reviewSelectionIDs.remove(findingID)
+        } else {
+            reviewSelectionIDs.insert(findingID)
+        }
+        plan = nil
+        lastDryRunReceipt = nil
+    }
+
+    func clearReviewSelection() {
+        reviewSelectionIDs.removeAll()
+        plan = nil
+        lastDryRunReceipt = nil
+    }
+
+    func selectSafeMaintenance() async {
+        let currentFindings = findings
+        let accepted = await Task.detached {
+            PlanBuilder(openFileChecker: LsofOpenFileChecker())
+                .buildPlan(from: currentFindings, mode: .autoSafeOnly)
+                .items
+                .filter(\.selected)
+                .map(\.finding.id)
+        }.value
+        reviewSelectionIDs = Set(accepted)
+        plan = nil
+        lastDryRunReceipt = nil
+    }
+
+    func checkSelectedItemsSafely() async {
+        let activityID = activities.begin(.review, message: "Checking selected items")
+        defer { activities.finish(.review, id: activityID) }
+        let currentFindings = findings
+        let selectedIDs = reviewSelectionIDs
+        do {
+            let builtPlan = try await Task.detached {
+                try PlanBuilder(openFileChecker: LsofOpenFileChecker()).buildPlan(
+                    from: currentFindings,
+                    mode: .autoSafeOnly,
+                    selectedFindingIDs: selectedIDs
+                )
+            }.value
+            plan = builtPlan
+            try recordPlanSession(builtPlan)
+            guard builtPlan.items.contains(where: \.selected) else {
+                error = selectedIDs.isEmpty
+                    ? "Choose at least one item before checking safely."
+                    : "None of the selected items passed the current safety checks."
+                return
+            }
+            await runDryRun()
+        } catch {
+            self.error = "Ryddi could not build the selected plan: \(error.localizedDescription)"
+        }
     }
 
     private func buildPlanWithoutChangingWorkingState() async {
