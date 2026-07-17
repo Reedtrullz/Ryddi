@@ -493,7 +493,8 @@ extension DashboardModel {
         defer { activities.finish(.cleanup, id: activityID) }
         defer { diagnostics.end(diagnosticSpan) }
         let includeUserRules = includeUserRulesInScans
-        let policy = UserPathPolicyStore().load()
+        let policyStore = UserPathPolicyStore()
+        let policy = policyStore.load()
         let registry = trashExecutionAuthorizationRegistry
         do {
             let ruleVersion = try RuleEngine.bundled(includingUserRules: includeUserRules).version
@@ -502,6 +503,7 @@ extension DashboardModel {
                     openFileChecker: LsofOpenFileChecker(),
                     configuration: ExecutorConfiguration(
                         userPathPolicy: policy,
+                        userPathPolicyLoader: policyStore,
                         currentScanSession: session
                     )
                 ).executeAuthorizedTrash(

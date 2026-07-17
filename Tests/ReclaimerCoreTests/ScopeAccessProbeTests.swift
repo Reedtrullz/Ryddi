@@ -27,6 +27,46 @@ final class ScopeAccessProbeTests: XCTestCase {
         XCTAssertTrue(result.detail.contains("discarded"))
     }
 
+    func testDefaultPrivateTempScopePreservesFilesystemNamespaceAndUsesDirectoryProbe() throws {
+        let scope = try XCTUnwrap(
+            DefaultScopes.developerAgentBloat(includeUnavailable: true)
+                .first(where: { $0.name == "Private temp" })
+        )
+
+        XCTAssertEqual(scope.root.path, "/private/tmp")
+
+        let result = FileManagerScopeAccessProbe().probe(scope.root)
+
+        XCTAssertEqual(result.state, .readable)
+        XCTAssertEqual(result.operation, .listDirectory)
+    }
+
+    func testScannerDoesNotAliasPrivateTempScopeBackToTmpSymlink() throws {
+        let scope = ScanScope(
+            name: "Private temp",
+            root: URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+        )
+        let probe = RecordingScopeAccessProbe(result: ScopeAccessProbeResult(
+            state: .missing,
+            operation: .metadata,
+            errorCode: Int(ENOENT),
+            detail: "Fixture probe stopped before traversal."
+        ))
+        let scanner = try FileScanner(
+            openFileChecker: NoOpenFilesChecker(),
+            scopeAccessProbe: probe
+        )
+
+        let result = scanner.scanWithCoverage(
+            scopes: [scope],
+            options: ScanOptions(measurementItemBudget: 1)
+        )
+
+        XCTAssertEqual(probe.probedPaths, ["/private/tmp"])
+        XCTAssertEqual(result.coverage.scopeCoverage.first?.rootPath, "/private/tmp")
+        XCTAssertEqual(result.coverage.scopeAccessSummaries?.first?.path, "/private/tmp")
+    }
+
     func testRegularFileIsOpenedReadOnlyAndClosedWithoutReading() throws {
         let file = fixtureRoot.appendingPathComponent("fixture.txt")
         try Data("private fixture contents".utf8).write(to: file)
@@ -254,6 +294,25 @@ private struct FixedScopeAccessProbe: ScopeAccessProbing {
 
     func probe(_ url: URL) -> ScopeAccessProbeResult {
         result
+    }
+}
+
+private final class RecordingScopeAccessProbe: ScopeAccessProbing, @unchecked Sendable {
+    private let lock = NSLock()
+    private let result: ScopeAccessProbeResult
+    private var paths = [String]()
+
+    init(result: ScopeAccessProbeResult) {
+        self.result = result
+    }
+
+    var probedPaths: [String] {
+        lock.withLock { paths }
+    }
+
+    func probe(_ url: URL) -> ScopeAccessProbeResult {
+        lock.withLock { paths.append(url.path) }
+        return result
     }
 }
 

@@ -515,7 +515,7 @@ public enum DefaultScopes {
         removingNestedChildren: Bool = false
     ) -> [ScanScope] {
         uniqueScopes(paths.compactMap { name, url in
-            let root = url.standardizedFileURL
+            let root = url
             if includeUnavailable || FileManager.default.fileExists(atPath: root.path) {
                 return ScanScope(name: name, root: root, permissionState: .unknown)
             }

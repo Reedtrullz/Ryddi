@@ -4646,7 +4646,7 @@ final class ReclaimerCoreTests: XCTestCase {
         let protected = tempRoot.appendingPathComponent("Projects/valuable", isDirectory: true)
         _ = try store.add(path: protected.path, kind: .protect, reason: "client data")
 
-        let document = store.exportDocument(exportedAt: Date(timeIntervalSince1970: 10))
+        let document = try store.exportDocument(exportedAt: Date(timeIntervalSince1970: 10))
 
         XCTAssertEqual(document.schemaVersion, UserPathPolicyDocument.currentSchemaVersion)
         XCTAssertEqual(document.rules.count, 1)
