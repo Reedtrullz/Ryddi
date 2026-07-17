@@ -23,7 +23,7 @@ Ryddi treats cleanup as evidence review:
 
 ## Current Status
 
-Ryddi `v0.3.0` is the published trust-to-action release. `v0.3.1 (4)` is the current correctness-patch candidate: it tightens scan accounting and cancellation, current-state reconciliation, audit loading, permission evidence, SSH host-key evidence, CLI failure handling, bundle signing, and packaged Accessibility proof. It becomes a release only after the exact tagged source passes the signed, notarized, stapled, Gatekeeper, checksum, and install-readback gates. `v0.4.0` is the planned guided-cleanup milestone.
+Ryddi `v0.3.1` is the published trust-correctness release. `v0.4.0 (5)` is the Guided Map release candidate: it adds the user-started treemap-led Home, focused Explore and History destinations, explicit empty-by-default cleanup review, and packaged verification of the full guarded Trash journey. It becomes a release only after the exact tagged source passes the signed, notarized, stapled, Gatekeeper, checksum, and install-readback gates.
 
 The release manifest is the source of truth for signed/notarized claims. It must prove Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification before a build is treated as trusted. Local SwiftPM builds and unsigned preview artifacts are useful for testing, but they are not trusted releases.
 
@@ -240,26 +240,26 @@ swift build --scratch-path .build
 Scripts/release-check.sh
 ```
 
-For the signed `v0.3.1` release gate, provide Developer ID and notarization credentials, then run:
+For the signed `v0.4.0` release gate, provide Developer ID and notarization credentials, then run:
 
 ```bash
 ./Scripts/release-signing-doctor.sh
 RYDDI_RELEASE_SIGNING=required \
 RYDDI_REQUIRE_PACKAGED_AX_E2E=1 \
-RYDDI_VERSION=0.3.1 \
-RYDDI_BUILD_NUMBER=4 \
-RYDDI_ARTIFACT_BASENAME=Ryddi-v0.3.1 \
+RYDDI_VERSION=0.4.0 \
+RYDDI_BUILD_NUMBER=5 \
+RYDDI_ARTIFACT_BASENAME=Ryddi-v0.4.0 \
 Scripts/release-check.sh
 ```
 
 The signing doctor checks for a Developer ID Application identity and either a usable `NOTARY_PROFILE` or direct `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD` environment without printing password values. It is a preflight helper only; the release gate and manifest are still the source of truth. Shells such as fish do not search the current directory automatically, so run the script with `./Scripts/...` from the repository root.
 
-The signed release gate must produce `dist/Ryddi-v0.3.1.zip`, `dist/Ryddi-v0.3.1.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, strict codesign, and packaged Accessibility E2E proof, bundle version `0.3.1`, and build `4`. The AX lane requires a logged-in, Accessibility-approved Mac runner; the signed GitHub job therefore uses the `self-hosted`, `macOS`, and `ryddi-release` labels. If credentials, runner approval, or any check fails, do not publish the build as `v0.3.1`. A local unsigned zip remains a developer preview, even when all non-signing tests pass.
+The signed release gate must produce `dist/Ryddi-v0.4.0.zip`, `dist/Ryddi-v0.4.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, strict codesign, and packaged Accessibility E2E proof, bundle version `0.4.0`, and build `5`. The AX lane requires a logged-in, Accessibility-approved Mac runner; the signed GitHub job therefore uses the `self-hosted`, `macOS`, and `ryddi-release` labels. If credentials, runner approval, or any check fails, do not publish the build as `v0.4.0`. A local unsigned zip remains a developer preview, even when all non-signing tests pass.
 
 After downloading a release asset, verify the checksum and inspect the manifest before installing:
 
 ```bash
-shasum -a 256 -c Ryddi-v0.3.1.zip.sha256
+shasum -a 256 -c Ryddi-v0.4.0.zip.sha256
 grep -E 'source_commit|notarization_status|stapled|gatekeeper|codesign_verified' Ryddi-release-manifest.txt
 ```
 
@@ -733,7 +733,7 @@ Scripts/app-e2e-smoke.sh
 
 The smoke defaults to a 30 GiB disk guard, builds a caller-bounded fixture, launches `Ryddi.app` with `RYDDI_E2E_MODE=1`, attempts a Ryddi-window-only screenshot, and runs packaged CLI scan, plan, core dry run, and app-uninstall dry run. It compares protected browser-profile, Codex-session, symlink, and app-bundle markers afterward. The fixture is under the current temporary directory, cleaned with a trap, requires no Full Disk Access, and never scans or mutates real user cache roots. Hosted CI sets `RYDDI_E2E_MIN_FREE_GIB=5` only for this bounded fixture smoke; autonomous local and signed release work retains the 30 GiB default.
 
-Use `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` for the manual screenshot gate. See [Ryddi v0.3 Human QA](docs/QA_V0.3.md) for the required visual and VoiceOver checks.
+Use `RYDDI_E2E_REQUIRE_SCREENSHOT=1 Scripts/app-e2e-smoke.sh` for the manual screenshot gate. See [Ryddi v0.4 Guided Map QA](docs/QA_V0.4_GUIDED_MAP.md) for the current visual and VoiceOver checks; [Ryddi v0.3 Human QA](docs/QA_V0.3.md) remains historical coverage for advanced surfaces.
 
 The release-only lane runs `Scripts/run-packaged-app-e2e.sh` through macOS Accessibility against the packaged app. It drives Scan, Plan, Dry Run, explicit Trash confirmation, and recovery-result presentation; checks protected fixture hashes; captures minimum, regular, and wide window screenshots; and removes only the receipt-identified fixture artifact from Trash afterward. Run it from an Accessibility-approved terminal or self-hosted runner. Ordinary hosted CI intentionally uses the non-destructive fixture smoke because it cannot be assumed to have Accessibility approval.
 
@@ -764,6 +764,7 @@ Scripts/                     Packaging and notarization helpers
 - [Release checklist](docs/RELEASE_CHECKLIST.md) - developer preview versus signed/notarized release gates.
 - [Ryddi v0.3 Human QA](docs/QA_V0.3.md) - required app workflows, screenshots, small-window checks, and VoiceOver evidence.
 - [Ryddi v0.4 Guided Map QA](docs/QA_V0.4_GUIDED_MAP.md) - Guided Map behavior, responsive layouts, accessibility, and packaged-app evidence.
+- [Ryddi v0.4.0 release notes](docs/releases/v0.4.0.md) - exact release identity, highlights, install verification, and non-claims.
 
 ## Non-Goals For v1
 
