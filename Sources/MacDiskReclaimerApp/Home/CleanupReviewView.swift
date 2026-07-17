@@ -20,6 +20,27 @@ struct CleanupReviewView: View {
     }
 
     var body: some View {
+        Group {
+            if let request = model.pendingTrashConfirmation {
+                TrashConfirmationView(
+                    request: request,
+                    isExecuting: model.isWorking,
+                    onCancel: { Task { await model.cancelPendingTrashExecution() } },
+                    onConfirm: { Task { await model.executeConfirmedTrash() } }
+                )
+            } else {
+                reviewContent
+            }
+        }
+        .frame(minWidth: 720, minHeight: 560)
+        .onDisappear {
+            if model.lastExecutionReceipt != nil {
+                model.clearReviewSelection()
+            }
+        }
+    }
+
+    private var reviewContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
@@ -120,12 +141,6 @@ struct CleanupReviewView: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 720, minHeight: 560)
-        .onDisappear {
-            if model.lastExecutionReceipt != nil {
-                model.clearReviewSelection()
-            }
-        }
     }
 
     private func isEligible(_ finding: Finding) -> Bool {

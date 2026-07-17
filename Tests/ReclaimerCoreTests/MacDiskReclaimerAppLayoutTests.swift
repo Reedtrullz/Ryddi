@@ -94,13 +94,16 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             contentsOf: appSourceDirectory.appendingPathComponent("GuidedSummaryView.swift"),
             encoding: .utf8
         )
-        let dashboard = try dashboardViewSource()
+        let cleanupReview = try String(
+            contentsOf: appSourceDirectory.appendingPathComponent("Home/CleanupReviewView.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(confirmation.contains("struct TrashConfirmationView: View"))
         XCTAssertTrue(confirmation.contains("I reviewed every item above"))
         XCTAssertTrue(confirmation.contains("AccessibilityID.trashConfirm"))
         XCTAssertTrue(confirmation.contains("AccessibilityID.trashCancel"))
-        XCTAssertTrue(dashboard.contains("pendingTrashConfirmation"))
+        XCTAssertTrue(cleanupReview.contains("pendingTrashConfirmation"))
         XCTAssertTrue(summary.contains("prepareTrashExecution"))
         XCTAssertFalse(summary.contains("private var canExecuteCoreReclaim: Bool {\n        false"))
     }

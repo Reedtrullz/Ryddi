@@ -743,7 +743,9 @@ Ryddi records privacy-safe macOS unified-log events for typed workflow operation
 
 ## macOS Interaction
 
-The supported minimum dashboard size is 980×680. The primary task order is **Scan → Review → Plan → Dry Run → Confirm → Trash → Recover**. Keyboard commands keep the evidence gates intact: `⌘R` scans, `⌥⌘P` builds a plan, `⌥⌘D` runs the dry run, `⌥⌘R` opens the exact-path reclaim confirmation when current evidence is ready, and `⌘1` opens Cleanup Flow. VoiceOver and keyboard traversal remain manual release checks in [Ryddi v0.3 Human QA](docs/QA_V0.3.md); automated AX proof verifies control discovery, activation, and geometry but does not claim to replace a human screen-reader review.
+Ryddi v0.4 opens to a Guided Map with three destinations: **Home, Explore, and History**. Scanning is always started by the user. A completed scan produces a treemap and accessible outline for understanding storage; neither view grants cleanup authority or selects anything for removal. Cleanup follows **Scan → Understand → Review suggestions → Check safely → Confirm → Move to Trash → Verify**, and every review starts with nothing selected.
+
+The supported minimum dashboard size is 820×620. Keyboard commands are deliberately small: `⌘R` scans again, `⌘1` opens Home, `⌘2` opens Explore, `⌘3` opens History, and `⌘,` opens Settings. Advanced reports remain available from Settings without crowding the regular-user workflow. VoiceOver and keyboard traversal remain manual release checks in [Ryddi v0.4 Guided Map QA](docs/QA_V0.4_GUIDED_MAP.md); automated AX proof verifies control discovery, activation, and geometry but does not claim to replace a human screen-reader review.
 
 ## Repository Layout
 
@@ -761,6 +763,7 @@ Scripts/                     Packaging and notarization helpers
 - [Competitive research snapshot](docs/COMPETITIVE_RESEARCH.md) - competitor lanes, expected features, and suggested Ryddi roadmap.
 - [Release checklist](docs/RELEASE_CHECKLIST.md) - developer preview versus signed/notarized release gates.
 - [Ryddi v0.3 Human QA](docs/QA_V0.3.md) - required app workflows, screenshots, small-window checks, and VoiceOver evidence.
+- [Ryddi v0.4 Guided Map QA](docs/QA_V0.4_GUIDED_MAP.md) - Guided Map behavior, responsive layouts, accessibility, and packaged-app evidence.
 
 ## Non-Goals For v1
 

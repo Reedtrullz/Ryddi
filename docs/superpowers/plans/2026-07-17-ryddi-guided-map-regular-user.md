@@ -1,5 +1,7 @@
 # Ryddi Guided Map Regular-User Implementation Plan
 
+> **Implementation status (2026-07-17):** Implemented on `codex/guided-map-v0.4`. Core, app, script, fixture, responsive, and packaged Accessibility automation pass. The human VoiceOver release gate remains intentionally unclaimed; see `docs/QA_V0.4_GUIDED_MAP.md`.
+
 > **For agentic workers:** Execute this plan task-by-task with test-first changes and a review checkpoint after every task. If the user explicitly chooses delegated execution, use isolated subagents per task; otherwise execute inline in the listed order.
 
 **Goal:** Replace Ryddi's feature-dense dashboard with a user-started, treemap-led Home, explicit cleanup review, focused Explore, and trustworthy History experience for regular Mac users without weakening core cleanup authority.

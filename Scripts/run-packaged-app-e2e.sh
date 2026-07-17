@@ -45,7 +45,7 @@ codex_before="$(shasum -a 256 "$codex_marker" | awk '{print $1}')"
 app_before="$(shasum -a 256 "$app_marker" | awk '{print $1}')"
 
 rm -rf "$output"
-mkdir -p "$output" "$scratch/audit" "$scratch/config" "$scratch/history" "$scratch/reports" "$scratch/holding" "$root/.build/e2e-module-cache"
+mkdir -p "$output" "$scratch/audit" "$scratch/config" "$scratch/history" "$scratch/reports" "$scratch/holding" "$scratch/guided-map" "$root/.build/e2e-module-cache"
 
 /usr/bin/osascript -e 'tell application id "com.reidar.ryddi" to quit' >/dev/null 2>&1 || true
 sleep 1
@@ -59,6 +59,7 @@ sleep 1
   --env "RYDDI_SCAN_HISTORY_ROOT=$scratch/history" \
   --env "RYDDI_REPORT_ROOT=$scratch/reports" \
   --env "RYDDI_HOLDING_ROOT=$scratch/holding" \
+  --env "RYDDI_GUIDED_MAP_ROOT=$scratch/guided-map" \
   "$app" >"$scratch/open.log" 2>&1 &
 open_pid=$!
 

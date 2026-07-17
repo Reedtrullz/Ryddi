@@ -93,31 +93,33 @@ enum RyddiAXHarness {
         var checkpoints: [HarnessResult.Checkpoint] = []
         let app = AXUIElementCreateApplication(running.processIdentifier)
         try checkpoint("launch", started: started, into: &checkpoints) {
-            _ = try waitForElement(identifier: "summary.scan-button", root: app, timeout: 15, requireEnabled: true)
+            _ = try waitForElement(identifier: "home.primary-action", root: app, timeout: 15, requireEnabled: true)
         }
         try checkpoint("cancelled-scan", started: started, into: &checkpoints) {
-            try press("summary.scan-button", root: app)
+            try press("scan-button", root: app)
             _ = try waitForElement(identifier: "scan-progress", root: app, timeout: 10, requireEnabled: false)
             try press("cancel-scan-button", root: app)
             try waitForCancelledScanToBecomeIdle(root: app, timeout: 10)
             try assertNoLateCancelledScanCommit(path: options.candidatePath, root: app, quietPeriod: 1.2)
         }
         try checkpoint("scan", started: started, into: &checkpoints) {
-            try press("summary.scan-button", root: app)
+            try press("scan-button", root: app)
             _ = try waitForElement(identifier: "scan-progress", root: app, timeout: 10, requireEnabled: false)
-            _ = try waitForElement(identifier: "summary.plan-button", root: app, timeout: 90, requireEnabled: true)
+            _ = try waitForElement(identifier: "guided-map.breadcrumb", root: app, timeout: 90, requireEnabled: false)
+            _ = try waitForElement(identifier: "home.primary-action", root: app, timeout: 20, requireEnabled: true)
         }
-        try checkpoint("plan", started: started, into: &checkpoints) {
-            try press("summary.plan-button", root: app)
-            _ = try waitForElement(identifier: "summary.dry-run-button", root: app, timeout: 45, requireEnabled: true)
+        try checkpoint("review", started: started, into: &checkpoints) {
+            try press("home.primary-action", root: app)
+            _ = try waitForElement(identifier: "cleanup-review.select-safe", root: app, timeout: 20, requireEnabled: true)
+            try press("cleanup-review.select-safe", root: app)
+            _ = try waitForElement(identifier: "cleanup-review.check-safely", root: app, timeout: 20, requireEnabled: true)
         }
         try checkpoint("dry-run", started: started, into: &checkpoints) {
-            try press("summary.dry-run-button", root: app)
-            _ = try waitForElement(identifier: "summary.reclaim-button", root: app, timeout: 60, requireEnabled: true)
-            _ = try waitForText(options.candidatePath, root: app, timeout: 20)
+            try press("cleanup-review.check-safely", root: app)
+            _ = try waitForElement(identifier: "cleanup-review.move-to-trash", root: app, timeout: 60, requireEnabled: true)
         }
         try checkpoint("confirmation", started: started, into: &checkpoints) {
-            try press("summary.reclaim-button", root: app)
+            try press("cleanup-review.move-to-trash", root: app)
             _ = try waitForElement(identifier: "trash-confirmation.reviewed", root: app, timeout: 20, requireEnabled: true)
             try press("trash-confirmation.reviewed", root: app)
             _ = try waitForElement(identifier: "trash-confirmation.confirm", root: app, timeout: 10, requireEnabled: true)
@@ -131,22 +133,16 @@ enum RyddiAXHarness {
             requireEnabled: false
         )
         _ = resultElement
-        _ = try waitForElement(
-            identifier: "summary.verify-cleanup-button",
-            root: app,
-            timeout: 30,
-            requireEnabled: true
-        )
-        try assertCandidateRowMissing(path: options.candidatePath, root: app, timeout: 20)
-        try assertElementMissing(identifier: "summary.reclaim-button", root: app, timeout: 20)
         guard !FileManager.default.fileExists(atPath: options.candidatePath) else {
             throw HarnessError.candidateStillExists(options.candidatePath)
         }
+        try press("cleanup-review.done", root: app)
+        _ = try waitForElement(identifier: "home.primary-action", root: app, timeout: 30, requireEnabled: true)
         checkpoints.append(.init(name: "trash-result", elapsedMilliseconds: elapsed(started)))
         try checkpoint("verification-scan", started: started, into: &checkpoints) {
-            try press("summary.verify-cleanup-button", root: app)
+            try press("home.primary-action", root: app)
             try waitForVerificationScanCompletion(root: app, timeout: 90)
-            try assertElementMissing(identifier: "summary.reclaim-button", root: app, timeout: 20)
+            try assertElementMissing(identifier: "cleanup-review.move-to-trash", root: app, timeout: 20)
         }
 
         try FileManager.default.createDirectory(at: options.output, withIntermediateDirectories: true)
@@ -249,14 +245,14 @@ enum RyddiAXHarness {
     ) throws {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            let verificationFinished = find(identifier: "summary.verify-cleanup-button", root: root) == nil
+            let verificationFinished = find(identifier: "scan-progress", root: root) == nil
             let scanEnabled = find(identifier: "scan-button", root: root).map {
                 boolAttribute(kAXEnabledAttribute as String, element: $0) == true
             } ?? false
-            let planEnabled = find(identifier: "summary.plan-button", root: root).map {
+            let primaryEnabled = find(identifier: "home.primary-action", root: root).map {
                 boolAttribute(kAXEnabledAttribute as String, element: $0) == true
             } ?? false
-            if verificationFinished, scanEnabled, planEnabled {
+            if verificationFinished, scanEnabled, primaryEnabled {
                 return
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.15))
@@ -292,10 +288,8 @@ enum RyddiAXHarness {
     ) throws {
         let deadline = Date().addingTimeInterval(quietPeriod)
         repeat {
-            let planEnabled = find(identifier: "summary.plan-button", root: root).map {
-                boolAttribute(kAXEnabledAttribute as String, element: $0) == true
-            } ?? false
-            if planEnabled || findText(path, root: root) != nil {
+            let mapVisible = find(identifier: "guided-map.breadcrumb", root: root) != nil
+            if mapVisible || findText(path, root: root) != nil {
                 dumpTree(root: root)
                 throw HarnessError.lateCancelledScanCommit(path)
             }
@@ -423,9 +417,9 @@ enum RyddiAXHarness {
             throw HarnessError.windowUnavailable
         }
         let sizes: [(String, CGSize)] = [
-            ("minimum", CGSize(width: 980, height: 680)),
-            ("regular", CGSize(width: 1_280, height: 800)),
-            ("wide", CGSize(width: 1_600, height: 1_000))
+            ("minimum", CGSize(width: 820, height: 620)),
+            ("regular", CGSize(width: 1_180, height: 760)),
+            ("wide", CGSize(width: 1_440, height: 900))
         ]
         var screenshots: [URL] = []
         var checks: [HarnessResult.ResponsiveCheck] = []
@@ -452,15 +446,8 @@ enum RyddiAXHarness {
         sizeName: String
     ) throws -> [String] {
         guard let windowFrame = frame(of: window) else { throw HarnessError.windowUnavailable }
-        let fixedIDs = ["dashboard-sidebar", "scan-button", "cleanup-flow-status"]
-        let primaryIDs = [
-            "summary.verify-cleanup-button",
-            "summary.reclaim-button",
-            "summary.manual-review-button",
-            "summary.dry-run-button",
-            "summary.plan-button",
-            "summary.scan-button"
-        ]
+        let fixedIDs = ["dashboard-sidebar", "scan-button", "home.primary-action"]
+        let primaryIDs = ["home.primary-action"]
         var elements: [(String, AXUIElement)] = try fixedIDs.map { id in
             (id, try waitForElement(identifier: id, root: app, timeout: 10, requireEnabled: false))
         }

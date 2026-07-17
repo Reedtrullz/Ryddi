@@ -72,11 +72,6 @@ struct HomeView: View {
                 Label("See where your space went", systemImage: "internaldrive")
             } description: {
                 Text("Ryddi waits for you to start. The scan measures your selected Mac folders and never cleans automatically.")
-            } actions: {
-                Button("Scan your Mac") { model.startScan() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.isWorking)
-                    .accessibilityIdentifier("home.scan")
             }
             .frame(minHeight: 340)
         }
@@ -115,7 +110,7 @@ struct HomeView: View {
         if let map = home.map, map.volumeCapacityBytes > 0 {
             return "\(ByteFormat.string(map.volumeAvailableBytes)) available"
         }
-        return "Understand your Mac storage"
+        return model.diskStatus.statusLine
     }
 
     private var evidenceLine: String {

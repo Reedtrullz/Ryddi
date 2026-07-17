@@ -5,7 +5,6 @@ final class AppAccessibilityContractTests: XCTestCase {
         let source = try appSource()
         let requiredIdentifiers = [
             "home.primary-action",
-            "home.scan",
             "guided-map.breadcrumb",
             "guided-map.outline",
             "cleanup-review.select-safe",

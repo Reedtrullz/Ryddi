@@ -4,6 +4,12 @@ Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evi
 
 Release train: `v0.3.0` is published history, `v0.3.1 (4)` is the correctness patch, and `v0.4.0` is the guided-cleanup milestone. Unsigned local artifacts are developer previews, not releases.
 
+## Guided Map Regular-User Experience
+
+The v0.4 app starts with a user-initiated scan and a proportional treemap backed by the existing bounded drill-down evidence. Home shows one primary action and at most three ranked suggestions. Explore adds treemap/outline switching, search, category, and minimum-size filters. History keeps receipts, audits, and recovery evidence together. Advanced reports and configuration remain available in Settings.
+
+The Guided Map is display-only: selecting or drilling into a map node never selects cleanup. Every cleanup review begins empty, and only explicit finding selections are passed into the existing plan, dry-run, one-use authorization, Trash, receipt, and verification gates. A cancelled, failed, or stale refresh cannot replace the last trustworthy completed map.
+
 ## Needed MVP Features And Chosen Solutions
 
 | Feature | Best MVP solution | Implemented |
@@ -12,7 +18,7 @@ Release train: `v0.3.0` is published history, `v0.3.1 (4)` is the correctness pa
 | Find large offenders | Bounded filesystem scanner over preset or custom roots, with permission evidence. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
 | Show top offenders | Shared overview analytics with sortable/groupable rows by category, owner/app/tool, safety, scope, age, action, logical size, allocated size, confidence, and conservative reclaim estimate. | `TopOffenderTable`, `FindingAnalytics`, `reclaimer overview --sort --group`, app Top Offenders |
 | Organize review queues | Shared user-intent queues separate safe maintenance, quit-first data, native-tool stores, valuable history, protected personal/app assets, and unknown review items, with single-queue filtering and evidence-detail navigation. | `ReviewQueueReport`, `ReviewQueueDetailReport`, `FindingAnalytics.reviewQueueReport`, `reclaimer queues --queue`, app Review Queues |
-| Visualize space | Proportional category map plus bounded hierarchical drill-down from scan findings; informational only, not a cleanup selector. | `DiskMapNode`, `DiskDrillDownReport`, `reclaimer drilldown`, app Visual Map and Disk Drilldown |
+| Visualize space | A deterministic proportional Guided Map with treemap and accessible outline views, breadcrumbs, evidence state, inspector actions, and saved last-trustworthy display evidence; informational only, never a cleanup selector. | `GuidedMapSnapshot`, `GuidedMapBuilder`, `GuidedMapStore`, `TreemapLayout`, app Home and Explore |
 | Explain ownership | Group non-overlapping findings by scanner owner hints or category fallback so users can see which app/tool appears responsible for storage. | `OwnerStorageSummary`, `ScanOverview.ownerSummaries`, `reclaimer overview`, app Top Owners, evidence reports |
 | Track growth | Local scan snapshots compare category/scope/safety growth between scans and export local before/after Markdown reports; snapshots are retained for review rather than automatically pruned. | `ScanHistoryStore`, `GrowthReportBuilder`, `reclaimer history`, `reclaimer history report`, app Growth History |
 | Watch disk pressure | Menu bar status item and CLI status report current free space using explicit warning/critical thresholds. | `DiskStatusReader`, `reclaimer status`, app menu bar |
