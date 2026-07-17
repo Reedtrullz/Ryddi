@@ -189,6 +189,34 @@ final class UserPathPolicyStoreSafetyTests: XCTestCase {
         XCTAssertEqual(Set(result.policy.rules.map(\.path)), Set(expectedPaths))
     }
 
+    func testLockedLoadRejectsRootReplacementBeforeInvokingOperation() throws {
+        let configRoot = temporaryRoot.appendingPathComponent("Config", isDirectory: true)
+        let store = UserPathPolicyStore(root: configRoot)
+        try store.save(makePolicy(path: "/Users/example/Documents"))
+        let fixture = RootReplacementFixture(
+            originalRoot: configRoot,
+            displacedRoot: temporaryRoot.appendingPathComponent("DisplacedConfig", isDirectory: true)
+        )
+        let hookedStore = UserPathPolicyStore(
+            root: configRoot,
+            onMutationLockContention: {},
+            onLockedRootReady: { fixture.replaceRoot() }
+        )
+        var operationCalled = false
+
+        XCTAssertThrowsError(
+            try hookedStore.withLockedLoadResult { _ in
+                operationCalled = true
+            }
+        ) { error in
+            guard case UserPathPolicyStoreError.unsafeStorage = error else {
+                return XCTFail("Expected unsafe storage, got \(error)")
+            }
+        }
+        XCTAssertFalse(operationCalled)
+        XCTAssertNil(fixture.replacementError)
+    }
+
     func testImportRejectsOversizedSourceBeforeDecoding() throws {
         let store = makeStore()
         let source = temporaryRoot.appendingPathComponent("oversized-import.json")
@@ -262,5 +290,37 @@ final class UserPathPolicyStoreSafetyTests: XCTestCase {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
         return UInt32(metadata.st_mode & mode_t(0o777))
+    }
+}
+
+private final class RootReplacementFixture: @unchecked Sendable {
+    private let originalRoot: URL
+    private let displacedRoot: URL
+    private let lock = NSLock()
+    private var storedError: Error?
+
+    init(originalRoot: URL, displacedRoot: URL) {
+        self.originalRoot = originalRoot
+        self.displacedRoot = displacedRoot
+    }
+
+    var replacementError: Error? {
+        lock.withLock { storedError }
+    }
+
+    func replaceRoot() {
+        do {
+            try FileManager.default.moveItem(at: originalRoot, to: displacedRoot)
+            try FileManager.default.createDirectory(
+                at: originalRoot,
+                withIntermediateDirectories: false,
+                attributes: [.posixPermissions: NSNumber(value: UInt16(0o700))]
+            )
+            try Data("{}".utf8).write(
+                to: originalRoot.appendingPathComponent("user-path-policy.json")
+            )
+        } catch {
+            lock.withLock { storedError = error }
+        }
     }
 }

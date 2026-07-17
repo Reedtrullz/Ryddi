@@ -277,10 +277,26 @@ public final class UserPathPolicyStore: UserPathPolicyLoading, @unchecked Sendab
     private static let processMutationLock = NSLock()
     private let root: URL
     private let fileManager: FileManager
+    private let onMutationLockContention: @Sendable () -> Void
+    private let onLockedRootReady: @Sendable () -> Void
 
     public init(root: URL = UserPathPolicyStore.defaultRoot(), fileManager: FileManager = .default) {
         self.root = root
         self.fileManager = fileManager
+        self.onMutationLockContention = {}
+        self.onLockedRootReady = {}
+    }
+
+    init(
+        root: URL,
+        fileManager: FileManager = .default,
+        onMutationLockContention: @escaping @Sendable () -> Void,
+        onLockedRootReady: @escaping @Sendable () -> Void = {}
+    ) {
+        self.root = root
+        self.fileManager = fileManager
+        self.onMutationLockContention = onMutationLockContention
+        self.onLockedRootReady = onLockedRootReady
     }
 
     public static func defaultRoot() -> URL {
@@ -347,6 +363,13 @@ public final class UserPathPolicyStore: UserPathPolicyLoading, @unchecked Sendab
             )
         }
 
+        return loadResult(from: rootDescriptor, rootMetadata: openedRootMetadata)
+    }
+
+    private func loadResult(
+        from rootDescriptor: Int32,
+        rootMetadata: Darwin.stat
+    ) -> UserPathPolicyLoadResult {
         switch readPolicy(from: rootDescriptor) {
         case .missing:
             return UserPathPolicyLoadResult(
@@ -357,7 +380,7 @@ public final class UserPathPolicyStore: UserPathPolicyLoading, @unchecked Sendab
         case .failure(let state, let detail):
             return UserPathPolicyLoadResult(state: state, policy: .empty, detail: detail)
         case .success(let policy, _, let fileMode):
-            let rootMode = UInt32(openedRootMetadata.st_mode & mode_t(0o777))
+            let rootMode = UInt32(rootMetadata.st_mode & mode_t(0o777))
             let state: UserPathPolicyLoadState = rootMode == 0o700 && fileMode == 0o600
                 ? .loaded
                 : .loadedWithInsecurePermissions
@@ -371,9 +394,31 @@ public final class UserPathPolicyStore: UserPathPolicyLoading, @unchecked Sendab
     public func withLockedLoadResult<Result>(
         _ operation: (UserPathPolicyLoadResult) throws -> Result
     ) throws -> Result {
-        try withExclusiveMutation { _ in
-            try operation(loadResult())
+        try withExclusiveMutation { rootDescriptor in
+            var lockedRootMetadata = Darwin.stat()
+            guard Darwin.fstat(rootDescriptor, &lockedRootMetadata) == 0,
+                  rootPathIdentifies(lockedRootMetadata) else {
+                throw UserPathPolicyStoreError.unsafeStorage(
+                    "the locked path policy directory is no longer the live policy root"
+                )
+            }
+
+            let result = loadResult(from: rootDescriptor, rootMetadata: lockedRootMetadata)
+            guard rootPathIdentifies(lockedRootMetadata) else {
+                throw UserPathPolicyStoreError.unsafeStorage(
+                    "the path policy directory changed during locked validation"
+                )
+            }
+            return try operation(result)
         }
+    }
+
+    private func rootPathIdentifies(_ lockedRootMetadata: Darwin.stat) -> Bool {
+        var liveRootMetadata = Darwin.stat()
+        return root.path.withCString { Darwin.lstat($0, &liveRootMetadata) } == 0
+            && Self.isDirectory(liveRootMetadata)
+            && !Self.isSymbolicLink(liveRootMetadata)
+            && Self.sameIdentity(lockedRootMetadata, liveRootMetadata)
     }
 
     public func exportDocument(exportedAt: Date = Date()) throws -> UserPathPolicyDocument {
@@ -498,7 +543,10 @@ public final class UserPathPolicyStore: UserPathPolicyLoading, @unchecked Sendab
     }
 
     private func withExclusiveMutation<T>(_ operation: (Int32) throws -> T) throws -> T {
-        Self.processMutationLock.lock()
+        if !Self.processMutationLock.try() {
+            onMutationLockContention()
+            Self.processMutationLock.lock()
+        }
         defer { Self.processMutationLock.unlock() }
 
         let rootDescriptor = try privateRootDescriptor()
@@ -525,6 +573,7 @@ public final class UserPathPolicyStore: UserPathPolicyLoading, @unchecked Sendab
             throw UserPathPolicyStoreError.unsafeStorage("the mutation lock changed while it was being acquired")
         }
 
+        onLockedRootReady()
         return try operation(rootDescriptor)
     }
 

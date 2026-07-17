@@ -249,13 +249,16 @@ final class TrashExecutionTests: XCTestCase {
         let item = makeItem(url: url)
         let plan = makePlan(items: [item])
         let context = try await authorizationContext(for: plan)
+        let mutationContended = DispatchSemaphore(value: 0)
         let store = UserPathPolicyStore(
-            root: tempRoot.appendingPathComponent("Policy", isDirectory: true)
+            root: tempRoot.appendingPathComponent("Policy", isDirectory: true),
+            onMutationLockContention: { mutationContended.signal() }
         )
         let trasher = PolicyMutationRacingTrasher(
             root: fakeTrashRoot,
             store: store,
-            protectedPath: url.path
+            protectedPath: url.path,
+            mutationContended: mutationContended
         )
         let executor = makeExecutor(
             trasher: trasher,
@@ -273,9 +276,9 @@ final class TrashExecutionTests: XCTestCase {
         )
 
         XCTAssertEqual(receipt.actions.first?.status, "done")
-        XCTAssertFalse(
-            trasher.mutationCompletedBeforeTrash,
-            "A policy mutation must not commit after validation while Trash is still pending."
+        XCTAssertTrue(
+            trasher.observedLockContention,
+            "The concurrent policy mutation must prove it contended on the validation lock."
         )
         XCTAssertTrue(trasher.waitForMutation())
         XCTAssertNotNil(store.load().matchingRule(for: url.path, kind: .protect))
@@ -685,19 +688,25 @@ private final class PolicyMutationRacingTrasher: Trashing, @unchecked Sendable {
     private let root: URL
     private let store: UserPathPolicyStore
     private let protectedPath: String
-    private let mutationStarted = DispatchSemaphore(value: 0)
+    private let mutationContended: DispatchSemaphore
     private let mutationFinished = DispatchSemaphore(value: 0)
     private let lock = NSLock()
-    private var completedBeforeTrash = false
+    private var contentionObserved = false
 
-    init(root: URL, store: UserPathPolicyStore, protectedPath: String) {
+    init(
+        root: URL,
+        store: UserPathPolicyStore,
+        protectedPath: String,
+        mutationContended: DispatchSemaphore
+    ) {
         self.root = root
         self.store = store
         self.protectedPath = protectedPath
+        self.mutationContended = mutationContended
     }
 
-    var mutationCompletedBeforeTrash: Bool {
-        lock.withLock { completedBeforeTrash }
+    var observedLockContention: Bool {
+        lock.withLock { contentionObserved }
     }
 
     func waitForMutation() -> Bool {
@@ -707,10 +716,9 @@ private final class PolicyMutationRacingTrasher: Trashing, @unchecked Sendable {
     func trashItem(at url: URL) throws -> URL {
         let store = store
         let protectedPath = protectedPath
-        let mutationStarted = mutationStarted
+        let mutationContended = mutationContended
         let mutationFinished = mutationFinished
         Task.detached {
-            mutationStarted.signal()
             _ = try? store.add(
                 path: protectedPath,
                 kind: .protect,
@@ -719,12 +727,8 @@ private final class PolicyMutationRacingTrasher: Trashing, @unchecked Sendable {
             mutationFinished.signal()
         }
 
-        _ = mutationStarted.wait(timeout: .now() + 2)
-        let completed = mutationFinished.wait(timeout: .now() + 0.25) == .success
-        lock.withLock { completedBeforeTrash = completed }
-        if completed {
-            mutationFinished.signal()
-        }
+        let contended = mutationContended.wait(timeout: .now() + 2) == .success
+        lock.withLock { contentionObserved = contended }
 
         let destination = root.appendingPathComponent(url.lastPathComponent)
         try FileManager.default.moveItem(at: url, to: destination)
