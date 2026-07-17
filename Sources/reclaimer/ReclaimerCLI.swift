@@ -818,7 +818,7 @@ struct ReclaimerCLI {
                 printUserPathPolicy(policy)
             }
         case "export":
-            let document = store.exportDocument()
+            let document = try store.exportDocument()
             if let output = options.outputPath {
                 let url = URL(fileURLWithPath: output).standardizedFileURL
                 _ = try store.writeExport(document, to: url)

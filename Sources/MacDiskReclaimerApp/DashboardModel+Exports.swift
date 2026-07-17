@@ -127,7 +127,7 @@ extension DashboardModel {
         defer { activities.finish(.auditLoad, id: activityID) }
         do {
             let url = try await Task.detached {
-                let document = UserPathPolicyStore().exportDocument()
+                let document = try UserPathPolicyStore().exportDocument()
                 return try ReportStore().save(userPathPolicyDocument: document)
             }.value
             lastPolicyExportURL = url

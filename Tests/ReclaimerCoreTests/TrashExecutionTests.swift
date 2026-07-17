@@ -216,6 +216,132 @@ final class TrashExecutionTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
+    func testProtectionAddedAfterAuthorizationSkipsItem() async throws {
+        let url = try makeFile(named: "late-policy.cache")
+        let item = makeItem(url: url)
+        let plan = makePlan(items: [item])
+        let context = try await authorizationContext(for: plan)
+        let loader = MutableUserPathPolicyLoader(policy: .empty)
+        let executor = makeExecutor(
+            trasher: FakeTrasher(root: fakeTrashRoot),
+            userPathPolicyLoader: loader,
+            currentScanSession: context.session
+        )
+        loader.setPolicy(UserPathPolicy(rules: [
+            UserPathRule(kind: .protect, path: url.path, reason: "Added after authorization")
+        ]))
+
+        let receipt = await executor.executeAuthorizedTrash(
+            plan: plan,
+            authorizationID: context.authorization.id,
+            authorizationRegistry: context.registry,
+            ruleVersion: "rules-v1",
+            userConfirmed: true,
+            now: context.now
+        )
+
+        XCTAssertEqual(receipt.actions.first?.skipReason, .userProtected)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testPolicyMutationCannotLandBetweenFinalValidationAndTrash() async throws {
+        let url = try makeFile(named: "policy-race.cache")
+        let item = makeItem(url: url)
+        let plan = makePlan(items: [item])
+        let context = try await authorizationContext(for: plan)
+        let mutationContended = DispatchSemaphore(value: 0)
+        let store = UserPathPolicyStore(
+            root: tempRoot.appendingPathComponent("Policy", isDirectory: true),
+            onMutationLockContention: { mutationContended.signal() }
+        )
+        let trasher = PolicyMutationRacingTrasher(
+            root: fakeTrashRoot,
+            store: store,
+            protectedPath: url.path,
+            mutationContended: mutationContended
+        )
+        let executor = makeExecutor(
+            trasher: trasher,
+            userPathPolicyLoader: store,
+            currentScanSession: context.session
+        )
+
+        let receipt = await executor.executeAuthorizedTrash(
+            plan: plan,
+            authorizationID: context.authorization.id,
+            authorizationRegistry: context.registry,
+            ruleVersion: "rules-v1",
+            userConfirmed: true,
+            now: context.now
+        )
+
+        XCTAssertEqual(receipt.actions.first?.status, "done")
+        XCTAssertTrue(
+            trasher.observedLockContention,
+            "The concurrent policy mutation must prove it contended on the validation lock."
+        )
+        XCTAssertTrue(trasher.waitForMutation())
+        XCTAssertNotNil(store.load().matchingRule(for: url.path, kind: .protect))
+    }
+
+    func testUnrelatedPolicyChangeAfterAuthorizationInvalidatesTrash() async throws {
+        let url = try makeFile(named: "policy-digest.cache")
+        let item = makeItem(url: url)
+        let plan = makePlan(items: [item])
+        let context = try await authorizationContext(for: plan)
+        let loader = MutableUserPathPolicyLoader(policy: .empty)
+        let executor = makeExecutor(
+            trasher: FakeTrasher(root: fakeTrashRoot),
+            userPathPolicyLoader: loader,
+            currentScanSession: context.session
+        )
+        loader.setPolicy(UserPathPolicy(rules: [
+            UserPathRule(kind: .protect, path: "/Users/example/unrelated", reason: "Changed")
+        ]))
+
+        let receipt = await executor.executeAuthorizedTrash(
+            plan: plan,
+            authorizationID: context.authorization.id,
+            authorizationRegistry: context.registry,
+            ruleVersion: "rules-v1",
+            userConfirmed: true,
+            now: context.now
+        )
+
+        XCTAssertEqual(receipt.actions.first?.skipReason, .userPolicyChanged)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testUnavailableCurrentPolicyBlocksTrashFailClosed() async throws {
+        let url = try makeFile(named: "unavailable-policy.cache")
+        let item = makeItem(url: url)
+        let plan = makePlan(items: [item])
+        let context = try await authorizationContext(for: plan)
+        let loader = MutableUserPathPolicyLoader(policy: .empty)
+        let executor = makeExecutor(
+            trasher: FakeTrasher(root: fakeTrashRoot),
+            userPathPolicyLoader: loader,
+            currentScanSession: context.session
+        )
+        loader.setResult(UserPathPolicyLoadResult(
+            state: .corrupt,
+            policy: .empty,
+            detail: "Fixture corruption"
+        ))
+
+        let receipt = await executor.executeAuthorizedTrash(
+            plan: plan,
+            authorizationID: context.authorization.id,
+            authorizationRegistry: context.registry,
+            ruleVersion: "rules-v1",
+            userConfirmed: true,
+            now: context.now
+        )
+
+        XCTAssertEqual(receipt.actions.first?.skipReason, .userPolicyUnavailable)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
     func testTypedMinimumAgeGateIsRechecked() async throws {
         let url = try makeFile(named: "age.cache")
         let oldDate = Date().addingTimeInterval(-10 * 86_400)
@@ -331,6 +457,7 @@ final class TrashExecutionTests: XCTestCase {
         now: Date? = nil,
         openFileChecker: OpenFileChecking = RecordingOpenFileChecker(),
         userPathPolicy: UserPathPolicy = .empty,
+        userPathPolicyLoader: (any UserPathPolicyLoading)? = nil,
         ruleEngine: RuleEngine? = nil,
         trasher: FakeTrasher? = nil
     ) async -> ExecutionReceipt {
@@ -339,6 +466,7 @@ final class TrashExecutionTests: XCTestCase {
             trasher: resolvedTrasher,
             openFileChecker: openFileChecker,
             userPathPolicy: userPathPolicy,
+            userPathPolicyLoader: userPathPolicyLoader,
             ruleEngine: ruleEngine,
             currentScanSession: context.session
         ).executeAuthorizedTrash(
@@ -355,6 +483,7 @@ final class TrashExecutionTests: XCTestCase {
         trasher: Trashing,
         openFileChecker: OpenFileChecking = RecordingOpenFileChecker(),
         userPathPolicy: UserPathPolicy = .empty,
+        userPathPolicyLoader: (any UserPathPolicyLoading)? = nil,
         ruleEngine: RuleEngine? = nil,
         currentScanSession: ScanSession? = nil
     ) -> ReclaimerExecutor {
@@ -362,6 +491,7 @@ final class TrashExecutionTests: XCTestCase {
             openFileChecker: openFileChecker,
             configuration: ExecutorConfiguration(
                 userPathPolicy: userPathPolicy,
+                userPathPolicyLoader: userPathPolicyLoader ?? MutableUserPathPolicyLoader(policy: userPathPolicy),
                 currentScanSession: currentScanSession
             ),
             ruleEngine: ruleEngine ?? autoSafeRuleEngine(),
@@ -393,7 +523,10 @@ final class TrashExecutionTests: XCTestCase {
             ruleVersion: "rules-v1",
             preset: .developer,
             scopeDigest: "scope-v1",
-            policyDigest: "policy-v1",
+            policyDigest: ScanSessionEvidenceBuilder.policyDigest(
+                preset: .developer,
+                userPathPolicy: .empty
+            ),
             findingDigest: "findings-v1",
             planDigest: plan.id,
             dryRunReceiptID: receipt.id,
@@ -499,6 +632,37 @@ private struct AuthorizationContext {
     let now: Date
 }
 
+private final class MutableUserPathPolicyLoader: UserPathPolicyLoading, @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: UserPathPolicyLoadResult
+
+    init(policy: UserPathPolicy) {
+        self.result = UserPathPolicyLoadResult(
+            state: policy == .empty ? .missing : .loaded,
+            policy: policy,
+            detail: "Fixture policy"
+        )
+    }
+
+    func loadResult() -> UserPathPolicyLoadResult {
+        lock.withLock { result }
+    }
+
+    func withLockedLoadResult<Result>(
+        _ operation: (UserPathPolicyLoadResult) throws -> Result
+    ) throws -> Result {
+        try lock.withLock { try operation(result) }
+    }
+
+    func setPolicy(_ policy: UserPathPolicy) {
+        setResult(UserPathPolicyLoadResult(state: .loaded, policy: policy, detail: "Fixture policy"))
+    }
+
+    func setResult(_ result: UserPathPolicyLoadResult) {
+        lock.withLock { self.result = result }
+    }
+}
+
 private final class FakeTrasher: Trashing, @unchecked Sendable {
     private let root: URL
     private let lock = NSLock()
@@ -516,6 +680,58 @@ private final class FakeTrasher: Trashing, @unchecked Sendable {
         let destination = root.appendingPathComponent(url.lastPathComponent)
         try FileManager.default.moveItem(at: url, to: destination)
         lock.withLock { paths.append(url.path) }
+        return destination
+    }
+}
+
+private final class PolicyMutationRacingTrasher: Trashing, @unchecked Sendable {
+    private let root: URL
+    private let store: UserPathPolicyStore
+    private let protectedPath: String
+    private let mutationContended: DispatchSemaphore
+    private let mutationFinished = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var contentionObserved = false
+
+    init(
+        root: URL,
+        store: UserPathPolicyStore,
+        protectedPath: String,
+        mutationContended: DispatchSemaphore
+    ) {
+        self.root = root
+        self.store = store
+        self.protectedPath = protectedPath
+        self.mutationContended = mutationContended
+    }
+
+    var observedLockContention: Bool {
+        lock.withLock { contentionObserved }
+    }
+
+    func waitForMutation() -> Bool {
+        mutationFinished.wait(timeout: .now() + 2) == .success
+    }
+
+    func trashItem(at url: URL) throws -> URL {
+        let store = store
+        let protectedPath = protectedPath
+        let mutationContended = mutationContended
+        let mutationFinished = mutationFinished
+        Task.detached {
+            _ = try? store.add(
+                path: protectedPath,
+                kind: .protect,
+                reason: "Concurrent protection"
+            )
+            mutationFinished.signal()
+        }
+
+        let contended = mutationContended.wait(timeout: .now() + 2) == .success
+        lock.withLock { contentionObserved = contended }
+
+        let destination = root.appendingPathComponent(url.lastPathComponent)
+        try FileManager.default.moveItem(at: url, to: destination)
         return destination
     }
 }

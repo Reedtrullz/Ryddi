@@ -43,15 +43,18 @@ public enum ExecutionMode: String, Sendable {
 public struct ExecutorConfiguration: Sendable {
     public let holdingRoot: URL
     public let userPathPolicy: UserPathPolicy
+    public let userPathPolicyLoader: (any UserPathPolicyLoading)?
     public let currentScanSession: ScanSession?
 
     public init(
         holdingRoot: URL = ExecutorConfiguration.defaultHoldingRoot(),
         userPathPolicy: UserPathPolicy = .empty,
+        userPathPolicyLoader: (any UserPathPolicyLoading)? = nil,
         currentScanSession: ScanSession? = nil
     ) {
         self.holdingRoot = holdingRoot
         self.userPathPolicy = userPathPolicy
+        self.userPathPolicyLoader = userPathPolicyLoader
         self.currentScanSession = currentScanSession
     }
 
@@ -666,27 +669,114 @@ public final class ReclaimerExecutor: @unchecked Sendable {
             return trashSkip(item, reason, message, identity: currentIdentity)
         }
 
-        do {
-            let resultingURL = try trasher.trashItem(at: url).standardizedFileURL
-            return ExecutionActionReceipt(
-                path: finding.path,
-                action: .trash,
-                status: "done",
-                message: "Moved to Trash.",
-                reclaimedBytes: 0,
-                resultingPath: resultingURL.path,
-                fileIdentity: currentIdentity
-            )
-        } catch {
-            return ExecutionActionReceipt(
-                path: finding.path,
-                action: .trash,
-                status: "error",
-                message: "Trash operation failed: \(error.localizedDescription)",
-                fileIdentity: currentIdentity,
-                skipReason: .trashFailed
+        guard let loader = configuration.userPathPolicyLoader else {
+            return trashSkip(
+                item,
+                .userPolicyUnavailable,
+                "Current user policy could not be locked immediately before Trash.",
+                identity: currentIdentity
             )
         }
+
+        do {
+            return try loader.withLockedLoadResult { result in
+                if let policyFailure = validateCurrentUserPathPolicy(
+                    result,
+                    for: item,
+                    path: url.path,
+                    identity: currentIdentity
+                ) {
+                    return policyFailure
+                }
+
+                do {
+                    let resultingURL = try trasher.trashItem(at: url).standardizedFileURL
+                    return ExecutionActionReceipt(
+                        path: finding.path,
+                        action: .trash,
+                        status: "done",
+                        message: "Moved to Trash.",
+                        reclaimedBytes: 0,
+                        resultingPath: resultingURL.path,
+                        fileIdentity: currentIdentity
+                    )
+                } catch {
+                    return ExecutionActionReceipt(
+                        path: finding.path,
+                        action: .trash,
+                        status: "error",
+                        message: "Trash operation failed: \(error.localizedDescription)",
+                        fileIdentity: currentIdentity,
+                        skipReason: .trashFailed
+                    )
+                }
+            }
+        } catch {
+            return trashSkip(
+                item,
+                .userPolicyUnavailable,
+                "Current user policy could not be locked safely before Trash.",
+                identity: currentIdentity
+            )
+        }
+    }
+
+    private func validateCurrentUserPathPolicy(
+        _ result: UserPathPolicyLoadResult,
+        for item: ReclaimPlanItem,
+        path: String,
+        identity: FileIdentity
+    ) -> ExecutionActionReceipt? {
+        guard result.canMutate else {
+            return trashSkip(
+                item,
+                .userPolicyUnavailable,
+                "Current user policy is \(result.state.rawValue); Trash was blocked fail-closed.",
+                identity: identity
+            )
+        }
+
+        let currentPolicy = result.policy
+        if let rule = currentPolicy.matchingRule(for: path, kind: .exclude) {
+            return trashSkip(
+                item,
+                .userExcluded,
+                "Current user policy excludes this path at \(rule.path).",
+                identity: identity
+            )
+        }
+        if let rule = currentPolicy.matchingRule(for: path, kind: .protect) {
+            return trashSkip(
+                item,
+                .userProtected,
+                "Current user policy protects this path at \(rule.path).",
+                identity: identity
+            )
+        }
+
+        guard let session = configuration.currentScanSession,
+              let expectedDigest = session.policyDigest else {
+            return trashSkip(
+                item,
+                .userPolicyUnavailable,
+                "The current scan session has no user-policy digest.",
+                identity: identity
+            )
+        }
+        let currentDigest = ScanSessionEvidenceBuilder.policyDigest(
+            preset: session.preset,
+            userPathPolicy: currentPolicy
+        )
+        guard currentDigest == expectedDigest,
+              currentPolicy == configuration.userPathPolicy else {
+            return trashSkip(
+                item,
+                .userPolicyChanged,
+                "User policy changed after the dry run; run a new scan, plan, and dry run.",
+                identity: identity
+            )
+        }
+        return nil
     }
 
     private func trashSkip(

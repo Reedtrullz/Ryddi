@@ -247,7 +247,7 @@ public enum PermissionAdvisor {
         probe: any ScopeAccessProbing
     ) -> [ScopeAccessSummary] {
         scopes.map { scope in
-            let root = scope.root.standardizedFileURL
+            let root = scope.root
             let result = probe.probe(root)
             return scopeSummary(scope: scope, result: result)
         }
@@ -272,7 +272,7 @@ public enum PermissionAdvisor {
         }
         return ScopeAccessSummary(
             name: scope.name,
-            path: scope.root.standardizedFileURL.path,
+            path: scope.root.path,
             permissionState: permissionState,
             message: message,
             operation: result.operation,

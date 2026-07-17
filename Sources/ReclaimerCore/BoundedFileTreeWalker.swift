@@ -78,7 +78,7 @@ struct BoundedFileTreeWalker {
                 metrics[scopeIndex].wasCancelled = true
                 continue
             }
-            let root = scope.root.standardizedFileURL
+            let root = scope.root
             guard userPathPolicy.matchingRule(for: root.path, kind: .exclude) == nil else {
                 continue
             }
@@ -379,7 +379,7 @@ struct BoundedFileTreeWalker {
             }
             return ScanScopeCoverage(
                 scopeName: metric.scope.name,
-                rootPath: metric.scope.root.standardizedFileURL.path,
+                rootPath: metric.scope.root.path,
                 state: scopeState,
                 measuredItemCount: metric.measuredItemCount,
                 skippedItemCount: metric.skippedItemCount,

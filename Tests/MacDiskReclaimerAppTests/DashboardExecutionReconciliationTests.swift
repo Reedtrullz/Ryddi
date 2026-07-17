@@ -93,7 +93,10 @@ final class DashboardExecutionReconciliationTests: XCTestCase {
             ruleVersion: engine.version,
             preset: .developer,
             scopeDigest: "fixture-scope",
-            policyDigest: "fixture-policy",
+            policyDigest: ScanSessionEvidenceBuilder.policyDigest(
+                preset: .developer,
+                userPathPolicy: .empty
+            ),
             findingDigest: "fixture-findings",
             planDigest: plan.id,
             dryRunReceiptID: dryRun.id,

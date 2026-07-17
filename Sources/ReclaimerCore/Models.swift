@@ -626,6 +626,8 @@ public enum TrashExecutionSkipReason: String, Codable, Hashable, Sendable {
     case unsupportedFileType
     case userExcluded
     case userProtected
+    case userPolicyChanged
+    case userPolicyUnavailable
     case protectedPath
     case classificationChanged
     case protectedClassification
