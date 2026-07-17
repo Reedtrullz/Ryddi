@@ -228,12 +228,13 @@ public struct CloudObjectReference: Hashable, Identifiable, Sendable {
     }
 
     var canonicalMetadataByteCount: Int {
-        16
-            + id.utf8.count
-            + (parentID?.utf8.count ?? 0)
-            + displayName.utf8.count
-            + (revision?.utf8.count ?? 0)
-            + (providerHash?.utf8.count ?? 0)
+        var byteCount = 16
+        byteCount += id.utf8.count
+        byteCount += parentID?.utf8.count ?? 0
+        byteCount += displayName.utf8.count
+        byteCount += revision?.utf8.count ?? 0
+        byteCount += providerHash?.utf8.count ?? 0
+        return byteCount
     }
 }
 
