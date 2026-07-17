@@ -9,6 +9,7 @@ enum RyddiAppStorageKey {
 }
 
 struct DashboardSettingsView: View {
+    @Bindable var model: DashboardModel
     @AppStorage(RyddiAppStorageKey.defaultScanPreset) private var defaultScanPresetRaw = ScanScopePreset.developer.rawValue
     @AppStorage(RyddiAppStorageKey.includeUserRulesByDefault) private var includeUserRulesByDefault = false
     @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue
@@ -50,8 +51,65 @@ struct DashboardSettingsView: View {
             .tabItem {
                 Label("Automation", systemImage: "calendar.badge.clock")
             }
+
+            AdvancedSettingsView(model: model)
+                .tabItem {
+                    Label("Advanced", systemImage: "slider.horizontal.3")
+                }
         }
-        .frame(width: 520, height: 300)
+        .frame(minWidth: 760, idealWidth: 920, minHeight: 560, idealHeight: 680)
         .scenePadding()
+    }
+}
+
+private struct AdvancedSettingsView: View {
+    @Bindable var model: DashboardModel
+    @State private var section: DashboardSection = .permissions
+
+    private let sections: [DashboardSection] = [
+        .permissions, .scopes, .policy, .automation, .rules,
+        .apps, .downloads, .duplicates, .browsers, .deviceBackups,
+        .packages, .projects, .xcode, .containers, .agents,
+        .remoteTargets, .active, .holding, .features
+    ]
+
+    var body: some View {
+        NavigationSplitView {
+            List(sections, selection: $section) { item in
+                Label(item.title, systemImage: item.systemImage)
+                    .tag(item)
+            }
+            .navigationTitle("Advanced")
+        } detail: {
+            Group {
+                switch section {
+                case .permissions: PermissionOnboardingView(model: model)
+                case .scopes: SavedScopeSetView(model: model)
+                case .policy: UserPathPolicyView(model: model)
+                case .automation: AutomationView(model: model)
+                case .rules: RuleCatalogView()
+                case .apps: AppReviewView(model: model)
+                case .downloads: DownloadsReviewView(model: model)
+                case .duplicates: DuplicateReviewView(model: model)
+                case .browsers: BrowserCacheReviewView(model: model)
+                case .deviceBackups: DeviceBackupReviewView(model: model)
+                case .packages:
+                    PackageCacheReviewView(model: model) { raw in
+                        section = DashboardSection.fromLegacyID(raw)
+                    }
+                case .projects: ProjectDependencyReviewView(model: model)
+                case .xcode: XcodeReviewView(model: model)
+                case .containers: ContainerInventoryView(model: model)
+                case .agents: AgentStorageReviewView(model: model)
+                case .remoteTargets: RemoteTargetsView(model: model)
+                case .active: ActiveFileReviewView(model: model)
+                case .holding: HoldingView(model: model)
+                case .features: CapabilityMatrixView()
+                default:
+                    ContentUnavailableView("Choose an advanced tool", systemImage: "slider.horizontal.3")
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }

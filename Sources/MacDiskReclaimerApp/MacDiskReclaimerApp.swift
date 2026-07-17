@@ -28,7 +28,7 @@ struct MacDiskReclaimerApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            DashboardSettingsView()
+            DashboardSettingsView(model: appModel.dashboard)
         }
     }
 }

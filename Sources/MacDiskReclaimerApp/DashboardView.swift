@@ -5,101 +5,26 @@ struct DashboardView: View {
     @Bindable var model: DashboardModel
     @AppStorage(RyddiAppStorageKey.defaultScanPreset) private var defaultScanPresetRaw = ScanScopePreset.developer.rawValue
     @AppStorage(RyddiAppStorageKey.includeUserRulesByDefault) private var includeUserRulesByDefault = false
-    @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue
-    @AppStorage(RyddiAppStorageKey.redactUserTextByDefault) private var redactUserTextByDefault = false
-    @State private var selectedFinding: Finding.ID?
-    @State private var layoutClass: DashboardLayoutClass = .regular
     @SceneStorage("dashboard.selectedSectionID") private var selectedSectionID = DashboardLaunchOptions.initialSectionID
+
+    private var selectedDestination: DashboardPrimaryDestination {
+        DashboardPrimaryDestination.restoring(selectedSectionID)
+    }
 
     var body: some View {
         NavigationSplitView {
             DashboardSidebarView(selection: Binding(
-                get: { selectedSection },
-                set: { selectSection($0) }
+                get: { selectedDestination },
+                set: { selectDestination($0) }
             ))
         } detail: {
-            GeometryReader { proxy in
-                Group {
-                    switch selectedSection {
-            case .features:
-                CapabilityMatrixView()
-            case .rules:
-                RuleCatalogView()
-            case .apps:
-                AppReviewView(model: model)
-            case .queues:
-                ReviewQueuesView(
-                    model: model,
-                    onOpenFinding: { finding in
-                        selectedFinding = finding.id
-                        selectedSectionID = DashboardSection.finding.rawValue
-                    },
-                    onNavigate: selectSection
-                )
-            case .largeOld:
-                LargeOldReviewView(model: model)
-            case .duplicates:
-                DuplicateReviewView(model: model)
-            case .downloads:
-                DownloadsReviewView(model: model)
-            case .browsers:
-                BrowserCacheReviewView(model: model)
-            case .packages:
-                PackageCacheReviewView(model: model) { section in
-                    selectedFinding = nil
-                    selectedSectionID = DashboardSection.fromLegacyID(section).rawValue
-                }
-            case .projects:
-                ProjectDependencyReviewView(model: model)
-            case .deviceBackups:
-                DeviceBackupReviewView(model: model)
-            case .xcode:
-                XcodeReviewView(model: model)
-            case .trash:
-                TrashReviewView(model: model)
-            case .containers:
-                ContainerInventoryView(model: model)
-            case .remoteTargets:
-                RemoteTargetsView(model: model)
-            case .agents:
-                AgentStorageReviewView(model: model)
-            case .permissions:
-                PermissionOnboardingView(model: model)
-            case .active:
-                ActiveFileReviewView(model: model)
-            case .scopes:
-                SavedScopeSetView(model: model)
-            case .policy:
-                UserPathPolicyView(model: model)
-            case .audit:
-                AuditHistoryView(model: model)
-            case .recovery:
-                RecoveryCenterView(model: model)
-            case .holding:
-                HoldingView(model: model)
-            case .automation:
-                AutomationView(model: model)
-            case .finding:
-                if let finding = model.findings.first(where: { $0.id == selectedFinding }) {
-                    FindingDetailView(model: model, finding: finding, planItem: model.planItem(for: finding.id))
-                } else {
-                    OverviewView(
-                        model: model,
-                        navigate: selectLegacySection
-                    )
-                }
-            case .summary:
-                OverviewView(
-                    model: model,
-                    navigate: selectLegacySection
-                )
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onAppear { layoutClass = .resolve(width: proxy.size.width) }
-                .onChange(of: proxy.size.width) { _, width in
-                    layoutClass = .resolve(width: width)
-                }
+            switch selectedDestination {
+            case .home:
+                HomeView(model: model, navigate: selectDestination)
+            case .explore:
+                ExploreView(model: model)
+            case .history:
+                HistoryView(model: model)
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -115,8 +40,7 @@ struct DashboardView: View {
             )
         }
         .toolbar {
-            if layoutClass != .compact {
-                Picker("Scan Mode", selection: Binding(
+            Picker("Scan Mode", selection: Binding(
                 get: { model.scanPreset },
                 set: { model.setScanPreset($0) }
             )) {
@@ -124,30 +48,14 @@ struct DashboardView: View {
                     Text(preset.label).tag(preset)
                 }
             }
-            .pickerStyle(.segmented)
-            .frame(width: 320)
-            .disabled(model.activeScanRequest != nil)
-                .accessibilityIdentifier(AccessibilityID.scanMode)
-
-                Picker("Saved Scope", selection: Binding(
-                get: { model.selectedSavedScopeSetID ?? "" },
-                set: { model.setSavedScopeSet($0.isEmpty ? nil : $0) }
-            )) {
-                Text("No saved scope").tag("")
-                ForEach(model.savedScopeSets) { set in
-                    Text(set.name).tag(set.id)
-                }
-            }
             .pickerStyle(.menu)
-            .frame(width: 190)
-            .disabled(model.savedScopeSets.isEmpty || model.activeScanRequest != nil)
-                .accessibilityIdentifier(AccessibilityID.savedScope)
-            }
+            .disabled(model.activeScanRequest != nil)
+            .accessibilityIdentifier(AccessibilityID.scanMode)
 
             Button {
                 model.startScan()
             } label: {
-                Label("Scan", systemImage: "magnifyingglass")
+                Label(model.latestGuidedMap == nil ? "Scan your Mac" : "Scan Again", systemImage: "magnifyingglass")
             }
             .disabled(model.isWorking)
             .accessibilityIdentifier(AccessibilityID.scan)
@@ -162,87 +70,6 @@ struct DashboardView: View {
             }
 
             scanActivityToolbarItem
-
-            Button {
-                Task { await model.buildPlan() }
-            } label: {
-                Label("Plan", systemImage: "checklist")
-            }
-            .disabled(model.findings.isEmpty || model.isWorking)
-
-            Menu {
-                if layoutClass == .compact {
-                    Picker("Scan Mode", selection: Binding(
-                        get: { model.scanPreset },
-                        set: { model.setScanPreset($0) }
-                    )) {
-                        ForEach(ScanScopePreset.allCases) { preset in
-                            Text(preset.label).tag(preset)
-                        }
-                    }
-                    Picker("Saved Scope", selection: Binding(
-                        get: { model.selectedSavedScopeSetID ?? "" },
-                        set: { model.setSavedScopeSet($0.isEmpty ? nil : $0) }
-                    )) {
-                        Text("No saved scope").tag("")
-                        ForEach(model.savedScopeSets) { set in
-                            Text(set.name).tag(set.id)
-                        }
-                    }
-                    .disabled(model.savedScopeSets.isEmpty || model.activeScanRequest != nil)
-                    Divider()
-                }
-                Picker("Template", selection: Binding(
-                    get: { model.selectedScopeTemplateID ?? "" },
-                    set: { model.setScopeTemplate($0.isEmpty ? nil : $0) }
-                )) {
-                    Text("No template").tag("")
-                    ForEach(model.scopeTemplates) { template in
-                        Text(template.name).tag(template.id)
-                    }
-                }
-                .disabled(model.activeScanRequest != nil)
-                Toggle(isOn: Binding(
-                    get: { model.includeUserRulesInScans },
-                    set: { model.setIncludeUserRulesInScans($0) }
-                )) {
-                    Label("Include User Rules", systemImage: "slider.horizontal.3")
-                }
-                .disabled(model.activeScanRequest != nil)
-                Divider()
-                Button {
-                    Task { await model.runDryRun() }
-                } label: {
-                    Label("Dry Run", systemImage: "play.circle")
-                }
-                .disabled(model.plan == nil && model.findings.isEmpty)
-                Button {
-                    exportEvidenceReportUsingDefaults()
-                } label: {
-                    Label("Export Report", systemImage: "square.and.arrow.up")
-                }
-                .disabled(model.overview == nil || model.findings.isEmpty)
-                Button {
-                    Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) }
-                } label: {
-                    Label("Export Redacted", systemImage: "eye.slash")
-                }
-                .disabled(model.overview == nil || model.findings.isEmpty)
-                Button {
-                    Task { await model.exportDiagnosticSummary() }
-                } label: {
-                    Label("Export Diagnostic Summary", systemImage: "waveform.path.ecg")
-                }
-                Divider()
-                Button {
-                    selectSection(.queues)
-                } label: {
-                    Label("Open Cleanup Flow", systemImage: "folder")
-                }
-                .disabled(model.findings.isEmpty)
-            } label: {
-                Label("More", systemImage: "ellipsis.circle")
-            }
         }
         .onAppear {
             model.applyStoredSettings(
@@ -273,17 +100,8 @@ struct DashboardView: View {
     private var commandActions: DashboardCommandActions {
         DashboardCommandActions(
             canScan: !model.isWorking,
-            canPlan: !model.findings.isEmpty && !model.isWorking,
-            canDryRun: (model.plan != nil || !model.findings.isEmpty) && !model.isWorking,
-            canReclaim: model.trashExecutionReadiness.isReady && !model.isWorking,
-            canExport: model.overview != nil && !model.findings.isEmpty && !model.isWorking,
             startScan: { model.startScan() },
-            buildPlan: { Task { await model.buildPlan() } },
-            dryRun: { Task { await model.runDryRun() } },
-            reclaim: { Task { await model.prepareTrashExecution() } },
-            exportReport: exportEvidenceReportUsingDefaults,
-            exportRedactedReport: { Task { await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true) } },
-            openSection: { selectSection($0) }
+            openDestination: selectDestination
         )
     }
 
@@ -293,15 +111,11 @@ struct DashboardView: View {
         case .running(_, _, let progress, let message):
             HStack(spacing: 6) {
                 if let progress {
-                    ProgressView(value: progress)
-                        .frame(width: 52)
+                    ProgressView(value: progress).frame(width: 52)
                 } else {
-                    ProgressView()
-                        .controlSize(.small)
+                    ProgressView().controlSize(.small)
                 }
-                Text(message)
-                    .font(.caption)
-                    .lineLimit(1)
+                Text(message).font(.caption).lineLimit(1)
             }
             .accessibilityIdentifier(AccessibilityID.scanProgress)
         case .cancelling:
@@ -313,29 +127,10 @@ struct DashboardView: View {
         }
     }
 
-    private var defaultReportPathStyle: ReportPathStyle {
-        ReportPathStyle(rawValue: defaultReportPathStyleRaw) ?? .homeRelative
-    }
-
-    private var selectedSection: DashboardSection {
-        DashboardSection(rawValue: selectedSectionID) ?? .summary
-    }
-
-    private func selectSection(_ section: DashboardSection) {
-        let diagnosticSpan = model.diagnostics.begin(.navigation)
-        selectedFinding = nil
-        selectedSectionID = section.rawValue
-        model.diagnostics.end(diagnosticSpan)
-        RyddiLog.window.info("section=\(section.rawValue, privacy: .public)")
-    }
-
-    private func selectLegacySection(_ sectionID: String) {
-        selectSection(DashboardSection.fromLegacyID(sectionID))
-    }
-
-    private func exportEvidenceReportUsingDefaults() {
-        Task {
-            await model.exportEvidenceReport(pathStyle: defaultReportPathStyle, redactUserText: redactUserTextByDefault)
-        }
+    private func selectDestination(_ destination: DashboardPrimaryDestination) {
+        let span = model.diagnostics.begin(.navigation)
+        selectedSectionID = destination.rawValue
+        model.diagnostics.end(span)
+        RyddiLog.window.info("destination=\(destination.rawValue, privacy: .public)")
     }
 }

@@ -1,76 +1,24 @@
 import SwiftUI
 
 struct DashboardSidebarView: View {
-    @Binding var selection: DashboardSection
-    @AppStorage("dashboard.advanced-sidebar-expanded") private var advancedExpanded = false
+    @Binding var selection: DashboardPrimaryDestination
 
-    private var selectionBinding: Binding<DashboardSection?> {
-        Binding<DashboardSection?>(
+    private var selectionBinding: Binding<DashboardPrimaryDestination?> {
+        Binding(
             get: { selection },
-            set: { nextSelection in
-                if let nextSelection {
-                    selection = nextSelection
-                }
-            }
+            set: { if let value = $0 { selection = value } }
         )
     }
 
     var body: some View {
-        List(selection: selectionBinding) {
-            ForEach(DashboardSidebarGroup.allCases.filter { $0 != .trust }) { group in
-                Section(group.rawValue) {
-                    ForEach(sections(in: group)) { section in
-                        DashboardSidebarRow(section: section)
-                            .tag(section)
-                            .accessibilityIdentifier(AccessibilityID.sidebarSection(section))
-                    }
-                }
-            }
-
-            Section(DashboardSidebarGroup.trust.rawValue) {
-                ForEach(trustEssentials) { section in
-                    DashboardSidebarRow(section: section)
-                        .tag(section)
-                        .accessibilityIdentifier(AccessibilityID.sidebarSection(section))
-                }
-                DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
-                    ForEach(advancedSections) { section in
-                        DashboardSidebarRow(section: section)
-                            .tag(section)
-                            .accessibilityIdentifier(AccessibilityID.sidebarSection(section))
-                    }
-                }
-            }
+        List(DashboardPrimaryDestination.allCases, selection: selectionBinding) { destination in
+            Label(destination.title, systemImage: destination.systemImage)
+                .tag(destination)
+                .accessibilityIdentifier(AccessibilityID.sidebarDestination(destination))
         }
         .listStyle(.sidebar)
         .navigationTitle("Ryddi")
-        .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 320)
+        .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 260)
         .accessibilityIdentifier(AccessibilityID.sidebar)
-    }
-
-    private func sections(in group: DashboardSidebarGroup) -> [DashboardSection] {
-        DashboardSection.sidebarSections.filter { $0.sidebarGroup == group }
-    }
-
-    private var trustEssentials: [DashboardSection] {
-        [.permissions, .recovery, .automation]
-    }
-
-    private var advancedSections: [DashboardSection] {
-        sections(in: .trust).filter { !trustEssentials.contains($0) }
-    }
-}
-
-private struct DashboardSidebarRow: View {
-    let section: DashboardSection
-
-    var body: some View {
-        Label {
-            Text(section.title)
-                .lineLimit(1)
-        } icon: {
-            Image(systemName: section.systemImage)
-                .foregroundStyle(.secondary)
-        }
     }
 }

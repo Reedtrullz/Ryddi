@@ -148,7 +148,11 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(commands.contains("struct DashboardCommands: Commands"))
         XCTAssertTrue(commands.contains("CommandMenu(\"Ryddi\")"))
         XCTAssertTrue(commands.contains("keyboardShortcut(\"r\""))
-        XCTAssertTrue(commands.contains("keyboardShortcut(\"d\", modifiers: [.command, .option])"))
+        XCTAssertTrue(commands.contains("keyboardShortcut(\"1\""))
+        XCTAssertTrue(commands.contains("keyboardShortcut(\"2\""))
+        XCTAssertTrue(commands.contains("keyboardShortcut(\"3\""))
+        XCTAssertFalse(commands.contains("Build Plan"))
+        XCTAssertFalse(commands.contains("Dry Run"))
         XCTAssertTrue(source.contains(".commands {\n            DashboardCommands()\n        }"))
         XCTAssertTrue(source.contains(".focusedSceneValue(\\.dashboardCommandActions"))
     }
@@ -168,16 +172,10 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(settings.contains("@AppStorage(RyddiAppStorageKey.redactUserTextByDefault)"))
         XCTAssertTrue(settings.contains("TabView"))
         XCTAssertTrue(settings.contains("Picker(\"Default scan mode\""))
-        XCTAssertTrue(source.contains("Settings {\n            DashboardSettingsView()\n        }"))
-        XCTAssertTrue(source.contains("applyStoredSettings(defaultScanPresetRaw:"))
-        XCTAssertTrue(source.contains("@AppStorage(RyddiAppStorageKey.defaultReportPathStyle)"))
-        XCTAssertTrue(source.contains("@AppStorage(RyddiAppStorageKey.redactUserTextByDefault)"))
-        XCTAssertTrue(source.contains("ReportPathStyle(rawValue: defaultReportPathStyleRaw) ?? .homeRelative"))
-        XCTAssertTrue(source.contains("await model.exportEvidenceReport(pathStyle: defaultReportPathStyle, redactUserText: redactUserTextByDefault)"))
-        XCTAssertTrue(source.contains("exportReport: exportEvidenceReportUsingDefaults"))
-        XCTAssertTrue(source.contains("onExport: exportEvidenceReportUsingDefaults"))
-        XCTAssertTrue(source.contains("DashboardActionButton(\"Export\", systemImage: \"square.and.arrow.up\", disabled: model.overview == nil || model.findings.isEmpty || model.isWorking) {\n            exportEvidenceReportUsingDefaults()\n        }"))
-        XCTAssertTrue(source.contains("await model.exportEvidenceReport(pathStyle: .redacted, redactUserText: true)"))
+        XCTAssertTrue(source.contains("Settings {\n            DashboardSettingsView(model: appModel.dashboard)\n        }"))
+        XCTAssertTrue(source.contains("model.applyStoredSettings("))
+        XCTAssertTrue(settings.contains("AdvancedSettingsView"))
+        XCTAssertTrue(settings.contains("RemoteTargetsView(model: model)"))
     }
 
     func testDashboardSidebarUsesNativeSelectionAndKeepsDetailsOutOfSourceList() throws {
@@ -189,10 +187,11 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
 
         XCTAssertTrue(sidebar.contains("struct DashboardSidebarView: View"))
-        XCTAssertTrue(sidebar.contains("List(selection:"))
+        XCTAssertTrue(sidebar.contains("List(DashboardPrimaryDestination.allCases, selection:"))
         XCTAssertTrue(sidebar.contains(".listStyle(.sidebar)"))
-        XCTAssertTrue(sidebar.contains(".tag(section)"))
-        XCTAssertTrue(sidebar.contains("DisclosureGroup(\"Advanced\""))
+        XCTAssertTrue(sidebar.contains(".tag(destination)"))
+        XCTAssertFalse(sidebar.contains("DisclosureGroup(\"Advanced\""))
+        XCTAssertTrue(sidebar.contains("DashboardPrimaryDestination"))
         XCTAssertFalse(sidebar.contains("FindingRow("))
         XCTAssertFalse(source.contains("private func sidebarRow("))
     }
@@ -460,8 +459,8 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             "Cleanup controls should vary by typed flow stage so protected history is not presented as cleanup-ready."
         )
         XCTAssertTrue(
-            source.contains("DisclosureGroup(\"Advanced\""),
-            "Secondary diagnostics should be collapsed under Advanced instead of competing with the cleanup flow."
+            source.contains("AdvancedSettingsView"),
+            "Secondary diagnostics should live in Advanced Settings instead of competing with the cleanup flow."
         )
         XCTAssertTrue(
             source.contains("ReviewQueueID.parse(action.sourceIDs.first ?? \"\")")

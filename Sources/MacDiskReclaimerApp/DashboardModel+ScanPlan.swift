@@ -290,6 +290,7 @@ extension DashboardModel {
                 return
             }
             lastScannedScopeLabel = result.scopeLabel
+            reviewSelectionIDs.removeAll()
             scanScopes = result.scopes
             findings = result.findings
             presentationSnapshot = result.presentation
@@ -387,6 +388,63 @@ extension DashboardModel {
         let activityID = activities.begin(.review, message: "Building plan")
         defer { activities.finish(.review, id: activityID) }
         await buildPlanWithoutChangingWorkingState()
+    }
+
+    func toggleReviewSelection(_ findingID: String) {
+        if reviewSelectionIDs.contains(findingID) {
+            reviewSelectionIDs.remove(findingID)
+        } else {
+            reviewSelectionIDs.insert(findingID)
+        }
+        plan = nil
+        lastDryRunReceipt = nil
+    }
+
+    func clearReviewSelection() {
+        reviewSelectionIDs.removeAll()
+        plan = nil
+        lastDryRunReceipt = nil
+    }
+
+    func selectSafeMaintenance() async {
+        let currentFindings = findings
+        let accepted = await Task.detached {
+            PlanBuilder(openFileChecker: LsofOpenFileChecker())
+                .buildPlan(from: currentFindings, mode: .autoSafeOnly)
+                .items
+                .filter(\.selected)
+                .map(\.finding.id)
+        }.value
+        reviewSelectionIDs = Set(accepted)
+        plan = nil
+        lastDryRunReceipt = nil
+    }
+
+    func checkSelectedItemsSafely() async {
+        let activityID = activities.begin(.review, message: "Checking selected items")
+        defer { activities.finish(.review, id: activityID) }
+        let currentFindings = findings
+        let selectedIDs = reviewSelectionIDs
+        do {
+            let builtPlan = try await Task.detached {
+                try PlanBuilder(openFileChecker: LsofOpenFileChecker()).buildPlan(
+                    from: currentFindings,
+                    mode: .autoSafeOnly,
+                    selectedFindingIDs: selectedIDs
+                )
+            }.value
+            plan = builtPlan
+            try recordPlanSession(builtPlan)
+            guard builtPlan.items.contains(where: \.selected) else {
+                error = selectedIDs.isEmpty
+                    ? "Choose at least one item before checking safely."
+                    : "None of the selected items passed the current safety checks."
+                return
+            }
+            await runDryRun()
+        } catch {
+            self.error = "Ryddi could not build the selected plan: \(error.localizedDescription)"
+        }
     }
 
     private func buildPlanWithoutChangingWorkingState() async {

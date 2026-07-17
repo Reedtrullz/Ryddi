@@ -17,6 +17,7 @@ final class DashboardModel {
     var scanCoverage: ScanCoverage?
     var diskDrillDown: DiskDrillDownReport?
     var latestGuidedMap: GuidedMapSnapshot?
+    var reviewSelectionIDs: Set<String> = []
     var plan: ReclaimPlan?
     var lastDryRunReceipt: ExecutionReceipt?
     var lastExecutionReceipt: ExecutionReceipt?
@@ -138,6 +139,18 @@ final class DashboardModel {
 
     var activeScanRequest: ScanRequestIdentity? {
         scanRequestCoordinator.activeRequest
+    }
+
+    var homeSnapshot: HomeSnapshot {
+        HomePresentationBuilder.build(input: HomePresentationInput(
+            isScanning: isScanRunning,
+            map: latestGuidedMap,
+            findings: findings,
+            hasPendingVerification: lastExecutionReceipt != nil
+                && (lastScanDate ?? .distantPast) < (lastExecutionReceipt?.createdAt ?? .distantFuture),
+            accessIsLimited: scanCoverage?.state == .degraded,
+            evidenceIsCurrent: latestGuidedMap?.scanID == currentScanSession?.id
+        ))
     }
 
     func activity(for kind: DashboardActivityKind) -> DashboardActivityState {

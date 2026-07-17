@@ -4,12 +4,13 @@ final class AppAccessibilityContractTests: XCTestCase {
     func testRequiredAccessibilityIdentifiersExistInSplitAppSources() throws {
         let source = try appSource()
         let requiredIdentifiers = [
-            "summary.primary-action",
-            "summary.scan-button",
-            "summary.plan-button",
-            "summary.dry-run-button",
-            "summary.manual-review-button",
-            "summary.reclaim-button",
+            "home.primary-action",
+            "home.scan",
+            "guided-map.breadcrumb",
+            "guided-map.outline",
+            "cleanup-review.select-safe",
+            "cleanup-review.check-safely",
+            "cleanup-review.move-to-trash",
             "scan-progress",
             "cancel-scan-button",
             "trash-confirmation.reviewed",
@@ -54,7 +55,10 @@ final class AppAccessibilityContractTests: XCTestCase {
 
     private func appSource() throws -> String {
         let directory = repoRoot().appendingPathComponent("Sources/MacDiskReclaimerApp")
-        return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        let enumerator = try XCTUnwrap(
+            FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)
+        )
+        return try enumerator.compactMap { $0 as? URL }
             .filter { $0.pathExtension == "swift" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .map { try String(contentsOf: $0, encoding: .utf8) }

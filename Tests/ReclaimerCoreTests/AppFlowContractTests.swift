@@ -29,13 +29,13 @@ final class AppFlowContractTests: XCTestCase {
         XCTAssertTrue(source.contains("case wide"))
     }
 
-    func testCompactToolbarKeepsScanOutsideOverflowMenu() throws {
+    func testPrimaryToolbarKeepsScanVisibleAndCleanupAuthorityOutOfMenus() throws {
         let source = try appSource(named: "DashboardView.swift")
         let toolbar = try XCTUnwrap(source.range(of: ".toolbar {"))
         let scan = try XCTUnwrap(source.range(of: "AccessibilityID.scan", range: toolbar.lowerBound..<source.endIndex))
-        let menu = try XCTUnwrap(source.range(of: "Menu {", range: scan.lowerBound..<source.endIndex))
-        XCTAssertLessThan(scan.lowerBound, menu.lowerBound)
-        XCTAssertTrue(source.contains("if layoutClass == .compact"))
+        XCTAssertGreaterThan(scan.lowerBound, toolbar.lowerBound)
+        XCTAssertFalse(source.contains("Label(\"Plan\""))
+        XCTAssertFalse(source.contains("Label(\"Dry Run\""))
     }
 
     func testPackagedE2EScopeUsesFocusedSafetyMatrixRoots() throws {
@@ -60,17 +60,21 @@ final class AppFlowContractTests: XCTestCase {
         XCTAssertTrue(source.contains("assertResponsiveContainment"))
         XCTAssertTrue(source.contains("elementOutsideWindow"))
         XCTAssertTrue(source.contains("dashboard-sidebar"))
-        XCTAssertTrue(source.contains("cleanup-flow-status"))
+        XCTAssertTrue(source.contains("home.primary-action"))
         XCTAssertTrue(source.contains("responsiveChecks"))
     }
 
-    func testTaskOrderCommandsIncludeKeyboardReclaimAndUpdatingStatus() throws {
+    func testCommandsExposeThreeDestinationsWithoutDirectCleanupAuthority() throws {
         let commands = try appSource(named: "DashboardCommands.swift")
-        let summary = try appSource(named: "GuidedSummaryView.swift")
-        XCTAssertTrue(commands.contains("canReclaim"))
-        XCTAssertTrue(commands.contains("Review and Reclaim"))
-        XCTAssertTrue(commands.contains(".keyboardShortcut(\"r\", modifiers: [.command, .option])"))
-        XCTAssertTrue(summary.contains(".accessibilityAddTraits(.updatesFrequently)"))
+        XCTAssertTrue(commands.contains("Button(\"Home\")"))
+        XCTAssertTrue(commands.contains("Button(\"Explore\")"))
+        XCTAssertTrue(commands.contains("Button(\"History\")"))
+        XCTAssertTrue(commands.contains(".keyboardShortcut(\"1\""))
+        XCTAssertTrue(commands.contains(".keyboardShortcut(\"2\""))
+        XCTAssertTrue(commands.contains(".keyboardShortcut(\"3\""))
+        XCTAssertFalse(commands.contains("Build Plan"))
+        XCTAssertFalse(commands.contains("Dry Run"))
+        XCTAssertFalse(commands.contains("Review and Reclaim"))
     }
 
     private func appSource(named name: String) throws -> String {
