@@ -131,7 +131,7 @@ struct CleanupReviewView: View {
 
     private func isEligible(_ finding: Finding) -> Bool {
         finding.safetyClass == .autoSafe
-            && [.deleteCache, .trash].contains(finding.actionKind)
+            && finding.actionKind == .trash
             && !finding.isSymbolicLink
     }
 
@@ -144,11 +144,14 @@ struct CleanupReviewView: View {
     }
 
     private var reviewTitle: String {
-        suggestion?.title ?? "Review cleanup"
+        suggestion?.kind == .safeMaintenance ? "Review safe maintenance" : (suggestion?.title ?? "Review cleanup")
     }
 
     private var reviewSubtitle: String {
-        suggestion?.consequence ?? "Nothing is selected until you choose it."
+        if suggestion?.kind == .safeMaintenance {
+            return "\(eligibleFindingIDs.count) eligible item\(eligibleFindingIDs.count == 1 ? "" : "s") · up to \(ByteFormat.string(suggestion?.estimatedReclaimBytes ?? 0)). Nothing is selected."
+        }
+        return suggestion?.consequence ?? "Nothing is selected until you choose it."
     }
 
     private var selectionControls: some View {
@@ -166,11 +169,13 @@ struct CleanupReviewView: View {
 
     private var reviewActionControls: some View {
         HStack {
-            Text("\(model.reviewSelectionIDs.count) selected")
+            Text("\(model.reviewSelectionIDs.count) selected · \(ByteFormat.string(selectedAllocatedBytes))")
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("cleanup-review.selection-count")
+                .accessibilityLabel("\(model.reviewSelectionIDs.count) selected")
+                .accessibilityValue(ByteFormat.string(selectedAllocatedBytes))
 
-            Button("Check safely") {
+            Button("Preview selected cleanup") {
                 Task { await model.checkSelectedItemsSafely() }
             }
             .buttonStyle(.borderedProminent)
@@ -186,6 +191,14 @@ struct CleanupReviewView: View {
                 .disabled(model.isWorking)
                 .accessibilityIdentifier("cleanup-review.move-to-trash")
             }
+        }
+    }
+
+    private var selectedAllocatedBytes: Int64 {
+        reviewFindings.reduce(Int64(0)) { partial, finding in
+            guard model.reviewSelectionIDs.contains(finding.id) else { return partial }
+            let (sum, overflow) = partial.addingReportingOverflow(max(0, finding.allocatedSize))
+            return overflow ? Int64.max : sum
         }
     }
 }

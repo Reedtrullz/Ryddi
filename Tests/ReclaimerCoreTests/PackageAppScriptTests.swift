@@ -14,14 +14,14 @@ final class PackageAppScriptTests: XCTestCase {
         )
     }
 
-    func testPackageAppDefaultsToV040GuidedMapRelease() throws {
+    func testPackageAppDefaultsToV041ReclaimGuidanceRelease() throws {
         let root = repoRoot()
         let script = try String(contentsOf: root.appendingPathComponent("Scripts/package-app.sh"), encoding: .utf8)
         let signingDoctor = try String(contentsOf: root.appendingPathComponent("Scripts/release-signing-doctor.sh"), encoding: .utf8)
 
-        XCTAssertTrue(script.contains("bundle_version=\"${RYDDI_VERSION:-0.4.0}\""))
-        XCTAssertTrue(script.contains("bundle_build=\"${RYDDI_BUILD_NUMBER:-5}\""))
-        XCTAssertTrue(signingDoctor.contains("RYDDI_ARTIFACT_BASENAME:-Ryddi-v0.4.0"))
+        XCTAssertTrue(script.contains("bundle_version=\"${RYDDI_VERSION:-0.4.1}\""))
+        XCTAssertTrue(script.contains("bundle_build=\"${RYDDI_BUILD_NUMBER:-6}\""))
+        XCTAssertTrue(signingDoctor.contains("RYDDI_ARTIFACT_BASENAME:-Ryddi-v0.4.1"))
     }
 
     func testPackageAppWritesEmbeddedBuildMetadataBeforeSigning() throws {
@@ -144,11 +144,11 @@ final class PackageAppScriptTests: XCTestCase {
         )
     }
 
-    func testReleaseCheckDefaultsSignedArtifactsToV040GuidedMapRelease() throws {
+    func testReleaseCheckDefaultsSignedArtifactsToV041ReclaimGuidanceRelease() throws {
         let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
 
-        XCTAssertTrue(script.contains("release_version=\"${RYDDI_VERSION:-0.4.0}\""))
-        XCTAssertTrue(script.contains("release_build=\"${RYDDI_BUILD_NUMBER:-5}\""))
+        XCTAssertTrue(script.contains("release_version=\"${RYDDI_VERSION:-0.4.1}\""))
+        XCTAssertTrue(script.contains("release_build=\"${RYDDI_BUILD_NUMBER:-6}\""))
         XCTAssertTrue(script.contains("artifact_basename=\"Ryddi-v$release_version\""))
         XCTAssertTrue(script.contains("artifact_basename=\"Ryddi-developer-preview\""))
     }

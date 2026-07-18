@@ -1,7 +1,7 @@
 import SwiftUI
 import ReclaimerCore
 
-enum StorageReviewDestination: String, CaseIterable, Identifiable {
+enum StorageReviewDestination: String, CaseIterable, Identifiable, Hashable {
     case applications
     case cloudFootprint
     case containers

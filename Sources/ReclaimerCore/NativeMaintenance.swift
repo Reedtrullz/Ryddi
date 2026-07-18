@@ -161,8 +161,6 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
                 message: error.localizedDescription
             )
         }
-        let previewInvocation = action.previewInvocation.replacingExecutable(with: executableResolution.launchPath)
-
         let resolvedContext: String?
         if action == .dockerBuilderPrune {
             let contextOutput = runner.run(
@@ -181,13 +179,50 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
                     message: "Docker context could not be resolved; no maintenance preview was authorized."
                 )
             }
-            resolvedContext = contextName ?? contextOutput.stdout
+            let contextLines = contextOutput.stdout
                 .split(whereSeparator: \.isNewline)
-                .map(String.init)
-                .first?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard contextLines.count == 1,
+                  let observedContext = contextLines.first,
+                  NativeActionAllowlist.isAllowedDockerContextName(observedContext),
+                  contextName == nil || contextName == observedContext else {
+                return failedPreview(
+                    action: action,
+                    findingPath: normalizedPath,
+                    ruleVersion: ruleVersion,
+                    contextName: nil,
+                    before: before,
+                    invocation: contextOutput.invocation,
+                    output: ToolCommandOutput(invocation: contextOutput.invocation, exitCode: nil),
+                    message: "Docker returned an invalid or unexpected context; no maintenance preview was authorized."
+                )
+            }
+            resolvedContext = observedContext
         } else {
             resolvedContext = nil
+        }
+
+        let previewInvocation = contextBoundInvocation(
+            action.previewInvocation,
+            contextName: resolvedContext,
+            executable: executableResolution.launchPath
+        )
+        guard NativeActionAllowlist.validate(NativeActionCommand(
+            kind: action.safeActionKind,
+            executable: action.previewInvocation.executable,
+            arguments: previewInvocation.arguments
+        )) == .allowed else {
+            return failedPreview(
+                action: action,
+                findingPath: normalizedPath,
+                ruleVersion: ruleVersion,
+                contextName: resolvedContext,
+                before: before,
+                invocation: previewInvocation,
+                output: ToolCommandOutput(invocation: previewInvocation, exitCode: nil),
+                message: "Native maintenance preview was rejected by the exact argv allowlist."
+            )
         }
 
         let output = runner.run(previewInvocation, timeout: configuration.timeout)
@@ -270,8 +305,6 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
         let action = preview.action
         let normalizedPath = URL(fileURLWithPath: findingPath).standardizedFileURL.path
         let before = diskStatusReader.snapshot(for: configuration.diskStatusPath)
-        let invocation = action.performInvocation.replacingExecutable(with: preview.capability?.executableResolution.launchPath ?? action.performInvocation.executable)
-
         guard userConfirmed else {
             return skippedReceipt(action: action, mode: .perform, before: before, reason: "Native maintenance requires explicit confirmation.")
         }
@@ -310,6 +343,12 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
         guard currentResolution == capability.executableResolution else {
             return skippedReceipt(action: action, mode: .perform, before: before, reason: "Native executable identity changed after preview; run a new preview.")
         }
+
+        let invocation = contextBoundInvocation(
+            action.performInvocation,
+            contextName: capability.contextName,
+            executable: capability.executableResolution.launchPath
+        )
 
         capabilityLock.lock()
         let mintedCapability = outstandingCapabilities.removeValue(forKey: capability.id)
@@ -423,6 +462,20 @@ public final class NativeMaintenanceExecutor: @unchecked Sendable {
 
     private func displayCommandParts(for invocation: ToolCommandInvocation) -> [String] {
         [URL(fileURLWithPath: invocation.executable).lastPathComponent] + invocation.arguments
+    }
+
+    private func contextBoundInvocation(
+        _ invocation: ToolCommandInvocation,
+        contextName: String?,
+        executable: String
+    ) -> ToolCommandInvocation {
+        let arguments: [String]
+        if let contextName {
+            arguments = ["--context", contextName] + invocation.arguments
+        } else {
+            arguments = invocation.arguments
+        }
+        return ToolCommandInvocation(executable: executable, arguments: arguments)
     }
 }
 

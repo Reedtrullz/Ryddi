@@ -34,6 +34,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 scanFeedback
+                reclaimCard
                 limitedVisibilityGuidance
                 suggestions
                 mapContent
@@ -162,11 +163,28 @@ struct HomeView: View {
             HStack(alignment: .top, spacing: 18) {
                 headerCopy
                 Spacer(minLength: 16)
-                primaryActionButton
+                if home.reclaimSuggestion == nil {
+                    primaryActionButton
+                }
             }
             VStack(alignment: .leading, spacing: 12) {
                 headerCopy
-                primaryActionButton
+                if home.reclaimSuggestion == nil {
+                    primaryActionButton
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reclaimCard: some View {
+        if let suggestion = home.reclaimSuggestion {
+            HomeReclaimCard(
+                suggestion: suggestion,
+                isWorking: model.isWorking,
+                visibilityIsLimited: home.map?.evidenceState == .limited
+            ) {
+                cleanupReviewRoute = .suggestion(suggestion)
             }
         }
     }
@@ -254,10 +272,11 @@ struct HomeView: View {
 
     @ViewBuilder
     private var suggestions: some View {
-        if !home.suggestions.isEmpty {
+        let secondarySuggestions = home.suggestions.filter { $0.kind != .safeMaintenance }
+        if !secondarySuggestions.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Worth your attention")
+                    Text(home.reclaimSuggestion == nil ? "Worth your attention" : "Other next steps")
                         .font(.title2.bold())
                     Spacer()
                     if home.hiddenSuggestionCount > 0 {
@@ -265,9 +284,12 @@ struct HomeView: View {
                     }
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-                    ForEach(home.suggestions) { suggestion in
-                        HomeSuggestionView(suggestion: suggestion) {
-                            cleanupReviewRoute = .suggestion(suggestion)
+                    ForEach(secondarySuggestions) { suggestion in
+                        HomeSuggestionView(
+                            suggestion: suggestion,
+                            isActionable: suggestion.kind.intent != .informational
+                        ) {
+                            performSuggestionAction(suggestion)
                         }
                     }
                 }
@@ -328,6 +350,7 @@ struct HomeView: View {
         switch home.primaryAction {
         case .scanMac: "Scan your Mac"
         case .cancelScan: "Cancel scan"
+        case .reviewReclaimableSpace: "Review safe maintenance"
         case .reviewSuggestions: "Review suggestions"
         case .reviewAccess: "Review access"
         case .exploreLargestFiles: "Explore largest files"
@@ -343,6 +366,10 @@ struct HomeView: View {
             model.startScan()
         case .cancelScan:
             model.cancelScan()
+        case .reviewReclaimableSpace:
+            if let suggestion = home.reclaimSuggestion {
+                cleanupReviewRoute = .suggestion(suggestion)
+            }
         case .reviewSuggestions:
             cleanupReviewRoute = .all
         case .reviewAccess:
@@ -351,6 +378,19 @@ struct HomeView: View {
             navigate(.explore)
         case .viewHistory:
             navigate(.history)
+        }
+    }
+
+    private func performSuggestionAction(_ suggestion: HomeSuggestion) {
+        switch HomeSuggestionRoute.resolve(suggestion: suggestion, findings: model.findings) {
+        case .cleanup:
+            cleanupReviewRoute = .suggestion(suggestion)
+        case .storageReview(let destination):
+            reviewDestination = destination
+        case .explore:
+            navigate(.explore)
+        case .informational:
+            break
         }
     }
 

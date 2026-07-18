@@ -455,7 +455,12 @@ extension DashboardModel {
         }
     }
 
-    func runNativeToolCommand(receipt: NativeToolReceipt, command: NativeToolCommand, perform: Bool) async {
+    func runNativeToolCommand(
+        receipt: NativeToolReceipt,
+        command: NativeToolCommand,
+        perform: Bool,
+        expectedContextName: String? = nil
+    ) async {
         let activityKind: DashboardActivityKind = perform ? .cleanup : .review
         let activityID = activities.begin(
             activityKind,
@@ -504,7 +509,8 @@ extension DashboardModel {
                     let preview = executor.preview(
                         action: maintenanceAction,
                         findingPath: receipt.findingPath,
-                        ruleVersion: ruleVersion
+                        ruleVersion: ruleVersion,
+                        contextName: expectedContextName
                     )
                     let previewReceipt = NativeMaintenanceReceiptBridge.nativeToolExecutionReceipt(
                         from: preview.receipt,
@@ -519,7 +525,8 @@ extension DashboardModel {
                             using: preview,
                             userConfirmed: true,
                             findingPath: receipt.findingPath,
-                            ruleVersion: ruleVersion
+                            ruleVersion: ruleVersion,
+                            contextName: expectedContextName
                         )
                         let performedReceipt = NativeMaintenanceReceiptBridge.nativeToolExecutionReceipt(
                             from: actionReceipt,

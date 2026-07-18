@@ -118,15 +118,15 @@ enum RyddiAXHarness {
         try captureWindow(pid: running.processIdentifier, output: scanResultScreenshot)
         var exploreScreenshots: [URL] = [scanResultScreenshot]
         try checkpoint("scoped-review", started: started, into: &checkpoints) {
-            try press("home.suggestion.home-suggestion:safeMaintenance", root: app)
+            try press("home.primary-action", root: app)
             let title = try waitForElement(
                 identifier: "cleanup-review.title",
                 root: app,
                 timeout: 20,
                 requireEnabled: false
             )
-            guard find(named: "Safe maintenance", root: title) != nil else {
-                throw HarnessError.missingElement("Safe maintenance scoped review title")
+            guard find(named: "Review safe maintenance", root: title) != nil else {
+                throw HarnessError.missingElement("Review safe maintenance scoped review title")
             }
             try assertEmptyCleanupSelection(root: app)
             let scopedReviewScreenshot = options.output.appendingPathComponent("ryddi-scoped-review.png")

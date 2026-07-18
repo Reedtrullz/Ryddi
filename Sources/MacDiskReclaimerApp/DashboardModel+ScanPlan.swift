@@ -162,6 +162,7 @@ extension DashboardModel {
     }
     func startScan() {
         guard scanTask == nil else { return }
+        clearPreviousTrashJourney()
         let token = ScanCancellationToken()
         let activityID = activities.begin(.scan, message: "Preparing scan")
         scanResultFeedback = nil
@@ -511,6 +512,7 @@ extension DashboardModel {
     }
 
     func beginReviewSession(visibleFindingIDs: Set<String>) {
+        clearPreviousTrashJourney()
         reviewScopeFindingIDs = visibleFindingIDs
         clearReviewSelection()
     }
@@ -518,6 +520,18 @@ extension DashboardModel {
     func endReviewSession() {
         reviewScopeFindingIDs = nil
         clearReviewSelection()
+    }
+
+    private func clearPreviousTrashJourney() {
+        let authorizationID = pendingTrashConfirmation?.authorizationID
+        pendingTrashConfirmation = nil
+        trashExecutionMessage = nil
+        if let authorizationID {
+            let registry = trashExecutionAuthorizationRegistry
+            Task {
+                await registry.revoke(id: authorizationID)
+            }
+        }
     }
 
     func selectSafeMaintenance(among allowedFindingIDs: Set<String>? = nil) async {

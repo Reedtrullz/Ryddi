@@ -1,6 +1,6 @@
 # Ryddi Release Checklist
 
-This project is intended for direct macOS distribution outside the Mac App Store. A public release must be explicit about whether it is an unsigned developer preview or a signed/notarized build. `v0.3.1` is published release history. `v0.4.0 (5)` is the Guided Map candidate and must not be published unless the exact tagged source passes every signed gate below. Unsigned local artifacts are developer previews, never releases.
+This project is intended for direct macOS distribution outside the Mac App Store. A public release must be explicit about whether it is an unsigned developer preview or a signed/notarized build. `v0.4.0 (5)` is published release history. `v0.4.1 (6)` is the reclaim-guidance and cloud-footprint candidate and must not be published unless the exact tagged source passes every signed gate below. Unsigned local artifacts are developer previews, never releases.
 
 Guided Map human review follows [QA_V0.4_GUIDED_MAP.md](QA_V0.4_GUIDED_MAP.md). [QA_V0.3.md](QA_V0.3.md) remains the advanced-surface regression checklist.
 
@@ -95,37 +95,37 @@ Guided Map human review follows [QA_V0.4_GUIDED_MAP.md](QA_V0.4_GUIDED_MAP.md). 
 ## Signed And Notarized Build
 
 - [ ] `Scripts/release-signing-doctor.sh` reports the Developer ID Application identity and notary credential path are ready without printing password values.
-- [ ] `RYDDI_VERSION=0.4.0 RYDDI_BUILD_NUMBER=5 RYDDI_RELEASE_SIGNING=required RYDDI_REQUIRE_PACKAGED_AX_E2E=1 RYDDI_ARTIFACT_BASENAME=Ryddi-v0.4.0 Scripts/release-check.sh` exits `0` on the Accessibility-approved release Mac.
+- [ ] `RYDDI_VERSION=0.4.1 RYDDI_BUILD_NUMBER=6 RYDDI_RELEASE_SIGNING=required RYDDI_REQUIRE_PACKAGED_AX_E2E=1 RYDDI_ARTIFACT_BASENAME=Ryddi-v0.4.1 Scripts/release-check.sh` exits `0` on the Accessibility-approved release Mac.
 - [ ] The signed GitHub release runner has labels `self-hosted`, `macOS`, and `ryddi-release`, is logged into a GUI session, and its runner process has Accessibility approval.
 - [ ] `CODESIGN_IDENTITY` is set to a Developer ID Application certificate.
-- [ ] `RYDDI_VERSION=0.4.0` and `RYDDI_BUILD_NUMBER=5` are used by the packaging scripts.
+- [ ] `RYDDI_VERSION=0.4.1` and `RYDDI_BUILD_NUMBER=6` are used by the packaging scripts.
 - [ ] `Scripts/package-app.sh` signs `dist/Ryddi.app` with Hardened Runtime.
 - [ ] `dist/Ryddi.app/Contents/Resources/Ryddi.icns` exists, `CFBundleIconFile=Ryddi`, and the icon is visible in Finder, Dock, About, and the app switcher.
 - [ ] `iconutil --convert iconset Assets/Ryddi.icns` recreates all required 16, 32, 128, 256, 512, and 1024 pixel representations.
 - [ ] `Scripts/notarize-app.sh dist/Ryddi.app` completes successfully.
-- [ ] If notarization is still `In Progress`, the script exits nonzero, prints a `RYDDI_NOTARY_SUBMISSION_ID=...` resume command, and no final `Ryddi-v0.4.0.zip` is published.
+- [ ] If notarization is still `In Progress`, the script exits nonzero, prints a `RYDDI_NOTARY_SUBMISSION_ID=...` resume command, and no final `Ryddi-v0.4.1.zip` is published.
 - [ ] `dist/Ryddi-notary-status.json` records `"status": "Accepted"` before any manifest claims notarization.
 - [ ] Invalid notarization responses save `dist/Ryddi-notary-log.json` for review.
 - [ ] Notarization credentials are supplied through `NOTARY_PROFILE` or `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD`.
 - [ ] `xcrun stapler validate dist/Ryddi.app` passes.
 - [ ] `spctl --assess --type execute --verbose dist/Ryddi.app` accepts the app.
 - [ ] `codesign --verify --deep --strict --verbose=2 dist/Ryddi.app` passes.
-- [ ] `dist/Ryddi-v0.4.0.zip`, `dist/Ryddi-v0.4.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` exist.
-- [ ] `dist/Ryddi-release-manifest.txt` records signed, accepted notarization, stapled, Gatekeeper, strict codesign, bundle version `0.4.0`, build `5`, notary submission ID, and status JSON path proof.
+- [ ] `dist/Ryddi-v0.4.1.zip`, `dist/Ryddi-v0.4.1.zip.sha256`, and `dist/Ryddi-release-manifest.txt` exist.
+- [ ] `dist/Ryddi-release-manifest.txt` records signed, accepted notarization, stapled, Gatekeeper, strict codesign, bundle version `0.4.1`, build `6`, notary submission ID, and status JSON path proof.
 - [ ] The manifest records `packaged_ax_e2e=passed` and `packaged_ax_e2e_proof=included`; the staged release contains `Packaged-App-E2E/`.
 - [ ] `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` reports `state` as `stapledAndAccepted`.
 - [ ] The manifest contains parseable release-trust keys: `manifest_schema=ryddi.release-trust.v1`, `codesign_verified=true`, `hardened_runtime=true`, `notarization_status=Accepted`, `stapled=true`, and `gatekeeper=accepted`.
 - [ ] GitHub release artifact, checksum, and release manifest are uploaded.
 
-## v0.4.0 Release Notes Template
+## v0.4.1 Release Notes Template
 
 ```markdown
-## Ryddi v0.4.0
+## Ryddi v0.4.1
 
-Guided Map release for regular Mac users.
+Reclaim-guidance and cloud-footprint update for the Guided Map release.
 
 - Signed and notarized outside the Mac App Store, only if the release manifest proves Developer ID signing, Apple notarization, stapling, Gatekeeper assessment, and strict codesign verification.
-- Release artifacts use bundle version `0.4.0`, build `5`, and `Ryddi-v0.4.0` names.
+- Release artifacts use bundle version `0.4.1`, build `6`, and `Ryddi-v0.4.1` names.
 - Scanning is user-started and opens into a proportional treemap with an equivalent accessible outline.
 - Home, Explore, and History form the regular-user journey; specialist surfaces remain available through Advanced Settings.
 - Cleanup review starts with nothing selected and retains Check Safely, exact-path confirmation, one-use Trash authority, receipts, and verification.

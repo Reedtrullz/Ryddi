@@ -274,8 +274,14 @@ public enum NativeActionAllowlist {
             guard isDockerExecutable(command.executable) else {
                 return .blocked("unexpected executable for dockerBuilderPrune")
             }
-            guard command.arguments == ["builder", "prune", "--force"]
-                || command.arguments == ["system", "df", "-v"] else {
+            guard command.arguments.count >= 3,
+                  command.arguments[0] == "--context",
+                  isAllowedDockerContextName(command.arguments[1]) else {
+                return .blocked("dockerBuilderPrune requires an explicit safe context")
+            }
+            let contextBoundArguments = Array(command.arguments.dropFirst(2))
+            guard contextBoundArguments == ["builder", "prune", "--force"]
+                || contextBoundArguments == ["system", "df", "-v"] else {
                 return .blocked("unexpected arguments for dockerBuilderPrune")
             }
             return .allowed
@@ -292,6 +298,18 @@ public enum NativeActionAllowlist {
 
         case .auditPrune, .trashAppBundle, .packageCacheGuidance, .openFinderReview:
             return .blocked("native command execution is not implemented for \(command.kind.rawValue)")
+        }
+    }
+
+    static func isAllowedDockerContextName(_ name: String) -> Bool {
+        guard !name.isEmpty, name.utf8.count <= 255 else { return false }
+        return name.unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 45, 46, 48...57, 65...90, 95, 97...122:
+                return true
+            default:
+                return false
+            }
         }
     }
 

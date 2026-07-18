@@ -3,42 +3,56 @@ import ReclaimerCore
 
 struct HomeSuggestionView: View {
     let suggestion: HomeSuggestion
+    let isActionable: Bool
     let onReview: () -> Void
 
+    @ViewBuilder
     var body: some View {
-        Button(action: onReview) {
-            GroupBox {
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Label(suggestion.title, systemImage: systemImage)
-                            .font(.headline)
-                        Spacer()
-                        Text(ByteFormat.string(suggestion.allocatedBytes))
-                            .font(.subheadline.monospacedDigit())
+        if isActionable {
+            Button(action: onReview) {
+                cardContent(showsChevron: true)
+            }
+            .buttonStyle(HomeSuggestionButtonStyle())
+            .accessibilityIdentifier("home.suggestion.\(suggestion.id)")
+            .accessibilityLabel("\(suggestion.title), \(ByteFormat.string(suggestion.allocatedBytes)). \(suggestion.consequence)")
+            .accessibilityHint("Opens the appropriate review workspace without selecting anything.")
+        } else {
+            cardContent(showsChevron: false)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("home.suggestion.\(suggestion.id)")
+        }
+    }
+
+    private func cardContent(showsChevron: Bool) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline) {
+                    Label(suggestion.title, systemImage: systemImage)
+                        .font(.headline)
+                    Spacer()
+                    Text(ByteFormat.string(suggestion.allocatedBytes))
+                        .font(.subheadline.monospacedDigit())
+                    if showsChevron {
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }
-                    Text(suggestion.explanation)
-                        .foregroundStyle(.secondary)
-                    Text(suggestion.consequence)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let reclaim = suggestion.estimatedReclaimBytes {
-                        Label(
-                            "Up to \(ByteFormat.string(reclaim)) estimated reclaim after safety checks",
-                            systemImage: "checkmark.shield"
-                        )
-                        .font(.caption)
-                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(suggestion.explanation)
+                    .foregroundStyle(.secondary)
+                Text(suggestion.consequence)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let reclaim = suggestion.estimatedReclaimBytes {
+                    Label(
+                        "Up to \(ByteFormat.string(reclaim)) estimated reclaim after safety checks",
+                        systemImage: "checkmark.shield"
+                    )
+                    .font(.caption)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(HomeSuggestionButtonStyle())
-        .accessibilityIdentifier("home.suggestion.\(suggestion.id)")
-        .accessibilityLabel("\(suggestion.title), \(ByteFormat.string(suggestion.allocatedBytes)). \(suggestion.consequence)")
-        .accessibilityHint("Opens this group for review with nothing selected outside it.")
     }
 
     private var systemImage: String {

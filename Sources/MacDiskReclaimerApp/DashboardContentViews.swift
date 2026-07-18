@@ -1635,7 +1635,8 @@ struct ContainerInventoryView: View {
                                 await model.runNativeToolCommand(
                                     receipt: action.receipt,
                                     command: action.command,
-                                    perform: false
+                                    perform: false,
+                                    expectedContextName: action.contextName
                                 )
                             }
                         },
@@ -1756,14 +1757,19 @@ struct ContainerInventoryView: View {
                     await model.runNativeToolCommand(
                         receipt: action.receipt,
                         command: action.command,
-                        perform: true
+                        perform: true,
+                        expectedContextName: action.contextName
                     )
                     await model.inspectContainers()
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Ryddi will refresh Docker's read-only inventory, then run docker builder prune --force. This cannot be undone. Containers, images, volumes, Colima profiles, and the VM disk remain untouched.")
+            if let action = model.containerInventory?.dockerBuildCacheAction {
+                Text("Ryddi will refresh Docker's read-only inventory and run the prune only if the active context is still ‘\(action.contextName)’. This cannot be undone. Containers, images, volumes, Colima profiles, and the VM disk remain untouched.")
+            } else {
+                Text("Docker build-cache reclaim is no longer available. Inspect containers again before deciding.")
+            }
         }
     }
 }
@@ -1771,6 +1777,7 @@ struct ContainerInventoryView: View {
 private struct ContainerReclaimAction {
     let receipt: NativeToolReceipt
     let command: NativeToolCommand
+    let contextName: String
 }
 
 private extension ContainerInventoryReport {
@@ -1781,7 +1788,8 @@ private extension ContainerInventoryReport {
     var dockerBuildCacheAction: ContainerReclaimAction? {
         guard docker.status.state == .available,
               let buildCacheBucket,
-              (buildCacheBucket.reclaimableBytes ?? 0) > 0 else {
+              (buildCacheBucket.reclaimableBytes ?? 0) > 0,
+              let currentContext = docker.inspectedContextName else {
             return nil
         }
         let action = NativeMaintenanceAction.dockerBuilderPrune
@@ -1792,7 +1800,7 @@ private extension ContainerInventoryReport {
             risk: .reclaim,
             requiresReview: true,
             expectedEffect: "Docker removes unused build-cache records; active containers, images, volumes, and Colima profiles remain untouched.",
-            context: "Ryddi binds execution to a fresh read-only Docker context and inventory preview."
+            context: "Docker context: \(currentContext). Ryddi blocks execution if that context changes before the fresh read-only preview."
         )
         let receipt = NativeToolReceipt(
             findingPath: FileManager.default.homeDirectoryForCurrentUser
@@ -1807,7 +1815,7 @@ private extension ContainerInventoryReport {
             commands: [command],
             nonClaims: action.nonClaims
         )
-        return ContainerReclaimAction(receipt: receipt, command: command)
+        return ContainerReclaimAction(receipt: receipt, command: command, contextName: currentContext)
     }
 }
 
