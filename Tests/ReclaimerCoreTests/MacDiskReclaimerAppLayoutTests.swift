@@ -544,6 +544,28 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         )
     }
 
+    func testLargeAppInspectorRoutesToGuidedReclaimReviews() throws {
+        let inspector = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/GuidedMap/GuidedMapInspectorView.swift"),
+            encoding: .utf8
+        )
+        let explore = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/Explore/ExploreView.swift"),
+            encoding: .utf8
+        )
+        let app = try appSource()
+
+        XCTAssertTrue(inspector.contains("searchableText.contains(\"colima\")"))
+        XCTAssertTrue(inspector.contains("Label(destination.buttonLabel, systemImage: \"sparkles\")"))
+        XCTAssertTrue(explore.contains("GuidedReclaimReviewView"))
+        XCTAssertTrue(explore.contains("await model.inspectContainers()"))
+        XCTAssertTrue(app.contains("Preview + reclaim build cache"))
+        XCTAssertTrue(app.contains("NativeMaintenanceAction.dockerBuilderPrune"))
+        XCTAssertTrue(app.contains("images, containers, volumes, Colima profiles, and VM disks"))
+    }
+
     func testLargeOldReviewContentIsVerticallyScrollable() throws {
         let source = try appSource()
 

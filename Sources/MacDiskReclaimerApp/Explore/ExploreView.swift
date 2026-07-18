@@ -7,6 +7,7 @@ struct ExploreView: View {
     @State private var selectedID: String?
     @State private var showOutline = false
     @State private var filter = ExploreFilter()
+    @State private var reclaimDestination: GuidedReclaimDestination?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -56,7 +57,10 @@ struct ExploreView: View {
                     )
                         .frame(maxHeight: .infinity)
                 }
-                GuidedMapInspectorView(node: map.nodes.first { $0.id == selectedID })
+                GuidedMapInspectorView(
+                    node: map.nodes.first { $0.id == selectedID },
+                    onRequestReclaimHelp: { reclaimDestination = $0 }
+                )
             } else {
                 ContentUnavailableView(
                     "Scan before exploring",
@@ -67,10 +71,42 @@ struct ExploreView: View {
         }
         .padding(22)
         .navigationTitle("Explore")
+        .sheet(item: $reclaimDestination) { destination in
+            GuidedReclaimReviewView(model: model, destination: destination)
+        }
         .onAppear { rootID = model.latestGuidedMap?.rootID ?? "" }
         .onChange(of: model.latestGuidedMap?.scanID) { _, _ in
             rootID = model.latestGuidedMap?.rootID ?? ""
             selectedID = nil
+        }
+    }
+}
+
+struct GuidedReclaimReviewView: View {
+    let model: DashboardModel
+    let destination: GuidedReclaimDestination
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch destination {
+                case .applications:
+                    AppReviewView(model: model)
+                case .containers:
+                    ContainerInventoryView(model: model)
+                }
+            }
+        }
+        .frame(minWidth: 760, idealWidth: 940, minHeight: 600, idealHeight: 720)
+        .task {
+            switch destination {
+            case .applications where model.appReview == nil:
+                await model.reviewApps()
+            case .containers where model.containerInventory == nil:
+                await model.inspectContainers()
+            default:
+                break
+            }
         }
     }
 }

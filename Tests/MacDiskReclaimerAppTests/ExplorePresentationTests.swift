@@ -3,6 +3,38 @@ import ReclaimerCore
 @testable import MacDiskReclaimerApp
 
 final class ExplorePresentationTests: XCTestCase {
+    func testGuidedInspectorOffersContainerReclaimForColimaFootprint() {
+        let node = GuidedMapNode(
+            id: "colima",
+            parentID: "root",
+            path: "/Users/test/.colima",
+            displayName: "Colima",
+            allocatedBytes: 20_000_000_000,
+            category: .developerFiles,
+            measurementState: .complete,
+            kind: .item,
+            childIDs: []
+        )
+
+        XCTAssertEqual(node.guidedReclaimDestination, .containers)
+    }
+
+    func testGuidedInspectorOffersAppReviewForApplicationFootprint() {
+        let node = GuidedMapNode(
+            id: "app",
+            parentID: "root",
+            path: "/Applications/Example.app",
+            displayName: "Example",
+            allocatedBytes: 2_000_000_000,
+            category: .applications,
+            measurementState: .complete,
+            kind: .item,
+            childIDs: []
+        )
+
+        XCTAssertEqual(node.guidedReclaimDestination, .applications)
+    }
+
     func testTypedFiltersMatchCategorySizeEvidenceAndSearch() {
         let snapshot = GuidedMapSnapshot(
             scanID: "scan",

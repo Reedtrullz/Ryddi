@@ -8,6 +8,7 @@ struct HomeView: View {
     @State private var showCleanupReview = false
     @State private var mapRootID = ""
     @State private var selectedMapNodeID: String?
+    @State private var reclaimDestination: GuidedReclaimDestination?
 
     private var home: HomeSnapshot { model.homeSnapshot }
 
@@ -25,6 +26,9 @@ struct HomeView: View {
         .navigationTitle("Home")
         .sheet(isPresented: $showCleanupReview) {
             CleanupReviewView(model: model)
+        }
+        .sheet(item: $reclaimDestination) { destination in
+            GuidedReclaimReviewView(model: model, destination: destination)
         }
         .onAppear { synchronizeMapRoot() }
         .onChange(of: model.latestGuidedMap?.scanID) { _, _ in synchronizeMapRoot() }
@@ -66,7 +70,10 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            GuidedMapInspectorView(node: map.nodes.first { $0.id == selectedMapNodeID })
+            GuidedMapInspectorView(
+                node: map.nodes.first { $0.id == selectedMapNodeID },
+                onRequestReclaimHelp: { reclaimDestination = $0 }
+            )
         } else {
             ContentUnavailableView {
                 Label("See where your space went", systemImage: "internaldrive")

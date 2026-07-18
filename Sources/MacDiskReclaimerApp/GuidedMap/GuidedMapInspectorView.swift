@@ -1,8 +1,46 @@
 import SwiftUI
 import ReclaimerCore
 
+enum GuidedReclaimDestination: String, Identifiable {
+    case applications
+    case containers
+
+    var id: String { rawValue }
+
+    var buttonLabel: String {
+        switch self {
+        case .applications: "Review app storage"
+        case .containers: "Inspect reclaim options"
+        }
+    }
+}
+
+extension GuidedMapNode {
+    var guidedReclaimDestination: GuidedReclaimDestination? {
+        let searchableText = [displayName, path ?? ""]
+            .joined(separator: " ")
+            .lowercased()
+        if searchableText.contains("colima") || searchableText.contains("docker") {
+            return .containers
+        }
+        if category == .applications {
+            return .applications
+        }
+        return nil
+    }
+}
+
 struct GuidedMapInspectorView: View {
     let node: GuidedMapNode?
+    var onRequestReclaimHelp: ((GuidedReclaimDestination) -> Void)?
+
+    init(
+        node: GuidedMapNode?,
+        onRequestReclaimHelp: ((GuidedReclaimDestination) -> Void)? = nil
+    ) {
+        self.node = node
+        self.onRequestReclaimHelp = onRequestReclaimHelp
+    }
 
     var body: some View {
         GroupBox("Selected item") {
@@ -15,6 +53,16 @@ struct GuidedMapInspectorView: View {
                     Text("Map selection is for understanding only. Nothing is added to cleanup.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let destination = node.guidedReclaimDestination,
+                       let onRequestReclaimHelp {
+                        Button {
+                            onRequestReclaimHelp(destination)
+                        } label: {
+                            Label(destination.buttonLabel, systemImage: "sparkles")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityHint("Opens a review. Nothing is selected or removed automatically.")
+                    }
                     if let path = node.path {
                         HStack {
                             Button("Quick Look") { PathActions.quickLook(path) }
