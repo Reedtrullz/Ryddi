@@ -156,7 +156,7 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(commands.contains("keyboardShortcut(\"3\""))
         XCTAssertFalse(commands.contains("Build Plan"))
         XCTAssertFalse(commands.contains("Dry Run"))
-        XCTAssertTrue(source.contains(".commands {\n            DashboardCommands()\n        }"))
+        XCTAssertTrue(source.contains(".commands {\n            DashboardCommands(updates: updates)\n        }"))
         XCTAssertTrue(source.contains(".focusedSceneValue(\\.dashboardCommandActions"))
     }
 
@@ -175,7 +175,7 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(settings.contains("@AppStorage(RyddiAppStorageKey.redactUserTextByDefault)"))
         XCTAssertTrue(settings.contains("TabView"))
         XCTAssertTrue(settings.contains("Picker(\"Default scan mode\""))
-        XCTAssertTrue(source.contains("Settings {\n            DashboardSettingsView(model: appModel.dashboard)\n        }"))
+        XCTAssertTrue(source.contains("Settings {\n            DashboardSettingsView(model: appModel.dashboard, updates: updates)\n        }"))
         XCTAssertTrue(source.contains("model.applyStoredSettings("))
         XCTAssertTrue(settings.contains("AdvancedSettingsView"))
         XCTAssertTrue(settings.contains("RemoteTargetsView(model: model)"))

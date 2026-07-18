@@ -56,6 +56,40 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertLessThan(iconCopy.lowerBound, signing.lowerBound)
     }
 
+    func testPackageAppEmbedsSecureSparkleConfigurationAndFramework() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/package-app.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("Contents/Frameworks/Sparkle.framework"))
+        XCTAssertTrue(script.contains("<key>SUFeedURL</key>"))
+        XCTAssertTrue(script.contains("https://raw.githubusercontent.com/Reedtrullz/Ryddi/main/appcast.xml"))
+        XCTAssertTrue(script.contains("<key>SUPublicEDKey</key>"))
+        XCTAssertTrue(script.contains("<key>SUEnableAutomaticChecks</key>"))
+        XCTAssertTrue(script.contains("<key>SUAutomaticallyUpdate</key>"))
+        XCTAssertTrue(script.contains("<key>SUVerifyUpdateBeforeExtraction</key>"))
+        XCTAssertTrue(script.contains("<key>SURequireSignedFeed</key>"))
+    }
+
+    func testReleaseCheckCreatesDedicatedSparkleUpdateArchive() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/release-check.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("update_zip_path=\"$dist/$artifact_basename-update.zip\""))
+        XCTAssertTrue(script.contains("/usr/bin/ditto -c -k --keepParent \"$app\" \"$update_zip_path\""))
+        XCTAssertTrue(script.contains("sparkle_update_archive=\"notarized-signed-app-only\""))
+    }
+
+    func testAppcastGeneratorSignsFeedWithoutEmbeddingPrivateKey() throws {
+        let script = try String(contentsOf: repoRoot().appendingPathComponent("Scripts/generate-appcast.sh"), encoding: .utf8)
+
+        XCTAssertTrue(script.contains("RYDDI_SPARKLE_KEY_ACCOUNT:-ed25519"))
+        XCTAssertTrue(script.contains("--download-url-prefix \"https://github.com/Reedtrullz/Ryddi/releases/download/v$version/\""))
+        XCTAssertTrue(script.contains("--verify \"$scratch/appcast.xml\""))
+        XCTAssertTrue(script.contains("sparkle:edSignature="))
+        XCTAssertTrue(script.contains("<!-- sparkle-signatures:"))
+        XCTAssertTrue(script.contains("printf '%s' \"$private_key\" |"))
+        XCTAssertTrue(script.contains("--ed-key-file -"))
+        XCTAssertFalse(script.contains(" -s \"$private_key\""))
+    }
+
     func testPackageSignsNestedCLIThenAppWithoutDeepSigning() throws {
         let root = repoRoot()
         let script = try String(

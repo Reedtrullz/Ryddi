@@ -6,17 +6,17 @@ on:
       release_ref:
         description: Signed release tag to check out (must equal v<version>)
         required: true
-        default: v0.4.0
+        default: v0.4.1
         type: string
       version:
         description: Bundle and artifact version
         required: true
-        default: 0.4.0
+        default: 0.4.1
         type: string
       build_number:
         description: Monotonic bundle build number
         required: true
-        default: "5"
+        default: "6"
         type: string
 
 jobs:
@@ -62,9 +62,6 @@ jobs:
           set -euo pipefail
           [[ "$RYDDI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$RYDDI_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]
-          test "$RELEASE_REF" = "v0.4.0"
-          test "$RYDDI_VERSION" = "0.4.0"
-          test "$RYDDI_BUILD_NUMBER" = "5"
           test "$RELEASE_REF" = "v$RYDDI_VERSION"
           test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_REF^{commit}")"
           test -z "$(git status --porcelain --untracked-files=normal)"
@@ -101,6 +98,15 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: Scripts/release-check.sh
 
+      - name: Generate signed update feed
+        env:
+          RYDDI_SPARKLE_KEY_ACCOUNT: ed25519
+          RYDDI_SPARKLE_PRIVATE_KEY: ${{ secrets.RYDDI_SPARKLE_PRIVATE_KEY }}
+        run: |
+          Scripts/generate-appcast.sh \
+            "dist/Ryddi-v${{ inputs.version }}-update.zip" \
+            dist/appcast.xml
+
       - name: Upload signed release artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -109,7 +115,10 @@ jobs:
           path: |
             dist/Ryddi-v${{ inputs.version }}.zip
             dist/Ryddi-v${{ inputs.version }}.zip.sha256
+            dist/Ryddi-v${{ inputs.version }}-update.zip
+            dist/Ryddi-v${{ inputs.version }}-update.zip.sha256
             dist/Ryddi-release-manifest.txt
+            dist/appcast.xml
             dist/e2e-proof
 
       - name: Remove signing credentials and restore keychain

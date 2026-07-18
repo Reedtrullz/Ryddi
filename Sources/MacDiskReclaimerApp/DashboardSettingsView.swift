@@ -10,6 +10,7 @@ enum RyddiAppStorageKey {
 
 struct DashboardSettingsView: View {
     @Bindable var model: DashboardModel
+    @Bindable var updates: RyddiUpdateController
     @AppStorage(RyddiAppStorageKey.defaultScanPreset) private var defaultScanPresetRaw = ScanScopePreset.developer.rawValue
     @AppStorage(RyddiAppStorageKey.includeUserRulesByDefault) private var includeUserRulesByDefault = false
     @AppStorage(RyddiAppStorageKey.defaultReportPathStyle) private var defaultReportPathStyleRaw = ReportPathStyle.homeRelative.rawValue
@@ -50,6 +51,22 @@ struct DashboardSettingsView: View {
             }
             .tabItem {
                 Label("Automation", systemImage: "calendar.badge.clock")
+            }
+
+            Form {
+                Toggle("Automatically check for updates", isOn: $updates.automaticallyChecksForUpdates)
+
+                Button("Update to Latest Version") {
+                    updates.updateToLatestVersion()
+                }
+                .disabled(!updates.canCheckForUpdates)
+
+                Text("Ryddi checks its signed update feed in the background. Installing an update always requires a trusted, signed release and your confirmation.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .tabItem {
+                Label("Updates", systemImage: "arrow.triangle.2.circlepath")
             }
 
             AdvancedSettingsView(model: model)
