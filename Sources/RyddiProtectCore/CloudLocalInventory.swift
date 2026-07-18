@@ -374,9 +374,24 @@ public struct CloudLocalInventoryScanner: Sendable {
         limit: Int,
         by areInIncreasingOrder: (CloudLocalFileReview, CloudLocalFileReview) -> Bool
     ) {
-        items.append(item)
-        items.sort(by: areInIncreasingOrder)
-        if items.count > limit { items.removeLast(items.count - limit) }
+        if items.count == limit,
+           let last = items.last,
+           !areInIncreasingOrder(item, last) {
+            return
+        }
+
+        var lowerBound = 0
+        var upperBound = items.count
+        while lowerBound < upperBound {
+            let middle = lowerBound + (upperBound - lowerBound) / 2
+            if areInIncreasingOrder(items[middle], item) {
+                lowerBound = middle + 1
+            } else {
+                upperBound = middle
+            }
+        }
+        items.insert(item, at: lowerBound)
+        if items.count > limit { items.removeLast() }
     }
 
     private static func largeSort(_ lhs: CloudLocalFileReview, _ rhs: CloudLocalFileReview) -> Bool {

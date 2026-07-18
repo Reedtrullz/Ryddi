@@ -1747,10 +1747,10 @@ struct ContainerInventoryView: View {
             .padding(24)
         }
         .confirmationDialog(
-            "Reclaim Docker build cache?",
+            "Reclaim unused Docker build cache?",
             isPresented: $pendingBuildCacheCleanup
         ) {
-            Button("Preview + reclaim build cache", role: .destructive) {
+            Button("Reclaim Unused Build Cache", role: .destructive) {
                 guard let action = model.containerInventory?.dockerBuildCacheAction else { return }
                 Task {
                     await model.runNativeToolCommand(
@@ -1763,7 +1763,7 @@ struct ContainerInventoryView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Ryddi will first refresh Docker's read-only inventory, then run docker builder prune --force. Containers, images, volumes, Colima profiles, and the VM disk remain untouched.")
+            Text("Ryddi will refresh Docker's read-only inventory, then run docker builder prune --force. This cannot be undone. Containers, images, volumes, Colima profiles, and the VM disk remain untouched.")
         }
     }
 }
@@ -1866,7 +1866,7 @@ private struct ContainerReclaimGuidanceView: View {
         Group {
             Button("Preview cleanup", action: onPreview)
                 .buttonStyle(.bordered)
-            Button("Preview + reclaim build cache", action: onReclaim)
+            Button("Reclaim unused build cache", action: onReclaim)
                 .buttonStyle(.borderedProminent)
         }
     }

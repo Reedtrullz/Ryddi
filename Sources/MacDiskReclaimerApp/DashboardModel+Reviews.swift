@@ -5,43 +5,62 @@ import RyddiProtectCore
 extension DashboardModel {
     func discoverCloudStorageRoots(userSelectedMegaRoots: [URL] = []) async {
         let activityID = activities.begin(.review, message: "Discovering cloud folders")
-        defer { activities.finish(.review, id: activityID) }
+        cloudFootprintOperation = .discovering
+        cloudFootprintMessage = nil
+        cloudFootprintError = nil
+        defer {
+            activities.finish(.review, id: activityID)
+            cloudFootprintOperation = nil
+            cancelCloudFootprintOperationHandler = nil
+        }
         var seenMegaPaths = Set(selectedMegaCloudRoots.map(\.standardizedFileURL.path))
         for root in userSelectedMegaRoots.map(\.standardizedFileURL)
             where seenMegaPaths.insert(root.path).inserted {
             selectedMegaCloudRoots.append(root)
         }
         let megaRoots = selectedMegaCloudRoots
-        cloudStorageRootDiscovery = await Task.detached {
+        let worker = Task.detached(priority: .utility) {
             CloudStorageRootDiscovery().discover(userSelectedMegaRoots: megaRoots)
-        }.value
+        }
+        cancelCloudFootprintOperationHandler = { worker.cancel() }
+        let discovery = await worker.value
+        guard !worker.isCancelled else {
+            cloudFootprintMessage = "Folder discovery stopped. Previous results were kept."
+            return
+        }
+        cloudStorageRootDiscovery = discovery
         let currentIDs = Set(cloudStorageRootDiscovery?.candidates.map(\.id) ?? [])
         confirmedCloudStorageRoots = confirmedCloudStorageRoots.filter { currentIDs.contains($0.key) }
         cloudLocalInventoryReports = cloudLocalInventoryReports.filter { currentIDs.contains($0.key) }
-        error = nil
+        let count = discovery.candidates.count
+        cloudFootprintMessage = count == 1 ? "Found 1 local cloud folder." : "Found \(count) local cloud folders."
     }
 
     func confirmCloudStorageRoot(_ candidate: CloudStorageRootCandidate) {
         do {
             confirmedCloudStorageRoots[candidate.id] = try CloudStorageRootConfirmation.confirm(candidate)
             cloudLocalInventoryReports[candidate.id] = nil
-            error = nil
+            cloudFootprintMessage = "Confirmed \(candidate.provider.label) for this session."
+            cloudFootprintError = nil
         } catch {
             confirmedCloudStorageRoots[candidate.id] = nil
             cloudLocalInventoryReports[candidate.id] = nil
-            self.error = error.localizedDescription
+            cloudFootprintError = error.localizedDescription
         }
     }
 
     func unconfirmCloudStorageRoot(_ candidate: CloudStorageRootCandidate) {
         confirmedCloudStorageRoots[candidate.id] = nil
         cloudLocalInventoryReports[candidate.id] = nil
+        cloudFootprintMessage = "Unconfirmed \(candidate.provider.label) and cleared its local inventory."
+        cloudFootprintError = nil
     }
 
     func forgetSelectedMegaCloudRoot(_ candidate: CloudStorageRootCandidate) {
         guard candidate.origin == .userSelected else { return }
         selectedMegaCloudRoots.removeAll { $0.standardizedFileURL.path == candidate.url.path }
         unconfirmCloudStorageRoot(candidate)
+        cloudFootprintMessage = "Forgot the selected MEGA folder."
         guard let report = cloudStorageRootDiscovery else { return }
         cloudStorageRootDiscovery = CloudStorageRootDiscoveryReport(
             generatedAt: report.generatedAt,
@@ -55,21 +74,44 @@ extension DashboardModel {
 
     func scanConfirmedCloudStorageRoot(_ candidate: CloudStorageRootCandidate) async {
         guard let confirmedRoot = confirmedCloudStorageRoots[candidate.id] else {
-            error = "Confirm this cloud sync folder before analyzing its metadata."
+            let message = "Confirm this cloud sync folder before reviewing its metadata."
+            cloudFootprintError = message
             return
         }
         let activityID = activities.begin(.review, message: "Analyzing local cloud metadata")
-        defer { activities.finish(.review, id: activityID) }
-        let report = await Task.detached {
+        cloudFootprintOperation = .analyzing(provider: candidate.provider.label)
+        cloudFootprintMessage = nil
+        cloudFootprintError = nil
+        defer {
+            activities.finish(.review, id: activityID)
+            cloudFootprintOperation = nil
+            cancelCloudFootprintOperationHandler = nil
+        }
+        let worker = Task.detached(priority: .utility) {
             CloudLocalInventoryScanner().scan(root: confirmedRoot)
-        }.value
+        }
+        cancelCloudFootprintOperationHandler = { worker.cancel() }
+        let report = await worker.value
         cloudLocalInventoryReports[candidate.id] = report
         if !report.resultsAreTrusted {
             confirmedCloudStorageRoots[candidate.id] = nil
-            error = report.issues.map(\.label).joined(separator: " ")
+            let message = report.issues.map(\.label).joined(separator: " ")
+            cloudFootprintError = message
         } else {
-            error = nil
+            cloudFootprintMessage = report.issues.contains(.cancelled)
+                ? "Review stopped. Partial metadata results are shown."
+                : "Reviewed \(report.scannedEntryCount.formatted()) local entries."
+            cloudFootprintError = nil
         }
+    }
+
+    func cancelCloudFootprintOperation() {
+        guard cloudFootprintOperation != nil else { return }
+        cloudFootprintOperation = .cancelling
+        activities.markCancelling(.review)
+        let cancel = cancelCloudFootprintOperationHandler
+        cancelCloudFootprintOperationHandler = nil
+        cancel?()
     }
 
     func checkActiveHandles() async {

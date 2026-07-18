@@ -3,10 +3,17 @@ import ReclaimerCore
 
 struct CleanupReviewView: View {
     @Bindable var model: DashboardModel
+    let suggestion: HomeSuggestion?
     @Environment(\.dismiss) private var dismiss
 
+    init(model: DashboardModel, suggestion: HomeSuggestion? = nil) {
+        self.model = model
+        self.suggestion = suggestion
+    }
+
     private var reviewFindings: [Finding] {
-        let suggestedIDs = Set(model.homeSnapshot.suggestions.flatMap(\.findingIDs))
+        let suggestedIDs = suggestion?.findingIDs
+            ?? Set(model.homeSnapshot.suggestions.flatMap(\.findingIDs))
         return model.findings
             .filter { suggestedIDs.contains($0.id) }
             .sorted {
@@ -29,10 +36,11 @@ struct CleanupReviewView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 560)
+        .onAppear {
+            model.beginReviewSession(visibleFindingIDs: visibleFindingIDs)
+        }
         .onDisappear {
-            if model.lastExecutionReceipt != nil {
-                model.clearReviewSelection()
-            }
+            model.endReviewSession()
         }
     }
 
@@ -40,8 +48,10 @@ struct CleanupReviewView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Review cleanup").font(.title2.bold())
-                    Text("Nothing is selected until you choose it.")
+                    Text(reviewTitle)
+                        .font(.title2.bold())
+                        .accessibilityIdentifier("cleanup-review.title")
+                    Text(reviewSubtitle)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -95,36 +105,18 @@ struct CleanupReviewView: View {
                     .accessibilityIdentifier(AccessibilityID.trashResult)
             }
 
-            HStack {
-                Button("Select safe maintenance") {
-                    Task { await model.selectSafeMaintenance() }
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    selectionControls
+                    Spacer()
+                    reviewActionControls
                 }
-                .disabled(model.isWorking || reviewFindings.isEmpty)
-                .accessibilityIdentifier("cleanup-review.select-safe")
-
-                Button("Clear") { model.clearReviewSelection() }
-                    .disabled(model.reviewSelectionIDs.isEmpty || model.isWorking)
-
-                Spacer()
-
-                Text("\(model.reviewSelectionIDs.count) selected")
-                    .foregroundStyle(.secondary)
-
-                Button("Check safely") {
-                    Task { await model.checkSelectedItemsSafely() }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.reviewSelectionIDs.isEmpty || model.isWorking)
-                .accessibilityIdentifier("cleanup-review.check-safely")
-
-                if model.trashExecutionReadiness.isReady {
-                    Button("Move to Trash") {
-                        Task { await model.prepareTrashExecution() }
+                VStack(alignment: .leading, spacing: 10) {
+                    selectionControls
+                    HStack {
+                        Spacer()
+                        reviewActionControls
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                    .disabled(model.isWorking)
-                    .accessibilityIdentifier("cleanup-review.move-to-trash")
                 }
             }
 
@@ -141,5 +133,59 @@ struct CleanupReviewView: View {
         finding.safetyClass == .autoSafe
             && [.deleteCache, .trash].contains(finding.actionKind)
             && !finding.isSymbolicLink
+    }
+
+    private var visibleFindingIDs: Set<String> {
+        Set(reviewFindings.map(\.id))
+    }
+
+    private var eligibleFindingIDs: Set<String> {
+        Set(reviewFindings.filter(isEligible).map(\.id))
+    }
+
+    private var reviewTitle: String {
+        suggestion?.title ?? "Review cleanup"
+    }
+
+    private var reviewSubtitle: String {
+        suggestion?.consequence ?? "Nothing is selected until you choose it."
+    }
+
+    private var selectionControls: some View {
+        HStack {
+            Button("Select safe maintenance") {
+                Task { await model.selectSafeMaintenance(among: eligibleFindingIDs) }
+            }
+            .disabled(model.isWorking || eligibleFindingIDs.isEmpty)
+            .accessibilityIdentifier("cleanup-review.select-safe")
+
+            Button("Clear") { model.clearReviewSelection() }
+                .disabled(model.reviewSelectionIDs.isEmpty || model.isWorking)
+        }
+    }
+
+    private var reviewActionControls: some View {
+        HStack {
+            Text("\(model.reviewSelectionIDs.count) selected")
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("cleanup-review.selection-count")
+
+            Button("Check safely") {
+                Task { await model.checkSelectedItemsSafely() }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(model.reviewSelectionIDs.isEmpty || model.isWorking)
+            .accessibilityIdentifier("cleanup-review.check-safely")
+
+            if model.trashExecutionReadiness.isReady {
+                Button("Move to Trash") {
+                    Task { await model.prepareTrashExecution() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .disabled(model.isWorking)
+                .accessibilityIdentifier("cleanup-review.move-to-trash")
+            }
+        }
     }
 }

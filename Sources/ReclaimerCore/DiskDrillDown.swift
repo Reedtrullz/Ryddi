@@ -190,15 +190,21 @@ public enum DiskDrillDownBuilder {
         of path: String,
         in nodesByPath: [String: MutableDiskNode]
     ) -> MutableDiskNode? {
-        let candidates = nodesByPath.keys.filter {
-            $0 != path && isDescendant(path, of: $0)
+        var candidate = normalized(
+            URL(fileURLWithPath: path).deletingLastPathComponent().path
+        )
+        while candidate != path {
+            if let parent = nodesByPath[candidate] {
+                return parent
+            }
+            guard candidate != "/" else { return nil }
+            let next = normalized(
+                URL(fileURLWithPath: candidate).deletingLastPathComponent().path
+            )
+            guard next != candidate else { return nil }
+            candidate = next
         }
-        guard let parentPath = candidates.max(by: { lhs, rhs in
-            URL(fileURLWithPath: lhs).pathComponents.count < URL(fileURLWithPath: rhs).pathComponents.count
-        }) else {
-            return nil
-        }
-        return nodesByPath[parentPath]
+        return nil
     }
 
     private static func normalized(_ path: String) -> String {
@@ -207,12 +213,6 @@ public enum DiskDrillDownBuilder {
             value.removeLast()
         }
         return value
-    }
-
-    private static func isDescendant(_ path: String, of ancestor: String) -> Bool {
-        guard path != ancestor else { return false }
-        let ancestorWithSlash = ancestor.hasSuffix("/") ? ancestor : ancestor + "/"
-        return path.hasPrefix(ancestorWithSlash)
     }
 
     private static func sortMutableNodes(_ lhs: MutableDiskNode, _ rhs: MutableDiskNode) -> Bool {

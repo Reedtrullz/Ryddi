@@ -14,6 +14,7 @@ struct DashboardSidebarView: View {
         List(DashboardPrimaryDestination.allCases, selection: selectionBinding) { destination in
             Label(destination.title, systemImage: destination.systemImage)
                 .tag(destination)
+                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(AccessibilityID.sidebarDestination(destination))
         }
         .listStyle(.sidebar)

@@ -16,7 +16,7 @@ final class ExplorePresentationTests: XCTestCase {
             childIDs: []
         )
 
-        XCTAssertEqual(node.guidedReclaimDestination, .containers)
+        XCTAssertEqual(node.storageReviewDestination, .containers)
     }
 
     func testGuidedInspectorOffersAppReviewForApplicationFootprint() {
@@ -32,7 +32,23 @@ final class ExplorePresentationTests: XCTestCase {
             childIDs: []
         )
 
-        XCTAssertEqual(node.guidedReclaimDestination, .applications)
+        XCTAssertEqual(node.storageReviewDestination, .applications)
+    }
+
+    func testGuidedInspectorOffersCloudFootprintForKnownProviderFolder() {
+        let node = GuidedMapNode(
+            id: "dropbox",
+            parentID: "root",
+            path: "/Users/test/Library/CloudStorage/Dropbox",
+            displayName: "Dropbox",
+            allocatedBytes: 4_000_000_000,
+            category: .personalFiles,
+            measurementState: .complete,
+            kind: .aggregate,
+            childIDs: ["child"]
+        )
+
+        XCTAssertEqual(node.storageReviewDestination, .cloudFootprint)
     }
 
     func testTypedFiltersMatchCategorySizeEvidenceAndSearch() {

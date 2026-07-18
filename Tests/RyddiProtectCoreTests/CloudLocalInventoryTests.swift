@@ -51,6 +51,25 @@ final class CloudLocalInventoryTests: XCTestCase {
         XCTAssertTrue(report.nonClaims.contains { $0.contains("never opens file contents") })
     }
 
+    func testBoundedReviewQueuesRetainSortedTopItems() throws {
+        let home = try temporaryDirectory()
+        let root = home.appendingPathComponent("Dropbox", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeFile(root.appendingPathComponent("small.bin"), bytes: 4_096, modifiedAt: Date(timeIntervalSince1970: 1_000))
+        try writeFile(root.appendingPathComponent("medium.bin"), bytes: 8_192, modifiedAt: Date(timeIntervalSince1970: 3_000))
+        try writeFile(root.appendingPathComponent("large.bin"), bytes: 16_384, modifiedAt: Date(timeIntervalSince1970: 2_000))
+        let confirmed = try CloudStorageRootConfirmation.confirm(try makeCandidate(at: root), home: home)
+
+        let report = CloudLocalInventoryScanner().scan(
+            root: confirmed,
+            options: CloudLocalInventoryOptions(maximumEntries: 10, reviewLimit: 2, staleAge: 1),
+            now: Date(timeIntervalSince1970: 10_000)
+        )
+
+        XCTAssertEqual(report.largeFiles.map(\.relativePath), ["large.bin", "medium.bin"])
+        XCTAssertEqual(report.staleFiles.map(\.relativePath), ["small.bin", "large.bin"])
+    }
+
     func testInventoryDoesNotFollowDirectorySymlink() throws {
         let home = try temporaryDirectory()
         let root = home.appendingPathComponent("Dropbox", isDirectory: true)

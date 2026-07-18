@@ -21,16 +21,18 @@ final class CloudStorageWorkspaceTests: XCTestCase {
                 .first(where: { $0.url == root.standardizedFileURL })
         )
         let model = DashboardModel()
+        model.error = "Unrelated app error"
 
         await model.scanConfirmedCloudStorageRoot(candidate)
         XCTAssertNil(model.cloudLocalInventoryReports[candidate.id])
-        XCTAssertTrue(model.error?.contains("Confirm") == true)
+        XCTAssertEqual(model.error, "Unrelated app error")
+        XCTAssertTrue(model.cloudFootprintError?.contains("Confirm") == true)
 
         model.confirmCloudStorageRoot(candidate)
         XCTAssertNotNil(model.confirmedCloudStorageRoots[candidate.id])
         await model.scanConfirmedCloudStorageRoot(candidate)
         XCTAssertEqual(model.cloudLocalInventoryReports[candidate.id]?.fileCount, 1)
-        XCTAssertNil(model.error)
+        XCTAssertEqual(model.error, "Unrelated app error")
 
         model.unconfirmCloudStorageRoot(candidate)
         XCTAssertNil(model.confirmedCloudStorageRoots[candidate.id])
@@ -47,5 +49,23 @@ final class CloudStorageWorkspaceTests: XCTestCase {
         model.forgetSelectedMegaCloudRoot(candidate)
         XCTAssertTrue(model.selectedMegaCloudRoots.isEmpty)
         XCTAssertTrue(model.cloudStorageRootDiscovery?.candidates.isEmpty == true)
+    }
+
+    func testCloudFootprintCancellationIsOperationScopedAndVisible() {
+        let model = DashboardModel()
+        var cancellationCount = 0
+        _ = model.activities.begin(.review, message: "Discovering cloud folders")
+        model.cloudFootprintOperation = .discovering
+        model.cancelCloudFootprintOperationHandler = { cancellationCount += 1 }
+
+        model.cancelCloudFootprintOperation()
+        model.cancelCloudFootprintOperation()
+
+        XCTAssertEqual(cancellationCount, 1)
+        XCTAssertNil(model.cancelCloudFootprintOperationHandler)
+        XCTAssertEqual(model.cloudFootprintOperation, .cancelling)
+        guard case .cancelling = model.activities.state(for: .review) else {
+            return XCTFail("Expected the shared review activity to expose cancellation")
+        }
     }
 }

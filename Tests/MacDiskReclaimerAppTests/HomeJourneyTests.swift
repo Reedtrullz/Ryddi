@@ -18,6 +18,35 @@ final class HomeJourneyTests: XCTestCase {
         XCTAssertTrue(model.reviewSelectionIDs.isEmpty)
     }
 
+    func testScopedReviewStartsAndEndsEmptyAndRejectsHiddenFindings() async {
+        let model = DashboardModel(dependencies: .testing(
+            scanService: EmptyScanService(),
+            guidedMapStore: MemoryGuidedMapStore()
+        ))
+        model.findings = [finding("visible"), finding("hidden")]
+        model.reviewSelectionIDs = ["visible", "hidden"]
+
+        model.beginReviewSession(visibleFindingIDs: ["visible"])
+
+        XCTAssertTrue(model.reviewSelectionIDs.isEmpty)
+
+        model.toggleReviewSelection("hidden")
+        XCTAssertTrue(model.reviewSelectionIDs.isEmpty)
+
+        model.toggleReviewSelection("visible")
+        XCTAssertEqual(model.reviewSelectionIDs, ["visible"])
+
+        await model.selectSafeMaintenance(among: ["visible"])
+
+        XCTAssertTrue(model.reviewSelectionIDs.isSubset(of: ["visible"]))
+        XCTAssertFalse(model.reviewSelectionIDs.contains("hidden"))
+
+        model.endReviewSession()
+
+        XCTAssertTrue(model.reviewSelectionIDs.isEmpty)
+        XCTAssertNil(model.reviewScopeFindingIDs)
+    }
+
     func testPresentationRefreshPreservesLatestGuidedMap() async {
         let model = DashboardModel(dependencies: .testing(
             scanService: EmptyScanService(),
@@ -55,6 +84,20 @@ final class HomeJourneyTests: XCTestCase {
         XCTAssertFalse(source.contains("PlanBuilder"))
         XCTAssertFalse(source.contains("prepareTrashExecution"))
         XCTAssertFalse(source.contains("buildPlan"))
+
+        let breadcrumb = try String(
+            contentsOf: root
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/GuidedMap/GuidedMapBreadcrumbView.swift"),
+            encoding: .utf8
+        )
+        let outline = try String(
+            contentsOf: root
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/GuidedMap/GuidedMapOutlineView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(breadcrumb.contains("ScrollView(.horizontal)"))
+        XCTAssertTrue(outline.contains("GuidedMapBreadcrumbView"))
+        XCTAssertTrue(outline.contains("Show contents of \\(node.displayName)"))
     }
 
     private func finding(_ id: String) -> Finding {

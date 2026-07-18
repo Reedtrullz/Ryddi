@@ -47,10 +47,10 @@ struct DashboardView: View {
             } label: {
                 Label(model.latestGuidedMap == nil ? "Scan your Mac" : "Scan Again", systemImage: "magnifyingglass")
             }
-            .disabled(model.isWorking)
+            .disabled(model.isWorking || model.activeScanRequest != nil)
             .accessibilityIdentifier(AccessibilityID.scan)
 
-            if model.activeScanRequest != nil {
+            if model.isScanRunning {
                 Button(role: .cancel) {
                     model.cancelScan()
                 } label: {
@@ -89,7 +89,7 @@ struct DashboardView: View {
 
     private var commandActions: DashboardCommandActions {
         DashboardCommandActions(
-            canScan: !model.isWorking,
+            canScan: !model.isWorking && model.activeScanRequest == nil,
             startScan: { model.startScan() },
             openDestination: selectDestination
         )
@@ -112,6 +112,10 @@ struct DashboardView: View {
             ProgressView("Cancelling scan")
                 .controlSize(.small)
                 .accessibilityIdentifier(AccessibilityID.scanProgress)
+        case .idle where model.isScanFinalizing:
+            ProgressView("Saving scan history")
+                .controlSize(.small)
+                .accessibilityIdentifier(AccessibilityID.scanFinalizing)
         case .idle, .failed:
             EmptyView()
         }

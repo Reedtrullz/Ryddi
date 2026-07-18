@@ -2,6 +2,14 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# A bare invocation is a proof of the current working tree, so refresh the
+# developer bundle before driving it. Release checks pass an explicit candidate
+# through RYDDI_E2E_APP_PATH and must exercise that exact bundle instead.
+if [[ -z "${RYDDI_E2E_APP_PATH:-}" ]]; then
+  "$root/Scripts/package-app.sh"
+fi
+
 app="${RYDDI_E2E_APP_PATH:-$root/dist/Ryddi.app}"
 output="${RYDDI_E2E_OUTPUT:-$root/dist/e2e-proof}"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/ryddi-packaged-e2e.XXXXXX")"

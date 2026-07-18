@@ -82,7 +82,8 @@ public struct CloudStorageRootDiscovery: Sendable {
 
     public func discover(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
-        userSelectedMegaRoots: [URL] = []
+        userSelectedMegaRoots: [URL] = [],
+        cancellationCheck: @Sendable () -> Bool = { Task.isCancelled }
     ) -> CloudStorageRootDiscoveryReport {
         let container = home
             .appendingPathComponent("Library", isDirectory: true)
@@ -93,6 +94,10 @@ public struct CloudStorageRootDiscovery: Sendable {
         var unreadableRoots: [URL] = []
         let fileManager = FileManager.default
 
+        guard !cancellationCheck() else {
+            return cancelledReport(container: container)
+        }
+
         if fileManager.fileExists(atPath: container.path) {
             do {
                 let children = try fileManager.contentsOfDirectory(
@@ -101,6 +106,9 @@ public struct CloudStorageRootDiscovery: Sendable {
                     options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
                 )
                 for child in children.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                    guard !cancellationCheck() else {
+                        return cancelledReport(container: container)
+                    }
                     guard let provider = Self.provider(forRootName: child.lastPathComponent) else { continue }
                     addCandidate(
                         child,
@@ -117,6 +125,9 @@ public struct CloudStorageRootDiscovery: Sendable {
         }
 
         for root in userSelectedMegaRoots.map(\.standardizedFileURL) {
+            guard !cancellationCheck() else {
+                return cancelledReport(container: container)
+            }
             addCandidate(
                 root,
                 provider: .mega,
@@ -134,6 +145,16 @@ public struct CloudStorageRootDiscovery: Sendable {
             candidates: candidates,
             rejectedSymlinks: rejectedSymlinks,
             unreadableRoots: unreadableRoots,
+            nonClaims: Self.nonClaims
+        )
+    }
+
+    private func cancelledReport(container: URL) -> CloudStorageRootDiscoveryReport {
+        CloudStorageRootDiscoveryReport(
+            cloudStorageContainer: container,
+            candidates: [],
+            rejectedSymlinks: [],
+            unreadableRoots: [],
             nonClaims: Self.nonClaims
         )
     }

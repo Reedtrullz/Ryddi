@@ -49,6 +49,21 @@ final class CloudStorageRootDiscoveryTests: XCTestCase {
         XCTAssertNil(CloudStorageRootDiscovery.provider(forRootName: "GoogleDriveBackup"))
     }
 
+    func testCancellationStopsBeforeReturningNewCandidates() throws {
+        let home = try temporaryDirectory()
+        let dropbox = home.appendingPathComponent("Library/CloudStorage/Dropbox", isDirectory: true)
+        try FileManager.default.createDirectory(at: dropbox, withIntermediateDirectories: true)
+
+        let report = CloudStorageRootDiscovery().discover(
+            home: home,
+            cancellationCheck: { true }
+        )
+
+        XCTAssertTrue(report.candidates.isEmpty)
+        XCTAssertTrue(report.rejectedSymlinks.isEmpty)
+        XCTAssertTrue(report.unreadableRoots.isEmpty)
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

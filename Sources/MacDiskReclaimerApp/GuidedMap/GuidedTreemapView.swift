@@ -6,6 +6,7 @@ struct GuidedTreemapView: View {
     @Binding var rootID: String
     @Binding var selectedID: String?
     var visibleNodeIDs: Set<String>? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var nodesByID: [String: GuidedMapNode] {
         Dictionary(uniqueKeysWithValues: snapshot.nodes.map { ($0.id, $0) })
@@ -20,7 +21,7 @@ struct GuidedTreemapView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            breadcrumb
+            GuidedMapBreadcrumbView(snapshot: snapshot, rootID: rootID, onNavigate: navigate)
             GeometryReader { proxy in
                 let frames = TreemapLayout().rectangles(
                     for: visibleNodes,
@@ -39,50 +40,24 @@ struct GuidedTreemapView: View {
                             .offset(x: frame.minX, y: frame.minY)
                             .simultaneousGesture(TapGesture(count: 2).onEnded {
                                 if !node.childIDs.isEmpty {
-                                    rootID = node.id
-                                    selectedID = nil
+                                    open(node)
                                 }
                             })
+                            .help(node.childIDs.isEmpty ? "Select \(node.displayName)" : "Select \(node.displayName); double-click to open")
                             .accessibilityIdentifier("guided-map.node.\(node.id)")
                             .accessibilityLabel(accessibilityLabel(for: node))
+                            .accessibilityHint(node.childIDs.isEmpty
+                                ? "Selects this item for inspection only."
+                                : "Selects this item for inspection. Double-click or use the Open action to show its contents.")
+                            .modifier(GuidedMapOpenActionModifier(node: node) {
+                                open(node)
+                            })
                         }
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
-    }
-
-    private var breadcrumb: some View {
-        HStack(spacing: 4) {
-            ForEach(ancestorIDs, id: \.self) { id in
-                if let node = nodesByID[id] {
-                    Button(node.displayName) {
-                        rootID = id
-                        selectedID = nil
-                    }
-                    .buttonStyle(.plain)
-                    if id != ancestorIDs.last {
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .font(.caption)
-        .accessibilityIdentifier("guided-map.breadcrumb")
-    }
-
-    private var ancestorIDs: [String] {
-        var values: [String] = []
-        var current: String? = rootID
-        var visited: Set<String> = []
-        while let id = current, visited.insert(id).inserted, let node = nodesByID[id] {
-            values.append(id)
-            current = node.parentID
-        }
-        return values.reversed()
     }
 
     private func tile(_ node: GuidedMapNode, frame: CGRect) -> some View {
@@ -100,6 +75,15 @@ struct GuidedTreemapView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(7)
+            }
+            if !node.childIDs.isEmpty, frame.width > 54, frame.height > 34 {
+                Image(systemName: "chevron.forward.circle.fill")
+                    .font(.caption)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.primary.opacity(0.72))
+                    .padding(7)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .accessibilityHidden(true)
             }
         }
         .contentShape(Rectangle())
@@ -120,5 +104,37 @@ struct GuidedTreemapView: View {
 
     private func accessibilityLabel(for node: GuidedMapNode) -> String {
         "\(node.displayName), \(node.category.rawValue), \(ByteFormat.string(node.allocatedBytes)), \(node.measurementState.rawValue)"
+    }
+
+    private func open(_ node: GuidedMapNode) {
+        navigate(node.id)
+    }
+
+    private func navigate(_ id: String) {
+        let changes = {
+            rootID = id
+            selectedID = nil
+        }
+        if reduceMotion {
+            changes()
+        } else {
+            withAnimation(.spring(response: 0.32, dampingFraction: 1)) {
+                changes()
+            }
+        }
+    }
+}
+
+private struct GuidedMapOpenActionModifier: ViewModifier {
+    let node: GuidedMapNode
+    let action: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if node.childIDs.isEmpty {
+            content
+        } else {
+            content.accessibilityAction(named: Text("Open \(node.displayName)"), action)
+        }
     }
 }

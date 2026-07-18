@@ -56,6 +56,18 @@ final class GuidedMapTests: XCTestCase {
         XCTAssertEqual(map.nodes.first { $0.kind == .limitedVisibility }?.allocatedBytes, 40)
     }
 
+    func testDrillDownFindsNearestAvailableAncestorAcrossMissingIntermediateRows() throws {
+        let root = finding(id: "root", path: "/scope", bytes: 100, isDirectory: true)
+        let nested = finding(id: "nested", path: "/scope/missing/levels/item", bytes: 20)
+        let report = DiskDrillDownBuilder.build(
+            findings: [nested, root],
+            scopes: [ScanScope(name: "Test", root: URL(fileURLWithPath: "/scope"))]
+        )
+
+        let rootNode = try XCTUnwrap(report.rootNodes.first { $0.path == "/scope" })
+        XCTAssertEqual(rootNode.children.map(\.path), ["/scope/missing/levels/item"])
+    }
+
     func testSnapshotRoundTrips() throws {
         let drill = DiskDrillDownBuilder.build(
             findings: [finding(id: "one", path: "/scope/one", bytes: 20)],

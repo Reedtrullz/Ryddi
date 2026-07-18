@@ -4,6 +4,7 @@ enum AccessibilityID {
     static let sidebar = "dashboard-sidebar"
     static let scan = "scan-button"
     static let scanProgress = "scan-progress"
+    static let scanFinalizing = "scan-finalizing"
     static let cancelScan = "cancel-scan-button"
     static let scanMode = "scan-mode-picker"
     static let savedScope = "saved-scope-picker"

@@ -95,7 +95,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
         case .projects: "Project Dependencies"
         case .xcode: "Xcode"
         case .containers: "Containers"
-        case .cloudStorage: "Cloud Storage"
+        case .cloudStorage: "Cloud Footprint"
         case .remoteTargets: "Remote Targets"
         case .agents: "AI Agent Storage"
         case .permissions: "Permissions"
