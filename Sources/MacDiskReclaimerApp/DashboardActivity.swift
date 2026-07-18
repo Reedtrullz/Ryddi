@@ -8,6 +8,35 @@ enum DashboardActivityKind: Hashable, Sendable {
     case remote
 }
 
+enum CloudFootprintOperation: Equatable, Sendable {
+    case discovering
+    case analyzing(provider: String)
+    case cancelling
+
+    var message: String {
+        switch self {
+        case .discovering:
+            "Discovering local cloud folders…"
+        case .analyzing(let provider):
+            "Reviewing \(provider) metadata without opening files…"
+        case .cancelling:
+            "Stopping cloud review…"
+        }
+    }
+}
+
+enum ScanResultFeedbackStyle: Equatable, Sendable {
+    case success
+    case warning
+    case stopped
+}
+
+struct ScanResultFeedback: Equatable, Sendable {
+    let style: ScanResultFeedbackStyle
+    let title: String
+    let detail: String
+}
+
 enum DashboardActivityState: Equatable, Sendable {
     case idle
     case running(id: UUID, kind: DashboardActivityKind, progress: Double?, message: String)

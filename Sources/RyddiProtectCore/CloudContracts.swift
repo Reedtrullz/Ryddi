@@ -147,6 +147,20 @@ public enum CloudObjectKind: String, Hashable, Sendable {
     case unknown
 }
 
+public enum CloudObjectHashKind: String, Hashable, Sendable {
+    case dropboxContentHash
+    case md5
+    case sha256
+    case megaFingerprint
+
+    public var provesDuplicateContent: Bool {
+        switch self {
+        case .dropboxContentHash, .md5, .sha256: true
+        case .megaFingerprint: false
+        }
+    }
+}
+
 /// Runtime-only provider metadata. This type intentionally does not conform to Codable.
 public struct CloudObjectReference: Hashable, Identifiable, Sendable {
     public let id: String
@@ -158,6 +172,7 @@ public struct CloudObjectReference: Hashable, Identifiable, Sendable {
     public let modifiedAt: Date?
     public let revision: String?
     public let providerHash: String?
+    public let providerHashKind: CloudObjectHashKind?
     public let selectedByUser: Bool
 
     public init(
@@ -170,6 +185,7 @@ public struct CloudObjectReference: Hashable, Identifiable, Sendable {
         modifiedAt: Date? = nil,
         revision: String? = nil,
         providerHash: String? = nil,
+        providerHashKind: CloudObjectHashKind? = nil,
         selectedByUser: Bool = false
     ) throws {
         guard Self.isBoundedText(id, maximumBytes: 2_048), !id.hasPrefix("-") else {
@@ -199,6 +215,7 @@ public struct CloudObjectReference: Hashable, Identifiable, Sendable {
         }
         self.revision = revision
         self.providerHash = providerHash
+        self.providerHashKind = providerHashKind
         self.selectedByUser = selectedByUser
     }
 
@@ -234,6 +251,7 @@ public struct CloudObjectReference: Hashable, Identifiable, Sendable {
         byteCount += displayName.utf8.count
         byteCount += revision?.utf8.count ?? 0
         byteCount += providerHash?.utf8.count ?? 0
+        byteCount += providerHashKind?.rawValue.utf8.count ?? 0
         return byteCount
     }
 }

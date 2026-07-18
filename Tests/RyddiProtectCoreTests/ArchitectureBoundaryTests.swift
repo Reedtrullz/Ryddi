@@ -77,6 +77,13 @@ final class ArchitectureBoundaryTests: XCTestCase {
         )
         XCTAssertFalse(try declaration(named: "CloudInventoryReport", in: inventorySource).contains("Codable"))
 
+        let localInventorySource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiProtectCore/CloudLocalInventory.swift"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(try declaration(named: "CloudConfirmedStorageRoot", in: localInventorySource).contains("Codable"))
+        XCTAssertFalse(try declaration(named: "CloudLocalInventoryReport", in: localInventorySource).contains("Codable"))
+
         let assessmentSource = try String(
             contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiProtectCore/ProtectionAssessment.swift"),
             encoding: .utf8
@@ -141,7 +148,32 @@ final class ArchitectureBoundaryTests: XCTestCase {
         }
     }
 
-    func testPackageLeavesProtectTargetsUnlinkedFromExecutables() throws {
+    func testLocalCloudInventoryIsMetadataOnlyAndDirectoryNoFollow() throws {
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiProtectCore/CloudLocalInventory.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("fileprivate init(candidate:"))
+        XCTAssertTrue(source.contains("O_DIRECTORY | O_NOFOLLOW"))
+        XCTAssertTrue(source.contains("lstat("))
+        for forbiddenCapability in [
+            "Data(contentsOf:",
+            "FileHandle(forReadingFrom:",
+            "mmap(",
+            "removeItem(",
+            "moveItem(",
+            "copyItem(",
+            "createFile("
+        ] {
+            XCTAssertFalse(
+                source.contains(forbiddenCapability),
+                "Local cloud inventory must not gain content-read or mutation capability: \(forbiddenCapability)"
+            )
+        }
+    }
+
+    func testPackageLinksOnlyReadOnlyProtectCoreIntoApp() throws {
         let packageSource = try String(
             contentsOf: repositoryRoot.appendingPathComponent("Package.swift"),
             encoding: .utf8
@@ -151,16 +183,16 @@ final class ArchitectureBoundaryTests: XCTestCase {
             hasExactDependencies: ["ReclaimerCore"],
             in: packageSource
         )
-        let appPattern = #"name:\s*\"MacDiskReclaimerApp\"\s*,\s*dependencies:\s*\[\s*\"ReclaimerCore\"\s*,\s*\.product\(name:\s*\"Sparkle\",\s*package:\s*\"Sparkle\"\)\s*\]"#
+        let appPattern = #"name:\s*\"MacDiskReclaimerApp\"\s*,\s*dependencies:\s*\[\s*\"ReclaimerCore\"\s*,\s*\"RyddiProtectCore\"\s*,\s*\.product\(name:\s*\"Sparkle\",\s*package:\s*\"Sparkle\"\)\s*\]"#
         let appExpression = try NSRegularExpression(pattern: appPattern)
         XCTAssertNotNil(
             appExpression.firstMatch(
                 in: packageSource,
                 range: NSRange(packageSource.startIndex..., in: packageSource)
             ),
-            "MacDiskReclaimerApp may link ReclaimerCore and the updater framework, but no Protect target."
+            "MacDiskReclaimerApp may link the read-only Protect core, but not the credential runtime."
         )
-        XCTAssertFalse(packageSource.contains("MacDiskReclaimerApp\",\n            dependencies: [\n                \"ReclaimerCore\",\n                \"RyddiProtect"))
+        XCTAssertFalse(packageSource.contains("MacDiskReclaimerApp\",\n            dependencies: [\n                \"ReclaimerCore\",\n                \"RyddiProtectAuth"))
         try assertTarget(
             "RyddiProtectCore",
             hasExactDependencies: [],

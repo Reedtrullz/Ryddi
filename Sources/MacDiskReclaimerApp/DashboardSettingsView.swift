@@ -86,6 +86,7 @@ private struct AdvancedSettingsView: View {
     private let sections: [DashboardSection] = [
         .permissions, .scopes, .policy, .automation, .rules,
         .apps, .downloads, .duplicates, .browsers, .deviceBackups,
+        .cloudStorage,
         .packages, .projects, .xcode, .containers, .agents,
         .remoteTargets, .active, .holding, .features
     ]
@@ -110,6 +111,7 @@ private struct AdvancedSettingsView: View {
                 case .duplicates: DuplicateReviewView(model: model)
                 case .browsers: BrowserCacheReviewView(model: model)
                 case .deviceBackups: DeviceBackupReviewView(model: model)
+                case .cloudStorage: CloudStorageWorkspaceView(model: model)
                 case .packages:
                     PackageCacheReviewView(model: model) { raw in
                         section = DashboardSection.fromLegacyID(raw)

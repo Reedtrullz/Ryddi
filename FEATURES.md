@@ -2,7 +2,7 @@
 
 Ryddi is intentionally not a scary one-click "clean my Mac" button. It is an evidence-first general Mac reclaim assistant, with developer and AI-agent storage cleanup as the first deep rule pack.
 
-Release train: `v0.3.1` is published history and `v0.4.0 (5)` is the Guided Map release candidate. Unsigned local artifacts are developer previews, not releases.
+Release train: `v0.4.0 (5)` is the published Guided Map release and `v0.4.1 (6)` is the reclaim-guidance and cloud-footprint candidate. Unsigned local artifacts are developer previews, not releases.
 
 ## Guided Map Regular-User Experience
 
@@ -18,6 +18,7 @@ The Guided Map is display-only: selecting or drilling into a map node never sele
 | Find large offenders | Bounded filesystem scanner over preset or custom roots, with permission evidence. | `FileScanner`, `DefaultScopes`, `reclaimer scan` |
 | Show top offenders | Shared overview analytics with sortable/groupable rows by category, owner/app/tool, safety, scope, age, action, logical size, allocated size, confidence, and conservative reclaim estimate. | `TopOffenderTable`, `FindingAnalytics`, `reclaimer overview --sort --group`, app Top Offenders |
 | Organize review queues | Shared user-intent queues separate safe maintenance, quit-first data, native-tool stores, valuable history, protected personal/app assets, and unknown review items, with single-queue filtering and evidence-detail navigation. | `ReviewQueueReport`, `ReviewQueueDetailReport`, `FindingAnalytics.reviewQueueReport`, `reclaimer queues --queue`, app Review Queues |
+| Understand local cloud storage | User-started discovery for Dropbox, Google Drive, and explicitly selected MEGA roots; session-only confirmation; identity-revalidated, symlink-safe, bounded metadata inventory; logical-versus-local allocation totals; and review-only largest/oldest locally allocated files without opening file contents or hydrating placeholders. | `CloudStorageRootDiscovery`, `CloudStorageRootConfirmation`, `CloudLocalInventoryScanner`, app Cloud Storage workspace |
 | Visualize space | A deterministic proportional Guided Map with treemap and accessible outline views, breadcrumbs, evidence state, inspector actions, and saved last-trustworthy display evidence; informational only, never a cleanup selector. | `GuidedMapSnapshot`, `GuidedMapBuilder`, `GuidedMapStore`, `TreemapLayout`, app Home and Explore |
 | Explain ownership | Group non-overlapping findings by scanner owner hints or category fallback so users can see which app/tool appears responsible for storage. | `OwnerStorageSummary`, `ScanOverview.ownerSummaries`, `reclaimer overview`, app Top Owners, evidence reports |
 | Track growth | Local scan snapshots compare category/scope/safety growth between scans and export local before/after Markdown reports; snapshots are retained for review rather than automatically pruned. | `ScanHistoryStore`, `GrowthReportBuilder`, `reclaimer history`, `reclaimer history report`, app Growth History |
@@ -145,7 +146,7 @@ Deferred:
 - `Scripts/package-app.sh` produces `dist/Ryddi.app` with the bundled rule resources copied into the app bundle.
 - `Scripts/release-check.sh` runs tests, builds `dist/Ryddi.app`, validates bundle layout/resources, smoke-tests the packaged CLI, records typed release-trust keys, and creates a zip/checksum/manifest.
 - Signed releases also produce an app-only `Ryddi-vX.Y.Z-update.zip` for Sparkle. `Scripts/generate-appcast.sh` signs the archive entry and whole appcast with the Keychain-held EdDSA key; the private key is never stored in the repository.
-- `RYDDI_VERSION=0.4.0 RYDDI_BUILD_NUMBER=5 RYDDI_RELEASE_SIGNING=required RYDDI_REQUIRE_PACKAGED_AX_E2E=1 RYDDI_ARTIFACT_BASENAME=Ryddi-v0.4.0 Scripts/release-check.sh` fails unless Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, packaged Accessibility E2E, checksum, bundle version `0.4.0`, build `5`, and manifest proof all pass.
+- `RYDDI_VERSION=0.4.1 RYDDI_BUILD_NUMBER=6 RYDDI_RELEASE_SIGNING=required RYDDI_REQUIRE_PACKAGED_AX_E2E=1 RYDDI_ARTIFACT_BASENAME=Ryddi-v0.4.1 Scripts/release-check.sh` fails unless Developer ID signing, notarization, stapling, Gatekeeper assessment, strict codesign verification, packaged Accessibility E2E, checksum, bundle version `0.4.1`, build `6`, and manifest proof all pass.
 - `reclaimer release-trust --json --manifest dist/Ryddi-release-manifest.txt` parses the manifest into exact states and does not treat `not notarized` as trusted.
 - `reclaimer remote dogfood --from-audit TARGET --path-style redacted --output FILE.md` packages saved remote evidence without reconnecting to a server or running cleanup.
 - `reclaimer issue package --path-style redacted --include-remote --output DIR` writes a share-reviewable local diagnostics folder with manifest, non-claims, local summary, and optional redacted remote summary.

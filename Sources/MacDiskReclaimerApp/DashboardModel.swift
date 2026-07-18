@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import ReclaimerCore
+import RyddiProtectCore
 
 @MainActor
 @Observable
@@ -18,6 +19,7 @@ final class DashboardModel {
     var diskDrillDown: DiskDrillDownReport?
     var latestGuidedMap: GuidedMapSnapshot?
     var reviewSelectionIDs: Set<String> = []
+    @ObservationIgnored var reviewScopeFindingIDs: Set<String>?
     var plan: ReclaimPlan?
     var lastDryRunReceipt: ExecutionReceipt?
     var lastExecutionReceipt: ExecutionReceipt?
@@ -53,6 +55,13 @@ final class DashboardModel {
     var agentStorageReview: AgentStorageReview?
     var agentRetentionReport: AgentRetentionReport?
     var containerInventory: ContainerInventoryReport?
+    var cloudStorageRootDiscovery: CloudStorageRootDiscoveryReport?
+    var selectedMegaCloudRoots: [URL] = []
+    var confirmedCloudStorageRoots: [String: CloudConfirmedStorageRoot] = [:]
+    var cloudLocalInventoryReports: [String: CloudLocalInventoryReport] = [:]
+    var cloudFootprintOperation: CloudFootprintOperation?
+    var cloudFootprintMessage: String?
+    var cloudFootprintError: String?
     var remoteTargets: [RemoteTargetReference] = []
     var remoteTargetInput = ""
     var remoteProbeReport: RemoteProbeReport?
@@ -96,8 +105,10 @@ final class DashboardModel {
             || activities.isRunning(.review)
     }
     var isScanRunning: Bool { activities.isRunning(.scan) }
+    var isScanFinalizing: Bool { activeScanRequest != nil && !isScanRunning }
     var isRemoteActivityRunning: Bool { activities.isRunning(.remote) }
     var lastScanDate: Date?
+    var scanResultFeedback: ScanResultFeedback?
     var launchAgentInstalled = false
     var launchAgentStatus: LaunchAgentStatus = LaunchAgentManager().status()
     var runtimeReleaseTrustReport: RuntimeReleaseTrustReport?
@@ -119,6 +130,7 @@ final class DashboardModel {
     @ObservationIgnored var scanActivityID: UUID?
     @ObservationIgnored var permissionRefreshTask: Task<Void, Never>?
     @ObservationIgnored var permissionRefreshRequestID: UUID?
+    @ObservationIgnored var cancelCloudFootprintOperationHandler: (() -> Void)?
     let trashExecutionAuthorizationRegistry = TrashExecutionAuthorizationRegistry()
     let diagnostics = RyddiDiagnosticRecorder()
     let dependencies: DashboardDependencies

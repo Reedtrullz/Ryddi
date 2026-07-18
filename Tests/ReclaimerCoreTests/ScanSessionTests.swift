@@ -217,6 +217,34 @@ final class ScanSessionTests: XCTestCase {
         XCTAssertEqual(savedFiles.filter { $0.lastPathComponent.hasPrefix(versionedScanSessionPrefix) }.count, 3)
     }
 
+    func testAuditStoreDoesNotOverwriteNewerSameSessionWithOlderFinalization() throws {
+        let store = AuditStore(root: tempRoot)
+        let scanned = makeSession(
+            id: "session-race",
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        ).recordScan(
+            findingDigest: "finding-v1",
+            updatedAt: Date(timeIntervalSince1970: 1_100)
+        )
+        let dryRunReceipt = makeReceipt(
+            id: "dry-run-race",
+            mode: ExecutionMode.dryRun.rawValue,
+            action: .trash,
+            status: "dry-run"
+        )
+        let dryRunReady = scanned
+            .recordPlan(planDigest: "plan-race", updatedAt: Date(timeIntervalSince1970: 1_200))
+            .recordDryRunReceipt(dryRunReceipt, updatedAt: Date(timeIntervalSince1970: 1_300))
+
+        try store.saveScanSession(dryRunReady)
+        try AuditStore(root: tempRoot).saveScanSession(scanned)
+
+        let persisted = try store.latestScanSession()
+        XCTAssertEqual(persisted, dryRunReady)
+        XCTAssertEqual(persisted?.stage, .dryRunReady)
+        XCTAssertEqual(persisted?.dryRunReceiptID, "dry-run-race")
+    }
+
     func testAuditStoreReadsLegacyUnversionedAndNewVersionedScanSessionFiles() throws {
         let store = AuditStore(root: tempRoot)
         let legacy = makeSession(id: "session-legacy", updatedAt: Date(timeIntervalSince1970: 1_500))

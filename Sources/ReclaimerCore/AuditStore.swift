@@ -79,6 +79,8 @@ public struct AuditStoreScanSessionListResult: Codable, Hashable, Sendable {
 public final class AuditStore: @unchecked Sendable {
     private static let scanSessionPrefix = "scan-session-v1-"
     private static let legacyScanSessionPrefix = "scan-session-"
+    private static let scanSessionLockFileName = ".scan-session.lock"
+    private static let scanSessionMutationLock = NSLock()
 
     private enum AuditFileKind: String, CaseIterable {
         case scanSession = "scan-session-v1"
@@ -440,7 +442,23 @@ public final class AuditStore: @unchecked Sendable {
     public func saveScanSession(_ session: ScanSession) throws {
         try prepareRoot()
         let url = root.appendingPathComponent("\(Self.scanSessionPrefix)\(session.id).json")
-        try writeSecurely(session, to: url)
+        try withExclusiveScanSessionMutation {
+            if FileManager.default.fileExists(atPath: url.path) {
+                let data = try dataReader.read(from: url)
+                let existing = try decoder.decode(ScanSession.self, from: data)
+                guard existing.id == session.id else {
+                    throw NSError(
+                        domain: "Ryddi.AuditStore",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "The existing scan-session file does not match its requested session ID."]
+                    )
+                }
+                guard session.updatedAt > existing.updatedAt else {
+                    return
+                }
+            }
+            try writeSecurely(session, to: url)
+        }
     }
 
     public func latestScanSession() throws -> ScanSession? {
@@ -762,6 +780,62 @@ public final class AuditStore: @unchecked Sendable {
     private func writeSecurely<Value: Encodable>(_ value: Value, to url: URL) throws {
         try encoder.encode(value).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func withExclusiveScanSessionMutation<Result>(_ operation: () throws -> Result) throws -> Result {
+        Self.scanSessionMutationLock.lock()
+        defer { Self.scanSessionMutationLock.unlock() }
+
+        let lockURL = root.appendingPathComponent(Self.scanSessionLockFileName)
+        let descriptor = lockURL.path.withCString {
+            Darwin.open($0, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, mode_t(0o600))
+        }
+        guard descriptor >= 0 else {
+            throw posixError("The scan-session mutation lock could not be opened.")
+        }
+        defer { Darwin.close(descriptor) }
+
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
+              Darwin.fchmod(descriptor, mode_t(0o600)) == 0 else {
+            throw posixError("The scan-session mutation lock is not an ordinary file.")
+        }
+
+        while Self.setAdvisoryLock(descriptor, type: Int16(F_WRLCK), command: F_SETLKW) != 0 {
+            guard errno == EINTR else {
+                throw posixError("The scan-session mutation lock could not be acquired.")
+            }
+        }
+        defer { _ = Self.setAdvisoryLock(descriptor, type: Int16(F_UNLCK), command: F_SETLK) }
+
+        var currentMetadata = Darwin.stat()
+        guard lockURL.path.withCString({ Darwin.lstat($0, &currentMetadata) }) == 0,
+              currentMetadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
+              currentMetadata.st_dev == metadata.st_dev,
+              currentMetadata.st_ino == metadata.st_ino else {
+            throw posixError("The scan-session mutation lock changed while it was being acquired.")
+        }
+        return try operation()
+    }
+
+    private static func setAdvisoryLock(_ descriptor: Int32, type: Int16, command: Int32) -> Int32 {
+        var lock = Darwin.flock()
+        lock.l_start = 0
+        lock.l_len = 0
+        lock.l_pid = 0
+        lock.l_type = type
+        lock.l_whence = Int16(SEEK_SET)
+        return Darwin.fcntl(descriptor, command, &lock)
+    }
+
+    private func posixError(_ message: String) -> NSError {
+        let code = errno
+        return NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(code),
+            userInfo: [NSLocalizedDescriptionKey: "\(message) \(String(cString: strerror(code)))"]
+        )
     }
 
     private func auditFileRecords() throws -> [AuditFileRecord] {

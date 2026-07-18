@@ -4518,7 +4518,12 @@ final class ReclaimerCoreTests: XCTestCase {
         let runner = FakeToolRunner(outputs: [
             fakeOutput(
                 "docker",
-                ["system", "df"],
+                ["context", "show"],
+                stdout: "default\n"
+            ),
+            fakeOutput(
+                "docker",
+                ["--context", "default", "system", "df"],
                 stdout: """
                 TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
                 Images          7         2         5.694GB   5.151GB (90%)
@@ -4537,17 +4542,17 @@ final class ReclaimerCoreTests: XCTestCase {
             ),
             fakeOutput(
                 "docker",
-                ["ps", "-a", "--size", "--format", "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Size}}"],
+                ["--context", "default", "ps", "-a", "--size", "--format", "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Size}}"],
                 stdout: "abc123\tpostgres\tExited (0) 2 days ago\t12.3MB (virtual 400MB)\n"
             ),
             fakeOutput(
                 "docker",
-                ["images", "--format", "{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"],
+                ["--context", "default", "images", "--format", "{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"],
                 stdout: "postgres\t16\timg123\t432MB\n"
             ),
             fakeOutput(
                 "docker",
-                ["volume", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Scope}}"],
+                ["--context", "default", "volume", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Scope}}"],
                 stdout: "db-data\tlocal\tlocal\n"
             ),
             fakeOutput(
@@ -4564,6 +4569,7 @@ final class ReclaimerCoreTests: XCTestCase {
         let report = ContainerInventoryScanner(runner: runner, timeout: 1).inspect()
 
         XCTAssertEqual(report.docker.status.state, .available)
+        XCTAssertEqual(report.docker.inspectedContextName, "default")
         XCTAssertEqual(report.docker.storage.first { $0.type == "Images" }?.reclaimableBytes, 5_151_000_000)
         XCTAssertEqual(report.docker.containers.first?.name, "postgres")
         XCTAssertEqual(report.docker.images.first?.repository, "postgres")
@@ -4581,7 +4587,7 @@ final class ReclaimerCoreTests: XCTestCase {
         let runner = FakeToolRunner(outputs: [
             fakeOutput(
                 "docker",
-                ["system", "df"],
+                ["context", "show"],
                 exitCode: 127,
                 stderr: "/usr/bin/env: docker: No such file or directory\n"
             ),
@@ -4597,8 +4603,8 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertEqual(report.docker.status.state, .missing)
         XCTAssertEqual(report.colima.status.state, .missing)
-        XCTAssertEqual(runner.commands, ["docker system df", "colima list --json"])
-        XCTAssertTrue(report.docker.commands.allSatisfy { $0.command == "docker system df" })
+        XCTAssertEqual(runner.commands, ["docker context show", "colima list --json"])
+        XCTAssertTrue(report.docker.commands.allSatisfy { $0.command == "docker context show" })
         XCTAssertTrue(report.colima.commands.allSatisfy { $0.command == "colima list --json" })
     }
 
@@ -4606,7 +4612,12 @@ final class ReclaimerCoreTests: XCTestCase {
         let runner = FakeToolRunner(outputs: [
             fakeOutput(
                 "docker",
-                ["system", "df"],
+                ["context", "show"],
+                stdout: "default\n"
+            ),
+            fakeOutput(
+                "docker",
+                ["--context", "default", "system", "df"],
                 exitCode: 1,
                 stderr: "failed to connect to the docker API at unix:///var/run/docker.sock: dial unix /var/run/docker.sock: connect: no such file or directory\n"
             ),
@@ -4621,7 +4632,54 @@ final class ReclaimerCoreTests: XCTestCase {
 
         XCTAssertEqual(report.docker.status.state, .notRunning)
         XCTAssertEqual(report.colima.status.state, .available)
-        XCTAssertEqual(runner.commands, ["docker system df", "colima list --json"])
+        XCTAssertEqual(runner.commands, ["docker context show", "docker --context default system df", "colima list --json"])
+    }
+
+    func testContainerInventoryRejectsUnsafeDockerContextBeforeInventoryFanout() throws {
+        let runner = FakeToolRunner(outputs: [
+            fakeOutput(
+                "docker",
+                ["context", "show"],
+                stdout: "../../remote\n"
+            ),
+            fakeOutput(
+                "colima",
+                ["list", "--json"],
+                stdout: "[]"
+            )
+        ])
+
+        let report = ContainerInventoryScanner(runner: runner, timeout: 1).inspect()
+
+        XCTAssertEqual(report.docker.status.state, .failed)
+        XCTAssertTrue(report.docker.status.message.localizedCaseInsensitiveContains("context"))
+        XCTAssertEqual(runner.commands, ["docker context show", "colima list --json"])
+    }
+
+    func testContainerInventoryRetainsInspectedContextWhenAmbientContextChangesDuringFanout() throws {
+        let runner = FakeToolRunner(outputs: [
+            fakeOutput("docker", ["context", "show"], stdout: "colima\n"),
+            fakeOutput(
+                "docker",
+                ["--context", "colima", "system", "df"],
+                stdout: "TYPE TOTAL ACTIVE SIZE RECLAIMABLE\nBuild Cache 1 0 1GB 1GB\n"
+            ),
+            fakeOutput(
+                "docker",
+                ["context", "ls"],
+                stdout: "NAME DESCRIPTION DOCKER ENDPOINT\nremote * Production ssh://example.test\n"
+            ),
+            fakeOutput("docker", ["--context", "colima", "ps", "-a", "--size", "--format", "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Size}}"], stdout: ""),
+            fakeOutput("docker", ["--context", "colima", "images", "--format", "{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"], stdout: ""),
+            fakeOutput("docker", ["--context", "colima", "volume", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Scope}}"], stdout: ""),
+            fakeOutput("colima", ["list", "--json"], stdout: "[]")
+        ])
+
+        let report = ContainerInventoryScanner(runner: runner, timeout: 1).inspect()
+
+        XCTAssertEqual(report.docker.inspectedContextName, "colima")
+        XCTAssertEqual(report.docker.contexts.first(where: \.isCurrent)?.name, "remote")
+        XCTAssertTrue(report.docker.commands.contains { $0.command == "docker --context colima system df" })
     }
 
     func testUserPathPolicyStoreRoundTripsRules() throws {

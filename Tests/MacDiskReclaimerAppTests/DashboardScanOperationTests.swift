@@ -8,6 +8,7 @@ final class DashboardScanOperationTests: XCTestCase {
     func testCancelScanStopsWorkAndNeverCommitsFindings() async {
         let fake = BlockingScanService()
         let model = DashboardModel(dependencies: .testing(scanService: fake))
+        model.latestGuidedMap = nil
 
         model.startScan()
         await fake.waitUntilStarted()
@@ -19,6 +20,10 @@ final class DashboardScanOperationTests: XCTestCase {
         XCTAssertTrue(model.findings.isEmpty)
         XCTAssertEqual(model.activity(for: .scan), .idle)
         XCTAssertNil(model.activeScanRequest)
+        XCTAssertEqual(
+            model.scanResultFeedback?.detail,
+            "Nothing was saved or changed. Start another scan whenever you are ready."
+        )
     }
 
     func testOldOperationCannotClearNewOperation() {
@@ -107,6 +112,55 @@ final class DashboardScanOperationTests: XCTestCase {
         XCTAssertTrue(becameIdle)
     }
 
+    func testFinishedFileWalkReportsResultPreparationInsteadOfFalseCompletion() async {
+        let fake = BlockingScanService(
+            progress: ScanProgress(
+                phase: .finished,
+                scopeName: nil,
+                measuredItemCount: 600,
+                requestedItemBudget: 25_000
+            )
+        )
+        let model = DashboardModel(dependencies: .testing(scanService: fake))
+
+        model.startScan()
+        await fake.waitUntilStarted()
+        let reportedPreparation = await waitUntil {
+            model.activity(for: .scan).message == "Preparing your results"
+        }
+
+        XCTAssertTrue(reportedPreparation)
+        XCTAssertEqual(model.activity(for: .scan).message, "Preparing your results")
+
+        model.cancelScan()
+        await fake.waitUntilCancelled()
+        let becameIdle = await waitUntil { model.activity(for: .scan) == .idle }
+        XCTAssertTrue(becameIdle)
+    }
+
+    func testAcceptedResultBecomesVisibleBeforeDurableMapWriteFinishes() async {
+        let mapStore = BlockingGuidedMapStore()
+        let model = DashboardModel(dependencies: .testing(
+            scanService: ImmediateScanService(),
+            guidedMapStore: mapStore
+        ))
+
+        model.startScan()
+        await mapStore.waitUntilSaveStarted()
+
+        XCTAssertEqual(model.activity(for: .scan), .idle)
+        XCTAssertNotNil(model.latestGuidedMap)
+        XCTAssertEqual(model.scanResultFeedback?.title, "Scan complete")
+        XCTAssertNotNil(model.activeScanRequest, "Durable finalization may continue after the result is visible.")
+        XCTAssertTrue(model.isScanFinalizing)
+        XCTAssertFalse(model.isScanRunning)
+
+        mapStore.releaseSave()
+        let finalized = await waitUntil { model.scanTask == nil }
+        XCTAssertTrue(finalized)
+        XCTAssertFalse(model.isScanFinalizing)
+    }
+
     private func waitUntil(
         timeout: Duration = .seconds(2),
         condition: @escaping @MainActor () -> Bool
@@ -128,6 +182,62 @@ final class DashboardScanOperationTests: XCTestCase {
 
     private func source(_ relativePath: String) throws -> String {
         try String(contentsOf: repositoryRoot.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+}
+
+private struct ImmediateScanService: ScanServicing {
+    func scanWithCoverage(
+        scopes: [ScanScope],
+        options: ScanOptions,
+        control: ScanControl
+    ) -> ScanResult {
+        ScanResult(
+            findings: [],
+            coverage: ScanCoverage(
+                state: .complete,
+                requestedItemBudget: options.measurementItemBudget,
+                measuredItemCount: 12,
+                skippedItemCount: 0,
+                rootsVisited: scopes.count,
+                rootsDenied: 0,
+                maximumMeasurementDepth: options.measurementDepth
+            )
+        )
+    }
+}
+
+private final class BlockingGuidedMapStore: GuidedMapPersisting, @unchecked Sendable {
+    private let condition = NSCondition()
+    private var saveStarted = false
+    private var saveReleased = false
+
+    func loadLatest() -> GuidedMapSnapshot? { nil }
+
+    func save(_ snapshot: GuidedMapSnapshot) throws {
+        condition.lock()
+        saveStarted = true
+        condition.broadcast()
+        while !saveReleased {
+            _ = condition.wait(until: Date().addingTimeInterval(0.01))
+        }
+        condition.unlock()
+    }
+
+    func waitUntilSaveStarted() async {
+        await waitUntil(\Self.saveStarted)
+    }
+
+    func releaseSave() {
+        condition.withLock {
+            saveReleased = true
+            condition.broadcast()
+        }
+    }
+
+    private func waitUntil(_ keyPath: KeyPath<BlockingGuidedMapStore, Bool>) async {
+        while !condition.withLock({ self[keyPath: keyPath] }) {
+            await Task.yield()
+        }
     }
 }
 

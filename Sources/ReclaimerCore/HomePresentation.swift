@@ -3,12 +3,21 @@ import Foundation
 public enum HomePrimaryAction: String, Codable, Hashable, Sendable {
     case scanMac
     case cancelScan
+    case reviewReclaimableSpace
     case reviewSuggestions
     case reviewAccess
     case exploreLargestFiles
     case scanAgain
     case verifyCleanup
     case viewHistory
+}
+
+public enum HomeSuggestionIntent: String, Codable, Hashable, Sendable {
+    case reviewSafeCleanup
+    case resolveCondition
+    case useNativeMaintenance
+    case inspectPersonalFiles
+    case informational
 }
 
 public enum HomeSuggestionKind: String, Codable, Hashable, Sendable {
@@ -78,10 +87,10 @@ public enum HomePresentationBuilder {
             action = .verifyCleanup
         } else if input.map == nil {
             action = .scanMac
-        } else if input.accessIsLimited && visible.isEmpty {
+        } else if visible.contains(where: { $0.kind == .safeMaintenance }) {
+            action = .reviewReclaimableSpace
+        } else if input.accessIsLimited {
             action = .reviewAccess
-        } else if !visible.isEmpty {
-            action = .reviewSuggestions
         } else if input.evidenceIsCurrent {
             action = .exploreLargestFiles
         } else {
@@ -132,7 +141,7 @@ public enum HomePresentationBuilder {
 
     private static func kind(for finding: Finding) -> HomeSuggestionKind? {
         if finding.safetyClass == .autoSafe,
-           [.deleteCache, .trash].contains(finding.actionKind) {
+           finding.actionKind == .trash {
             return .safeMaintenance
         }
         if finding.actionKind == .nativeToolCommand { return .nativeMaintenance }
@@ -188,5 +197,23 @@ public enum HomePresentationBuilder {
         case .keepByDefault, .protected: "No cleanup action is available."
         case .insufficientEvidence: "Review access or scan again."
         }
+    }
+}
+
+public extension HomeSuggestionKind {
+    var intent: HomeSuggestionIntent {
+        switch self {
+        case .safeMaintenance: .reviewSafeCleanup
+        case .quitAndCheckAgain: .resolveCondition
+        case .nativeMaintenance: .useNativeMaintenance
+        case .reviewPersonalFiles: .inspectPersonalFiles
+        case .keepByDefault, .protected, .insufficientEvidence: .informational
+        }
+    }
+}
+
+public extension HomeSnapshot {
+    var reclaimSuggestion: HomeSuggestion? {
+        suggestions.first { $0.kind == .safeMaintenance }
     }
 }

@@ -317,6 +317,7 @@ public struct DockerVolumeSummary: Codable, Hashable, Identifiable, Sendable {
 
 public struct DockerInventory: Codable, Hashable, Sendable {
     public let status: ToolInspectionStatus
+    public let inspectedContextName: String?
     public let storage: [DockerStorageBucket]
     public let contexts: [DockerContextSummary]
     public let containers: [DockerContainerSummary]
@@ -326,6 +327,7 @@ public struct DockerInventory: Codable, Hashable, Sendable {
 
     public init(
         status: ToolInspectionStatus,
+        inspectedContextName: String? = nil,
         storage: [DockerStorageBucket],
         contexts: [DockerContextSummary],
         containers: [DockerContainerSummary],
@@ -334,6 +336,7 @@ public struct DockerInventory: Codable, Hashable, Sendable {
         commands: [ToolCommandSnapshot]
     ) {
         self.status = status
+        self.inspectedContextName = inspectedContextName
         self.storage = storage
         self.contexts = contexts
         self.containers = containers
@@ -445,11 +448,46 @@ public final class ContainerInventoryScanner: @unchecked Sendable {
     }
 
     private func inspectDocker() -> DockerInventory {
-        let systemDF = run("docker", ["system", "df"])
-        var outputs = [systemDF]
+        let contextShow = run("docker", ["context", "show"])
+        var outputs = [contextShow]
+        guard contextShow.succeeded else {
+            return DockerInventory(
+                status: status(for: "Docker", output: contextShow),
+                inspectedContextName: nil,
+                storage: [],
+                contexts: [],
+                containers: [],
+                images: [],
+                volumes: [],
+                commands: outputs.map { ToolCommandSnapshot(output: $0) }
+            )
+        }
+        let contextLines = contextShow.stdout
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard contextLines.count == 1,
+              let contextName = contextLines.first,
+              NativeActionAllowlist.isAllowedDockerContextName(contextName) else {
+            return DockerInventory(
+                status: ToolInspectionStatus(tool: "Docker", state: .failed, message: "Docker returned an invalid current context; no inventory commands were run."),
+                inspectedContextName: nil,
+                storage: [],
+                contexts: [],
+                containers: [],
+                images: [],
+                volumes: [],
+                commands: outputs.map { ToolCommandSnapshot(output: $0) }
+            )
+        }
+
+        let contextArguments = ["--context", contextName]
+        let systemDF = run("docker", contextArguments + ["system", "df"])
+        outputs.append(systemDF)
         guard systemDF.succeeded else {
             return DockerInventory(
                 status: status(for: "Docker", output: systemDF),
+                inspectedContextName: contextName,
                 storage: [],
                 contexts: [],
                 containers: [],
@@ -460,13 +498,14 @@ public final class ContainerInventoryScanner: @unchecked Sendable {
         }
 
         let context = run("docker", ["context", "ls"])
-        let containers = run("docker", ["ps", "-a", "--size", "--format", "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Size}}"])
-        let images = run("docker", ["images", "--format", "{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"])
-        let volumes = run("docker", ["volume", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Scope}}"])
+        let containers = run("docker", contextArguments + ["ps", "-a", "--size", "--format", "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Size}}"])
+        let images = run("docker", contextArguments + ["images", "--format", "{{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}"])
+        let volumes = run("docker", contextArguments + ["volume", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Scope}}"])
         outputs.append(contentsOf: [context, containers, images, volumes])
 
         return DockerInventory(
             status: ToolInspectionStatus(tool: "Docker", state: .available, message: "Docker responded to read-only inspection commands."),
+            inspectedContextName: contextName,
             storage: Self.parseDockerSystemDF(systemDF.stdout),
             contexts: context.succeeded ? Self.parseDockerContexts(context.stdout) : [],
             containers: containers.succeeded ? Self.parseDockerContainers(containers.stdout) : [],

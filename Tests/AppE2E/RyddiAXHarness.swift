@@ -100,6 +100,7 @@ enum RyddiAXHarness {
         try checkpoint("cancelled-scan", started: started, into: &checkpoints) {
             try press("scan-button", root: app)
             _ = try waitForElement(identifier: "scan-progress", root: app, timeout: 10, requireEnabled: false)
+            _ = try waitForElement(identifier: "home.scan-status", root: app, timeout: 10, requireEnabled: false)
             try press("cancel-scan-button", root: app)
             try waitForCancelledScanToBecomeIdle(root: app, timeout: 10)
             try assertNoLateCancelledScanCommit(path: options.candidatePath, root: app, quietPeriod: 1.2)
@@ -107,12 +108,44 @@ enum RyddiAXHarness {
         try checkpoint("scan", started: started, into: &checkpoints) {
             try press("scan-button", root: app)
             _ = try waitForElement(identifier: "scan-progress", root: app, timeout: 10, requireEnabled: false)
+            _ = try waitForElement(identifier: "home.scan-status", root: app, timeout: 10, requireEnabled: false)
             _ = try waitForElement(identifier: "guided-map.breadcrumb", root: app, timeout: 90, requireEnabled: false)
+            _ = try waitForElement(identifier: "home.scan-result", root: app, timeout: 20, requireEnabled: false)
             _ = try waitForElement(identifier: "home.primary-action", root: app, timeout: 20, requireEnabled: true)
+        }
+        try FileManager.default.createDirectory(at: options.output, withIntermediateDirectories: true)
+        let scanResultScreenshot = options.output.appendingPathComponent("ryddi-scan-result.png")
+        try captureWindow(pid: running.processIdentifier, output: scanResultScreenshot)
+        var exploreScreenshots: [URL] = [scanResultScreenshot]
+        try checkpoint("scoped-review", started: started, into: &checkpoints) {
+            try press("home.primary-action", root: app)
+            let title = try waitForElement(
+                identifier: "cleanup-review.title",
+                root: app,
+                timeout: 20,
+                requireEnabled: false
+            )
+            guard find(named: "Review safe maintenance", root: title) != nil else {
+                throw HarnessError.missingElement("Review safe maintenance scoped review title")
+            }
+            try assertEmptyCleanupSelection(root: app)
+            let scopedReviewScreenshot = options.output.appendingPathComponent("ryddi-scoped-review.png")
+            try captureWindow(pid: running.processIdentifier, output: scopedReviewScreenshot)
+            exploreScreenshots.append(scopedReviewScreenshot)
+            try press("cleanup-review.done", root: app)
+            _ = try waitForElement(identifier: "home.primary-action", root: app, timeout: 20, requireEnabled: true)
+        }
+        try checkpoint("explore-tools", started: started, into: &checkpoints) {
+            exploreScreenshots += try captureExploreToolsProof(
+                app: app,
+                pid: running.processIdentifier,
+                output: options.output
+            )
         }
         try checkpoint("review", started: started, into: &checkpoints) {
             try press("home.primary-action", root: app)
             _ = try waitForElement(identifier: "cleanup-review.select-safe", root: app, timeout: 20, requireEnabled: true)
+            try assertEmptyCleanupSelection(root: app)
             try press("cleanup-review.select-safe", root: app)
             _ = try waitForElement(identifier: "cleanup-review.check-safely", root: app, timeout: 20, requireEnabled: true)
         }
@@ -148,13 +181,13 @@ enum RyddiAXHarness {
             try assertElementMissing(identifier: "cleanup-review.move-to-trash", root: app, timeout: 20)
         }
 
-        try FileManager.default.createDirectory(at: options.output, withIntermediateDirectories: true)
         let responsiveProof = try captureResponsiveProof(app: app, pid: running.processIdentifier, output: options.output)
+        let screenshots = exploreScreenshots + responsiveProof.screenshots
         let result = HarnessResult(
             bundleIdentifier: options.bundleIdentifier,
             processIdentifier: running.processIdentifier,
             checkpoints: checkpoints,
-            screenshots: responsiveProof.screenshots.map(\.lastPathComponent),
+            screenshots: screenshots.map(\.lastPathComponent),
             responsiveChecks: responsiveProof.checks,
             scanProgressVisible: true,
             cancelledScanBecameIdle: true,
@@ -302,11 +335,34 @@ enum RyddiAXHarness {
 
     private static func find(identifier: String, root: AXUIElement) -> AXUIElement? {
         var queue = [root]
+        var queueIndex = 0
         var visited = 0
-        while !queue.isEmpty && visited < 8_000 {
-            let element = queue.removeFirst()
+        while queueIndex < queue.count && visited < 8_000 {
+            let element = queue[queueIndex]
+            queueIndex += 1
             visited += 1
             if stringAttribute(kAXIdentifierAttribute as String, element: element) == identifier {
+                return element
+            }
+            queue.append(contentsOf: elementArrayAttribute(kAXChildrenAttribute as String, element: element))
+        }
+        return nil
+    }
+
+    private static func find(named name: String, root: AXUIElement) -> AXUIElement? {
+        var queue = [root]
+        var queueIndex = 0
+        var visited = 0
+        while queueIndex < queue.count && visited < 8_000 {
+            let element = queue[queueIndex]
+            queueIndex += 1
+            visited += 1
+            let values = [
+                stringAttribute(kAXTitleAttribute as String, element: element),
+                stringAttribute(kAXDescriptionAttribute as String, element: element),
+                stringAttribute(kAXValueAttribute as String, element: element)
+            ]
+            if values.compactMap({ $0 }).contains(name) {
                 return element
             }
             queue.append(contentsOf: elementArrayAttribute(kAXChildrenAttribute as String, element: element))
@@ -356,9 +412,11 @@ enum RyddiAXHarness {
 
     private static func findText(_ text: String, root: AXUIElement) -> AXUIElement? {
         var queue = [root]
+        var queueIndex = 0
         var visited = 0
-        while !queue.isEmpty && visited < 8_000 {
-            let element = queue.removeFirst()
+        while queueIndex < queue.count && visited < 8_000 {
+            let element = queue[queueIndex]
+            queueIndex += 1
             visited += 1
             let values = [
                 stringAttribute(kAXTitleAttribute as String, element: element),
@@ -375,10 +433,12 @@ enum RyddiAXHarness {
 
     private static func dumpTree(root: AXUIElement) {
         var queue: [(AXUIElement, Int)] = [(root, 0)]
+        var queueIndex = 0
         var visited = 0
         FileHandle.standardError.write(Data("AX hierarchy dump:\n".utf8))
-        while !queue.isEmpty && visited < 400 {
-            let (element, depth) = queue.removeFirst()
+        while queueIndex < queue.count && visited < 400 {
+            let (element, depth) = queue[queueIndex]
+            queueIndex += 1
             visited += 1
             let role = stringAttribute(kAXRoleAttribute as String, element: element) ?? "?"
             let title = stringAttribute(kAXTitleAttribute as String, element: element) ?? ""
@@ -394,6 +454,24 @@ enum RyddiAXHarness {
         let element = try waitForElement(identifier: identifier, root: root, timeout: 20, requireEnabled: true)
         let result = AXUIElementPerformAction(element, kAXPressAction as CFString)
         guard result == .success else { throw HarnessError.actionFailed(identifier, result) }
+    }
+
+    private static func selectSidebarDestination(_ identifier: String, root: AXUIElement) throws {
+        var element = try waitForElement(identifier: identifier, root: root, timeout: 20, requireEnabled: false)
+        for _ in 0..<6 {
+            if stringAttribute(kAXRoleAttribute as String, element: element) == kAXRowRole as String {
+                let result = AXUIElementSetAttributeValue(
+                    element,
+                    kAXSelectedAttribute as CFString,
+                    kCFBooleanTrue
+                )
+                guard result == .success else { throw HarnessError.actionFailed(identifier, result) }
+                return
+            }
+            guard let parent = elementAttribute(kAXParentAttribute as String, element: element) else { break }
+            element = parent
+        }
+        throw HarnessError.actionFailed(identifier, .actionUnsupported)
     }
 
     private static func captureResponsiveProof(
@@ -428,6 +506,44 @@ enum RyddiAXHarness {
         return (screenshots, checks)
     }
 
+    private static func captureExploreToolsProof(
+        app: AXUIElement,
+        pid: pid_t,
+        output: URL
+    ) throws -> [URL] {
+        try selectSidebarDestination("sidebar.explore", root: app)
+        let modePicker = try waitForElement(identifier: "explore.mode", root: app, timeout: 20, requireEnabled: true)
+        guard let toolsSegment = find(named: "Tools", root: modePicker) else {
+            throw HarnessError.missingElement("Explore Tools segment")
+        }
+        let result = AXUIElementPerformAction(toolsSegment, kAXPressAction as CFString)
+        guard result == .success else { throw HarnessError.actionFailed("Explore Tools", result) }
+        _ = try waitForElement(identifier: "explore.tools", root: app, timeout: 20, requireEnabled: false)
+        for identifier in ["explore.tool.applications", "explore.tool.cloudFootprint", "explore.tool.containers"] {
+            _ = try waitForElement(identifier: identifier, root: app, timeout: 20, requireEnabled: true)
+        }
+
+        let toolsScreenshot = output.appendingPathComponent("ryddi-explore-tools.png")
+        try captureWindow(pid: pid, output: toolsScreenshot)
+
+        try press("explore.tool.cloudFootprint", root: app)
+        _ = try waitForElement(identifier: "cloud-footprint.discover", root: app, timeout: 20, requireEnabled: true)
+        _ = try waitForElement(identifier: "cloud-footprint.setup-guide", root: app, timeout: 20, requireEnabled: false)
+        let cloudScreenshot = output.appendingPathComponent("ryddi-cloud-footprint.png")
+        try captureWindow(pid: pid, output: cloudScreenshot)
+        if let done = find(identifier: "storage-review.done", root: app) ?? find(named: "Done", root: app) {
+            let result = AXUIElementPerformAction(done, kAXPressAction as CFString)
+            guard result == .success else { throw HarnessError.actionFailed("Storage review Done", result) }
+        } else {
+            throw HarnessError.missingElement("Storage review Done")
+        }
+        _ = try waitForElement(identifier: "explore.tools", root: app, timeout: 20, requireEnabled: false)
+
+        try selectSidebarDestination("sidebar.home", root: app)
+        _ = try waitForElement(identifier: "home.primary-action", root: app, timeout: 20, requireEnabled: true)
+        return [toolsScreenshot, cloudScreenshot]
+    }
+
     private static func assertResponsiveContainment(
         app: AXUIElement,
         window: AXUIElement,
@@ -446,6 +562,18 @@ enum RyddiAXHarness {
             }
         }
         return elements.map(\.0)
+    }
+
+    private static func assertEmptyCleanupSelection(root: AXUIElement) throws {
+        let count = try waitForElement(
+            identifier: "cleanup-review.selection-count",
+            root: root,
+            timeout: 20,
+            requireEnabled: false
+        )
+        guard find(named: "0 selected", root: count) != nil else {
+            throw HarnessError.missingElement("Empty cleanup selection")
+        }
     }
 
     private static func setSize(_ size: CGSize, window: AXUIElement) throws {
@@ -510,6 +638,16 @@ enum RyddiAXHarness {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return [] }
         return value as? [AXUIElement] ?? []
+    }
+
+    private static func elementAttribute(_ name: String, element: AXUIElement) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success,
+              let value,
+              CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return unsafeBitCast(value, to: AXUIElement.self)
     }
 
     private static func frame(of element: AXUIElement) -> CGRect? {

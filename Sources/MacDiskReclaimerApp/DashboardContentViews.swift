@@ -1593,6 +1593,7 @@ struct ActiveFileReviewView: View {
 
 struct ContainerInventoryView: View {
     let model: DashboardModel
+    @State private var pendingBuildCacheCleanup = false
 
     var body: some View {
         ScrollView {
@@ -1601,7 +1602,7 @@ struct ContainerInventoryView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Container Inventory")
                             .font(.largeTitle.bold())
-                        Text("Read-only Docker and Colima inspection for VM, image, volume, and build-cache decisions.")
+                        Text("See what can be reclaimed safely without raw-deleting Colima's VM disk or unique container data.")
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -1625,6 +1626,22 @@ struct ContainerInventoryView: View {
                         MetricTile(title: "Volumes", value: "\(report.docker.volumes.count)")
                         MetricTile(title: "Colima profiles", value: "\(report.colima.profiles.count)")
                     }
+
+                    ContainerReclaimGuidanceView(
+                        report: report,
+                        onPreview: {
+                            guard let action = report.dockerBuildCacheAction else { return }
+                            Task {
+                                await model.runNativeToolCommand(
+                                    receipt: action.receipt,
+                                    command: action.command,
+                                    perform: false,
+                                    expectedContextName: action.contextName
+                                )
+                            }
+                        },
+                        onReclaim: { pendingBuildCacheCleanup = true }
+                    )
 
                     SectionBox(title: "Docker Storage") {
                         Text(report.docker.status.message)
@@ -1729,6 +1746,136 @@ struct ContainerInventoryView: View {
                 }
             }
             .padding(24)
+        }
+        .confirmationDialog(
+            "Reclaim unused Docker build cache?",
+            isPresented: $pendingBuildCacheCleanup
+        ) {
+            Button("Reclaim Unused Build Cache", role: .destructive) {
+                guard let action = model.containerInventory?.dockerBuildCacheAction else { return }
+                Task {
+                    await model.runNativeToolCommand(
+                        receipt: action.receipt,
+                        command: action.command,
+                        perform: true,
+                        expectedContextName: action.contextName
+                    )
+                    await model.inspectContainers()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let action = model.containerInventory?.dockerBuildCacheAction {
+                Text("Ryddi will refresh Docker's read-only inventory and run the prune only if the active context is still ‘\(action.contextName)’. This cannot be undone. Containers, images, volumes, Colima profiles, and the VM disk remain untouched.")
+            } else {
+                Text("Docker build-cache reclaim is no longer available. Inspect containers again before deciding.")
+            }
+        }
+    }
+}
+
+private struct ContainerReclaimAction {
+    let receipt: NativeToolReceipt
+    let command: NativeToolCommand
+    let contextName: String
+}
+
+private extension ContainerInventoryReport {
+    var buildCacheBucket: DockerStorageBucket? {
+        docker.storage.first { $0.type == "Build Cache" }
+    }
+
+    var dockerBuildCacheAction: ContainerReclaimAction? {
+        guard docker.status.state == .available,
+              let buildCacheBucket,
+              (buildCacheBucket.reclaimableBytes ?? 0) > 0,
+              let currentContext = docker.inspectedContextName else {
+            return nil
+        }
+        let action = NativeMaintenanceAction.dockerBuilderPrune
+        let command = NativeToolCommand(
+            id: action.rawValue,
+            command: action.performInvocation.displayCommand,
+            purpose: "Remove only Docker build cache that Docker currently considers unused.",
+            risk: .reclaim,
+            requiresReview: true,
+            expectedEffect: "Docker removes unused build-cache records; active containers, images, volumes, and Colima profiles remain untouched.",
+            context: "Docker context: \(currentContext). Ryddi blocks execution if that context changes before the fresh read-only preview."
+        )
+        let receipt = NativeToolReceipt(
+            findingPath: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".colima", isDirectory: true).path,
+            displayName: "Docker build cache",
+            category: "Containers",
+            allocatedSize: buildCacheBucket.sizeBytes ?? 0,
+            safetyClass: .safeAfterCondition,
+            actionKind: .nativeToolCommand,
+            status: "review-required",
+            message: "Docker reports \(buildCacheBucket.reclaimableText) of build cache as reclaimable. Preview the exact native action before deciding.",
+            commands: [command],
+            nonClaims: action.nonClaims
+        )
+        return ContainerReclaimAction(receipt: receipt, command: command, contextName: currentContext)
+    }
+}
+
+private struct ContainerReclaimGuidanceView: View {
+    let report: ContainerInventoryReport
+    let onPreview: () -> Void
+    let onReclaim: () -> Void
+
+    var body: some View {
+        SectionBox(title: "What you can reclaim") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let bucket = report.buildCacheBucket,
+                   let reclaimable = bucket.reclaimableBytes,
+                   reclaimable > 0 {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "hammer.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.green)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Unused Docker build cache")
+                                .font(.headline)
+                            Text("Docker reports \(ByteFormat.string(reclaimable)) reclaimable out of \(bucket.sizeText). This is the only container storage Ryddi can reclaim from here.")
+                                .foregroundStyle(.secondary)
+                            Text("Actual APFS free-space gain is measured after the action and may differ from Docker's estimate.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            actionButtons
+                        }
+                        VStack(alignment: .leading) {
+                            actionButtons
+                        }
+                    }
+                } else if report.docker.status.state == .available {
+                    Label("Docker does not currently report unused build cache to reclaim.", systemImage: "checkmark.circle")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("Start Docker or Colima, then inspect again to separate reclaimable build cache from protected working data.", systemImage: "pause.circle")
+                        .foregroundStyle(.secondary)
+                }
+
+                Divider()
+                Label("Keep by default: images, containers, volumes, Colima profiles, and VM disks can contain unique project or database state.", systemImage: "lock.shield")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var actionButtons: some View {
+        Group {
+            Button("Preview cleanup", action: onPreview)
+                .buttonStyle(.bordered)
+            Button("Reclaim unused build cache", action: onReclaim)
+                .buttonStyle(.borderedProminent)
         }
     }
 }

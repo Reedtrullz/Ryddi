@@ -332,6 +332,12 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             source.contains("cancel-scan-button"),
             "The cancel control needs a stable accessibility identifier for app E2E."
         )
+        XCTAssertTrue(
+            source.contains("if model.isScanRunning"),
+            "Durable history persistence must not leave a cancellable scan control visible after result acceptance."
+        )
+        XCTAssertTrue(source.contains("Saving scan history"))
+        XCTAssertTrue(source.contains("scan-finalizing"))
     }
 
     func testAppSummaryPassesNativeReceiptsToActionCenter() throws {
@@ -542,6 +548,97 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
             source.contains("Open Use Native Tool Review"),
             "The package preview lane should point users toward receipt-producing native dry-run review, not stop at command text."
         )
+    }
+
+    func testLargeAppInspectorRoutesToGuidedReclaimReviews() throws {
+        let inspector = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/GuidedMap/GuidedMapInspectorView.swift"),
+            encoding: .utf8
+        )
+        let explore = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/Explore/ExploreView.swift"),
+            encoding: .utf8
+        )
+        let app = try appSource()
+
+        XCTAssertTrue(inspector.contains("searchableText.contains(\"colima\")"))
+        XCTAssertTrue(inspector.contains("Label(destination.buttonLabel, systemImage: \"sparkles\")"))
+        XCTAssertTrue(explore.contains("StorageReviewSheet"))
+        XCTAssertTrue(explore.contains("await model.inspectContainers()"))
+        XCTAssertTrue(app.contains("Reclaim unused build cache"))
+        XCTAssertTrue(app.contains("NativeMaintenanceAction.dockerBuilderPrune"))
+        XCTAssertTrue(app.contains("images, containers, volumes, Colima profiles, and VM disks"))
+    }
+
+    func testCloudFootprintWorkspaceIsDiscoverableLocalFirstAndReviewOnly() throws {
+        let app = try appSource()
+        let explore = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/Explore/ExploreView.swift"),
+            encoding: .utf8
+        )
+        let home = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/Home/HomeView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(app.contains("case cloudStorage = \"CloudStorage\""))
+        XCTAssertTrue(app.contains("CloudStorageWorkspaceView(model: model)"))
+        XCTAssertTrue(explore.contains("case tools"))
+        XCTAssertTrue(explore.contains("explore.tool.\\(destination.rawValue)"))
+        XCTAssertTrue(explore.contains(".cloudFootprint"))
+        XCTAssertTrue(app.contains("Label(\"Discover Folders\", systemImage: \"magnifyingglass\")"))
+        XCTAssertTrue(app.contains("Button(\"Add MEGA Folder\")"))
+        XCTAssertTrue(app.contains("Button(\"Confirm Folder\")"))
+        XCTAssertTrue(app.contains("Button(\"Analyze Metadata\")"))
+        XCTAssertTrue(app.contains("Allocated on this Mac"))
+        XCTAssertTrue(app.contains("Ryddi will not open or hash cloud files and risk hydration"))
+        XCTAssertTrue(app.contains("cloud-footprint.operation-status"))
+        XCTAssertTrue(app.contains("cloud-footprint.error"))
+        XCTAssertTrue(app.contains("Set up local cloud review"))
+        XCTAssertTrue(app.contains("It does not sign in to your cloud account yet"))
+        XCTAssertTrue(app.contains("Use Discover Folders for Dropbox and Google Drive"))
+        XCTAssertTrue(home.contains("home.limited-visibility-guidance"))
+        XCTAssertTrue(home.contains("Set Up Cloud Review"))
+        XCTAssertTrue(app.contains("Preparing your results"))
+        XCTAssertTrue(app.contains("cancelCloudFootprintOperation"))
+        XCTAssertFalse(app.contains("import RyddiProtectAuth"))
+    }
+
+    func testHomeSuggestionReviewMapsVisibleGroupToVisibleSelectionOnly() throws {
+        let home = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/Home/HomeView.swift"),
+            encoding: .utf8
+        )
+        let review = try String(
+            contentsOf: repoRoot()
+                .appendingPathComponent("Sources/MacDiskReclaimerApp/Home/CleanupReviewView.swift"),
+            encoding: .utf8
+        )
+        let model = try dashboardModelScanPlanSource()
+
+        XCTAssertTrue(home.contains("case suggestion(HomeSuggestion)"))
+        XCTAssertTrue(home.contains("cleanupReviewRoute = .suggestion(suggestion)"))
+        XCTAssertTrue(review.contains("suggestion?.findingIDs"))
+        XCTAssertTrue(review.contains("beginReviewSession(visibleFindingIDs: visibleFindingIDs)"))
+        XCTAssertTrue(review.contains("endReviewSession()"))
+        XCTAssertTrue(review.contains("selectSafeMaintenance(among: eligibleFindingIDs)"))
+        XCTAssertTrue(model.contains("reviewScopeFindingIDs"))
+        XCTAssertTrue(model.contains("findings.filter { allowed.contains($0.id) }"))
+        XCTAssertTrue(review.contains("ViewThatFits(in: .horizontal)"))
+
+        let limitedGuidance = try XCTUnwrap(home.range(of: "limitedVisibilityGuidance"))
+        let suggestions = try XCTUnwrap(
+            home.range(of: "suggestions", range: limitedGuidance.upperBound..<home.endIndex)
+        )
+        let map = try XCTUnwrap(
+            home.range(of: "mapContent", range: suggestions.upperBound..<home.endIndex)
+        )
+        XCTAssertLessThan(suggestions.lowerBound, map.lowerBound)
     }
 
     func testLargeOldReviewContentIsVerticallyScrollable() throws {

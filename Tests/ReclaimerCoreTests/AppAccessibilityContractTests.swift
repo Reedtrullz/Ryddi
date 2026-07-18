@@ -5,12 +5,20 @@ final class AppAccessibilityContractTests: XCTestCase {
         let source = try appSource()
         let requiredIdentifiers = [
             "home.primary-action",
+            "home.scan-status",
+            "home.scan-result",
+            "home.limited-visibility-guidance",
+            "home.review-access",
+            "home.setup-cloud",
             "guided-map.breadcrumb",
             "guided-map.outline",
             "cleanup-review.select-safe",
+            "cleanup-review.title",
+            "cleanup-review.selection-count",
             "cleanup-review.check-safely",
             "cleanup-review.move-to-trash",
             "scan-progress",
+            "scan-finalizing",
             "cancel-scan-button",
             "trash-confirmation.reviewed",
             "trash-confirmation.confirm",
@@ -20,7 +28,16 @@ final class AppAccessibilityContractTests: XCTestCase {
             "review-queues.list",
             "remote-targets.probe-button",
             "remote-targets.scan-button",
-            "remote-targets.export-redacted-button"
+            "remote-targets.export-redacted-button",
+            "explore.mode",
+            "explore.tools",
+            "storage-review.done",
+            "cloud-footprint.discover",
+            "cloud-footprint.setup-guide",
+            "cloud-footprint.operation-status",
+            "cloud-footprint.cancel",
+            "cloud-footprint.result",
+            "cloud-footprint.error"
         ]
 
         for identifier in requiredIdentifiers {
@@ -29,6 +46,13 @@ final class AppAccessibilityContractTests: XCTestCase {
                 "Missing stable app accessibility identifier: \(identifier)"
             )
         }
+
+        XCTAssertTrue(source.contains("@Environment(\\.accessibilityReduceMotion)"))
+        XCTAssertTrue(source.contains(".accessibilityAddTraits(.updatesFrequently)"))
+        XCTAssertFalse(source.contains("\"explore.mode.\\(item.rawValue)\""))
+        XCTAssertTrue(source.contains("accessibilityAction(named: Text(\"Open \\(node.displayName)\")"))
+        XCTAssertTrue(source.contains("accessibilityAction(named: Text(\"Show contents of \\(node.displayName)\")"))
+        XCTAssertTrue(source.contains("Nothing is selected or cleaned automatically."))
     }
 
     func testE2ELaunchContractIsTemporaryRootOnlyAndFailClosed() throws {

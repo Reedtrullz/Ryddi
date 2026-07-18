@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-artifact_basename="${RYDDI_ARTIFACT_BASENAME:-Ryddi-v0.4.0}"
+artifact_basename="${RYDDI_ARTIFACT_BASENAME:-Ryddi-v0.4.1}"
 status=0
 resolved_identity=""
 

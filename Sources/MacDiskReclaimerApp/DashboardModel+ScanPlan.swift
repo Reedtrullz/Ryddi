@@ -14,6 +14,12 @@ private struct DashboardScanOutput: Sendable {
     let generatedAt: Date
 }
 
+private struct DashboardScanPersistenceResult: Sendable {
+    let snapshots: [ScanSnapshot]
+    let growthDeltas: [BucketGrowthDelta]
+    let issue: String?
+}
+
 private func waitForE2EScanDelay(
     milliseconds: Int,
     cancellation: ScanCancellationToken
@@ -118,10 +124,12 @@ extension DashboardModel {
         }
     }
 
-    private func recordExecutionSession(_ receipt: ExecutionReceipt, updatedAt: Date? = nil) {
+    private func recordExecutionSession(_ receipt: ExecutionReceipt, updatedAt: Date? = nil) throws {
         let transitionDate = updatedAt ?? receipt.createdAt
-        currentScanSession = sessionForCurrentFindings(updatedAt: transitionDate)
+        let session = sessionForCurrentFindings(updatedAt: transitionDate)
             .recordExecutionReceipt(receipt, updatedAt: transitionDate)
+        currentScanSession = session
+        try AuditStore().saveScanSession(session)
     }
 
     private func sessionForCurrentFindings(updatedAt: Date) -> ScanSession {
@@ -154,8 +162,11 @@ extension DashboardModel {
     }
     func startScan() {
         guard scanTask == nil else { return }
+        clearPreviousTrashJourney()
         let token = ScanCancellationToken()
         let activityID = activities.begin(.scan, message: "Preparing scan")
+        scanResultFeedback = nil
+        error = nil
         scanCancellation = token
         scanActivityID = activityID
         let progressHandler = scanProgressHandler(activityID: activityID)
@@ -314,18 +325,27 @@ extension DashboardModel {
             currentScanSession = result.session
             isUpdatingPresentation = false
             diskStatus = DiskStatusReader().snapshot()
-            _ = try ScanHistoryStore().save(overview: result.presentation.overview)
-            if let latestGuidedMap {
-                // The map is a display cache; failure to persist it must not invalidate an accepted scan.
-                try? dependencies.guidedMapStore.save(latestGuidedMap)
-            }
-            loadHistory()
             plan = nil
             lastDryRunReceipt = nil
             lastExecutionReceipt = nil
             lastScanDate = result.generatedAt
-            try AuditStore().saveScanSession(result.session)
+            scanResultFeedback = feedback(for: result.coverage)
             error = nil
+
+            // The accepted map and suggestions are ready. Do not keep the UI in a
+            // cancellable scan state while durable history is written off-main.
+            activities.finish(.scan, id: activityID)
+            let persistence = await persistAcceptedScan(result)
+            guard currentScanSession?.id == result.session.id else { return }
+            scanSnapshots = persistence.snapshots
+            growthDeltas = persistence.growthDeltas
+            if let issue = persistence.issue {
+                scanResultFeedback = ScanResultFeedback(
+                    style: .warning,
+                    title: "Result ready; history needs attention",
+                    detail: issue
+                )
+            }
         } catch {
             guard !control.cancellation.isCancelled,
                   !Task.isCancelled,
@@ -336,13 +356,88 @@ extension DashboardModel {
             }
             diagnostics.record(error: .scanFailed)
             self.error = error.localizedDescription
+            scanResultFeedback = ScanResultFeedback(
+                style: .warning,
+                title: "Scan could not finish",
+                detail: error.localizedDescription
+            )
             activities.fail(.scan, id: activityID, message: "Scan failed")
+        }
+    }
+
+    private func persistAcceptedScan(
+        _ result: DashboardScanOutput
+    ) async -> DashboardScanPersistenceResult {
+        let guidedMapStore = dependencies.guidedMapStore
+        return await Task.detached(priority: .utility) {
+            var issues: [String] = []
+            do {
+                _ = try ScanHistoryStore().save(overview: result.presentation.overview)
+            } catch {
+                issues.append("Ryddi could not save scan history: \(error.localizedDescription)")
+            }
+            if let map = result.presentation.guidedMap {
+                // The map is a display cache; failure to persist it must not invalidate an accepted scan.
+                try? guidedMapStore.save(map)
+            }
+            do {
+                try AuditStore().saveScanSession(result.session)
+            } catch {
+                issues.append("Ryddi could not save the scan receipt: \(error.localizedDescription)")
+            }
+            let history = ScanHistoryStore()
+            return DashboardScanPersistenceResult(
+                snapshots: history.recent(limit: 8),
+                growthDeltas: history.latestGrowthDeltas(group: .category, limit: 8),
+                issue: issues.isEmpty ? nil : issues.joined(separator: " ")
+            )
+        }.value
+    }
+
+    private func feedback(for coverage: ScanCoverage) -> ScanResultFeedback {
+        let measured = coverage.measuredItemCount.formatted()
+        switch coverage.state {
+        case .complete:
+            return ScanResultFeedback(
+                style: .success,
+                title: "Scan complete",
+                detail: "Measured \(measured) items across the configured roots. Review the map and suggestions below."
+            )
+        case .bounded:
+            return ScanResultFeedback(
+                style: .warning,
+                title: "Scan complete within safety limits",
+                detail: "Measured \(measured) items before reaching the configured scan bound. The result is useful, but not exhaustive."
+            )
+        case .degraded:
+            let unavailable = coverage.rootsPermissionDenied + coverage.rootsUnknown
+            let accessDetail = unavailable == 1
+                ? "1 configured root needs access"
+                : "\(unavailable) configured roots need access"
+            return ScanResultFeedback(
+                style: .warning,
+                title: "Scan complete with limited visibility",
+                detail: "Measured \(measured) items, but \(accessDetail). Hidden storage is not a cleanup result."
+            )
         }
     }
 
     private func completeScanOperation(activityID: UUID) {
         guard scanActivityID == activityID else { return }
-        activities.finish(.scan, id: activityID)
+        let wasCancelled = scanCancellation?.isCancelled == true
+        if activities.isCurrent(.scan, id: activityID) {
+            activities.finish(.scan, id: activityID)
+        }
+        if wasCancelled, scanResultFeedback == nil {
+            let keptResult = latestGuidedMap != nil
+            scanResultFeedback = ScanResultFeedback(
+                style: .stopped,
+                title: "Scan stopped",
+                detail: keptResult
+                    ? "Ryddi kept the previous trustworthy result. Start another scan whenever you are ready."
+                    : "Nothing was saved or changed. Start another scan whenever you are ready."
+            )
+        }
         scanActivityID = nil
         scanCancellation = nil
         scanTask = nil
@@ -361,7 +456,7 @@ extension DashboardModel {
     }
 
     private func recordScanProgress(_ progress: ScanProgress, activityID: UUID) {
-        let fraction: Double? = progress.requestedItemBudget > 0
+        let fraction: Double? = progress.phase == .finished ? nil : progress.requestedItemBudget > 0
             ? min(1, Double(progress.measuredItemCount) / Double(progress.requestedItemBudget))
             : nil
         let message: String
@@ -378,7 +473,7 @@ extension DashboardModel {
         case .classifying:
             message = "Classifying \(progress.measuredItemCount.formatted()) items"
         case .finished:
-            message = "Scan finished"
+            message = "Preparing your results"
         }
         activities.update(.scan, id: activityID, progress: fraction, message: message)
     }
@@ -398,6 +493,9 @@ extension DashboardModel {
     }
 
     func toggleReviewSelection(_ findingID: String) {
+        if let reviewScopeFindingIDs, !reviewScopeFindingIDs.contains(findingID) {
+            return
+        }
         if reviewSelectionIDs.contains(findingID) {
             reviewSelectionIDs.remove(findingID)
         } else {
@@ -413,8 +511,39 @@ extension DashboardModel {
         lastDryRunReceipt = nil
     }
 
-    func selectSafeMaintenance() async {
-        let currentFindings = findings
+    func beginReviewSession(visibleFindingIDs: Set<String>) {
+        clearPreviousTrashJourney()
+        reviewScopeFindingIDs = visibleFindingIDs
+        clearReviewSelection()
+    }
+
+    func endReviewSession() {
+        reviewScopeFindingIDs = nil
+        clearReviewSelection()
+    }
+
+    private func clearPreviousTrashJourney() {
+        let authorizationID = pendingTrashConfirmation?.authorizationID
+        pendingTrashConfirmation = nil
+        trashExecutionMessage = nil
+        if let authorizationID {
+            let registry = trashExecutionAuthorizationRegistry
+            Task {
+                await registry.revoke(id: authorizationID)
+            }
+        }
+    }
+
+    func selectSafeMaintenance(among allowedFindingIDs: Set<String>? = nil) async {
+        let effectiveAllowedFindingIDs: Set<String>?
+        if let allowedFindingIDs, let reviewScopeFindingIDs {
+            effectiveAllowedFindingIDs = allowedFindingIDs.intersection(reviewScopeFindingIDs)
+        } else {
+            effectiveAllowedFindingIDs = allowedFindingIDs ?? reviewScopeFindingIDs
+        }
+        let currentFindings = effectiveAllowedFindingIDs.map { allowed in
+            findings.filter { allowed.contains($0.id) }
+        } ?? findings
         let accepted = await Task.detached {
             PlanBuilder(openFileChecker: LsofOpenFileChecker())
                 .buildPlan(from: currentFindings, mode: .autoSafeOnly)
@@ -431,7 +560,9 @@ extension DashboardModel {
         let activityID = activities.begin(.review, message: "Checking selected items")
         defer { activities.finish(.review, id: activityID) }
         let currentFindings = findings
-        let selectedIDs = reviewSelectionIDs
+        let selectedIDs = reviewScopeFindingIDs.map { reviewSelectionIDs.intersection($0) }
+            ?? reviewSelectionIDs
+        reviewSelectionIDs = selectedIDs
         do {
             let builtPlan = try await Task.detached {
                 try PlanBuilder(openFileChecker: LsofOpenFileChecker()).buildPlan(
@@ -594,12 +725,9 @@ extension DashboardModel {
             }.value
 
             lastExecutionReceipt = receipt
-            recordExecutionSession(receipt)
             pendingTrashConfirmation = nil
             _ = try AuditStore().save(receipt: receipt)
-            if let currentScanSession {
-                try AuditStore().saveScanSession(currentScanSession)
-            }
+            try recordExecutionSession(receipt)
 
             let reconciliation = ExecutionReconciler.reconcile(
                 findings: findings,
