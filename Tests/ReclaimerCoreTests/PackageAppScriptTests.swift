@@ -153,19 +153,17 @@ final class PackageAppScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("artifact_basename=\"Ryddi-developer-preview\""))
     }
 
-    func testSignedWorkflowPinsV040TagAndVerifiesItsCommitBeforeCredentials() throws {
+    func testSignedWorkflowRequiresExactVersionTagAndCleanCommitBeforeCredentials() throws {
         let workflow = try String(
             contentsOf: repoRoot().appendingPathComponent(".github/workflows/release-preview.yml"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(workflow.contains("default: v0.4.0"))
-        XCTAssertTrue(workflow.contains("default: 0.4.0"))
-        XCTAssertTrue(workflow.contains("default: \"5\""))
-        XCTAssertTrue(workflow.contains("test \"$RELEASE_REF\" = \"v0.4.0\""))
-        XCTAssertTrue(workflow.contains("test \"$RYDDI_VERSION\" = \"0.4.0\""))
-        XCTAssertTrue(workflow.contains("test \"$RYDDI_BUILD_NUMBER\" = \"5\""))
+        XCTAssertTrue(workflow.contains("[[ \"$RYDDI_VERSION\" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]"))
+        XCTAssertTrue(workflow.contains("[[ \"$RYDDI_BUILD_NUMBER\" =~ ^[1-9][0-9]*$ ]]"))
+        XCTAssertTrue(workflow.contains("test \"$RELEASE_REF\" = \"v$RYDDI_VERSION\""))
         XCTAssertTrue(workflow.contains("git rev-parse \"$RELEASE_REF^{commit}\""))
+        XCTAssertTrue(workflow.contains("git status --porcelain --untracked-files=normal"))
 
         let provenance = try XCTUnwrap(workflow.range(of: "Verify immutable release provenance"))
         let credentials = try XCTUnwrap(workflow.range(of: "Import Developer ID certificate"))
