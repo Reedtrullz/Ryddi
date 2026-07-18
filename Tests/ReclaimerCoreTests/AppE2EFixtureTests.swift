@@ -181,7 +181,9 @@ final class AppE2EFixtureTests: XCTestCase {
         ] {
             XCTAssertTrue(harness.contains(proof), proof)
         }
-        XCTAssertTrue(packagedAX.contains("RYDDI_E2E_SCAN_DELAY_MILLISECONDS=\"750\""))
+        XCTAssertTrue(packagedAX.contains("RYDDI_E2E_SCAN_DELAY_MILLISECONDS=\"2000\""))
+        XCTAssertTrue(harness.contains("for attempt in 1...3"))
+        XCTAssertTrue(harness.contains("Date().addingTimeInterval(0.4)"))
         XCTAssertTrue(packagedAX.contains(".scanProgressVisible == true"))
         XCTAssertTrue(packagedAX.contains(".cancelledScanBecameIdle == true"))
         XCTAssertTrue(packagedAX.contains(".cancelledScanHadNoLateCommit == true"))

@@ -17,7 +17,9 @@ scratch="$(cd "$scratch" && pwd -P)"
 open_pid=""
 keep_scratch="${RYDDI_E2E_KEEP_SCRATCH:-0}"
 keep_trash="${RYDDI_E2E_KEEP_TRASH:-0}"
-RYDDI_E2E_SCAN_DELAY_MILLISECONDS="750"
+# Keep the cancellable fixture scan in flight long enough for a cold AX harness
+# to discover and press the cancel control before results can be accepted.
+RYDDI_E2E_SCAN_DELAY_MILLISECONDS="2000"
 
 cleanup() {
   /usr/bin/osascript -e 'tell application id "com.reidar.ryddi" to quit' >/dev/null 2>&1 || true

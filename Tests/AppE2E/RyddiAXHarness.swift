@@ -585,22 +585,32 @@ enum RyddiAXHarness {
     }
 
     private static func captureWindow(pid: pid_t, output: URL) throws {
-        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        guard let id = windows.first(where: {
-            ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid
-                && ($0[kCGWindowLayer as String] as? NSNumber)?.intValue == 0
-        })?[kCGWindowNumber as String] as? NSNumber else {
-            throw HarnessError.windowUnavailable
+        for attempt in 1...3 {
+            let windows = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements],
+                kCGNullWindowID
+            ) as? [[String: Any]] ?? []
+            guard let id = windows.first(where: {
+                ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid
+                    && ($0[kCGWindowLayer as String] as? NSNumber)?.intValue == 0
+            })?[kCGWindowNumber as String] as? NSNumber else {
+                throw HarnessError.windowUnavailable
+            }
+            try? FileManager.default.removeItem(at: output)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            process.arguments = ["-x", "-o", "-l", id.stringValue, output.path]
+            try process.run()
+            process.waitUntilExit()
+            let size = (try? output.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            if process.terminationStatus == 0, size > 10_000 {
+                return
+            }
+            if attempt < 3 {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            }
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-x", "-o", "-l", id.stringValue, output.path]
-        try process.run()
-        process.waitUntilExit()
-        let size = (try? output.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        guard process.terminationStatus == 0, size > 10_000 else {
-            throw HarnessError.screenshotFailed(output.path)
-        }
+        throw HarnessError.screenshotFailed(output.path)
     }
 
     private static func checkpoint(
