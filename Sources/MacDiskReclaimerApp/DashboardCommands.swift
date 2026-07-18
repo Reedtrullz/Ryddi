@@ -20,6 +20,7 @@ extension FocusedValues {
 struct DashboardCommands: Commands {
     @FocusedValue(\.dashboardCommandActions) private var actions
     @Environment(\.openSettings) private var openSettings
+    let updates: RyddiUpdateController
 
     var body: some Commands {
         CommandMenu("Ryddi") {
@@ -39,6 +40,11 @@ struct DashboardCommands: Commands {
             Divider()
             Button("Ryddi Settings") { openSettings() }
                 .keyboardShortcut(",", modifiers: [.command])
+            Divider()
+            Button("Update to Latest Version…") {
+                updates.updateToLatestVersion()
+            }
+            .disabled(!updates.canCheckForUpdates)
         }
     }
 }

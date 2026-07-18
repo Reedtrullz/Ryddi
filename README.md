@@ -256,6 +256,22 @@ The signing doctor checks for a Developer ID Application identity and either a u
 
 The signed release gate must produce `dist/Ryddi-v0.4.0.zip`, `dist/Ryddi-v0.4.0.zip.sha256`, and `dist/Ryddi-release-manifest.txt` with signed, notarized, stapled, Gatekeeper, strict codesign, and packaged Accessibility E2E proof, bundle version `0.4.0`, and build `5`. The AX lane requires a logged-in, Accessibility-approved Mac runner; the signed GitHub job therefore uses the `self-hosted`, `macOS`, and `ryddi-release` labels. If credentials, runner approval, or any check fails, do not publish the build as `v0.4.0`. A local unsigned zip remains a developer preview, even when all non-signing tests pass.
 
+## In-app updates
+
+Starting with the next signed release after v0.4.0, Ryddi uses pinned Sparkle 2.9.4 to check for updates automatically once per day. Users can turn background checks off or choose **Update to Latest Version** from Settings or the Ryddi menu. Ryddi does not silently install updates: Sparkle presents the trusted update and requires user confirmation.
+
+The updater reads `https://raw.githubusercontent.com/Reedtrullz/Ryddi/main/appcast.xml`. Both the update archive and the complete feed are signed with Ryddi's Ed25519 key, and update verification occurs before extraction. The update app must also retain its Developer ID signature and notarization. The private Ed25519 key lives in the release operator's macOS Keychain under account `ed25519`; only the public key is embedded in Ryddi.
+
+After a signed release gate succeeds, generate the feed entry from the dedicated app-only archive:
+
+```bash
+Scripts/generate-appcast.sh \
+  dist/Ryddi-vX.Y.Z-update.zip \
+  appcast.xml
+```
+
+Verify and commit the regenerated `appcast.xml`, upload the update archive and its checksum with the matching GitHub release, then confirm the raw feed and versioned asset URLs are public before declaring in-app delivery ready. Never generate an appcast from an unsigned preview or hand-edit a signed feed.
+
 After downloading a release asset, verify the checksum and inspect the manifest before installing:
 
 ```bash

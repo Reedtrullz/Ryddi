@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct MacDiskReclaimerApp: App {
     @State private var appModel = RyddiAppModel()
+    @State private var updates = RyddiUpdateController()
 
     var body: some Scene {
         WindowGroup("Ryddi", id: "dashboard") {
@@ -15,7 +16,7 @@ struct MacDiskReclaimerApp: App {
         .defaultSize(width: RyddiWindowLayout.defaultContentWidth, height: RyddiWindowLayout.defaultContentHeight)
         .windowResizability(.contentMinSize)
         .commands {
-            DashboardCommands()
+            DashboardCommands(updates: updates)
         }
 
         MenuBarExtra {
@@ -28,7 +29,7 @@ struct MacDiskReclaimerApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            DashboardSettingsView(model: appModel.dashboard)
+            DashboardSettingsView(model: appModel.dashboard, updates: updates)
         }
     }
 }

@@ -14,6 +14,9 @@ let package = Package(
         .executable(name: "RyddiApp", targets: ["MacDiskReclaimerApp"]),
         .executable(name: "MacDiskReclaimerApp", targets: ["MacDiskReclaimerApp"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4")
+    ],
     targets: [
         .target(
             name: "ReclaimerCore",
@@ -35,7 +38,13 @@ let package = Package(
         ),
         .executableTarget(
             name: "MacDiskReclaimerApp",
-            dependencies: ["ReclaimerCore"]
+            dependencies: [
+                "ReclaimerCore",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../Frameworks"])
+            ]
         ),
         .testTarget(
             name: "ReclaimerCoreTests",

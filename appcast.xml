@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Ryddi</title>
+    <link>https://github.com/Reedtrullz/Ryddi</link>
+    <description>Signed update feed for Ryddi.</description>
+  </channel>
+</rss>
+<!-- sparkle-signatures:
+edSignature: KQ9Wn6nhwpWPavgRh0hfXDeIlbSW7f78adDGtFRj0SH6U8LN+Nn39bbhimr/nXSXCjWtH11wALphBObblwsHAA==
+length: 298
+-->

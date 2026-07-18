@@ -151,11 +151,16 @@ final class ArchitectureBoundaryTests: XCTestCase {
             hasExactDependencies: ["ReclaimerCore"],
             in: packageSource
         )
-        try assertTarget(
-            "MacDiskReclaimerApp",
-            hasExactDependencies: ["ReclaimerCore"],
-            in: packageSource
+        let appPattern = #"name:\s*\"MacDiskReclaimerApp\"\s*,\s*dependencies:\s*\[\s*\"ReclaimerCore\"\s*,\s*\.product\(name:\s*\"Sparkle\",\s*package:\s*\"Sparkle\"\)\s*\]"#
+        let appExpression = try NSRegularExpression(pattern: appPattern)
+        XCTAssertNotNil(
+            appExpression.firstMatch(
+                in: packageSource,
+                range: NSRange(packageSource.startIndex..., in: packageSource)
+            ),
+            "MacDiskReclaimerApp may link ReclaimerCore and the updater framework, but no Protect target."
         )
+        XCTAssertFalse(packageSource.contains("MacDiskReclaimerApp\",\n            dependencies: [\n                \"ReclaimerCore\",\n                \"RyddiProtect"))
         try assertTarget(
             "RyddiProtectCore",
             hasExactDependencies: [],

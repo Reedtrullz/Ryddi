@@ -16,6 +16,8 @@ else
 fi
 zip_path="$dist/$artifact_basename.zip"
 checksum_path="$zip_path.sha256"
+update_zip_path="$dist/$artifact_basename-update.zip"
+update_checksum_path="$update_zip_path.sha256"
 manifest_path="$dist/Ryddi-release-manifest.txt"
 stage_dir="$dist/$artifact_basename"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/ryddi-release-check.XXXXXX")"
@@ -82,6 +84,7 @@ stage_release_artifact() {
       return 1
     fi
     release_kind="signed-notarized-release"
+    sparkle_update_archive="notarized-signed-app-only"
   else
     if [[ "$artifact_basename" == Ryddi-v* ]]; then
       echo "unsigned previews cannot use a versioned release artifact name" >&2
@@ -89,6 +92,7 @@ stage_release_artifact() {
     fi
     release_kind="unsigned-preview"
     signing_identity="unsigned"
+    sparkle_update_archive="not-created-for-unsigned-preview"
   fi
 
   rm -rf "$stage_dir"
@@ -121,6 +125,7 @@ stapled=$stapler_validated
 gatekeeper=$gatekeeper_status
 packaged_ax_e2e=$packaged_ax_e2e_status
 packaged_ax_e2e_proof=$([[ "$packaged_ax_e2e_status" == "passed" ]] && echo included || echo not-included)
+sparkle_update_archive=$sparkle_update_archive
 sha256=$app_payload_sha
 
 Ryddi release evidence
@@ -140,6 +145,16 @@ MANIFEST
   assert_public_file_has_no_local_paths "$stage_dir/Ryddi-release-manifest.txt"
   assert_public_file_has_no_local_paths "$stage_dir/Ryddi-checksums.sha256"
   archive_staged_release
+
+  rm -f "$update_zip_path" "$update_checksum_path"
+  if [[ "$signing_required" == "required" ]]; then
+    /usr/bin/ditto -c -k --keepParent "$app" "$update_zip_path"
+    (
+      cd "$dist"
+      shasum -a 256 "$(basename "$update_zip_path")" >"$(basename "$update_checksum_path")"
+    )
+    assert_public_file_has_no_local_paths "$update_checksum_path"
+  fi
 }
 
 if [[ "${RYDDI_RELEASE_CHECK_LIBRARY_ONLY:-0}" == "1" ]]; then
@@ -147,7 +162,7 @@ if [[ "${RYDDI_RELEASE_CHECK_LIBRARY_ONLY:-0}" == "1" ]]; then
 fi
 
 cd "$root"
-rm -f "$zip_path" "$checksum_path" "$manifest_path"
+rm -f "$zip_path" "$checksum_path" "$update_zip_path" "$update_checksum_path" "$manifest_path"
 
 commit="unknown"
 source_dirty="unknown"
@@ -235,6 +250,16 @@ fi
 rules_path="$(find "$app/Contents/Resources" -type f -name rules.json -print -quit)"
 if [[ -z "$rules_path" ]]; then
   echo "missing bundled rules.json" >&2
+  exit 1
+fi
+
+sparkle_framework="$app/Contents/Frameworks/Sparkle.framework"
+if [[ ! -d "$sparkle_framework" ]]; then
+  echo "missing packaged Sparkle.framework" >&2
+  exit 1
+fi
+if ! otool -l "$app/Contents/MacOS/Ryddi" | grep -F '@loader_path/../Frameworks' >/dev/null; then
+  echo "packaged Ryddi executable is missing the Sparkle runtime search path" >&2
   exit 1
 fi
 
@@ -1388,3 +1413,7 @@ echo "==> Release check complete"
 echo "$zip_path"
 echo "$checksum_path"
 echo "$manifest_path"
+if [[ "$signing_required" == "required" ]]; then
+  echo "$update_zip_path"
+  echo "$update_checksum_path"
+fi

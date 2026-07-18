@@ -75,6 +75,19 @@ final class AppFlowContractTests: XCTestCase {
         XCTAssertFalse(commands.contains("Build Plan"))
         XCTAssertFalse(commands.contains("Dry Run"))
         XCTAssertFalse(commands.contains("Review and Reclaim"))
+        XCTAssertTrue(commands.contains("Button(\"Update to Latest Version…\")"))
+    }
+
+    func testSettingsExposeAutomaticAndManualUpdateControls() throws {
+        let settings = try appSource(named: "DashboardSettingsView.swift")
+        let updater = try appSource(named: "RyddiUpdateController.swift")
+
+        XCTAssertTrue(settings.contains("Toggle(\"Automatically check for updates\""))
+        XCTAssertTrue(settings.contains("Button(\"Update to Latest Version\")"))
+        XCTAssertTrue(settings.contains("Label(\"Updates\", systemImage: \"arrow.triangle.2.circlepath\")"))
+        XCTAssertTrue(updater.contains("SPUStandardUpdaterController"))
+        XCTAssertTrue(updater.contains("canCheckForUpdates"))
+        XCTAssertTrue(updater.contains("automaticallyChecksForUpdates"))
     }
 
     private func appSource(named name: String) throws -> String {
