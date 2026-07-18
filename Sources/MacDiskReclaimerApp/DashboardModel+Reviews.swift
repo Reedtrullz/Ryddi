@@ -1,7 +1,17 @@
 import Foundation
 import ReclaimerCore
+import RyddiProtectCore
 
 extension DashboardModel {
+    func discoverCloudStorageRoots(userSelectedMegaRoots: [URL] = []) async {
+        let activityID = activities.begin(.review, message: "Discovering cloud folders")
+        defer { activities.finish(.review, id: activityID) }
+        cloudStorageRootDiscovery = await Task.detached {
+            CloudStorageRootDiscovery().discover(userSelectedMegaRoots: userSelectedMegaRoots)
+        }.value
+        error = nil
+    }
+
     func checkActiveHandles() async {
         let activityID = activities.begin(.review, message: "Checking active files")
         defer { activities.finish(.review, id: activityID) }

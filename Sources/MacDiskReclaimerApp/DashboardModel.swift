@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import ReclaimerCore
+import RyddiProtectCore
 
 @MainActor
 @Observable
@@ -53,6 +54,7 @@ final class DashboardModel {
     var agentStorageReview: AgentStorageReview?
     var agentRetentionReport: AgentRetentionReport?
     var containerInventory: ContainerInventoryReport?
+    var cloudStorageRootDiscovery: CloudStorageRootDiscoveryReport?
     var remoteTargets: [RemoteTargetReference] = []
     var remoteTargetInput = ""
     var remoteProbeReport: RemoteProbeReport?

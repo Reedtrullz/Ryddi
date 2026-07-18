@@ -566,6 +566,17 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(app.contains("images, containers, volumes, Colima profiles, and VM disks"))
     }
 
+    func testCloudStorageWorkspaceIsLocalFirstAndReviewOnly() throws {
+        let app = try appSource()
+
+        XCTAssertTrue(app.contains("case cloudStorage = \"CloudStorage\""))
+        XCTAssertTrue(app.contains("CloudStorageWorkspaceView(model: model)"))
+        XCTAssertTrue(app.contains("Label(\"Discover Folders\", systemImage: \"magnifyingglass\")"))
+        XCTAssertTrue(app.contains("Button(\"Add MEGA Folder\")"))
+        XCTAssertTrue(app.contains("Matching names or sizes alone will never be treated as duplicate proof."))
+        XCTAssertFalse(app.contains("import RyddiProtectAuth"))
+    }
+
     func testLargeOldReviewContentIsVerticallyScrollable() throws {
         let source = try appSource()
 

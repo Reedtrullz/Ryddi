@@ -91,7 +91,7 @@ MEGA has no comparable narrow OAuth scope. Its official SDK is therefore isolate
 
 ## Current Foundation Slice
 
-The first slice is intentionally non-functional from the UI. It adds:
+The foundation remains non-functional for remote provider access. It adds:
 
 - a compiler-enforced capability boundary with no `RyddiProtectCore` dependency on cleanup code;
 - runtime-only cloud contracts with bounded untrusted metadata;
@@ -103,7 +103,7 @@ The first slice is intentionally non-functional from the UI. It adds:
 - a serial provider-neutral inventory builder with bounded objects, raw-plus-canonical response accounting, absolute request deadlines, clamped retries, cancellation, and explicit partial-result states;
 - architecture tests that reject reverse dependencies and mutation APIs.
 
-It does not connect a provider, issue a live network request, persist cloud inventory, perform a real Keychain operation, inspect a dotenv value, upload a file, migrate a secret, influence cleanup classification, authorize cleanup, or add Protect navigation. ReclaimerCore, the app, and the CLI do not link the Protect targets in this slice.
+The app now links only `RyddiProtectCore` for a user-started Cloud Storage workspace. That workspace performs shallow local sync-root discovery, rejects symlink roots, requires confirmation before protection guidance, and exposes future read-only organization lanes. It does not link `RyddiProtectAuth`, connect a provider, issue a live network request, persist cloud inventory, perform a real Keychain operation, inspect a dotenv value, upload a file, migrate a secret, influence cleanup classification, or authorize cleanup. ReclaimerCore and the CLI remain unaware of Protect provider types.
 
 Raw response-byte measurement and invalid UTF-8 rejection belong at each future provider adapter before constructing `CloudInventoryPage` and Swift `String` values. The shared page contract accounts at least the canonical bounded metadata cost even if an adapter underreports raw bytes. Every adapter request receives one absolute monotonic `CloudRequestContext` deadline, and the builder independently returns a typed timeout even if an adapter fails to cooperate with cancellation. Adapters must still enforce the deadline in their own URLSession/SDK request so a cancelled operation cannot retain transport resources. A provider adapter cannot ship until its parser fixtures and shared conformance harness prove that raw boundary.
 

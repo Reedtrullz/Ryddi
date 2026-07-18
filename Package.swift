@@ -40,6 +40,7 @@ let package = Package(
             name: "MacDiskReclaimerApp",
             dependencies: [
                 "ReclaimerCore",
+                "RyddiProtectCore",
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             linkerSettings: [
@@ -65,7 +66,7 @@ let package = Package(
         ),
         .testTarget(
             name: "MacDiskReclaimerAppTests",
-            dependencies: ["MacDiskReclaimerApp", "ReclaimerCore"]
+            dependencies: ["MacDiskReclaimerApp", "ReclaimerCore", "RyddiProtectCore"]
         )
     ]
 )

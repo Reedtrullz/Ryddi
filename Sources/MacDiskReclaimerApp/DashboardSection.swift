@@ -32,7 +32,7 @@ enum DashboardPrimaryDestination: String, CaseIterable, Identifiable, Hashable {
         case .audit, .recovery, .holding, .trash:
             return .history
         case .largeOld, .apps, .downloads, .duplicates, .browsers, .deviceBackups,
-             .packages, .projects, .xcode, .containers, .agents, .finding:
+             .packages, .projects, .xcode, .containers, .cloudStorage, .agents, .finding:
             return .explore
         default:
             return .home
@@ -63,6 +63,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
     case projects = "Projects"
     case xcode = "Xcode"
     case containers = "Containers"
+    case cloudStorage = "CloudStorage"
     case remoteTargets = "RemoteTargets"
     case agents = "Agents"
     case permissions = "Permissions"
@@ -94,6 +95,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
         case .projects: "Project Dependencies"
         case .xcode: "Xcode"
         case .containers: "Containers"
+        case .cloudStorage: "Cloud Storage"
         case .remoteTargets: "Remote Targets"
         case .agents: "AI Agent Storage"
         case .permissions: "Permissions"
@@ -125,6 +127,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
         case .projects: "folder"
         case .xcode: "hammer"
         case .containers: "cube.box"
+        case .cloudStorage: "externaldrive.connected.to.line.below"
         case .remoteTargets: "server.rack"
         case .agents: "brain.head.profile"
         case .permissions: "lock.shield"
@@ -145,7 +148,7 @@ enum DashboardSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .summary, .queues, .largeOld:
             .start
-        case .apps, .downloads, .duplicates, .browsers, .deviceBackups, .trash:
+        case .apps, .downloads, .duplicates, .browsers, .deviceBackups, .trash, .cloudStorage:
             .generalMac
         case .packages, .projects, .xcode, .containers, .remoteTargets, .agents:
             .developer

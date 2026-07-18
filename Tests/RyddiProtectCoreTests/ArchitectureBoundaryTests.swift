@@ -141,7 +141,7 @@ final class ArchitectureBoundaryTests: XCTestCase {
         }
     }
 
-    func testPackageLeavesProtectTargetsUnlinkedFromExecutables() throws {
+    func testPackageLinksOnlyReadOnlyProtectCoreIntoApp() throws {
         let packageSource = try String(
             contentsOf: repositoryRoot.appendingPathComponent("Package.swift"),
             encoding: .utf8
@@ -151,16 +151,16 @@ final class ArchitectureBoundaryTests: XCTestCase {
             hasExactDependencies: ["ReclaimerCore"],
             in: packageSource
         )
-        let appPattern = #"name:\s*\"MacDiskReclaimerApp\"\s*,\s*dependencies:\s*\[\s*\"ReclaimerCore\"\s*,\s*\.product\(name:\s*\"Sparkle\",\s*package:\s*\"Sparkle\"\)\s*\]"#
+        let appPattern = #"name:\s*\"MacDiskReclaimerApp\"\s*,\s*dependencies:\s*\[\s*\"ReclaimerCore\"\s*,\s*\"RyddiProtectCore\"\s*,\s*\.product\(name:\s*\"Sparkle\",\s*package:\s*\"Sparkle\"\)\s*\]"#
         let appExpression = try NSRegularExpression(pattern: appPattern)
         XCTAssertNotNil(
             appExpression.firstMatch(
                 in: packageSource,
                 range: NSRange(packageSource.startIndex..., in: packageSource)
             ),
-            "MacDiskReclaimerApp may link ReclaimerCore and the updater framework, but no Protect target."
+            "MacDiskReclaimerApp may link the read-only Protect core, but not the credential runtime."
         )
-        XCTAssertFalse(packageSource.contains("MacDiskReclaimerApp\",\n            dependencies: [\n                \"ReclaimerCore\",\n                \"RyddiProtect"))
+        XCTAssertFalse(packageSource.contains("MacDiskReclaimerApp\",\n            dependencies: [\n                \"ReclaimerCore\",\n                \"RyddiProtectAuth"))
         try assertTarget(
             "RyddiProtectCore",
             hasExactDependencies: [],
