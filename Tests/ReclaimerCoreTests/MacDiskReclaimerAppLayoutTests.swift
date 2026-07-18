@@ -573,7 +573,10 @@ final class MacDiskReclaimerAppLayoutTests: XCTestCase {
         XCTAssertTrue(app.contains("CloudStorageWorkspaceView(model: model)"))
         XCTAssertTrue(app.contains("Label(\"Discover Folders\", systemImage: \"magnifyingglass\")"))
         XCTAssertTrue(app.contains("Button(\"Add MEGA Folder\")"))
-        XCTAssertTrue(app.contains("Matching names or sizes alone will never be treated as duplicate proof."))
+        XCTAssertTrue(app.contains("Button(\"Confirm Folder\")"))
+        XCTAssertTrue(app.contains("Button(\"Analyze Metadata\")"))
+        XCTAssertTrue(app.contains("Allocated on this Mac"))
+        XCTAssertTrue(app.contains("Ryddi will not open or hash cloud files and risk hydration"))
         XCTAssertFalse(app.contains("import RyddiProtectAuth"))
     }
 

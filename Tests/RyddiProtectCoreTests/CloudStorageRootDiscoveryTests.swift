@@ -40,6 +40,15 @@ final class CloudStorageRootDiscoveryTests: XCTestCase {
         XCTAssertEqual(report.candidates.first?.origin, .userSelected)
     }
 
+    func testProviderRecognitionRequiresKnownNameBoundary() {
+        XCTAssertEqual(CloudStorageRootDiscovery.provider(forRootName: "Dropbox"), .dropbox)
+        XCTAssertEqual(CloudStorageRootDiscovery.provider(forRootName: "Dropbox-Personal"), .dropbox)
+        XCTAssertEqual(CloudStorageRootDiscovery.provider(forRootName: "GoogleDrive-user"), .googleDrive)
+        XCTAssertNil(CloudStorageRootDiscovery.provider(forRootName: "NotDropbox"))
+        XCTAssertNil(CloudStorageRootDiscovery.provider(forRootName: "DropboxArchive"))
+        XCTAssertNil(CloudStorageRootDiscovery.provider(forRootName: "GoogleDriveBackup"))
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

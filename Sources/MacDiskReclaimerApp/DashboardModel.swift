@@ -55,6 +55,9 @@ final class DashboardModel {
     var agentRetentionReport: AgentRetentionReport?
     var containerInventory: ContainerInventoryReport?
     var cloudStorageRootDiscovery: CloudStorageRootDiscoveryReport?
+    var selectedMegaCloudRoots: [URL] = []
+    var confirmedCloudStorageRoots: [String: CloudConfirmedStorageRoot] = [:]
+    var cloudLocalInventoryReports: [String: CloudLocalInventoryReport] = [:]
     var remoteTargets: [RemoteTargetReference] = []
     var remoteTargetInput = ""
     var remoteProbeReport: RemoteProbeReport?

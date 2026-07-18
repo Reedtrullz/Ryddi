@@ -140,10 +140,17 @@ public struct CloudStorageRootDiscovery: Sendable {
 
     public static func provider(forRootName name: String) -> CloudProviderKind? {
         let normalized = name.lowercased().replacingOccurrences(of: " ", with: "")
-        if normalized.contains("dropbox") { return .dropbox }
-        if normalized.contains("googledrive") { return .googleDrive }
-        if normalized == "mega" || normalized.hasPrefix("mega-") { return .mega }
+        if matchesProviderStem("dropbox", in: normalized) { return .dropbox }
+        if matchesProviderStem("googledrive", in: normalized) { return .googleDrive }
+        if matchesProviderStem("mega", in: normalized) { return .mega }
         return nil
+    }
+
+    private static func matchesProviderStem(_ stem: String, in value: String) -> Bool {
+        value == stem
+            || value.hasPrefix("\(stem)-")
+            || value.hasPrefix("\(stem)_")
+            || value.hasPrefix("\(stem)(")
     }
 
     private func addCandidate(

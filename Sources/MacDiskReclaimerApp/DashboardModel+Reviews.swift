@@ -6,10 +6,70 @@ extension DashboardModel {
     func discoverCloudStorageRoots(userSelectedMegaRoots: [URL] = []) async {
         let activityID = activities.begin(.review, message: "Discovering cloud folders")
         defer { activities.finish(.review, id: activityID) }
+        var seenMegaPaths = Set(selectedMegaCloudRoots.map(\.standardizedFileURL.path))
+        for root in userSelectedMegaRoots.map(\.standardizedFileURL)
+            where seenMegaPaths.insert(root.path).inserted {
+            selectedMegaCloudRoots.append(root)
+        }
+        let megaRoots = selectedMegaCloudRoots
         cloudStorageRootDiscovery = await Task.detached {
-            CloudStorageRootDiscovery().discover(userSelectedMegaRoots: userSelectedMegaRoots)
+            CloudStorageRootDiscovery().discover(userSelectedMegaRoots: megaRoots)
         }.value
+        let currentIDs = Set(cloudStorageRootDiscovery?.candidates.map(\.id) ?? [])
+        confirmedCloudStorageRoots = confirmedCloudStorageRoots.filter { currentIDs.contains($0.key) }
+        cloudLocalInventoryReports = cloudLocalInventoryReports.filter { currentIDs.contains($0.key) }
         error = nil
+    }
+
+    func confirmCloudStorageRoot(_ candidate: CloudStorageRootCandidate) {
+        do {
+            confirmedCloudStorageRoots[candidate.id] = try CloudStorageRootConfirmation.confirm(candidate)
+            cloudLocalInventoryReports[candidate.id] = nil
+            error = nil
+        } catch {
+            confirmedCloudStorageRoots[candidate.id] = nil
+            cloudLocalInventoryReports[candidate.id] = nil
+            self.error = error.localizedDescription
+        }
+    }
+
+    func unconfirmCloudStorageRoot(_ candidate: CloudStorageRootCandidate) {
+        confirmedCloudStorageRoots[candidate.id] = nil
+        cloudLocalInventoryReports[candidate.id] = nil
+    }
+
+    func forgetSelectedMegaCloudRoot(_ candidate: CloudStorageRootCandidate) {
+        guard candidate.origin == .userSelected else { return }
+        selectedMegaCloudRoots.removeAll { $0.standardizedFileURL.path == candidate.url.path }
+        unconfirmCloudStorageRoot(candidate)
+        guard let report = cloudStorageRootDiscovery else { return }
+        cloudStorageRootDiscovery = CloudStorageRootDiscoveryReport(
+            generatedAt: report.generatedAt,
+            cloudStorageContainer: report.cloudStorageContainer,
+            candidates: report.candidates.filter { $0.id != candidate.id },
+            rejectedSymlinks: report.rejectedSymlinks,
+            unreadableRoots: report.unreadableRoots,
+            nonClaims: report.nonClaims
+        )
+    }
+
+    func scanConfirmedCloudStorageRoot(_ candidate: CloudStorageRootCandidate) async {
+        guard let confirmedRoot = confirmedCloudStorageRoots[candidate.id] else {
+            error = "Confirm this cloud sync folder before analyzing its metadata."
+            return
+        }
+        let activityID = activities.begin(.review, message: "Analyzing local cloud metadata")
+        defer { activities.finish(.review, id: activityID) }
+        let report = await Task.detached {
+            CloudLocalInventoryScanner().scan(root: confirmedRoot)
+        }.value
+        cloudLocalInventoryReports[candidate.id] = report
+        if !report.resultsAreTrusted {
+            confirmedCloudStorageRoots[candidate.id] = nil
+            error = report.issues.map(\.label).joined(separator: " ")
+        } else {
+            error = nil
+        }
     }
 
     func checkActiveHandles() async {
