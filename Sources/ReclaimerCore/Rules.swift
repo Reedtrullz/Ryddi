@@ -227,6 +227,11 @@ public final class RuleEngine: @unchecked Sendable {
                     .appendingPathComponent($0, isDirectory: true)
                     .appendingPathComponent("rules.json")
             })
+            candidates.append(contentsOf: bundleNames.map {
+                standardizedRoot
+                    .appendingPathComponent($0, isDirectory: true)
+                    .appendingPathComponent("Contents/Resources/rules.json")
+            })
 
             for candidate in candidates {
                 let path = candidate.standardizedFileURL.path
