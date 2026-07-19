@@ -20,7 +20,7 @@ public final class FastScanner: @unchecked Sendable {
     private func scanOne(root: ScanRoot) async throws -> [ScanItem] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-        process.arguments = ["-sk", "-d", "1", root.path]
+        process.arguments = ["-k", "-d", "1", root.path]
         let pipe = Pipe(); process.standardOutput = pipe
         try process.run(); process.waitUntilExit()
         guard process.terminationStatus == 0,
