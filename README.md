@@ -1,10 +1,33 @@
 # Ryddi
 
-Local-first macOS disk space manager. Three things:
+Local-first macOS disk space manager. Free, open source, zero dependencies.
 
 - **Clean** — Find and delete caches, logs, and junk in one click
 - **Offload** — Move large folders to cloud storage, free local space
-- **Control** — Keep bloated programs (Colima, Xcode) from eating your disk
+- **Control** — Keep bloated programs (Colima, Xcode, Docker) from eating your disk
+
+## Install
+
+```bash
+git clone https://github.com/Reedtrullz/Ryddi.git
+cd Ryddi
+swift build --scratch-path .build -c release
+open .build/release/RyddiApp.app 2>/dev/null || .build/release/RyddiApp
+```
+
+Requires macOS 14+. Grant Full Disk Access in System Settings → Privacy & Security for best results.
+
+Or download the latest binary from [Releases](https://github.com/Reedtrullz/Ryddi/releases).
+
+## Features
+
+| Pillar | What it does |
+|--------|-------------|
+| Clean | Scans 23 cache/log/junk directories. Classifies with 34 rules. One-click move to Trash. Auto-selects safe items. |
+| Offload | Detects Dropbox, Google Drive, iCloud, MEGA, OneDrive. Copies large local folders. Offers to delete originals after verification. |
+| Control | Detects Colima, Xcode simulators, DerivedData, Docker, Trash. One-click shrink for safe ops. |
+
+**Also:** auto-scan on launch, emergency mode (<10 GB free), copy-to-clipboard reclaim report, custom scan paths, menu bar status, Full Disk Access guidance, keyboard shortcuts (⌘1/2/3), VoiceOver labels.
 
 ## Build
 
@@ -13,12 +36,8 @@ swift build --scratch-path .build
 swift test --scratch-path .build
 ```
 
-Runs on macOS 14+. No dependencies.
-
-## Why
-
-Modern Macs accumulate bloat: caches, old downloads, package-manager stores, VM disks, build artifacts. Some of it is safe to delete. Some needs review. Some you want to offload to cloud. Ryddi shows you what's what and lets you act.
+No dependencies. MIT license. No telemetry.
 
 ## Privacy
 
-No telemetry, no uploads, no remote analysis. Everything stays on your Mac. MIT license.
+Everything stays on your Mac. No uploads, no analytics, no remote analysis.
