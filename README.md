@@ -8,16 +8,11 @@ Local-first macOS disk space manager. Free, open source, zero dependencies.
 
 ## Install
 
-```bash
-git clone https://github.com/Reedtrullz/Ryddi.git
-cd Ryddi
-swift build --scratch-path .build -c release
-open .build/release/RyddiApp.app 2>/dev/null || .build/release/RyddiApp
-```
+**[Download Ryddi-v0.8.0-arm64.zip](https://github.com/Reedtrullz/Ryddi/releases/latest)** (260 KB)
 
-Requires macOS 14+. Grant Full Disk Access in System Settings → Privacy & Security for best results.
+Unzip and run `./RyddiApp`. Requires macOS 14+.
 
-Or download the latest binary from [Releases](https://github.com/Reedtrullz/Ryddi/releases).
+Or build from source:
 
 ## Features
 
