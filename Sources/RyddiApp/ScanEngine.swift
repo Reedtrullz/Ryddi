@@ -31,6 +31,11 @@ final class ScanEngine: ObservableObject {
     // Offload pillar
     @Published var cloudProviders: [CloudProvider] = []
     @Published var largeLocalFolders: [ScanItem] = []
+    @Published var isCopying = false
+    @Published var lastCopiedSource: String?
+    @Published var lastCopiedDest: String?
+    @Published var lastCopiedBytes: Int64 = 0
+    @Published var showDeleteOriginalsPrompt = false
 
     // Control pillar
     @Published var growers: [Grower] = []
@@ -55,6 +60,12 @@ final class ScanEngine: ObservableObject {
     }
 
     var safeTotalBytes: Int64 { safeItems.reduce(0) { $0 + $1.sizeBytes } }
+
+    var needsFullDiskAccess: Bool {
+        let test = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".Trash")
+        return !FileManager.default.isReadableFile(atPath: test.path)
+    }
 
     // MARK: - Full scan
 
@@ -136,12 +147,50 @@ final class ScanEngine: ObservableObject {
     }
 
     func copyToCloud(sourcePath: String, provider: CloudProvider) {
+        isCopying = true
+        defer { isCopying = false }
+
         let source = URL(fileURLWithPath: sourcePath)
         let dest = URL(fileURLWithPath: provider.syncFolderPath).appendingPathComponent(source.lastPathComponent)
         let task = Process(); task.executableURL = URL(fileURLWithPath: "/bin/cp")
         task.arguments = ["-R", source.path, dest.path]
         try? task.run(); task.waitUntilExit()
+
+        guard task.terminationStatus == 0,
+              FileManager.default.fileExists(atPath: dest.path) else {
+            errorMessage = "Copy failed. Check permissions and disk space."
+            return
+        }
+
+        let du = Process(); du.executableURL = URL(fileURLWithPath: "/usr/bin/du")
+        du.arguments = ["-sk", dest.path]
+        let pipe = Pipe(); du.standardOutput = pipe
+        try? du.run(); du.waitUntilExit()
+        if let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
+           let kb = Int64(out.split(separator: "\t").first ?? "0") {
+            lastCopiedBytes = kb * 1024
+        }
+
+        lastCopiedSource = sourcePath
+        lastCopiedDest = dest.path
+        showDeleteOriginalsPrompt = true
+    }
+
+    func deleteOriginalAfterCopy() {
+        guard let source = lastCopiedSource else { return }
+        try? FileManager.default.trashItem(at: URL(fileURLWithPath: source), resultingItemURL: nil)
+        lastCopiedSource = nil
+        lastCopiedDest = nil
+        lastCopiedBytes = 0
+        showDeleteOriginalsPrompt = false
         Task { await scanAll() }
+    }
+
+    func dismissCopyPrompt() {
+        lastCopiedSource = nil
+        lastCopiedDest = nil
+        lastCopiedBytes = 0
+        showDeleteOriginalsPrompt = false
     }
 
     // MARK: - Control
@@ -159,6 +208,8 @@ final class ScanEngine: ObservableObject {
              "Delete DerivedData", "rm -rf ~/Library/Developer/Xcode/DerivedData", true),
             ("Trash", home.appendingPathComponent(".Trash"),
              "Empty Trash", "Finder → Empty Trash", true),
+            ("Docker disk image", home.appendingPathComponent("Library/Containers/com.docker.docker/Data/vms/0/data"),
+             "Prune unused data", "docker system prune -a --volumes", false),
         ]
 
         for (name, path, action, command, isSafe) in defs {

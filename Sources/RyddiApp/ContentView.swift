@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import ReclaimerCore
 
 struct ContentView: View {
@@ -48,11 +49,27 @@ struct EmptyStateView: View {
             Text("Find space to reclaim").font(.title3)
             Text("Ryddi scans caches, cloud sync folders,\nand bloated programs to free local space.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
+
+            if engine.needsFullDiskAccess {
+                VStack(spacing: 6) {
+                    Label("Full Disk Access recommended", systemImage: "lock.shield")
+                        .foregroundStyle(.orange)
+                    Text("Grant in System Settings → Privacy & Security → Full Disk Access")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding()
+                .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            }
+
             Button(action: { Task { await engine.scanAll() } }) {
                 Label("Scan for Space", systemImage: "play.fill")
                     .padding(.horizontal, 24).padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent).controlSize(.large)
+
+            if let error = engine.errorMessage {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
         }.frame(maxHeight: .infinity)
     }
 }
@@ -134,6 +151,40 @@ struct OffloadPillar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Post-copy prompt
+            if engine.showDeleteOriginalsPrompt, let source = engine.lastCopiedSource {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Copy Complete", systemImage: "checkmark.circle.fill")
+                        .font(.headline).foregroundStyle(.green)
+                    Text("\"\(URL(fileURLWithPath: source).lastPathComponent)\" copied to cloud.")
+                        .font(.body)
+                    Text("\(ByteCountFormatter().string(fromByteCount: engine.lastCopiedBytes)) copied.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        Button("Show in Finder") {
+                            if let dest = engine.lastCopiedDest {
+                                NSWorkspace.shared.selectFile(dest, inFileViewerRootedAtPath: "")
+                            }
+                        }
+                        Button("Keep Local Copy") { engine.dismissCopyPrompt() }
+                        Button("Delete Local Original", role: .destructive) {
+                            engine.confirmationTitle = "Delete local original?"
+                            engine.confirmationMessage = "The cloud copy will remain. The local original moves to Trash."
+                            engine.confirmationIsDestructive = true
+                            engine.pendingAction = { engine.deleteOriginalAfterCopy() }
+                            engine.showConfirmation = true
+                        }
+                    }
+                }
+                .padding()
+                .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            if engine.isCopying {
+                HStack { ProgressView().controlSize(.small); Text("Copying...") }
+                    .padding(.vertical, 4)
+            }
+
             if !engine.cloudProviders.isEmpty {
                 Label("Cloud Sync Folders", systemImage: "externaldrive.fill.badge.icloud").font(.headline)
                 ForEach(engine.cloudProviders) { provider in
@@ -146,11 +197,7 @@ struct OffloadPillar: View {
                         }
                         Spacer()
                         Button("Open in Finder") {
-                            let url = URL(fileURLWithPath: provider.syncFolderPath)
-                            let task = Process()
-                            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-                            task.arguments = [url.path]
-                            try? task.run()
+                            NSWorkspace.shared.open(URL(fileURLWithPath: provider.syncFolderPath))
                         }.buttonStyle(.borderless)
                     }.padding(.vertical, 4)
                 }
@@ -182,7 +229,9 @@ struct OffloadPillar: View {
                                 }
                             } label: {
                                 Image(systemName: "ellipsis.circle")
-                            }.menuStyle(.borderlessButton).frame(width: 30)
+                            }
+                            .menuStyle(.borderlessButton).frame(width: 30)
+                            .disabled(engine.isCopying)
                         }
                     }.padding(.vertical, 4)
                 }

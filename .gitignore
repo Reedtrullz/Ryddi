@@ -24,6 +24,8 @@ dist/
 .hermes/
 .swiftpm/
 spikes/
+.superpowers/
+PONYTAIL_AUDIT.md
 
 # CocoaPods
 Pods/
