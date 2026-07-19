@@ -38,7 +38,7 @@ final class FastScannerTests: XCTestCase {
     func testRuleEngineClassifiesAutoSafe() throws {
         let engine = try RuleEngine.bundled()
         let classification = engine.classify(
-            path: "/Users/test/Library/Caches/Codex/Cache_Data/blob",
+            path: "/Users/test/Library/Caches/Homebrew/downloads/blob",
             isDirectory: false,
             isSymbolicLink: false
         )
