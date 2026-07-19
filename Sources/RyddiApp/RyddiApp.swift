@@ -8,7 +8,7 @@ struct RyddiApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(engine: engine)
-                .frame(minWidth: 520, minHeight: 600)
+                .frame(minWidth: 600, minHeight: 500)
                 .alert(engine.confirmationTitle, isPresented: $engine.showConfirmation) {
                     Button("Cancel", role: .cancel) {}
                     if engine.confirmationIsDestructive {
@@ -20,12 +20,14 @@ struct RyddiApp: App {
         }
 
         MenuBarExtra("Ryddi", systemImage: "leaf.circle.fill") {
-            if engine.safeItems.isEmpty {
+            if engine.isScanning && !engine.hasEverScanned {
+                Text("Scanning...").foregroundStyle(.secondary)
+            } else if engine.safeItems.isEmpty {
                 Text("Not scanned").foregroundStyle(.secondary)
             } else {
-                Text("Free space: \(formatBytes(freeBytes))")
+                Text("Free: \(formatBytes(freeBytes))")
                     .font(.headline)
-                Text("Safe to reclaim: \(formatBytes(engine.safeTotalBytes))")
+                Text("Reclaimable: \(formatBytes(engine.safeTotalBytes))")
                     .foregroundStyle(.green)
             }
             Divider()

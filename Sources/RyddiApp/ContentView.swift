@@ -7,27 +7,21 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Image(systemName: "leaf.circle.fill").font(.title).foregroundStyle(.green)
-                Text("Ryddi").font(.title2.bold())
-                Spacer()
-                if engine.isScanning { ProgressView().controlSize(.small) }
-                if !engine.items.isEmpty {
-                    Button(action: { engine.copyReclaimReport() }) {
-                        Label("Copy Report", systemImage: "doc.on.clipboard")
-                    }.buttonStyle(.borderless).labelStyle(.iconOnly)
-                    .help("Copy reclaim report to clipboard")
-                }
-            }.padding()
-
-            Divider()
-
-            if engine.items.isEmpty && !engine.isScanning {
+            if engine.items.isEmpty && !engine.hasEverScanned {
                 EmptyStateView(engine: engine)
             } else {
                 Picker("View", selection: $engine.activePillar) {
-                    Text("Clean").tag(0); Text("Offload").tag(1); Text("Control").tag(2)
-                }.pickerStyle(.segmented).padding(.horizontal)
+                    Text("Clean").tag(0).keyboardShortcut("1")
+                    Text("Offload").tag(1).keyboardShortcut("2")
+                    Text("Control").tag(2).keyboardShortcut("3")
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                if engine.isScanning {
+                    ProgressView("Scanning...").controlSize(.small).padding(.vertical, 4)
+                }
 
                 ScrollView {
                     switch engine.activePillar {
@@ -39,8 +33,24 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(minWidth: 520, minHeight: 600)
+        .frame(minWidth: 600, minHeight: 500)
         .onAppear { Task { await engine.scanAll() } }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                HStack {
+                    Image(systemName: "leaf.circle.fill").foregroundStyle(.green)
+                    Text("Ryddi").font(.headline)
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                if !engine.items.isEmpty {
+                    Button(action: { engine.copyReclaimReport() }) {
+                        Label("Copy Report", systemImage: "doc.on.clipboard")
+                    }.help("Copy reclaim report to clipboard")
+                }
+            }
+        }
+        .navigationTitle("")
     }
 }
 
@@ -51,59 +61,72 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "magnifyingglass.circle.fill")
-                .font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("Find space to reclaim").font(.title3)
-            Text("Ryddi scans caches, cloud sync folders,\nand bloated programs to free local space.")
+            Image(systemName: "leaf.circle.fill")
+                .font(.system(size: 64)).foregroundStyle(.green)
+            Text("Ryddi").font(.largeTitle.bold())
+            Text("Find and reclaim disk space")
+                .font(.title3).foregroundStyle(.secondary)
+            Text("Scans caches, cloud sync folders, and bloated programs.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
 
-            if engine.needsFullDiskAccess {
-                VStack(spacing: 6) {
-                    Label("Full Disk Access recommended", systemImage: "lock.shield")
-                        .foregroundStyle(.orange)
-                    Text("Grant in System Settings → Privacy & Security → Full Disk Access")
-                        .font(.caption).foregroundStyle(.secondary)
+            if engine.isScanning {
+                ProgressView("Scanning your Mac...").controlSize(.large).padding(.top, 8)
+            } else {
+                if engine.needsFullDiskAccess {
+                    VStack(spacing: 6) {
+                        Label("Full Disk Access recommended", systemImage: "lock.shield")
+                            .foregroundStyle(.orange)
+                        Text("Grant in System Settings → Privacy & Security → Full Disk Access")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 }
-                .padding()
-                .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-            }
 
-            Button(action: { Task { await engine.scanAll() } }) {
-                Label("Scan for Space", systemImage: "play.fill")
-                    .padding(.horizontal, 24).padding(.vertical, 10)
-            }
-            .buttonStyle(.borderedProminent).controlSize(.large)
+                Button(action: { Task { await engine.scanAll() } }) {
+                    Label("Scan for Space", systemImage: "play.fill")
+                        .padding(.horizontal, 24).padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent).controlSize(.large)
 
-            if let error = engine.errorMessage {
-                Text(error).font(.caption).foregroundStyle(.red)
-            }
-
-            // Custom paths
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Custom Paths", systemImage: "folder.badge.plus").font(.headline)
-                ForEach(engine.customPaths, id: \.self) { path in
-                    HStack {
-                        Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        Spacer()
-                        Button(action: { engine.removeCustomPath(path) }) {
-                            Image(systemName: "minus.circle.fill").foregroundStyle(.red)
+                if !engine.customPaths.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Custom Paths", systemImage: "folder.badge.plus").font(.headline)
+                        ForEach(engine.customPaths, id: \.self) { path in
+                            HStack {
+                                Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Spacer()
+                                Button(action: { engine.removeCustomPath(path) }) {
+                                    Image(systemName: "minus.circle.fill").foregroundStyle(.red)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Remove \(path)")
+                            }
+                        }
+                        Button(action: {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true
+                            panel.canChooseFiles = false
+                            panel.begin { response in
+                                if response == .OK, let url = panel.url {
+                                    engine.addCustomPath(url.path)
+                                }
+                            }
+                        }) {
+                            Label("Add Path", systemImage: "plus.circle")
                         }.buttonStyle(.borderless)
                     }
+                    .padding()
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 }
-                Button(action: {
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.begin { response in
-                        if response == .OK, let url = panel.url {
-                            engine.addCustomPath(url.path)
-                        }
-                    }
-                }) {
-                    Label("Add Path", systemImage: "plus.circle")
-                }.buttonStyle(.borderless)
-            }.padding(.top, 8)
-        }.frame(maxHeight: .infinity)
+            }
+
+            if let error = engine.errorMessage {
+                Text(error).font(.caption).foregroundStyle(.red).padding(.top, 8)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }
 
@@ -114,7 +137,6 @@ struct CleanPillar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Emergency banner
             if engine.isEmergency {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Low Disk Space", systemImage: "exclamationmark.triangle.fill")
@@ -158,46 +180,61 @@ struct CleanPillar: View {
                     .buttonStyle(.borderedProminent).tint(.green).controlSize(.large)
                 }
             }
-            .padding().background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            .padding()
+            .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
 
             ForEach(Bucket.allCases, id: \.self) { bucket in
                 let bucketItems = engine.items.filter { $0.bucket == bucket }
                 if !bucketItems.isEmpty {
-                    bucketSectionView(bucket: bucket, items: bucketItems)
+                    BucketSectionView(bucket: bucket, items: bucketItems, engine: engine)
                 }
             }
         }.padding()
     }
+}
 
-    func bucketSectionView(bucket: Bucket, items: [ScanItem]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("\(bucket.rawValue) (\(items.count) items)",
-                  systemImage: bucket == .safe ? "checkmark.circle.fill"
-                  : bucket == .review ? "eye.circle.fill" : "lock.circle.fill")
-                .font(.headline)
-                .foregroundStyle(bucket == .safe ? .green : bucket == .review ? .yellow : .red)
+struct BucketSectionView: View {
+    let bucket: Bucket
+    let items: [ScanItem]
+    @ObservedObject var engine: ScanEngine
 
-            ForEach(items) { item in
-                HStack {
-                    if bucket == .safe {
-                        Toggle("", isOn: Binding(
-                            get: { engine.selectedIDs.contains(item.id) },
-                            set: { s in if s { engine.selectedIDs.insert(item.id) } else { engine.selectedIDs.remove(item.id) } }
-                        )).toggleStyle(.checkbox).labelsHidden()
+    var body: some View {
+        List {
+            Section {
+                ForEach(items) { item in
+                    HStack {
+                        if bucket == .safe {
+                            Toggle(isOn: Binding(
+                                get: { engine.selectedIDs.contains(item.id) },
+                                set: { s in if s { engine.selectedIDs.insert(item.id) } else { engine.selectedIDs.remove(item.id) } }
+                            )) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name).font(.body)
+                                    Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                            .accessibilityLabel("Select \(item.name) for reclaim")
+                        } else {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.name).font(.body)
+                                Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        Text(ByteCountFormatter().string(fromByteCount: item.sizeBytes))
+                            .font(.body.monospacedDigit()).foregroundStyle(.secondary)
                     }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.name).font(.body)
-                        Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                    Text(ByteCountFormatter().string(fromByteCount: item.sizeBytes))
-                        .font(.body.monospacedDigit()).foregroundStyle(.secondary)
-                }.padding(.vertical, 2)
+                }
+            } header: {
+                Label("\(bucket.rawValue) (\(items.count) items)",
+                      systemImage: bucket == .safe ? "checkmark.circle.fill"
+                      : bucket == .review ? "eye.circle.fill" : "lock.circle.fill")
+                    .foregroundStyle(bucket == .safe ? .green : bucket == .review ? .yellow : .red)
             }
         }
-        .padding()
-        .background((bucket == .safe ? Color.green : bucket == .review ? Color.yellow : Color.red)
-            .opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .listStyle(.inset)
+        .frame(minHeight: min(CGFloat(items.count * 32), 300))
     }
 }
 
@@ -252,7 +289,7 @@ struct OffloadPillar: View {
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer()
-                        Button("Open in Finder") {
+                        Button("Show in Finder") {
                             NSWorkspace.shared.open(URL(fileURLWithPath: provider.syncFolderPath))
                         }.buttonStyle(.borderless)
                     }.padding(.vertical, 4)
