@@ -47,6 +47,7 @@ final class ScanEngine: ObservableObject {
     // Shared
     @Published var activePillar = 0
     @Published var isScanning = false
+    @Published var hasEverScanned = false
     @Published var errorMessage: String?
     @Published var showConfirmation = false
     @Published var confirmationTitle = ""
@@ -94,6 +95,7 @@ final class ScanEngine: ObservableObject {
             }
             items = try await scanner.scan(roots: roots)
             selectedIDs = Set(safeItems.map(\.id))
+            hasEverScanned = true
 
             cloudProviders = detectCloudProviders()
             largeLocalFolders = detectLargeLocalFolders()
