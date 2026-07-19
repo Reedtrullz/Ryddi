@@ -1,5 +1,85 @@
 import Foundation
 
+public struct Evidence: Codable, Hashable, Sendable {
+    public let kind: String
+    public let message: String
+
+    public init(kind: String, message: String) {
+        self.kind = kind; self.message = message
+    }
+}
+
+public struct RuleGateEvidence: Codable, Hashable, Sendable {
+    public let minimumAgeDays: Int?
+    public let retentionPolicy: String?
+    public let retentionDays: Int?
+    public let nativeToolName: String?
+    public let nativePreviewAvailable: Bool
+
+    public init(
+        minimumAgeDays: Int? = nil,
+        retentionPolicy: String? = nil,
+        retentionDays: Int? = nil,
+        nativeToolName: String? = nil,
+        nativePreviewAvailable: Bool = false
+    ) {
+        self.minimumAgeDays = minimumAgeDays
+        self.retentionPolicy = retentionPolicy
+        self.retentionDays = retentionDays
+        self.nativeToolName = nativeToolName
+        self.nativePreviewAvailable = nativePreviewAvailable
+    }
+}
+
+public enum PlanConditionKind: String, Codable, CaseIterable, Hashable, Sendable {
+    case openFileClear
+    case recursiveOpenFileClear
+    case userPolicyClear
+    case notSymbolicLink
+    case manualReviewRequired
+    case nativeToolRequired
+    case appQuitRequired
+    case minimumAgeRequired
+    case finalClassificationRequired
+}
+
+public struct RuleMatch: Codable, Hashable, Sendable {
+    public let ruleID: String
+    public let title: String
+    public let category: String
+    public let safetyClass: SafetyClass
+    public let actionKind: ActionKind
+    public let evidence: [String]
+    public let conditions: [String]
+    public let conditionGates: [PlanConditionKind]
+    public let gateEvidence: RuleGateEvidence
+    public let recovery: String?
+
+    public init(
+        ruleID: String,
+        title: String,
+        category: String,
+        safetyClass: SafetyClass,
+        actionKind: ActionKind,
+        evidence: [String],
+        conditions: [String] = [],
+        conditionGates: [PlanConditionKind] = [],
+        gateEvidence: RuleGateEvidence = RuleGateEvidence(),
+        recovery: String? = nil
+    ) {
+        self.ruleID = ruleID
+        self.title = title
+        self.category = category
+        self.safetyClass = safetyClass
+        self.actionKind = actionKind
+        self.evidence = evidence
+        self.conditions = conditions
+        self.conditionGates = conditionGates
+        self.gateEvidence = gateEvidence
+        self.recovery = recovery
+    }
+}
+
 public struct ReclaimerRuleFile: Codable, Sendable {
     public let version: String
     public let rules: [ReclaimerRule]
@@ -201,27 +281,6 @@ public final class RuleEngine: @unchecked Sendable {
         }
 
         return roots
-    }
-
-    public static func bundled(includingUserRules: Bool, userRuleStore: UserRulePackStore = UserRulePackStore()) throws -> RuleEngine {
-        let engine = try bundled()
-        guard includingUserRules else {
-            return engine
-        }
-        return try engine.includingUserRules(from: userRuleStore)
-    }
-
-    public func includingUserRules(from store: UserRulePackStore = UserRulePackStore()) throws -> RuleEngine {
-        try includingUserRules(store.loadValidatedRules())
-    }
-
-    public func includingUserRules(_ userRules: [ReclaimerRule]) -> RuleEngine {
-        let userIDs = Set(userRules.map(\.id))
-        return RuleEngine(
-            version: userRules.isEmpty ? version : "\(version)+user-rules",
-            rules: rules + userRules,
-            userRuleIDs: userRuleIDs.union(userIDs)
-        )
     }
 
     public func classify(path: String, isDirectory: Bool, isSymbolicLink: Bool) -> Classification {
