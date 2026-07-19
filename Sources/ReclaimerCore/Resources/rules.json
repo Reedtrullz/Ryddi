@@ -9,13 +9,23 @@
       "safetyClass": "neverTouch",
       "actionKind": "reportOnly",
       "match": {
-        "containsAny": ["/applications/"],
-        "suffixAny": [".app"],
+        "containsAny": [
+          "/applications/"
+        ],
+        "suffixAny": [
+          ".app"
+        ],
         "basenameAny": [],
-        "pathExtensionAny": ["app"]
+        "pathExtensionAny": [
+          "app"
+        ]
       },
-      "evidence": ["Application bundles should be uninstalled through an app manager or explicit user action, not bulk cleanup."],
-      "conditions": ["Manual uninstall only."],
+      "evidence": [
+        "Application bundles should be uninstalled through an app manager or explicit user action, not bulk cleanup."
+      ],
+      "conditions": [
+        "Manual uninstall only."
+      ],
       "recovery": "Reinstall from the vendor or App Store if removed manually."
     },
     {
@@ -26,13 +36,23 @@
       "safetyClass": "preserveByDefault",
       "actionKind": "reportOnly",
       "match": {
-        "containsAny": ["/documents/", "/desktop/", "/pictures/", "/movies/", "/music/"],
+        "containsAny": [
+          "/documents/",
+          "/desktop/",
+          "/pictures/",
+          "/movies/",
+          "/music/"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["User documents, media, and project files may contain unique personal work."],
-      "conditions": ["Manual review required."],
+      "evidence": [
+        "User documents, media, and project files may contain unique personal work."
+      ],
+      "conditions": [
+        "Manual review required."
+      ],
       "recovery": "Restore from backup if removed."
     },
     {
@@ -43,13 +63,22 @@
       "safetyClass": "preserveByDefault",
       "actionKind": "openGuidance",
       "match": {
-        "containsAny": ["garageband", "/logic/", "logic pro", "/audio/apple loops"],
+        "containsAny": [
+          "garageband",
+          "/logic/",
+          "logic pro",
+          "/audio/apple loops"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["GarageBand/Logic assets can be needed for instruments, loops, or piano workflows."],
-      "conditions": ["Use the app's sound-library manager or manual review."],
+      "evidence": [
+        "GarageBand/Logic assets can be needed for instruments, loops, or piano workflows."
+      ],
+      "conditions": [
+        "Use the app's sound-library manager or manual review."
+      ],
       "recovery": "Re-download from GarageBand or Logic sound library management."
     },
     {
@@ -60,13 +89,41 @@
       "safetyClass": "neverTouch",
       "actionKind": "reportOnly",
       "match": {
-        "containsAny": ["/.codex/memories", "/.codex/skills", "/.codex/plugins", "/.codex/computer-use"],
-        "suffixAny": ["/.codex/config.toml", "/.codex/auth.json", "/.codex/goals_1.sqlite", "/.codex/state_5.sqlite"],
-        "basenameAny": ["auth.json", "config.toml", "antigravity-credentials.json", "antigravity-accounts.json", "goals_1.sqlite", "goals_1.sqlite-wal", "goals_1.sqlite-shm", "state_5.sqlite", "state_5.sqlite-wal", "state_5.sqlite-shm", "memories_1.sqlite", "memories_1.sqlite-wal", "memories_1.sqlite-shm"],
+        "containsAny": [
+          "/.codex/memories",
+          "/.codex/skills",
+          "/.codex/plugins",
+          "/.codex/computer-use"
+        ],
+        "suffixAny": [
+          "/.codex/config.toml",
+          "/.codex/auth.json",
+          "/.codex/goals_1.sqlite",
+          "/.codex/state_5.sqlite"
+        ],
+        "basenameAny": [
+          "auth.json",
+          "config.toml",
+          "antigravity-credentials.json",
+          "antigravity-accounts.json",
+          "goals_1.sqlite",
+          "goals_1.sqlite-wal",
+          "goals_1.sqlite-shm",
+          "state_5.sqlite",
+          "state_5.sqlite-wal",
+          "state_5.sqlite-shm",
+          "memories_1.sqlite",
+          "memories_1.sqlite-wal",
+          "memories_1.sqlite-shm"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Codex identity, configuration, memories, skills, goals, and state are not cleanup targets."],
-      "conditions": ["Never remove automatically."],
+      "evidence": [
+        "Codex identity, configuration, memories, skills, goals, and state are not cleanup targets."
+      ],
+      "conditions": [
+        "Never remove automatically."
+      ],
       "recovery": "Restore from backup; some data may not be recoverable."
     },
     {
@@ -77,13 +134,20 @@
       "safetyClass": "preserveByDefault",
       "actionKind": "compress",
       "match": {
-        "containsAny": ["/.codex/sessions", "/.codex/archived_sessions"],
+        "containsAny": [
+          "/.codex/sessions",
+          "/.codex/archived_sessions"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Codex sessions can contain prompts, tool outputs, decisions, and recovery context."],
-      "conditions": ["Compress only after review and no open file handles."],
+      "evidence": [
+        "Codex sessions can contain prompts, tool outputs, decisions, and recovery context."
+      ],
+      "conditions": [
+        "Compress only after review and no open file handles."
+      ],
       "recovery": "Keep compressed transcript or restore from backup."
     },
     {
@@ -94,13 +158,27 @@
       "safetyClass": "reviewRequired",
       "actionKind": "reportOnly",
       "match": {
-        "containsAny": ["/.codex/logs_2.sqlite"],
-        "suffixAny": ["logs_2.sqlite", "logs_2.sqlite-wal", "logs_2.sqlite-shm"],
-        "basenameAny": ["logs_2.sqlite", "logs_2.sqlite-wal", "logs_2.sqlite-shm"],
+        "containsAny": [
+          "/.codex/logs_2.sqlite"
+        ],
+        "suffixAny": [
+          "logs_2.sqlite",
+          "logs_2.sqlite-wal",
+          "logs_2.sqlite-shm"
+        ],
+        "basenameAny": [
+          "logs_2.sqlite",
+          "logs_2.sqlite-wal",
+          "logs_2.sqlite-shm"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Codex diagnostic databases may be active and are useful for debugging app behavior."],
-      "conditions": ["Manual only; quit Codex and verify no open handles first."],
+      "evidence": [
+        "Codex diagnostic databases may be active and are useful for debugging app behavior."
+      ],
+      "conditions": [
+        "Manual only; quit Codex and verify no open handles first."
+      ],
       "recovery": "Codex may recreate logs, but historic diagnostics are lost."
     },
     {
@@ -111,17 +189,32 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "trash",
       "match": {
-        "containsAny": ["/library/logs/com.openai.codex"],
-        "suffixAny": [".log"],
+        "containsAny": [
+          "/library/logs/com.openai.codex"
+        ],
+        "suffixAny": [
+          ".log"
+        ],
         "basenameAny": [],
-        "pathExtensionAny": ["log"]
+        "pathExtensionAny": [
+          "log"
+        ]
       },
-      "evidence": ["Rotated Codex desktop logs are diagnostic noise compared with transcript history."],
-      "conditions": ["Skip current-day and open log files; keep a recent retention window."],
-      "conditionGates": ["openFileClear", "minimumAgeRequired", "finalClassificationRequired"],
+      "evidence": [
+        "Rotated Codex desktop logs are diagnostic noise compared with transcript history."
+      ],
+      "conditions": [
+        "Skip current-day and open log files; keep a recent retention window."
+      ],
+      "conditionGates": [
+        "openFileClear",
+        "minimumAgeRequired",
+        "finalClassificationRequired"
+      ],
       "gateEvidence": {
         "minimumAgeDays": 3,
-        "retentionPolicy": "Keep the most recent three days of desktop logs."
+        "retentionPolicy": "Keep the most recent three days of desktop logs.",
+        "nativePreviewAvailable": false
       },
       "recovery": "Logs are not generally recoverable after deletion."
     },
@@ -133,14 +226,24 @@
       "safetyClass": "autoSafe",
       "actionKind": "trash",
       "match": {
-        "containsAny": ["/library/caches/codex", "/.codex/.tmp", "/.codex/cache"],
+        "containsAny": [
+          "/library/caches/codex",
+          "/.codex/.tmp",
+          "/.codex/cache"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Codex cache/temp data is rebuildable; deletion may make the next start or plugin refresh slower."],
-      "conditions": ["Skip files open by Codex."],
-      "conditionGates": ["openFileClear"],
+      "evidence": [
+        "Codex cache/temp data is rebuildable; deletion may make the next start or plugin refresh slower."
+      ],
+      "conditions": [
+        "Skip files open by Codex."
+      ],
+      "conditionGates": [
+        "openFileClear"
+      ],
       "recovery": "Codex can regenerate these caches."
     },
     {
@@ -151,14 +254,23 @@
       "safetyClass": "reviewRequired",
       "actionKind": "openGuidance",
       "match": {
-        "containsAny": ["/x/com.google.chrome.code_sign_clone"],
+        "containsAny": [
+          "/x/com.google.chrome.code_sign_clone"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Chrome code-sign clones can share hard-linked executable storage; apparent folder size is not an independent reclaim promise."],
-      "conditions": ["Review the clone group, active Chrome handles, and preserved sibling paths before any manual removal."],
-      "conditionGates": ["manualReviewRequired", "finalClassificationRequired"],
+      "evidence": [
+        "Chrome code-sign clones can share hard-linked executable storage; apparent folder size is not an independent reclaim promise."
+      ],
+      "conditions": [
+        "Review the clone group, active Chrome handles, and preserved sibling paths before any manual removal."
+      ],
+      "conditionGates": [
+        "manualReviewRequired",
+        "finalClassificationRequired"
+      ],
       "recovery": "Keep one verified active helper and restore removed siblings from Chrome's updater if necessary."
     },
     {
@@ -169,13 +281,24 @@
       "safetyClass": "reviewRequired",
       "actionKind": "nativeToolCommand",
       "match": {
-        "containsAny": ["/.colima", "/.docker", "/library/containers/com.docker.docker"],
+        "containsAny": [
+          "/.colima",
+          "/.docker",
+          "/library/containers/com.docker.docker"
+        ],
         "suffixAny": [],
-        "basenameAny": ["docker.raw", "disk.img"],
+        "basenameAny": [
+          "docker.raw",
+          "disk.img"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Container runtime data may include images, volumes, local databases, and VM disks."],
-      "conditions": ["Use Docker/Colima prune/reset commands after reviewing project dependencies."],
+      "evidence": [
+        "Container runtime data may include images, volumes, local databases, and VM disks."
+      ],
+      "conditions": [
+        "Use Docker/Colima prune/reset commands after reviewing project dependencies."
+      ],
       "recovery": "Rebuild images/volumes only if source data exists elsewhere."
     },
     {
@@ -186,14 +309,27 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "nativeToolCommand",
       "match": {
-        "containsAny": ["docker build cache", "/.colima/docker", "/library/containers/com.docker.docker"],
+        "containsAny": [
+          "docker build cache",
+          "/.colima/docker",
+          "/library/containers/com.docker.docker"
+        ],
         "suffixAny": [],
-        "basenameAny": ["build cache"],
+        "basenameAny": [
+          "build cache"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Docker's native inventory can identify reclaimable build cache without touching VM disks, volumes, containers, or images."],
-      "conditions": ["Use the Docker builder preview and review the active Docker context before cleanup."],
-      "conditionGates": ["nativeToolRequired", "finalClassificationRequired"],
+      "evidence": [
+        "Docker's native inventory can identify reclaimable build cache without touching VM disks, volumes, containers, or images."
+      ],
+      "conditions": [
+        "Use the Docker builder preview and review the active Docker context before cleanup."
+      ],
+      "conditionGates": [
+        "nativeToolRequired",
+        "finalClassificationRequired"
+      ],
       "gateEvidence": {
         "nativeToolName": "docker builder prune",
         "nativePreviewAvailable": true
@@ -208,14 +344,22 @@
       "safetyClass": "autoSafe",
       "actionKind": "deleteCache",
       "match": {
-        "containsAny": ["/library/developer/xcode/deriveddata"],
+        "containsAny": [
+          "/library/developer/xcode/deriveddata"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Xcode DerivedData contains regenerated build products and indexes."],
-      "conditions": ["Skip if Xcode or build processes have open handles."],
-      "conditionGates": ["openFileClear"],
+      "evidence": [
+        "Xcode DerivedData contains regenerated build products and indexes."
+      ],
+      "conditions": [
+        "Skip if Xcode or build processes have open handles."
+      ],
+      "conditionGates": [
+        "openFileClear"
+      ],
       "recovery": "Xcode rebuilds DerivedData; the next build may be slower."
     },
     {
@@ -226,13 +370,24 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "deleteCache",
       "match": {
-        "containsAny": ["/library/developer/xcode/modulecache", "/library/developer/xcode/documentationcache", "/library/developer/xcode/products"],
+        "containsAny": [
+          "/library/developer/xcode/modulecache",
+          "/library/developer/xcode/documentationcache",
+          "/library/developer/xcode/products"
+        ],
         "suffixAny": [],
-        "basenameAny": ["modulecache.noindex", "documentationcache"],
+        "basenameAny": [
+          "modulecache.noindex",
+          "documentationcache"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Xcode module, product, and documentation caches are rebuildable developer cache data."],
-      "conditions": ["Quit Xcode and skip open build/index files."],
+      "evidence": [
+        "Xcode module, product, and documentation caches are rebuildable developer cache data."
+      ],
+      "conditions": [
+        "Quit Xcode and skip open build/index files."
+      ],
       "recovery": "Xcode rebuilds these caches; the next documentation lookup or build may be slower."
     },
     {
@@ -243,13 +398,25 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "trash",
       "match": {
-        "containsAny": ["/library/logs/coresimulator", "/library/developer/coresimulator/logs", "/library/developer/xcode/userdata/previews/simulator devices"],
-        "suffixAny": [".log"],
+        "containsAny": [
+          "/library/logs/coresimulator",
+          "/library/developer/coresimulator/logs",
+          "/library/developer/xcode/userdata/previews/simulator devices"
+        ],
+        "suffixAny": [
+          ".log"
+        ],
         "basenameAny": [],
-        "pathExtensionAny": ["log"]
+        "pathExtensionAny": [
+          "log"
+        ]
       },
-      "evidence": ["Old simulator and device logs are diagnostic history rather than app source or project state."],
-      "conditions": ["Quit Simulator/Xcode and keep recent diagnostic logs if actively debugging."],
+      "evidence": [
+        "Old simulator and device logs are diagnostic history rather than app source or project state."
+      ],
+      "conditions": [
+        "Quit Simulator/Xcode and keep recent diagnostic logs if actively debugging."
+      ],
       "recovery": "Logs are not generally recoverable after deletion."
     },
     {
@@ -260,13 +427,21 @@
       "safetyClass": "reviewRequired",
       "actionKind": "openGuidance",
       "match": {
-        "containsAny": ["/library/developer/xcode/archives", "/library/developer/xcode/ios devicesupport", "/library/developer/coresimulator"],
+        "containsAny": [
+          "/library/developer/xcode/archives",
+          "/library/developer/xcode/ios devicesupport",
+          "/library/developer/coresimulator"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Archives and device support can be useful for symbolication or device debugging."],
-      "conditions": ["Review versions before removal."],
+      "evidence": [
+        "Archives and device support can be useful for symbolication or device debugging."
+      ],
+      "conditions": [
+        "Review versions before removal."
+      ],
       "recovery": "Some symbols or archives may be difficult to recreate."
     },
     {
@@ -277,13 +452,23 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "nativeToolCommand",
       "match": {
-        "containsAny": ["/library/caches/org.swift.swiftpm", "/.swiftpm/cache", "/.build/repositories", "/.build/checkouts", "/.build/artifacts"],
+        "containsAny": [
+          "/library/caches/org.swift.swiftpm",
+          "/.swiftpm/cache",
+          "/.build/repositories",
+          "/.build/checkouts",
+          "/.build/artifacts"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["SwiftPM dependency caches and build artifacts are usually reproducible from package manifests."],
-      "conditions": ["Prefer project-level clean/build commands and skip active builds."],
+      "evidence": [
+        "SwiftPM dependency caches and build artifacts are usually reproducible from package manifests."
+      ],
+      "conditions": [
+        "Prefer project-level clean/build commands and skip active builds."
+      ],
       "recovery": "SwiftPM can fetch and rebuild dependencies when online."
     },
     {
@@ -294,13 +479,27 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "nativeToolCommand",
       "match": {
-        "containsAny": ["/library/caches/homebrew", "/.npm", "/library/pnpm/store", "/library/caches/yarn", "/.cargo/registry", "/go/pkg/mod", "/.gradle/caches", "/.m2/repository", "/library/caches/cocoapods"],
+        "containsAny": [
+          "/library/caches/homebrew",
+          "/.npm",
+          "/library/pnpm/store",
+          "/library/caches/yarn",
+          "/.cargo/registry",
+          "/go/pkg/mod",
+          "/.gradle/caches",
+          "/.m2/repository",
+          "/library/caches/cocoapods"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Package-manager caches are usually rebuildable, but native prune commands know their stores best."],
-      "conditions": ["Prefer native cleanup commands; skip active installs/builds."],
+      "evidence": [
+        "Package-manager caches are usually rebuildable, but native prune commands know their stores best."
+      ],
+      "conditions": [
+        "Prefer native cleanup commands; skip active installs/builds."
+      ],
       "recovery": "Packages can be re-downloaded when online."
     },
     {
@@ -311,14 +510,29 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "nativeToolCommand",
       "match": {
-        "containsAny": ["/.npm/_cacache", "library/caches/npm", "/.npm/_npx"],
+        "containsAny": [
+          "/.npm/_cacache",
+          "library/caches/npm",
+          "/.npm/_npx"
+        ],
         "suffixAny": [],
-        "basenameAny": ["_cacache", "_npx"],
+        "basenameAny": [
+          "_cacache",
+          "_npx"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["npm cache and npx sandboxes are shared download state; npm's own verify/clean commands know their layout."],
-      "conditions": ["Finish active installs and npx processes; preview npm cache state before clearing it."],
-      "conditionGates": ["nativeToolRequired", "openFileClear", "finalClassificationRequired"],
+      "evidence": [
+        "npm cache and npx sandboxes are shared download state; npm's own verify/clean commands know their layout."
+      ],
+      "conditions": [
+        "Finish active installs and npx processes; preview npm cache state before clearing it."
+      ],
+      "conditionGates": [
+        "nativeToolRequired",
+        "openFileClear",
+        "finalClassificationRequired"
+      ],
       "gateEvidence": {
         "nativeToolName": "npm cache clean",
         "nativePreviewAvailable": true
@@ -333,14 +547,25 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "deleteCache",
       "match": {
-        "containsAny": ["/application support/stremio-server/stremio-cache"],
+        "containsAny": [
+          "/application support/stremio-server/stremio-cache"
+        ],
         "suffixAny": [],
-        "basenameAny": ["stremio-cache"],
+        "basenameAny": [
+          "stremio-cache"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["The named Stremio cache leaf can be rebuilt; nearby server state and configuration remain protected by their own paths."],
-      "conditions": ["Quit Stremio server and skip open cache files."],
-      "conditionGates": ["openFileClear", "finalClassificationRequired"],
+      "evidence": [
+        "The named Stremio cache leaf can be rebuilt; nearby server state and configuration remain protected by their own paths."
+      ],
+      "conditions": [
+        "Quit Stremio server and skip open cache files."
+      ],
+      "conditionGates": [
+        "openFileClear",
+        "finalClassificationRequired"
+      ],
       "recovery": "Stremio recreates cache data as media is indexed or played."
     },
     {
@@ -352,12 +577,20 @@
       "actionKind": "openGuidance",
       "match": {
         "containsAny": [],
-        "suffixAny": ["/node_modules"],
-        "basenameAny": ["node_modules"],
+        "suffixAny": [
+          "/node_modules"
+        ],
+        "basenameAny": [
+          "node_modules"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["node_modules is rebuildable from lockfiles in many projects, but deleting it can interrupt local development and offline work."],
-      "conditions": ["Review the project and package manager before removal."],
+      "evidence": [
+        "node_modules is rebuildable from lockfiles in many projects, but deleting it can interrupt local development and offline work."
+      ],
+      "conditions": [
+        "Review the project and package manager before removal."
+      ],
       "recovery": "Run the project package-manager install command if the lockfile and registry access are available."
     },
     {
@@ -368,13 +601,21 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "deleteCache",
       "match": {
-        "containsAny": ["/library/caches/ms-playwright"],
+        "containsAny": [
+          "/library/caches/ms-playwright"
+        ],
         "suffixAny": [],
-        "basenameAny": ["ms-playwright"],
+        "basenameAny": [
+          "ms-playwright"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Playwright browser binaries are large and reproducible from Playwright install commands."],
-      "conditions": ["Skip active test runs and expect the next Playwright install/test setup to re-download browsers."],
+      "evidence": [
+        "Playwright browser binaries are large and reproducible from Playwright install commands."
+      ],
+      "conditions": [
+        "Skip active test runs and expect the next Playwright install/test setup to re-download browsers."
+      ],
       "recovery": "Run `npx playwright install` or the project's documented Playwright install command."
     },
     {
@@ -385,13 +626,30 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "deleteCache",
       "match": {
-        "containsAny": ["/library/application support/code/cache", "/library/application support/code/cacheddata", "/library/application support/code/cachedextensionvsixs", "/library/application support/cursor/cache", "/library/application support/cursor/cacheddata", "/library/application support/windsurf/cache", "/library/application support/windsurf/cacheddata", "/library/caches/jetbrains", "/library/logs/jetbrains"],
+        "containsAny": [
+          "/library/application support/code/cache",
+          "/library/application support/code/cacheddata",
+          "/library/application support/code/cachedextensionvsixs",
+          "/library/application support/cursor/cache",
+          "/library/application support/cursor/cacheddata",
+          "/library/application support/windsurf/cache",
+          "/library/application support/windsurf/cacheddata",
+          "/library/caches/jetbrains",
+          "/library/logs/jetbrains"
+        ],
         "suffixAny": [],
-        "basenameAny": ["cachedextensionvsixs", "cacheddata"],
+        "basenameAny": [
+          "cachedextensionvsixs",
+          "cacheddata"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Editor caches and downloaded extension packages are usually rebuildable, unlike settings, keybindings, projects, and workspaces."],
-      "conditions": ["Quit the editor and skip open files before removal."],
+      "evidence": [
+        "Editor caches and downloaded extension packages are usually rebuildable, unlike settings, keybindings, projects, and workspaces."
+      ],
+      "conditions": [
+        "Quit the editor and skip open files before removal."
+      ],
       "recovery": "The editor can regenerate caches; extensions may need to be re-downloaded."
     },
     {
@@ -402,13 +660,23 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "nativeToolCommand",
       "match": {
-        "containsAny": ["/library/caches/google/androidstudio", "/.gradle/caches", "/.pub-cache"],
+        "containsAny": [
+          "/library/caches/google/androidstudio",
+          "/.gradle/caches",
+          "/.pub-cache"
+        ],
         "suffixAny": [],
-        "basenameAny": [".pub-cache"],
+        "basenameAny": [
+          ".pub-cache"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Android Studio, Gradle, and Flutter package caches are often rebuildable but are best cleaned through native tooling."],
-      "conditions": ["Skip active builds and prefer Gradle/Flutter/Android Studio cleanup commands."],
+      "evidence": [
+        "Android Studio, Gradle, and Flutter package caches are often rebuildable but are best cleaned through native tooling."
+      ],
+      "conditions": [
+        "Skip active builds and prefer Gradle/Flutter/Android Studio cleanup commands."
+      ],
       "recovery": "Packages and build artifacts can usually be re-downloaded when online."
     },
     {
@@ -419,13 +687,20 @@
       "safetyClass": "reviewRequired",
       "actionKind": "openGuidance",
       "match": {
-        "containsAny": ["/library/android/sdk", "/.android/avd"],
+        "containsAny": [
+          "/library/android/sdk",
+          "/.android/avd"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Android SDKs and emulator images can be large, but removing them may break installed toolchains and device targets."],
-      "conditions": ["Review installed SDK platforms/emulators in Android Studio or sdkmanager before removal."],
+      "evidence": [
+        "Android SDKs and emulator images can be large, but removing them may break installed toolchains and device targets."
+      ],
+      "conditions": [
+        "Review installed SDK platforms/emulators in Android Studio or sdkmanager before removal."
+      ],
       "recovery": "Reinstall SDK platforms and emulator images through Android Studio or sdkmanager."
     },
     {
@@ -436,13 +711,22 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "trash",
       "match": {
-        "containsAny": ["/library/caches/google/chrome", "/library/caches/com.google.chrome", "/library/caches/firefox", "/library/caches/com.apple.safari"],
+        "containsAny": [
+          "/library/caches/google/chrome",
+          "/library/caches/com.google.chrome",
+          "/library/caches/firefox",
+          "/library/caches/com.apple.safari"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Browser cache data is usually rebuildable, unlike browser profiles, cookies, bookmarks, and history."],
-      "conditions": ["Quit the browser and verify no open handles."],
+      "evidence": [
+        "Browser cache data is usually rebuildable, unlike browser profiles, cookies, bookmarks, and history."
+      ],
+      "conditions": [
+        "Quit the browser and verify no open handles."
+      ],
       "recovery": "Browser cache rebuilds as sites are visited."
     },
     {
@@ -453,13 +737,26 @@
       "safetyClass": "preserveByDefault",
       "actionKind": "openGuidance",
       "match": {
-        "containsAny": ["/library/application support/google/chrome", "/library/application support/firefox", "/library/safari"],
+        "containsAny": [
+          "/library/application support/google/chrome",
+          "/library/application support/firefox",
+          "/library/safari"
+        ],
         "suffixAny": [],
-        "basenameAny": ["bookmarks", "history", "cookies", "login data"],
+        "basenameAny": [
+          "bookmarks",
+          "history",
+          "cookies",
+          "login data"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Browser profiles can contain bookmarks, cookies, extensions, passwords, and history."],
-      "conditions": ["Use browser UI or profile manager."],
+      "evidence": [
+        "Browser profiles can contain bookmarks, cookies, extensions, passwords, and history."
+      ],
+      "conditions": [
+        "Use browser UI or profile manager."
+      ],
       "recovery": "Restore from browser sync or backup if available."
     },
     {
@@ -470,18 +767,32 @@
       "safetyClass": "autoSafe",
       "actionKind": "trash",
       "match": {
-        "containsAny": ["/private/tmp/vifty", "/private/tmp/codex", "/private/tmp/swift-package", "/private/tmp/xcode"],
+        "containsAny": [
+          "/private/tmp/vifty",
+          "/private/tmp/codex",
+          "/private/tmp/swift-package",
+          "/private/tmp/xcode"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Known temporary build/scratch prefix under /private/tmp."],
-      "conditions": ["Only delete stale paths with no open handles."],
-      "conditionGates": ["openFileClear", "minimumAgeRequired", "finalClassificationRequired"],
+      "evidence": [
+        "Known temporary build/scratch prefix under /private/tmp."
+      ],
+      "conditions": [
+        "Only delete stale paths with no open handles."
+      ],
+      "conditionGates": [
+        "openFileClear",
+        "minimumAgeRequired",
+        "finalClassificationRequired"
+      ],
       "gateEvidence": {
         "minimumAgeDays": 14,
         "retentionPolicy": "stale-build-scratch-14-day",
-        "retentionDays": 14
+        "retentionDays": 14,
+        "nativePreviewAvailable": false
       },
       "recovery": "Temporary scratch data is expected to be recreated."
     },
@@ -493,13 +804,23 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "trash",
       "match": {
-        "containsAny": ["/library/logs/"],
-        "suffixAny": [".log"],
+        "containsAny": [
+          "/library/logs/"
+        ],
+        "suffixAny": [
+          ".log"
+        ],
         "basenameAny": [],
-        "pathExtensionAny": ["log"]
+        "pathExtensionAny": [
+          "log"
+        ]
       },
-      "evidence": ["Logs are usually diagnostic history rather than user data."],
-      "conditions": ["Keep recent logs and skip open files."],
+      "evidence": [
+        "Logs are usually diagnostic history rather than user data."
+      ],
+      "conditions": [
+        "Keep recent logs and skip open files."
+      ],
       "recovery": "Old logs are generally not recoverable."
     },
     {
@@ -510,13 +831,19 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "deleteCache",
       "match": {
-        "containsAny": ["/library/caches/"],
+        "containsAny": [
+          "/library/caches/"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["The macOS Library Caches directory is intended for data that can be regenerated."],
-      "conditions": ["Skip running apps and unknown profile data."],
+      "evidence": [
+        "The macOS Library Caches directory is intended for data that can be regenerated."
+      ],
+      "conditions": [
+        "Skip running apps and unknown profile data."
+      ],
       "recovery": "Apps recreate caches as needed."
     },
     {
@@ -527,13 +854,36 @@
       "safetyClass": "neverTouch",
       "actionKind": "reportOnly",
       "match": {
-        "containsAny": ["/.hermes/config.yaml", "/.hermes/.env", "/.hermes/auth.json", "/.hermes/memories", "/.hermes/skills", "/.hermes/plugins", "/.hermes/cron", "/.hermes/profiles"],
-        "suffixAny": [".yaml", ".json", ".env", ".toml"],
-        "basenameAny": ["config.yaml", ".env", "auth.json", "credentials.json"],
+        "containsAny": [
+          "/.hermes/config.yaml",
+          "/.hermes/.env",
+          "/.hermes/auth.json",
+          "/.hermes/memories",
+          "/.hermes/skills",
+          "/.hermes/plugins",
+          "/.hermes/cron",
+          "/.hermes/profiles"
+        ],
+        "suffixAny": [
+          ".yaml",
+          ".json",
+          ".env",
+          ".toml"
+        ],
+        "basenameAny": [
+          "config.yaml",
+          ".env",
+          "auth.json",
+          "credentials.json"
+        ],
         "pathExtensionAny": []
       },
-      "evidence": ["Hermes identity, configuration, memories, skills, profiles, and secrets are not cleanup targets."],
-      "conditions": ["Never remove automatically."],
+      "evidence": [
+        "Hermes identity, configuration, memories, skills, profiles, and secrets are not cleanup targets."
+      ],
+      "conditions": [
+        "Never remove automatically."
+      ],
       "recovery": "Restore from backup; some data may not be recoverable."
     },
     {
@@ -544,13 +894,25 @@
       "safetyClass": "preserveByDefault",
       "actionKind": "openGuidance",
       "match": {
-        "containsAny": ["/.hermes/sessions"],
-        "suffixAny": [".jsonl", ".json"],
+        "containsAny": [
+          "/.hermes/sessions"
+        ],
+        "suffixAny": [
+          ".jsonl",
+          ".json"
+        ],
         "basenameAny": [],
-        "pathExtensionAny": ["jsonl", "json"]
+        "pathExtensionAny": [
+          "jsonl",
+          "json"
+        ]
       },
-      "evidence": ["Hermes sessions can contain prompts, tool outputs, decisions, and recovery context."],
-      "conditions": ["Use `hermes sessions prune --older-than N` or `hermes sessions list` before manual removal."],
+      "evidence": [
+        "Hermes sessions can contain prompts, tool outputs, decisions, and recovery context."
+      ],
+      "conditions": [
+        "Use `hermes sessions prune --older-than N` or `hermes sessions list` before manual removal."
+      ],
       "recovery": "Keep compressed transcript or restore from backup."
     },
     {
@@ -561,14 +923,35 @@
       "safetyClass": "reviewRequired",
       "actionKind": "nativeToolCommand",
       "match": {
-        "containsAny": ["/.hermes/state.db"],
-        "suffixAny": ["state.db", "state.db-wal", "state.db-shm"],
-        "basenameAny": ["state.db", "state.db-wal", "state.db-shm"],
-        "pathExtensionAny": ["db", "db-wal", "db-shm"]
+        "containsAny": [
+          "/.hermes/state.db"
+        ],
+        "suffixAny": [
+          "state.db",
+          "state.db-wal",
+          "state.db-shm"
+        ],
+        "basenameAny": [
+          "state.db",
+          "state.db-wal",
+          "state.db-shm"
+        ],
+        "pathExtensionAny": [
+          "db",
+          "db-wal",
+          "db-shm"
+        ]
       },
-      "evidence": ["Hermes session database can grow large from abandoned sessions and stale FTS indexes. Use `hermes sessions prune --older-than 30` then `sqlite3 ~/.hermes/state.db VACUUM` to reclaim space."],
-      "conditions": ["Quit Hermes before maintenance. Prune sessions first, then VACUUM. Do not delete the database directly."],
-      "conditionGates": ["nativeToolRequired", "manualReviewRequired"],
+      "evidence": [
+        "Hermes session database can grow large from abandoned sessions and stale FTS indexes. Use `hermes sessions prune --older-than 30` then `sqlite3 ~/.hermes/state.db VACUUM` to reclaim space."
+      ],
+      "conditions": [
+        "Quit Hermes before maintenance. Prune sessions first, then VACUUM. Do not delete the database directly."
+      ],
+      "conditionGates": [
+        "nativeToolRequired",
+        "manualReviewRequired"
+      ],
       "gateEvidence": {
         "nativeToolName": "hermes sessions prune / sqlite3 VACUUM",
         "nativePreviewAvailable": false
@@ -583,17 +966,32 @@
       "safetyClass": "safeAfterCondition",
       "actionKind": "trash",
       "match": {
-        "containsAny": ["/.hermes/logs"],
-        "suffixAny": [".log"],
+        "containsAny": [
+          "/.hermes/logs"
+        ],
+        "suffixAny": [
+          ".log"
+        ],
         "basenameAny": [],
-        "pathExtensionAny": ["log"]
+        "pathExtensionAny": [
+          "log"
+        ]
       },
-      "evidence": ["Hermes logs are diagnostic history; keep recent logs and skip the active gateway log."],
-      "conditions": ["Skip current-day and open log files; keep a recent retention window."],
-      "conditionGates": ["openFileClear", "minimumAgeRequired", "finalClassificationRequired"],
+      "evidence": [
+        "Hermes logs are diagnostic history; keep recent logs and skip the active gateway log."
+      ],
+      "conditions": [
+        "Skip current-day and open log files; keep a recent retention window."
+      ],
+      "conditionGates": [
+        "openFileClear",
+        "minimumAgeRequired",
+        "finalClassificationRequired"
+      ],
       "gateEvidence": {
         "minimumAgeDays": 3,
-        "retentionPolicy": "Keep the most recent three days of Hermes logs."
+        "retentionPolicy": "Keep the most recent three days of Hermes logs.",
+        "nativePreviewAvailable": false
       },
       "recovery": "Logs are not generally recoverable after deletion."
     },
@@ -605,14 +1003,24 @@
       "safetyClass": "autoSafe",
       "actionKind": "trash",
       "match": {
-        "containsAny": ["/.hermes/cache", "/.hermes/tmp", "/.hermes/hermes-agent/.build"],
+        "containsAny": [
+          "/.hermes/cache",
+          "/.hermes/tmp",
+          "/.hermes/hermes-agent/.build"
+        ],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
-      "evidence": ["Hermes cache and build artifacts are rebuildable."],
-      "conditions": ["Skip files open by Hermes."],
-      "conditionGates": ["openFileClear"],
+      "evidence": [
+        "Hermes cache and build artifacts are rebuildable."
+      ],
+      "conditions": [
+        "Skip files open by Hermes."
+      ],
+      "conditionGates": [
+        "openFileClear"
+      ],
       "recovery": "Hermes can regenerate these caches."
     }
   ]
