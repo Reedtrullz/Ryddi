@@ -12,6 +12,12 @@ struct ContentView: View {
                 Text("Ryddi").font(.title2.bold())
                 Spacer()
                 if engine.isScanning { ProgressView().controlSize(.small) }
+                if !engine.items.isEmpty {
+                    Button(action: { engine.copyReclaimReport() }) {
+                        Label("Copy Report", systemImage: "doc.on.clipboard")
+                    }.buttonStyle(.borderless).labelStyle(.iconOnly)
+                    .help("Copy reclaim report to clipboard")
+                }
             }.padding()
 
             Divider()
@@ -34,6 +40,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 600)
+        .onAppear { Task { await engine.scanAll() } }
     }
 }
 
@@ -70,6 +77,32 @@ struct EmptyStateView: View {
             if let error = engine.errorMessage {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
+
+            // Custom paths
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Custom Paths", systemImage: "folder.badge.plus").font(.headline)
+                ForEach(engine.customPaths, id: \.self) { path in
+                    HStack {
+                        Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Spacer()
+                        Button(action: { engine.removeCustomPath(path) }) {
+                            Image(systemName: "minus.circle.fill").foregroundStyle(.red)
+                        }.buttonStyle(.borderless)
+                    }
+                }
+                Button(action: {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.begin { response in
+                        if response == .OK, let url = panel.url {
+                            engine.addCustomPath(url.path)
+                        }
+                    }
+                }) {
+                    Label("Add Path", systemImage: "plus.circle")
+                }.buttonStyle(.borderless)
+            }.padding(.top, 8)
         }.frame(maxHeight: .infinity)
     }
 }
@@ -81,16 +114,39 @@ struct CleanPillar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Emergency banner
+            if engine.isEmergency {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Low Disk Space", systemImage: "exclamationmark.triangle.fill")
+                        .font(.headline).foregroundStyle(.orange)
+                    Text("Less than 10 GB free. Use Emergency Clean to quickly reclaim space.")
+                        .font(.caption)
+                    Button(action: {
+                        engine.confirmationTitle = "Emergency Clean?"
+                        engine.confirmationMessage = "All safe items (\(ByteCountFormatter().string(fromByteCount: engine.safeTotalBytes))) will be moved to Trash."
+                        engine.confirmationIsDestructive = true
+                        engine.pendingAction = { engine.emergencyReclaim() }
+                        engine.showConfirmation = true
+                    }) {
+                        Label("Emergency Clean — reclaim \(ByteCountFormatter().string(fromByteCount: engine.safeTotalBytes))", systemImage: "bolt.fill")
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                    }
+                    .buttonStyle(.borderedProminent).tint(.orange).controlSize(.large)
+                }
+                .padding()
+                .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            }
+
             HStack {
                 VStack(alignment: .leading) {
                     Text("Safe to reclaim").font(.headline)
-                    Text(formatBytes(engine.selectedReclaimBytes))
+                    Text(ByteCountFormatter().string(fromByteCount: engine.selectedReclaimBytes))
                         .font(.largeTitle.bold()).foregroundStyle(.green)
                 }
                 Spacer()
                 if engine.selectedReclaimBytes > 0 {
                     Button(action: {
-                        engine.confirmationTitle = "Reclaim \(formatBytes(engine.selectedReclaimBytes))?"
+                        engine.confirmationTitle = "Reclaim \(ByteCountFormatter().string(fromByteCount: engine.selectedReclaimBytes))?"
                         engine.confirmationMessage = "\(engine.selectedIDs.count) items will be moved to Trash."
                         engine.confirmationIsDestructive = true
                         engine.pendingAction = { engine.reclaim() }
@@ -134,7 +190,8 @@ struct CleanPillar: View {
                         Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer()
-                    Text(formatBytes(item.sizeBytes)).font(.body.monospacedDigit()).foregroundStyle(.secondary)
+                    Text(ByteCountFormatter().string(fromByteCount: item.sizeBytes))
+                        .font(.body.monospacedDigit()).foregroundStyle(.secondary)
                 }.padding(.vertical, 2)
             }
         }
@@ -151,7 +208,6 @@ struct OffloadPillar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Post-copy prompt
             if engine.showDeleteOriginalsPrompt, let source = engine.lastCopiedSource {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Copy Complete", systemImage: "checkmark.circle.fill")
@@ -215,7 +271,7 @@ struct OffloadPillar: View {
                             Text(folder.path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer()
-                        Text(formatBytes(folder.sizeBytes)).font(.body.monospacedDigit())
+                        Text(ByteCountFormatter().string(fromByteCount: folder.sizeBytes)).font(.body.monospacedDigit())
                         if !engine.cloudProviders.isEmpty {
                             Menu {
                                 ForEach(engine.cloudProviders) { provider in
@@ -263,7 +319,7 @@ struct ControlPillar: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(grower.name).font(.body)
-                            Text("Using \(formatBytes(grower.sizeBytes))")
+                            Text("Using \(ByteCountFormatter().string(fromByteCount: grower.sizeBytes))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -286,10 +342,4 @@ struct ControlPillar: View {
             }
         }.padding()
     }
-}
-
-// MARK: - Helpers
-
-private func formatBytes(_ bytes: Int64) -> String {
-    ByteCountFormatter().string(fromByteCount: bytes)
 }
