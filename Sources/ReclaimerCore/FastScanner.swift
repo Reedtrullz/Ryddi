@@ -32,10 +32,14 @@ public final class FastScanner: @unchecked Sendable {
             guard parts.count >= 2, let kb = Int64(parts[0]) else { return nil }
             let childPath = String(parts[1])
             let c = ruleEngine.classify(path: childPath, isDirectory: true, isSymbolicLink: false)
-            let bucket: Bucket = switch c.safetyClass {
+            var bucket: Bucket = switch c.safetyClass {
             case .autoSafe, .safeAfterCondition: .safe
             case .preserveByDefault, .reviewRequired: .review
             case .neverTouch: .blocked
+            }
+            // ponytail: unmatched paths under known cache/log/trash dirs are safe
+            if bucket == .review && isUnderSafeParent(childPath) {
+                bucket = .safe
             }
             return ScanItem(
                 name: URL(fileURLWithPath: childPath).lastPathComponent,
@@ -44,6 +48,18 @@ public final class FastScanner: @unchecked Sendable {
                 ruleTitle: c.matches.first?.title ?? "Unclassified"
             )
         }
+    }
+
+    private func isUnderSafeParent(_ path: String) -> Bool {
+        let lower = path.lowercased()
+        let safeParents = [
+            "/library/caches/", "/.npm", "/.cargo", "/.gradle/caches",
+            "/library/developer/xcode/deriveddata", "/library/developer/xcode/archives",
+            "/.pub-cache", "/library/caches/ms-playwright", "/.bun/install/cache",
+            "/library/pnpm/store", "/.local/share/fnm", "/.cache/lm-studio",
+            "/library/logs/", "/.trash",
+        ]
+        return safeParents.contains(where: { lower.contains($0) })
     }
 
     public static func defaultRoots(
