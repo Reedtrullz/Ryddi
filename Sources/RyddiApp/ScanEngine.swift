@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import ReclaimerCore
 
 // MARK: - Cloud offload models
@@ -40,6 +41,9 @@ final class ScanEngine: ObservableObject {
     // Control pillar
     @Published var growers: [Grower] = []
 
+    // Custom paths
+    @Published var customPaths: [String] = UserDefaults.standard.stringArray(forKey: "customPaths") ?? []
+
     // Shared
     @Published var activePillar = 0
     @Published var isScanning = false
@@ -49,6 +53,7 @@ final class ScanEngine: ObservableObject {
     @Published var confirmationMessage = ""
     @Published var confirmationIsDestructive = false
     @Published var pendingAction: (() -> Void)?
+    @Published var reclaimReportText: String?
 
     var safeItems: [ScanItem] { items.filter { $0.bucket == .safe } }
     var reviewItems: [ScanItem] { items.filter { $0.bucket == .review } }
@@ -67,6 +72,12 @@ final class ScanEngine: ObservableObject {
         return !FileManager.default.isReadableFile(atPath: test.path)
     }
 
+    var isEmergency: Bool {
+        let url = URL(fileURLWithPath: "/System/Volumes/Data")
+        let vals = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return (vals?.volumeAvailableCapacityForImportantUsage ?? Int64.max) < 10_737_418_240 // 10 GB
+    }
+
     // MARK: - Full scan
 
     func scanAll() async {
@@ -77,7 +88,10 @@ final class ScanEngine: ObservableObject {
             let engine = try RuleEngine.bundled()
             let scanner = FastScanner(ruleEngine: engine)
 
-            let roots = FastScanner.defaultRoots()
+            var roots = FastScanner.defaultRoots()
+            for path in customPaths {
+                roots.append(ScanRoot(name: URL(fileURLWithPath: path).lastPathComponent, path: path))
+            }
             items = try await scanner.scan(roots: roots)
             selectedIDs = Set(safeItems.map(\.id))
 
@@ -96,6 +110,76 @@ final class ScanEngine: ObservableObject {
         for item in toTrash {
             try? FileManager.default.trashItem(at: URL(fileURLWithPath: item.path), resultingItemURL: nil)
         }
+        Task { await scanAll() }
+    }
+
+    func emergencyReclaim() {
+        selectedIDs = Set(safeItems.map(\.id))
+        reclaim()
+    }
+
+    func generateReclaimReport() -> String {
+        let fmt = ByteCountFormatter()
+        var report = "🧹 Ryddi reclaim report\n"
+        report += "Reclaimed: \(fmt.string(fromByteCount: safeTotalBytes))\n"
+
+        if !safeItems.isEmpty {
+            report += "\nClean:\n"
+            for item in safeItems.prefix(8) {
+                report += "  \(fmt.string(fromByteCount: item.sizeBytes).padding(toLength: 8, withPad: " ", startingAt: 0)) \(item.name)\n"
+            }
+            if safeItems.count > 8 {
+                report += "  ... and \(safeItems.count - 8) more\n"
+            }
+        }
+
+        let copiedItems = largeLocalFolders.filter { $0.sizeBytes > 0 }
+        if !copiedItems.isEmpty {
+            report += "\nOffloaded to cloud:\n"
+            for item in copiedItems {
+                report += "  \(fmt.string(fromByteCount: item.sizeBytes).padding(toLength: 8, withPad: " ", startingAt: 0)) \(item.name)\n"
+            }
+        }
+
+        let shrunkGrowers = growers.filter { $0.isSafe && $0.sizeBytes > 0 }
+        if !shrunkGrowers.isEmpty {
+            report += "\nShrunk:\n"
+            for g in shrunkGrowers {
+                report += "  \(fmt.string(fromByteCount: g.sizeBytes).padding(toLength: 8, withPad: " ", startingAt: 0)) \(g.name)\n"
+            }
+        }
+
+        if !blockedItems.isEmpty {
+            report += "\n🛡️ Protected (not touched):\n"
+            let categories = Set(blockedItems.map(\.ruleTitle))
+            for cat in categories.prefix(5) {
+                report += "  \(cat)\n"
+            }
+        }
+
+        report += "\nryddi.reidar.tech"
+        return report
+    }
+
+    func copyReclaimReport() {
+        reclaimReportText = generateReclaimReport()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(reclaimReportText ?? "", forType: .string)
+    }
+
+    // MARK: - Custom paths
+
+    func addCustomPath(_ path: String) {
+        let trimmed = path.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !customPaths.contains(trimmed) else { return }
+        customPaths.append(trimmed)
+        UserDefaults.standard.set(customPaths, forKey: "customPaths")
+        Task { await scanAll() }
+    }
+
+    func removeCustomPath(_ path: String) {
+        customPaths.removeAll { $0 == path }
+        UserDefaults.standard.set(customPaths, forKey: "customPaths")
         Task { await scanAll() }
     }
 
