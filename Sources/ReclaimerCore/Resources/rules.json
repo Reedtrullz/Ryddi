@@ -518,6 +518,102 @@
       "evidence": ["The macOS Library Caches directory is intended for data that can be regenerated."],
       "conditions": ["Skip running apps and unknown profile data."],
       "recovery": "Apps recreate caches as needed."
+    },
+    {
+      "id": "hermes.credentials.never",
+      "title": "Hermes credentials/config/state",
+      "category": "Hermes",
+      "priority": 1000,
+      "safetyClass": "neverTouch",
+      "actionKind": "reportOnly",
+      "match": {
+        "containsAny": ["/.hermes/config.yaml", "/.hermes/.env", "/.hermes/auth.json", "/.hermes/memories", "/.hermes/skills", "/.hermes/plugins", "/.hermes/cron", "/.hermes/profiles"],
+        "suffixAny": [".yaml", ".json", ".env", ".toml"],
+        "basenameAny": ["config.yaml", ".env", "auth.json", "credentials.json"],
+        "pathExtensionAny": []
+      },
+      "evidence": ["Hermes identity, configuration, memories, skills, profiles, and secrets are not cleanup targets."],
+      "conditions": ["Never remove automatically."],
+      "recovery": "Restore from backup; some data may not be recoverable."
+    },
+    {
+      "id": "hermes.sessions.review",
+      "title": "Hermes session transcript",
+      "category": "Hermes",
+      "priority": 850,
+      "safetyClass": "preserveByDefault",
+      "actionKind": "openGuidance",
+      "match": {
+        "containsAny": ["/.hermes/sessions"],
+        "suffixAny": [".jsonl", ".json"],
+        "basenameAny": [],
+        "pathExtensionAny": ["jsonl", "json"]
+      },
+      "evidence": ["Hermes sessions can contain prompts, tool outputs, decisions, and recovery context."],
+      "conditions": ["Use `hermes sessions prune --older-than N` or `hermes sessions list` before manual removal."],
+      "recovery": "Keep compressed transcript or restore from backup."
+    },
+    {
+      "id": "hermes.state-db.review",
+      "title": "Hermes session database",
+      "category": "Hermes",
+      "priority": 870,
+      "safetyClass": "reviewRequired",
+      "actionKind": "nativeToolCommand",
+      "match": {
+        "containsAny": ["/.hermes/state.db"],
+        "suffixAny": ["state.db", "state.db-wal", "state.db-shm"],
+        "basenameAny": ["state.db", "state.db-wal", "state.db-shm"],
+        "pathExtensionAny": ["db", "db-wal", "db-shm"]
+      },
+      "evidence": ["Hermes session database can grow large from abandoned sessions and stale FTS indexes. Use `hermes sessions prune --older-than 30` then `sqlite3 ~/.hermes/state.db VACUUM` to reclaim space."],
+      "conditions": ["Quit Hermes before maintenance. Prune sessions first, then VACUUM. Do not delete the database directly."],
+      "conditionGates": ["nativeToolRequired", "manualReviewRequired"],
+      "gateEvidence": {
+        "nativeToolName": "hermes sessions prune / sqlite3 VACUUM",
+        "nativePreviewAvailable": false
+      },
+      "recovery": "If state.db is deleted, Hermes loses all session history, memory, and state."
+    },
+    {
+      "id": "hermes.logs.safe-condition",
+      "title": "Hermes rotated log",
+      "category": "Hermes",
+      "priority": 720,
+      "safetyClass": "safeAfterCondition",
+      "actionKind": "trash",
+      "match": {
+        "containsAny": ["/.hermes/logs"],
+        "suffixAny": [".log"],
+        "basenameAny": [],
+        "pathExtensionAny": ["log"]
+      },
+      "evidence": ["Hermes logs are diagnostic history; keep recent logs and skip the active gateway log."],
+      "conditions": ["Skip current-day and open log files; keep a recent retention window."],
+      "conditionGates": ["openFileClear", "minimumAgeRequired", "finalClassificationRequired"],
+      "gateEvidence": {
+        "minimumAgeDays": 3,
+        "retentionPolicy": "Keep the most recent three days of Hermes logs."
+      },
+      "recovery": "Logs are not generally recoverable after deletion."
+    },
+    {
+      "id": "hermes.cache.auto",
+      "title": "Hermes rebuildable cache",
+      "category": "Hermes",
+      "priority": 700,
+      "safetyClass": "autoSafe",
+      "actionKind": "trash",
+      "match": {
+        "containsAny": ["/.hermes/cache", "/.hermes/tmp", "/.hermes/hermes-agent/.build"],
+        "suffixAny": [],
+        "basenameAny": [],
+        "pathExtensionAny": []
+      },
+      "evidence": ["Hermes cache and build artifacts are rebuildable."],
+      "conditions": ["Skip files open by Hermes."],
+      "conditionGates": ["openFileClear"],
+      "recovery": "Hermes can regenerate these caches."
     }
   ]
 }
