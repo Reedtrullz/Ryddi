@@ -14,13 +14,15 @@ struct ContentView: View {
                     Text("Clean").tag(0).keyboardShortcut("1")
                     Text("Offload").tag(1).keyboardShortcut("2")
                     Text("Control").tag(2).keyboardShortcut("3")
+                    Text("Audit").tag(3).keyboardShortcut("4")
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
                 .padding(.top, 8)
 
-                if engine.isScanning {
-                    ProgressView("Scanning...").controlSize(.small).padding(.vertical, 4)
+                if engine.isScanning || engine.isAuditing {
+                    ProgressView(engine.isAuditing ? "Auditing..." : "Scanning...")
+                        .controlSize(.small).padding(.vertical, 4)
                 }
 
                 ScrollView {
@@ -28,6 +30,7 @@ struct ContentView: View {
                     case 0: CleanPillar(engine: engine)
                     case 1: OffloadPillar(engine: engine)
                     case 2: ControlPillar(engine: engine)
+                    case 3: AuditPillar(engine: engine)
                     default: EmptyView()
                     }
                 }

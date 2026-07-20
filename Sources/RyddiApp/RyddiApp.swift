@@ -1,8 +1,20 @@
 import SwiftUI
 import AppKit
+import ReclaimerCore
 
 @main
-struct RyddiApp: App {
+struct RyddiApp {
+    static func main() {
+        let args = CommandLine.arguments
+        if args.count > 1, args[1] == "audit" {
+            AuditCLI().run()
+        } else {
+            RyddiGUIApp.main()
+        }
+    }
+}
+
+struct RyddiGUIApp: App {
     @StateObject private var engine = ScanEngine()
 
     var body: some Scene {

@@ -41,6 +41,10 @@ final class ScanEngine: ObservableObject {
     // Control pillar
     @Published var growers: [Grower] = []
 
+    @Published var auditReport: AuditReport? = nil
+    @Published var auditSelectedIDs: Set<UUID> = []
+    @Published var isAuditing = false
+
     // Custom paths
     @Published var customPaths: [String] = UserDefaults.standard.stringArray(forKey: "customPaths") ?? []
 
@@ -320,6 +324,45 @@ final class ScanEngine: ObservableObject {
             task.arguments = ["-c", grower.command]
             try? task.run(); task.waitUntilExit()
             Task { await scanAll() }
+        }
+    }
+
+    func runAudit(path: String) {
+        isAuditing = true; errorMessage = nil
+        defer { isAuditing = false }
+        do {
+            let scanner = DeepAuditScanner()
+            let recs = try scanner.scan(path: path)
+            let total = recs.reduce(0) { $0 + $1.reclaimableBytes }
+            let report = AuditReport(
+                scannedPaths: [path],
+                totalBytes: total,
+                bloatBytes: total,
+                reclaimableBytes: total,
+                recommendations: recs
+            )
+            auditReport = report
+            auditSelectedIDs = Set(recs.filter { $0.safetyScore >= 0.8 }.map(\.id))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func copyAuditReport() {
+        guard let report = auditReport else { return }
+        let text = AuditReportFormatter.plainText(report: report)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func reclaimAuditSelection() {
+        guard let report = auditReport else { return }
+        let toTrash = report.recommendations.filter { auditSelectedIDs.contains($0.id) && $0.safetyScore >= 0.8 }
+        for rec in toTrash {
+            try? FileManager.default.trashItem(at: URL(fileURLWithPath: rec.path), resultingItemURL: nil)
+        }
+        if let path = report.scannedPaths.first {
+            runAudit(path: path)
         }
     }
 }
