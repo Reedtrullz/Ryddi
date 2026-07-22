@@ -41,6 +41,10 @@ final class ScanEngine: ObservableObject {
     // Control pillar
     @Published var growers: [Grower] = []
 
+    @Published var auditReport: AuditReport? = nil
+    @Published var auditSelectedIDs: Set<UUID> = []
+    @Published var isAuditing = false
+
     // Custom paths
     @Published var customPaths: [String] = UserDefaults.standard.stringArray(forKey: "customPaths") ?? []
 
@@ -55,6 +59,8 @@ final class ScanEngine: ObservableObject {
     @Published var confirmationIsDestructive = false
     @Published var pendingAction: (() -> Void)?
     @Published var reclaimReportText: String?
+
+    private var scanTask: Task<Void, Never>?
 
     var safeItems: [ScanItem] { items.filter { $0.bucket == .safe } }
     var reviewItems: [ScanItem] { items.filter { $0.bucket == .review } }
@@ -81,38 +87,56 @@ final class ScanEngine: ObservableObject {
 
     // MARK: - Full scan
 
-    func scanAll() async {
-        isScanning = true; errorMessage = nil
-        defer { isScanning = false }
+    func scanAll() {
+        cancelScan()
+        isScanning = true
+        errorMessage = nil
+        scanTask = Task {
+            defer { isScanning = false }
+            do {
+                let engine = try RuleEngine.bundled()
+                let scanner = FastScanner(ruleEngine: engine)
 
-        do {
-            let engine = try RuleEngine.bundled()
-            let scanner = FastScanner(ruleEngine: engine)
+                var roots = FastScanner.defaultRoots()
+                for path in customPaths {
+                    roots.append(ScanRoot(name: URL(fileURLWithPath: path).lastPathComponent, path: path))
+                }
+                items = try await scanner.scan(roots: roots)
+                selectedIDs = Set(safeItems.map(\.id))
+                hasEverScanned = true
 
-            var roots = FastScanner.defaultRoots()
-            for path in customPaths {
-                roots.append(ScanRoot(name: URL(fileURLWithPath: path).lastPathComponent, path: path))
+                cloudProviders = detectCloudProviders()
+                largeLocalFolders = detectLargeLocalFolders()
+                growers = try await detectGrowers()
+            } catch is CancellationError {
+                errorMessage = "Scan cancelled."
+            } catch {
+                errorMessage = error.localizedDescription
             }
-            items = try await scanner.scan(roots: roots)
-            selectedIDs = Set(safeItems.map(\.id))
-            hasEverScanned = true
-
-            cloudProviders = detectCloudProviders()
-            largeLocalFolders = detectLargeLocalFolders()
-            growers = try await detectGrowers()
-        } catch {
-            errorMessage = error.localizedDescription
         }
+    }
+
+    func cancelScan() {
+        scanTask?.cancel()
+        scanTask = nil
     }
 
     // MARK: - Clean
 
     func reclaim() {
         let toTrash = items.filter { selectedIDs.contains($0.id) && $0.bucket == .safe }
+        var failed: [String] = []
         for item in toTrash {
-            try? FileManager.default.trashItem(at: URL(fileURLWithPath: item.path), resultingItemURL: nil)
+            do {
+                try FileManager.default.trashItem(at: URL(fileURLWithPath: item.path), resultingItemURL: nil)
+            } catch {
+                failed.append(item.name)
+            }
         }
-        Task { await scanAll() }
+        if !failed.isEmpty {
+            errorMessage = "Failed to move \(failed.joined(separator: ", ")) to Trash. Check permissions."
+        }
+        scanAll()
     }
 
     func emergencyReclaim() {
@@ -176,13 +200,13 @@ final class ScanEngine: ObservableObject {
         guard !trimmed.isEmpty, !customPaths.contains(trimmed) else { return }
         customPaths.append(trimmed)
         UserDefaults.standard.set(customPaths, forKey: "customPaths")
-        Task { await scanAll() }
+        scanAll()
     }
 
     func removeCustomPath(_ path: String) {
         customPaths.removeAll { $0 == path }
         UserDefaults.standard.set(customPaths, forKey: "customPaths")
-        Task { await scanAll() }
+        scanAll()
     }
 
     // MARK: - Offload
@@ -240,7 +264,13 @@ final class ScanEngine: ObservableObject {
         let dest = URL(fileURLWithPath: provider.syncFolderPath).appendingPathComponent(source.lastPathComponent)
         let task = Process(); task.executableURL = URL(fileURLWithPath: "/bin/cp")
         task.arguments = ["-R", source.path, dest.path]
-        try? task.run(); task.waitUntilExit()
+        do {
+            try task.run()
+            task.waitUntilExit()
+        } catch {
+            errorMessage = "Copy failed: \(error.localizedDescription)"
+            return
+        }
 
         guard task.terminationStatus == 0,
               FileManager.default.fileExists(atPath: dest.path) else {
@@ -251,10 +281,35 @@ final class ScanEngine: ObservableObject {
         let du = Process(); du.executableURL = URL(fileURLWithPath: "/usr/bin/du")
         du.arguments = ["-sk", dest.path]
         let pipe = Pipe(); du.standardOutput = pipe
-        try? du.run(); du.waitUntilExit()
-        if let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
-           let kb = Int64(out.split(separator: "\t").first ?? "0") {
-            lastCopiedBytes = kb * 1024
+        var destKB: Int64 = 0
+        do {
+            try du.run()
+            du.waitUntilExit()
+            if let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
+               let kb = Int64(out.split(separator: "\t").first ?? "0") {
+                destKB = kb
+                lastCopiedBytes = kb * 1024
+            }
+        } catch {
+            lastCopiedBytes = 0
+        }
+
+        let sourceDU = Process(); sourceDU.executableURL = URL(fileURLWithPath: "/usr/bin/du")
+        sourceDU.arguments = ["-sk", source.path]
+        let sourcePipe = Pipe(); sourceDU.standardOutput = sourcePipe
+        var sourceKB: Int64 = 0
+        do {
+            try sourceDU.run()
+            sourceDU.waitUntilExit()
+            if let out = String(data: sourcePipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
+               let kb = Int64(out.split(separator: "\t").first ?? "0") {
+                sourceKB = kb
+            }
+        } catch { }
+
+        let sizeDiff = abs(destKB - sourceKB)
+        if sizeDiff > sourceKB / 10 {
+            errorMessage = "Warning: cloud copy size differs from source by more than 10%. Verify before deleting original."
         }
 
         lastCopiedSource = sourcePath
@@ -264,12 +319,17 @@ final class ScanEngine: ObservableObject {
 
     func deleteOriginalAfterCopy() {
         guard let source = lastCopiedSource else { return }
-        try? FileManager.default.trashItem(at: URL(fileURLWithPath: source), resultingItemURL: nil)
+        do {
+            try FileManager.default.trashItem(at: URL(fileURLWithPath: source), resultingItemURL: nil)
+        } catch {
+            errorMessage = "Failed to move original to Trash: \(error.localizedDescription)"
+            return
+        }
         lastCopiedSource = nil
         lastCopiedDest = nil
         lastCopiedBytes = 0
         showDeleteOriginalsPrompt = false
-        Task { await scanAll() }
+        scanAll()
     }
 
     func dismissCopyPrompt() {
@@ -295,7 +355,7 @@ final class ScanEngine: ObservableObject {
             ("Trash", home.appendingPathComponent(".Trash"),
              "Empty Trash", "Finder → Empty Trash", true),
             ("Docker disk image", home.appendingPathComponent("Library/Containers/com.docker.docker/Data/vms/0/data"),
-             "Prune unused data", "docker system prune -a --volumes", false),
+             "Prune unused images", "docker system prune -a", false),
         ]
 
         for (name, path, action, command, isSafe) in defs {
@@ -318,8 +378,63 @@ final class ScanEngine: ObservableObject {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/bash")
             task.arguments = ["-c", grower.command]
-            try? task.run(); task.waitUntilExit()
-            Task { await scanAll() }
+            do {
+                try task.run()
+                task.waitUntilExit()
+                if task.terminationStatus != 0 {
+                    errorMessage = "\(grower.action) failed with exit code \(task.terminationStatus)."
+                }
+            } catch {
+                errorMessage = "\(grower.action) failed: \(error.localizedDescription)"
+            }
+            scanAll()
+        }
+    }
+
+    func runAudit(path: String) {
+        isAuditing = true; errorMessage = nil
+        defer { isAuditing = false }
+        do {
+            let scanner = DeepAuditScanner()
+            let recs = try scanner.scan(path: path)
+            let total = recs.reduce(0) { $0 + $1.reclaimableBytes }
+            let report = AuditReport(
+                scannedPaths: [path],
+                totalBytes: total,
+                bloatBytes: total,
+                reclaimableBytes: total,
+                recommendations: recs
+            )
+            auditReport = report
+            auditSelectedIDs = Set(recs.filter { $0.safetyScore >= 0.8 }.map(\.id))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func copyAuditReport() {
+        guard let report = auditReport else { return }
+        let text = AuditReportFormatter.plainText(report: report)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func reclaimAuditSelection() {
+        guard let report = auditReport else { return }
+        let toTrash = report.recommendations.filter { auditSelectedIDs.contains($0.id) && $0.safetyScore >= 0.8 }
+        var failed: [String] = []
+        for rec in toTrash {
+            do {
+                try FileManager.default.trashItem(at: URL(fileURLWithPath: rec.path), resultingItemURL: nil)
+            } catch {
+                failed.append(URL(fileURLWithPath: rec.path).lastPathComponent)
+            }
+        }
+        if !failed.isEmpty {
+            errorMessage = "Failed to move \(failed.joined(separator: ", ")) to Trash."
+        }
+        if let path = report.scannedPaths.first {
+            runAudit(path: path)
         }
     }
 }

@@ -1,14 +1,40 @@
 import SwiftUI
 import AppKit
+import ReclaimerCore
 
 @main
-struct RyddiApp: App {
+struct RyddiApp {
+    static func main() {
+        let args = CommandLine.arguments
+        if args.count > 1, args[1] == "audit" {
+            AuditCLI().run()
+        } else {
+            RyddiGUIApp.main()
+        }
+    }
+}
+
+class RyddiAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            for window in sender.windows where window.isMiniaturized {
+                window.deminiaturize(nil)
+                return true
+            }
+            NotificationCenter.default.post(name: .init("RyddiOpenWindow"), object: nil)
+        }
+        return true
+    }
+}
+
+struct RyddiGUIApp: App {
+    @NSApplicationDelegateAdaptor(RyddiAppDelegate.self) private var appDelegate
     @StateObject private var engine = ScanEngine()
 
     var body: some Scene {
         WindowGroup {
             ContentView(engine: engine)
-                .frame(minWidth: 600, minHeight: 500)
+                .frame(minWidth: 700, minHeight: 550)
                 .alert(engine.confirmationTitle, isPresented: $engine.showConfirmation) {
                     Button("Cancel", role: .cancel) {}
                     if engine.confirmationIsDestructive {
@@ -17,6 +43,56 @@ struct RyddiApp: App {
                         Button("Confirm") { engine.pendingAction?() }
                     }
                 } message: { Text(engine.confirmationMessage) }
+        }
+        .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Ryddi") {
+                    NSApp.orderFrontStandardAboutPanel(
+                        options: [
+                            .applicationName: "Ryddi",
+                            .applicationVersion: "0.8.0",
+                            .credits: NSAttributedString(string: "Local-first disk space manager. MIT License."),
+                        ]
+                    )
+                }
+            }
+            CommandGroup(after: .appTermination) {
+                Button("Preferences…") { }
+                    .disabled(true)
+            }
+            CommandMenu("View") {
+                Button("Clean") { engine.activePillar = 0 }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("Offload") { engine.activePillar = 1 }
+                    .keyboardShortcut("2", modifiers: .command)
+                Button("Control") { engine.activePillar = 2 }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("Audit") { engine.activePillar = 3 }
+                    .keyboardShortcut("4", modifiers: .command)
+                Divider()
+                Button("Scan for Space") { engine.scanAll() }
+                    .keyboardShortcut("r", modifiers: .command)
+                Divider()
+                Button("Enter Full Screen") {
+                    NSApp.keyWindow?.toggleFullScreen(nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .control])
+            }
+            CommandGroup(replacing: .windowList) {
+                Button("Minimize") { NSApp.keyWindow?.miniaturize(nil) }
+                    .keyboardShortcut("m", modifiers: .command)
+                Button("Zoom") { NSApp.keyWindow?.zoom(nil) }
+                Divider()
+                Button("Bring All to Front") { NSApp.arrangeInFront(nil) }
+            }
+            CommandGroup(replacing: .help) {
+                Button("Ryddi Help") {
+                    if let url = URL(string: "https://github.com/Reedtrullz/Ryddi/blob/main/README.md") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
         }
 
         MenuBarExtra("Ryddi", systemImage: "leaf.circle.fill") {
@@ -34,6 +110,7 @@ struct RyddiApp: App {
             Button("Open Ryddi") {
                 NSApp.activate(ignoringOtherApps: true)
             }
+            .keyboardShortcut(.defaultAction)
             Button("Quit Ryddi") { NSApp.terminate(nil) }
         }
     }

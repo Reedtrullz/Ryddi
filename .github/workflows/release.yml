@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 0.8.1)'
+        required: true
+        default: '0.8.1'
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Build
+        run: swift build -c release --scratch-path "$PWD/.build"
+
+      - name: Test
+        run: swift test --scratch-path "$PWD/.build"
+
+      - name: Build installer
+        env:
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          VERSION="${VERSION#v}"
+          ./Scripts/build-installer.sh "$VERSION"
+
+      - name: Create Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          PKG="dist/Ryddi-${VERSION#v}.pkg"
+          SHA="${PKG}.sha256"
+          
+          gh release create "$VERSION" \
+            --title "Ryddi $VERSION" \
+            --generate-notes \
+            "$PKG" "$SHA"
+
+      - name: Upload artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ryddi-${{ github.event.inputs.version }}
+          path: |
+            dist/*.pkg
+            dist/*.sha256
