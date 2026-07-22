@@ -128,6 +128,42 @@ final class ReleaseAndProductContractTests: XCTestCase {
         XCTAssertTrue(scanEngine.contains("lastCopiedProviderName = provider.displayName"))
     }
 
+    func testSessionReviewIsOnDemandBoundedAndFailClosed() throws {
+        let contentView = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiApp/ContentView.swift"),
+            encoding: .utf8
+        )
+        let scanEngine = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiApp/ScanEngine.swift"),
+            encoding: .utf8
+        )
+        let sessionReview = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiApp/SessionReview.swift"),
+            encoding: .utf8
+        )
+        let validator = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/ReclaimerCore/CleanupValidator.swift"),
+            encoding: .utf8
+        )
+        let archiveWriter = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/ReclaimerCore/SessionArchiveWriter.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(contentView.contains("Button(\"Review Sessions\")"))
+        XCTAssertFalse(scanEngine.contains("loadSessionReview()\n                let support"))
+        XCTAssertTrue(sessionReview.contains("private let maximumFiles = 5_000"))
+        XCTAssertTrue(sessionReview.contains("SELECT rollout_path, title FROM threads"))
+        XCTAssertTrue(sessionReview.contains("arguments: [\"-Fn\", \"+D\", root]"))
+        XCTAssertTrue(sessionReview.contains("recentProtectionInterval: TimeInterval = 15 * 60"))
+        XCTAssertTrue(sessionReview.contains("Archive & Move Original to Trash"))
+        XCTAssertTrue(sessionReview.contains("Nothing is selected"))
+        XCTAssertFalse(sessionReview.contains("payload.content"))
+        XCTAssertTrue(validator.contains("validateSessionFile"))
+        XCTAssertTrue(archiveWriter.contains("arguments = [\"-t\", \"--\", partialURL.path]"))
+        XCTAssertTrue(archiveWriter.contains("original.matchesCurrent(source)"))
+    }
+
     func testSourceVersionMatchesNextRelease() throws {
         let plistURL = repositoryRoot.appendingPathComponent("Assets/Info.plist")
         let data = try Data(contentsOf: plistURL)
