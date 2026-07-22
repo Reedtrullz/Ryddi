@@ -58,14 +58,14 @@ final class SafetyCheckerTests: XCTestCase {
         XCTAssertEqual(result.first?.effortScore, 0.2)
     }
 
-    func testPreservesExplicitSafetyScore() {
+    func testPreservesExplicitSafetyScoreWhenModified() {
         let rec = ReclaimRecommendation(
-            path: "/tmp/scan/explicit", category: .oldLog,
-            reclaimableBytes: 100, safetyScore: 0.95, effortScore: 1.0,
+            path: "/outside/file", category: .oldLog,
+            reclaimableBytes: 100, safetyScore: 0.1, effortScore: 1.0,
             description: "test", action: .moveToTrash
         )
         let result = checker.check([rec], scanRoot: "/tmp/scan")
-        XCTAssertEqual(result.first?.safetyScore, 0.95)
-        XCTAssertEqual(result.first?.effortScore, 1.0)
+        XCTAssertEqual(result.first?.safetyScore, 0.1)
+        XCTAssertEqual(result.first?.action, .reviewRequired)
     }
 }
