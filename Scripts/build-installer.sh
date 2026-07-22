@@ -17,16 +17,17 @@ swift build -c release --scratch-path .build
 
 BUILD_STAGE="${DIST_DIR}/build-staging"
 rm -rf "${BUILD_STAGE}"
-mkdir -p "${BUILD_STAGE}/${APP_NAME}/Contents/MacOS"
-mkdir -p "${BUILD_STAGE}/${APP_NAME}/Contents/Resources"
+mkdir -p "${BUILD_STAGE}/Applications/${APP_NAME}/Contents/MacOS"
+mkdir -p "${BUILD_STAGE}/Applications/${APP_NAME}/Contents/Resources"
 
-cp "${BUILD_DIR}/RyddiApp" "${BUILD_STAGE}/${APP_NAME}/Contents/MacOS/"
-chmod +x "${BUILD_STAGE}/${APP_NAME}/Contents/MacOS/RyddiApp"
+cp "${BUILD_DIR}/RyddiApp" "${BUILD_STAGE}/Applications/${APP_NAME}/Contents/MacOS/"
+chmod +x "${BUILD_STAGE}/Applications/${APP_NAME}/Contents/MacOS/RyddiApp"
 
-cp Assets/Info.plist "${BUILD_STAGE}/${APP_NAME}/Contents/"
-cp Assets/Ryddi.icns "${BUILD_STAGE}/${APP_NAME}/Contents/Resources/"
+cp Assets/Info.plist "${BUILD_STAGE}/Applications/${APP_NAME}/Contents/"
+cp Assets/Ryddi.icns "${BUILD_STAGE}/Applications/${APP_NAME}/Contents/Resources/"
 
-xattr -cr "${BUILD_STAGE}/${APP_NAME}"
+xattr -cr "${BUILD_STAGE}/Applications/${APP_NAME}"
+find "${BUILD_STAGE}" -name '._*' -delete
 
 if [[ -n "$SIGN_ID" ]]; then
     echo "=== Signing .app bundle ==="
@@ -34,7 +35,7 @@ if [[ -n "$SIGN_ID" ]]; then
         --entitlements Assets/Ryddi.entitlements \
         --options runtime \
         --timestamp \
-        "${BUILD_STAGE}/${APP_NAME}"
+        "${BUILD_STAGE}/Applications/${APP_NAME}"
 else
     echo "⚠️  No SIGNING_IDENTITY set. Skipping code signing."
     echo "   Set with: export SIGNING_IDENTITY='Developer ID Application: Your Name'"
@@ -43,10 +44,11 @@ fi
 echo "=== Building .pkg installer ==="
 
 pkgbuild \
-    --component "${BUILD_STAGE}/${APP_NAME}" \
+    --root "${BUILD_STAGE}" \
+    --component-plist Scripts/component.plist \
     --identifier com.reedtrullz.ryddi \
     --version "${VERSION}" \
-    --install-location "/Applications" \
+    --install-location "/" \
     "${DIST_DIR}/RyddiComponent.pkg"
 
 productbuild \
