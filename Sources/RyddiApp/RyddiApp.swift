@@ -56,7 +56,7 @@ struct RyddiGUIApp: App {
                 Button("Audit") { engine.activePillar = 3 }
                     .keyboardShortcut("4", modifiers: .command)
                 Divider()
-                Button("Scan for Space") { Task { await engine.scanAll() } }
+                Button("Scan for Space") { engine.scanAll() }
                     .keyboardShortcut("r", modifiers: .command)
             }
             CommandGroup(replacing: .windowList) {

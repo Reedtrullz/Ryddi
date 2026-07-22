@@ -45,7 +45,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 550)
-        .onAppear { Task { await engine.scanAll() } }
+        .onAppear { engine.scanAll() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if !engine.items.isEmpty {
@@ -89,7 +89,7 @@ struct EmptyStateView: View {
                     .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 }
 
-                Button(action: { Task { await engine.scanAll() } }) {
+                Button(action: { engine.scanAll() }) {
                     Label("Scan for Space", systemImage: "play.fill")
                         .padding(.horizontal, 24).padding(.vertical, 10)
                 }

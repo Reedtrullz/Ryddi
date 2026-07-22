@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "Ryddi",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14)
     ],
@@ -21,7 +22,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "RyddiApp",
-            dependencies: ["ReclaimerCore"]
+            dependencies: ["ReclaimerCore"],
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "ReclaimerCoreTests",

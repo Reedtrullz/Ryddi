@@ -60,6 +60,8 @@ final class ScanEngine: ObservableObject {
     @Published var pendingAction: (() -> Void)?
     @Published var reclaimReportText: String?
 
+    private var scanTask: Task<Void, Never>?
+
     var safeItems: [ScanItem] { items.filter { $0.bucket == .safe } }
     var reviewItems: [ScanItem] { items.filter { $0.bucket == .review } }
     var blockedItems: [ScanItem] { items.filter { $0.bucket == .blocked } }
@@ -85,28 +87,38 @@ final class ScanEngine: ObservableObject {
 
     // MARK: - Full scan
 
-    func scanAll() async {
-        isScanning = true; errorMessage = nil
-        defer { isScanning = false }
+    func scanAll() {
+        cancelScan()
+        isScanning = true
+        errorMessage = nil
+        scanTask = Task {
+            defer { isScanning = false }
+            do {
+                let engine = try RuleEngine.bundled()
+                let scanner = FastScanner(ruleEngine: engine)
 
-        do {
-            let engine = try RuleEngine.bundled()
-            let scanner = FastScanner(ruleEngine: engine)
+                var roots = FastScanner.defaultRoots()
+                for path in customPaths {
+                    roots.append(ScanRoot(name: URL(fileURLWithPath: path).lastPathComponent, path: path))
+                }
+                items = try await scanner.scan(roots: roots)
+                selectedIDs = Set(safeItems.map(\.id))
+                hasEverScanned = true
 
-            var roots = FastScanner.defaultRoots()
-            for path in customPaths {
-                roots.append(ScanRoot(name: URL(fileURLWithPath: path).lastPathComponent, path: path))
+                cloudProviders = detectCloudProviders()
+                largeLocalFolders = detectLargeLocalFolders()
+                growers = try await detectGrowers()
+            } catch is CancellationError {
+                errorMessage = "Scan cancelled."
+            } catch {
+                errorMessage = error.localizedDescription
             }
-            items = try await scanner.scan(roots: roots)
-            selectedIDs = Set(safeItems.map(\.id))
-            hasEverScanned = true
-
-            cloudProviders = detectCloudProviders()
-            largeLocalFolders = detectLargeLocalFolders()
-            growers = try await detectGrowers()
-        } catch {
-            errorMessage = error.localizedDescription
         }
+    }
+
+    func cancelScan() {
+        scanTask?.cancel()
+        scanTask = nil
     }
 
     // MARK: - Clean
@@ -124,7 +136,7 @@ final class ScanEngine: ObservableObject {
         if !failed.isEmpty {
             errorMessage = "Failed to move \(failed.joined(separator: ", ")) to Trash. Check permissions."
         }
-        Task { await scanAll() }
+        scanAll()
     }
 
     func emergencyReclaim() {
@@ -188,13 +200,13 @@ final class ScanEngine: ObservableObject {
         guard !trimmed.isEmpty, !customPaths.contains(trimmed) else { return }
         customPaths.append(trimmed)
         UserDefaults.standard.set(customPaths, forKey: "customPaths")
-        Task { await scanAll() }
+        scanAll()
     }
 
     func removeCustomPath(_ path: String) {
         customPaths.removeAll { $0 == path }
         UserDefaults.standard.set(customPaths, forKey: "customPaths")
-        Task { await scanAll() }
+        scanAll()
     }
 
     // MARK: - Offload
@@ -317,7 +329,7 @@ final class ScanEngine: ObservableObject {
         lastCopiedDest = nil
         lastCopiedBytes = 0
         showDeleteOriginalsPrompt = false
-        Task { await scanAll() }
+        scanAll()
     }
 
     func dismissCopyPrompt() {
@@ -375,7 +387,7 @@ final class ScanEngine: ObservableObject {
             } catch {
                 errorMessage = "\(grower.action) failed: \(error.localizedDescription)"
             }
-            Task { await scanAll() }
+            scanAll()
         }
     }
 

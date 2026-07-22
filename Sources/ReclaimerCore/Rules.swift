@@ -185,7 +185,7 @@ public struct Classification: Hashable, Sendable {
     public let evidence: [Evidence]
 }
 
-public final class RuleEngine: @unchecked Sendable {
+public final class RuleEngine: Sendable {
     public let version: String
     public let rules: [ReclaimerRule]
     public let userRuleIDs: Set<String>

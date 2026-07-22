@@ -1,6 +1,6 @@
 import Foundation
 
-public final class FastScanner: @unchecked Sendable {
+public final class FastScanner: Sendable {
     private let ruleEngine: RuleEngine
 
     public init(ruleEngine: RuleEngine) { self.ruleEngine = ruleEngine }
@@ -11,7 +11,10 @@ public final class FastScanner: @unchecked Sendable {
                 group.addTask { try await self.scanOne(root: root) }
             }
             var all: [ScanItem] = []
-            for try await batch in group { all.append(contentsOf: batch) }
+            for try await batch in group {
+                try Task.checkCancellation()
+                all.append(contentsOf: batch)
+            }
             return all
         }
         return items.sorted { $0.sizeBytes > $1.sizeBytes }

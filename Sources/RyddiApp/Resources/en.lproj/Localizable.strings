@@ -1,0 +1,16 @@
+/* Ryddi UI Strings */
+
+"Nothing to Clean" = "Nothing to Clean";
+"No safe-to-clean items found. Your Mac looks tidy." = "No safe-to-clean items found. Your Mac looks tidy.";
+
+"Scanning..." = "Scanning...";
+"Auditing..." = "Auditing...";
+"Copying to cloud..." = "Copying to cloud...";
+
+"Low Disk Space" = "Low Disk Space";
+"Less than 10 GB free. Use Emergency Clean to quickly reclaim space." = "Less than 10 GB free. Use Emergency Clean to quickly reclaim space.";
+
+"Safe to reclaim" = "Safe to reclaim";
+"Reclaim" = "Reclaim";
+
+"Emergency Clean" = "Emergency Clean";
