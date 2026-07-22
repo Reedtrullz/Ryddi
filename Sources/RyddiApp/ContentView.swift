@@ -11,14 +11,14 @@ struct ContentView: View {
                 EmptyStateView(engine: engine)
             } else {
                 Picker("View", selection: $engine.activePillar) {
-                    Text("Clean").tag(0).keyboardShortcut("1")
-                    Text("Offload").tag(1).keyboardShortcut("2")
-                    Text("Control").tag(2).keyboardShortcut("3")
-                    Text("Audit").tag(3).keyboardShortcut("4")
+                    Text("Clean").tag(0)
+                    Text("Offload").tag(1)
+                    Text("Control").tag(2)
+                    Text("Audit").tag(3)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
-                .padding(.top, 8)
+                .padding(.top, 12)
 
                 if engine.isScanning || engine.isAuditing {
                     ProgressView(engine.isAuditing ? "Auditing..." : "Scanning...")
@@ -36,24 +36,19 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(minWidth: 600, minHeight: 500)
+        .frame(minWidth: 700, minHeight: 550)
         .onAppear { Task { await engine.scanAll() } }
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                HStack {
-                    Image(systemName: "leaf.circle.fill").foregroundStyle(.green)
-                    Text("Ryddi").font(.headline)
-                }
-            }
             ToolbarItem(placement: .primaryAction) {
                 if !engine.items.isEmpty {
                     Button(action: { engine.copyReclaimReport() }) {
                         Label("Copy Report", systemImage: "doc.on.clipboard")
-                    }.help("Copy reclaim report to clipboard")
+                    }
+                    .help("Copy reclaim report to clipboard")
                 }
             }
         }
-        .navigationTitle("")
+        .navigationTitle("Ryddi")
     }
 }
 
@@ -141,11 +136,13 @@ struct CleanPillar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if engine.isEmergency {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     Label("Low Disk Space", systemImage: "exclamationmark.triangle.fill")
-                        .font(.headline).foregroundStyle(.orange)
+                        .font(.headline)
+                        .foregroundStyle(.orange)
                     Text("Less than 10 GB free. Use Emergency Clean to quickly reclaim space.")
-                        .font(.caption)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                     Button(action: {
                         engine.confirmationTitle = "Emergency Clean?"
                         engine.confirmationMessage = "All safe items (\(ByteCountFormatter().string(fromByteCount: engine.safeTotalBytes))) will be moved to Trash."
@@ -154,19 +151,21 @@ struct CleanPillar: View {
                         engine.showConfirmation = true
                     }) {
                         Label("Emergency Clean — reclaim \(ByteCountFormatter().string(fromByteCount: engine.safeTotalBytes))", systemImage: "bolt.fill")
-                            .padding(.horizontal, 16).padding(.vertical, 8)
                     }
-                    .buttonStyle(.borderedProminent).tint(.orange).controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                    .controlSize(.large)
                 }
-                .padding()
-                .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .padding(16)
+                .background(.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
 
-            HStack {
-                VStack(alignment: .leading) {
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Safe to reclaim").font(.headline)
                     Text(ByteCountFormatter().string(fromByteCount: engine.selectedReclaimBytes))
-                        .font(.largeTitle.bold()).foregroundStyle(.green)
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundStyle(.green)
                 }
                 Spacer()
                 if engine.selectedReclaimBytes > 0 {
@@ -178,13 +177,14 @@ struct CleanPillar: View {
                         engine.showConfirmation = true
                     }) {
                         Label("Reclaim", systemImage: "trash")
-                            .padding(.horizontal, 20).padding(.vertical, 10)
                     }
-                    .buttonStyle(.borderedProminent).tint(.green).controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
+                    .controlSize(.large)
                 }
             }
-            .padding()
-            .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            .padding(16)
+            .background(.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             ForEach(Bucket.allCases, id: \.self) { bucket in
                 let bucketItems = engine.items.filter { $0.bucket == bucket }
@@ -205,39 +205,51 @@ struct BucketSectionView: View {
         List {
             Section {
                 ForEach(items) { item in
-                    HStack {
+                    HStack(spacing: 12) {
                         if bucket == .safe {
                             Toggle(isOn: Binding(
                                 get: { engine.selectedIDs.contains(item.id) },
                                 set: { s in if s { engine.selectedIDs.insert(item.id) } else { engine.selectedIDs.remove(item.id) } }
                             )) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.name).font(.body)
-                                    Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(item.name)
+                                        .font(.body)
+                                    Text(item.ruleTitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
                                 }
                             }
                             .toggleStyle(.checkbox)
                             .accessibilityLabel("Select \(item.name) for reclaim")
                         } else {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(item.name).font(.body)
-                                Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(item.name)
+                                    .font(.body)
+                                Text(item.ruleTitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
                         }
                         Spacer()
                         Text(ByteCountFormatter().string(fromByteCount: item.sizeBytes))
-                            .font(.body.monospacedDigit()).foregroundStyle(.secondary)
+                            .font(.body.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
+                    .padding(.vertical, 2)
                 }
             } header: {
                 Label("\(bucket.rawValue) (\(items.count) items)",
                       systemImage: bucket == .safe ? "checkmark.circle.fill"
                       : bucket == .review ? "eye.circle.fill" : "lock.circle.fill")
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(bucket == .safe ? .green : bucket == .review ? .yellow : .red)
             }
+            .headerProminence(.increased)
         }
         .listStyle(.inset)
-        .frame(minHeight: min(CGFloat(items.count * 32), 300))
+        .frame(minHeight: min(CGFloat(items.count * 36 + 40), 340))
     }
 }
 
@@ -247,15 +259,17 @@ struct OffloadPillar: View {
     @ObservedObject var engine: ScanEngine
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             if engine.showDeleteOriginalsPrompt, let source = engine.lastCopiedSource {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     Label("Copy Complete", systemImage: "checkmark.circle.fill")
-                        .font(.headline).foregroundStyle(.green)
+                        .font(.headline)
+                        .foregroundStyle(.green)
                     Text("\"\(URL(fileURLWithPath: source).lastPathComponent)\" copied to cloud.")
                         .font(.body)
                     Text("\(ByteCountFormatter().string(fromByteCount: engine.lastCopiedBytes)) copied.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                     HStack(spacing: 12) {
                         Button("Show in Finder") {
                             if let dest = engine.lastCopiedDest {
@@ -272,72 +286,104 @@ struct OffloadPillar: View {
                         }
                     }
                 }
-                .padding()
-                .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .padding(16)
+                .background(.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
 
             if engine.isCopying {
-                HStack { ProgressView().controlSize(.small); Text("Copying...") }
-                    .padding(.vertical, 4)
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Copying to cloud...")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 8)
             }
 
             if !engine.cloudProviders.isEmpty {
-                Label("Cloud Sync Folders", systemImage: "externaldrive.fill.badge.icloud").font(.headline)
-                ForEach(engine.cloudProviders) { provider in
-                    HStack {
-                        Image(systemName: provider.icon).foregroundStyle(.blue)
-                        VStack(alignment: .leading) {
-                            Text(provider.name).font(.body)
-                            Text(provider.syncFolderPath)
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Cloud Sync Folders", systemImage: "externaldrive.fill.badge.icloud")
+                        .font(.headline)
+                    ForEach(engine.cloudProviders) { provider in
+                        HStack(spacing: 12) {
+                            Image(systemName: provider.icon)
+                                .foregroundStyle(.blue)
+                                .font(.title3)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(provider.name)
+                                    .font(.body)
+                                Text(provider.syncFolderPath)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Button("Show in Finder") {
+                                NSWorkspace.shared.open(URL(fileURLWithPath: provider.syncFolderPath))
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        Spacer()
-                        Button("Show in Finder") {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: provider.syncFolderPath))
-                        }.buttonStyle(.borderless)
-                    }.padding(.vertical, 4)
+                        .padding(.vertical, 4)
+                    }
                 }
             }
 
             if !engine.largeLocalFolders.isEmpty {
-                Label("Offload to Cloud", systemImage: "arrow.up.to.line").font(.headline)
-                Text("Select a folder and a cloud provider to copy files, then delete originals.")
-                    .font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Offload to Cloud", systemImage: "arrow.up.to.line")
+                        .font(.headline)
+                    Text("Select a folder and a cloud provider to copy files, then delete originals.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
 
-                ForEach(engine.largeLocalFolders) { folder in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(folder.name).font(.body)
-                            Text(folder.path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer()
-                        Text(ByteCountFormatter().string(fromByteCount: folder.sizeBytes)).font(.body.monospacedDigit())
-                        if !engine.cloudProviders.isEmpty {
-                            Menu {
-                                ForEach(engine.cloudProviders) { provider in
-                                    Button("Copy to \(provider.name)") {
-                                        engine.confirmationTitle = "Copy to \(provider.name)?"
-                                        engine.confirmationMessage = "\"\(folder.name)\" will be copied to \(provider.name). After verifying, delete the local original."
-                                        engine.confirmationIsDestructive = false
-                                        engine.pendingAction = { engine.copyToCloud(sourcePath: folder.path, provider: provider) }
-                                        engine.showConfirmation = true
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis.circle")
+                    ForEach(engine.largeLocalFolders) { folder in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(folder.name)
+                                    .font(.body)
+                                Text(folder.path)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
-                            .menuStyle(.borderlessButton).frame(width: 30)
-                            .disabled(engine.isCopying)
+                            Spacer()
+                            Text(ByteCountFormatter().string(fromByteCount: folder.sizeBytes))
+                                .font(.body.monospacedDigit())
+                            if !engine.cloudProviders.isEmpty {
+                                Menu {
+                                    ForEach(engine.cloudProviders) { provider in
+                                        Button("Copy to \(provider.name)") {
+                                            engine.confirmationTitle = "Copy to \(provider.name)?"
+                                            engine.confirmationMessage = "\"\(folder.name)\" will be copied to \(provider.name). After verifying, delete the local original."
+                                            engine.confirmationIsDestructive = false
+                                            engine.pendingAction = { engine.copyToCloud(sourcePath: folder.path, provider: provider) }
+                                            engine.showConfirmation = true
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis.circle")
+                                }
+                                .menuStyle(.borderlessButton)
+                                .frame(width: 32)
+                                .disabled(engine.isCopying)
+                            }
                         }
-                    }.padding(.vertical, 4)
+                        .padding(.vertical, 6)
+                    }
                 }
             }
 
             if engine.cloudProviders.isEmpty && engine.largeLocalFolders.isEmpty {
-                Text("No cloud sync folders or large local folders detected.")
-                    .foregroundStyle(.secondary).padding()
+                ContentUnavailableView {
+                    Label("No Cloud Folders", systemImage: "externaldrive.badge.icloud")
+                } description: {
+                    Text("No cloud sync folders or large local folders detected.")
+                }
+                .padding(.vertical, 20)
             }
-        }.padding()
+        }
+        .padding()
     }
 }
 
@@ -347,20 +393,31 @@ struct ControlPillar: View {
     @ObservedObject var engine: ScanEngine
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             if engine.growers.isEmpty {
-                Text("No bloated programs detected.").foregroundStyle(.secondary).padding()
+                ContentUnavailableView {
+                    Label("No Bloated Programs", systemImage: "chart.line.uptrend.xyaxis")
+                } description: {
+                    Text("No bloated programs detected.")
+                }
+                .padding(.vertical, 20)
             } else {
-                Label("Growing Programs", systemImage: "chart.line.uptrend.xyaxis").font(.headline)
-                Text("These programs can grow unchecked. Shrink them to reclaim space.")
-                    .font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Growing Programs", systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.headline)
+                    Text("These programs can grow unchecked. Shrink them to reclaim space.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
 
                 ForEach(engine.growers) { grower in
-                    HStack {
+                    HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(grower.name).font(.body)
+                            Text(grower.name)
+                                .font(.body)
                             Text("Using \(ByteCountFormatter().string(fromByteCount: grower.sizeBytes))")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         Spacer()
                         if grower.isSafe {
@@ -370,16 +427,24 @@ struct ControlPillar: View {
                                 engine.confirmationIsDestructive = true
                                 engine.pendingAction = { engine.shrinkGrower(grower) }
                                 engine.showConfirmation = true
-                            }.buttonStyle(.borderedProminent).controlSize(.small)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
                         } else {
                             VStack(alignment: .trailing, spacing: 2) {
-                                Text(grower.action).font(.caption.bold())
-                                Text(grower.command).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                                Text(grower.action)
+                                    .font(.caption.weight(.medium))
+                                Text(grower.command)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
                             }
                         }
-                    }.padding(.vertical, 4)
+                    }
+                    .padding(.vertical, 6)
                 }
             }
-        }.padding()
+        }
+        .padding()
     }
 }

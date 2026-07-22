@@ -19,8 +19,6 @@ public struct SafetyChecker {
         return recommendations.map { rec in
             var r = rec
             let p = canonicalPath(rec.path)
-            let parent = (p as NSString).deletingLastPathComponent
-
             if !isUnderRoot(p) {
                 r = copy(r, safetyScore: 0.1, action: .reviewRequired)
             }

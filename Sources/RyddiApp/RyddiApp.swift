@@ -20,7 +20,7 @@ struct RyddiGUIApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(engine: engine)
-                .frame(minWidth: 600, minHeight: 500)
+                .frame(minWidth: 700, minHeight: 550)
                 .alert(engine.confirmationTitle, isPresented: $engine.showConfirmation) {
                     Button("Cancel", role: .cancel) {}
                     if engine.confirmationIsDestructive {
@@ -29,6 +29,22 @@ struct RyddiGUIApp: App {
                         Button("Confirm") { engine.pendingAction?() }
                     }
                 } message: { Text(engine.confirmationMessage) }
+        }
+        .commands {
+            CommandMenu("View") {
+                Button("Clean") { engine.activePillar = 0 }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("Offload") { engine.activePillar = 1 }
+                    .keyboardShortcut("2", modifiers: .command)
+                Button("Control") { engine.activePillar = 2 }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("Audit") { engine.activePillar = 3 }
+                    .keyboardShortcut("4", modifiers: .command)
+            }
+            CommandGroup(after: .newItem) {
+                Button("Scan for Space") { Task { await engine.scanAll() } }
+                    .keyboardShortcut("r", modifiers: .command)
+            }
         }
 
         MenuBarExtra("Ryddi", systemImage: "leaf.circle.fill") {
@@ -46,6 +62,7 @@ struct RyddiGUIApp: App {
             Button("Open Ryddi") {
                 NSApp.activate(ignoringOtherApps: true)
             }
+            .keyboardShortcut(.defaultAction)
             Button("Quit Ryddi") { NSApp.terminate(nil) }
         }
     }

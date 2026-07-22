@@ -28,11 +28,12 @@ private struct AuditSummaryView: View {
     @ObservedObject var engine: ScanEngine
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading) {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("Safe to reclaim").font(.headline)
                 Text(ByteCountFormatter().string(fromByteCount: report.safeToReclaimBytes))
-                    .font(.largeTitle.bold()).foregroundStyle(.green)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .foregroundStyle(.green)
             }
             Spacer()
             if report.safeToReclaimBytes > 0 {
@@ -44,23 +45,26 @@ private struct AuditSummaryView: View {
                     engine.showConfirmation = true
                 }) {
                     Label("Reclaim", systemImage: "trash")
-                        .padding(.horizontal, 20).padding(.vertical, 10)
                 }
-                .buttonStyle(.borderedProminent).tint(.green).controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .controlSize(.large)
             }
         }
-        .padding()
-        .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .padding(16)
+        .background(.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
         HStack {
             Text("Requires review: \(ByteCountFormatter().string(fromByteCount: report.needsReviewBytes))")
+                .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer()
             Button(action: { engine.copyAuditReport() }) {
                 Label("Copy Report", systemImage: "doc.on.clipboard")
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
 
@@ -71,14 +75,47 @@ private struct AuditListView: View {
     var body: some View {
         List {
             ForEach(grouped) { group in
-                Section(group.category.rawValue + " (\(group.items.count))") {
+                Section {
                     ForEach(group.items) { rec in
                         AuditRow(rec: rec, engine: engine)
                     }
+                } header: {
+                    Label("\(group.category.rawValue) (\(group.items.count))",
+                          systemImage: categoryIcon(for: group.category))
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(categoryColor(for: group.category))
                 }
+                .headerProminence(.increased)
             }
         }
         .listStyle(.inset)
+    }
+
+    private func categoryIcon(for category: BloatCategory) -> String {
+        switch category {
+        case .buildArtifact: return "hammer.fill"
+        case .dependencyCache: return "shippingbox.fill"
+        case .oldLog: return "doc.text.fill"
+        case .oldInstaller: return "archivebox.fill"
+        case .aiSessionCache: return "brain.head.profile"
+        case .duplicateFile: return "doc.on.doc.fill"
+        case .xcodeCruft: return "xcodeproj"
+        case .dockerLayer: return "cube.fill"
+        case .trashOld: return "trash.fill"
+        case .gitBloat: return "arrow.triangle.branch"
+        case .largeBinary: return "externaldrive.fill"
+        }
+    }
+
+    private func categoryColor(for category: BloatCategory) -> Color {
+        switch category {
+        case .buildArtifact, .dependencyCache: return .blue
+        case .oldLog, .oldInstaller: return .orange
+        case .aiSessionCache: return .purple
+        case .duplicateFile: return .green
+        case .xcodeCruft, .dockerLayer, .trashOld: return .secondary
+        case .gitBloat, .largeBinary: return .red
+        }
     }
 
     private var grouped: [RecGroup] {
@@ -132,11 +169,15 @@ private struct AuditRow: View {
     }
 
     private var safetyLabel: String {
-        rec.safetyScore >= 0.8 ? "High" : rec.safetyScore >= 0.5 ? "Med" : "Low"
+        if rec.safetyScore >= 0.8 { return "Safe" }
+        if rec.safetyScore >= 0.5 { return "Review" }
+        return "Caution"
     }
 
     private var safetyColor: Color {
-        rec.safetyScore >= 0.8 ? .green : rec.safetyScore >= 0.5 ? .yellow : .red
+        if rec.safetyScore >= 0.8 { return .green }
+        if rec.safetyScore >= 0.5 { return .orange }
+        return .red
     }
 }
 
