@@ -1,145 +1,33 @@
 # Ryddi Privacy
 
-Ryddi is local-first disk cleanup software. Its job is to inspect local paths, explain storage usage, and help you build a safe cleanup plan.
+Ryddi is a local-first macOS disk-space manager. It has no analytics, telemetry, advertising SDK, account system, or remote analysis service.
 
-## What Stays Local
+## What Ryddi reads
 
-Ryddi does not upload paths, filenames, app lists, scan results, cleanup plans, receipts, or hardware information.
+Ryddi reads local filesystem metadata such as paths, file types, allocated sizes, modification dates, device and inode identity, and whether an item is a symbolic link. It runs local `du` scans for configured cleanup roots and user-chosen audit folders.
 
-Scans run on your Mac. Plans, receipts, Markdown evidence/plan/receipt reports, and holding-area metadata are written locally under your user account. The scheduled agent is report-first and writes local audit records; it does not send reports anywhere.
+Deep Audit reads file contents only when two large files have the same name and size. It computes SHA-256 locally to rule out false duplicate matches. Hashes and contents are not saved or uploaded. Content-verified duplicates remain review-only and are not automatically selected for cleanup.
 
-## What Ryddi Reads
+Ryddi checks standard local folders to detect provider-managed Dropbox, Google Drive, iCloud Drive, MEGA, and OneDrive locations. It does not sign into providers, call provider APIs, or prove remote upload completion.
 
-Ryddi reads filesystem metadata such as path, file type, size, allocated size, modification date, and readability. When requested by a plan or action, it can run open-file checks so active files are skipped.
+Full Disk Access can improve scan coverage. Ryddi can detect that a known folder is unreadable, but it cannot grant Full Disk Access itself.
 
-Scan presets control which local roots are inspected. Developer mode focuses on developer and AI-agent storage, General Mac mode includes broader review roots such as Downloads, Desktop, personal media/document folders, user caches/logs, app support, attachments, backups, and Trash, and All combines both while collapsing overlapping roots. Built-in templates and saved scope sets store scan roots for repeatable scans. Presets, templates, and saved scope sets do not upload data, grant cleanup permission, or change safety rules.
+## What Ryddi writes
 
-Disk drill-down reports reuse local scan metadata to build a bounded hierarchy of paths, sizes, safety classes, actions, categories, owner hints, and short evidence strings. Ryddi does not upload drill-down reports, and drill-down navigation does not select or execute cleanup.
+Ryddi stores only its custom scan-path list in app preferences.
 
-Active-handle review runs bounded open-file checks over cleanup-relevant candidates and can save a local report. These reports can include local paths, process names, pids, failed-check messages, safety classes, and guidance. Ryddi does not upload active-handle reports, quit processes, or execute cleanup while creating them.
+Clean and eligible Deep Audit actions move explicitly selected, freshly revalidated items to Finder Trash. Nothing is preselected. Before acting, Ryddi checks that the item is still the same non-symbolic filesystem object, remains inside the reviewed root, has no open files detected by a bounded local `lsof` check, and retains an executable safety classification. If the open-file check cannot complete, cleanup fails closed.
 
-Disk status and the menu bar item read local volume capacity/free-space metadata. They do not inspect file contents or send disk pressure information anywhere.
+The Control action for Xcode DerivedData is available only for the exact standard DerivedData folder while Xcode is closed, and moves that folder to Finder Trash. Other Control suggestions are guidance-only.
 
-Trust readiness reads local disk status, scan coverage, current findings, latest local plans/receipts, LaunchAgent status, and signing-state text. It does not upload anything and does not execute cleanup.
+Offload creates a new, uniquely named copy inside a provider-managed local folder. It never deletes or moves the original and does not claim that the provider uploaded the copy. Failed partial copies created by Ryddi are removed.
 
-Dogfood reports combine existing local evidence into a Markdown report: disk status, scan coverage, top owners, review queues, selected dry-run summary, active-handle summary, protected buckets, permission advisory, and non-claims. Dogfood mode never performs cleanup, never installs automation, and never grants permissions.
+Ryddi can copy a plain-text opportunity report to the macOS clipboard at your request. Review it before sharing because filenames and local context can be private.
 
-Permission coverage checks use local filesystem existence and readability checks for configured scan roots. They can report readable, denied, missing, and unknown scope states, but they do not grant macOS permissions or prove that Full Disk Access is globally enabled. Permission walkthrough exports are local Markdown/JSON guidance derived from the same local readback; opening settings or saving a guide does not change macOS privacy state.
+## Network behavior
 
-Duplicate review is different from normal metadata scanning: it reads regular file bytes to compute local SHA-256 content hashes for same-size candidates. File contents are not stored, uploaded, or sent to any remote service. The duplicate CLI requires explicit `--path` roots, and preserve-by-default files are excluded unless the user explicitly opts into that review.
+Scanning, classification, hashing, cleanup, and auditing are local. Ryddi opens its GitHub help page only when you choose Help. Provider software may upload a copy placed in its managed folder according to that provider's own settings and privacy terms.
 
-Cloud Storage discovery checks only immediate folders in the standard macOS File Provider location plus MEGA folders you select explicitly. A candidate must be confirmed for the current app session before inventory. Inventory revalidates its filesystem identity, rejects symbolic-link roots, skips symbolic links inside the tree, and stops at fixed entry, directory, depth, time, and retained-row bounds. It reads directory names and filesystem metadata such as length, allocated blocks, modification time, device, and inode; it does not open file contents, hash cloud files, request placeholder hydration, contact a provider, or persist the confirmation or inventory. Reports can display local paths and filenames on screen. Zero allocated blocks can also describe sparse files, so Ryddi does not claim every zero-block file is an online-only placeholder. Local metadata cannot prove upload, remote recovery, version history, or duplication, and Cloud Storage review never moves, renames, downloads, uploads, deduplicates, or deletes files.
+## Recovery and limits
 
-Apps & Leftovers review reads installed app bundle metadata from local `Info.plist` files and checks common user Library locations for related support files, caches, logs, preferences, containers, launch agents, and heuristic orphan candidates. It does not upload app inventory or uninstall apps.
-
-App uninstall previews reuse the same local app inventory and related-file evidence to create a local checklist for one selected app. The preview can identify the selected app bundle as a manual Trash candidate, but related support files remain review-only/manual. Creating a preview does not quit apps, unload helpers, call vendor uninstallers, delete files, clean leftovers, or upload app inventory.
-
-Downloads Review reads local filesystem metadata from the configured Downloads root and reports local paths, file kinds, workflow labels, workflow steps, sizes, ages, and guidance. Ryddi does not upload this report and does not move, archive, Trash, delete, quarantine, open, or modify Downloads items while creating it.
-
-Browser Cache Review reads local filesystem metadata from configured browser cache roots and protected profile roots. It can also run a local process-list check to report advisory browser runtime state with matched process names such as browser app or helper names. Reports can include local cache/profile paths, browser/cache-kind summaries, sizes, process-name matches, runtime guidance, and non-claims. Ryddi does not upload this report and does not quit browsers, delete, move, Trash, reset, or modify browser cache or profile files.
-
-Device Backups Review reads local filesystem metadata from the configured MobileSync backup root and, when present, each backup folder's local `Info.plist`. Reports can include local backup paths, device names, product names/types, last-backup dates, encryption state, metadata state, size, age, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, or modify device backups.
-
-Xcode Review reads local filesystem metadata from configured Xcode and CoreSimulator roots and, when present, local archive `Info.plist` files and simulator `device.plist` files. Reports can include local paths, app/archive names, simulator names, runtime names, DeviceSupport versions, protected Xcode developer-state paths, sizes, ages, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, reset simulators, modify Xcode files, or treat Xcode UserData, signing profiles, accounts, templates, preferences, snippets, archives, DeviceSupport, simulator state, or runtimes as automatically safe.
-
-Project Dependencies Review reads local filesystem metadata from configured project roots and recognizes common project-local dependency/build directories such as `node_modules`, `.venv`, `.build`, `target`, `Pods`, `.dart_tool`, framework caches, Gradle caches, Flutter build output, and Android build output. Reports can include local project paths, project names, manifest hints, ecosystem labels, artifact kinds, detected project-tool names and versions, detected package names, accepted package.json script names, bounded/redacted package.json script command previews, script-risk classes, sizes, ages, optional local Git status summaries from `git status --porcelain=v1 --untracked-files=normal`, saved per-project policy decisions/reasons, command hints, command working directories, workspace package selectors, and guidance. Ryddi does not upload this report and does not delete, move, Trash, prune, purge, clean, execute rebuild commands or project scripts, or modify project files, dependencies, build outputs, source, manifests, lockfiles, env files, credentials, IDE settings, generated code, local editable installs, saved policy choices, or unknown project state.
-
-AI-agent storage review reads local filesystem metadata from common Codex, Claude, Cursor, Windsurf, and Ollama roots, or from explicit paths you provide. Results can include local paths, owner hints, rule IDs, bucket names, and evidence strings. Ryddi does not upload this report, inspect prompt contents for remote analysis, or automatically delete sessions, memories, credentials, config, model state, profiles, or unknown agent data.
-
-Native-tool reports read scan findings and generate local command preview receipts for tools such as Docker, Colima, Homebrew, and package managers. They can include local paths and command text. Native command execution receipts can include one selected command ID, command text, finding path, category, user-confirmation state, before/after free-space snapshots, bounded stdout/stderr previews, errors, and non-claims. Ryddi does not upload these reports. Saved native receipts are evidence only. Homebrew cleanup requires explicit confirmation plus a fresh actual preview and one-time capability in the same process; Docker/Colima prune/delete/reset, package-manager cache-clearing commands outside that Homebrew lane, remote cleanup, raw VM deletion, and root-helper flows remain guidance-only.
-
-Container inventory can run read-only Docker and Colima inspection commands. The resulting local reports can include Docker image names, container names, volume names, context endpoints, Colima profile names, command exit states, and short command-output previews. Ryddi does not upload this inventory and does not run prune, delete, stop, reset, or raw VM-disk commands.
-
-Remote Targets can read your local SSH config to list non-wildcard host aliases and can use the system `ssh` client to resolve and probe a target. Remote reports can include SSH aliases, resolved user/host/port values, known-host state, host-key fingerprint snippets, remote OS summary, remote home directory, remote paths, filesystem names, Docker object names, command IDs, exit codes, short stdout/stderr previews, typed coverage levels, coverage rows, failed/timed-out/permission-denied command IDs, manual command cards, and target-continuity warnings. Saved remote growth reports compare local remote-scan audit records and can include target metadata, bucket names, remote paths or redacted path placeholders, size deltas, safety classes, and next-action labels. Remote dogfood reports can combine remote probe metadata, remote scan findings, command previews, saved growth deltas, and redacted remote paths. Redacted remote Markdown and redacted issue packages apply best-effort redaction to target aliases, resolved host/user fields, path fragments, Docker-like object names, deploy-release fragments, command-card text, command preview lines, and SSH private-key markers. Saved local audit JSON can still contain original remote paths and host metadata. Ryddi does not store SSH private keys, passwords, passphrases, sudo passwords, tokens, or remote secrets. Remote Targets v1 does not install an agent on the server, upload remote scan results, run remote cleanup, run Docker prune/reset, run `rm`, run `find -delete`, or run sudo cleanup commands. `sudo -n true` is used only as a non-interactive capability probe.
-
-User path policy stores local exclusions and protections you create. These entries can include paths and optional reasons. Ryddi uses them locally to skip excluded paths and to keep protected paths blocked from cleanup plans.
-
-Project Dependencies reports can include detected package-manager names/versions, package names, accepted package.json script names, short script command previews, script-risk classes, workspace or monorepo marker names, workspace package patterns, project root paths, workspace root paths, command working directories, workspace package selectors, and local VCS status summaries. Ryddi redacts common token/password/secret flag and environment-value shapes in script previews, but reports can still reveal private project commands or names; review reports before sharing. Ryddi does not upload this information, execute scripts, run package-manager commands, or prove that workspace scripts, project scripts, or hoisted dependencies are safe to remove.
-
-Project dependency policies store local project review choices you create. These entries can include project root paths, project names, review/preserve/skip decisions, and optional reasons. Ryddi uses them locally to annotate Project Dependencies reports or skip known-noisy projects from that report by default; policies do not grant cleanup permission.
-
-Policy export writes a local JSON document containing those paths, reasons, timestamps, schema version, and non-claims. Ryddi does not upload the export. Review it before sharing because it can reveal project names, usernames, customer names, or other private path details. Policy import changes only Ryddi's local path policy; it does not delete files, run cleanup, grant Full Disk Access, or prove that imported paths still exist. Import merges by default and replaces the whole policy only when `--replace` is supplied.
-
-User rule packs store local classification rules you import. These entries can include match patterns, app names, path fragments, rule titles, categories, evidence text, recovery text, and conditions. Ryddi does not upload rule packs. Imported user rules are disabled by default for scans unless `--include-user-rules` is supplied in the CLI or the app User Rules scan toggle is on, and validation rejects rules that try to grant cleanup actions or unattended cleanup safety. User rules can make a path more cautious to review, preserve, or never-touch; they cannot downgrade bundled never-touch protections.
-
-Saved scope sets store local scan root names and paths for reuse. Ryddi does not upload scope sets. Scope-set export writes local JSON and can reveal usernames, project names, app names, client folders, or personal folder structure, so review exports before sharing. Importing a scope set changes only what roots Ryddi scans when selected; it does not grant cleanup permission or change safety classification.
-
-Evidence report export reads scan findings, disk status, scan coverage, storage-accounting fields, and user path policy to write local Markdown. Reports can include local paths, configured policy reasons, category names, logical/allocated size fields, clone-sharing notes, and non-claims. Ryddi does not upload these reports or execute cleanup while creating them. Bounded or degraded coverage is preserved in the report so an incomplete scan is not presented as a complete reclaim map.
-
-Issue package export writes a small local diagnostics folder with `manifest.json`, `report.md`, `non-claims.md`, `local-summary.json`, and optionally `remote-summary.json`. It summarizes local audit counts, latest scan-session state, and selected redacted remote evidence. It does not copy raw audit JSON, raw SSH config, private keys, passwords, tokens, or arbitrary filesystem data. Redaction is best-effort and not a secrets inventory; review the package before sharing it.
-
-Plan report export reads a proposed reclaim plan to write local Markdown. Plan reports can include selected action paths, blocked or review-only paths, safety buckets, condition messages, and reclaim estimates. Ryddi does not upload plan reports or execute cleanup while creating them.
-
-Receipt report export reads saved dry-run or execution receipts to write local Markdown. Receipt reports can include paths, action statuses, action messages, reclaimed-byte estimates, before/after free-space fields, and errors. Native command receipt export reads saved native command receipts and can include one command, command context, bounded output previews, errors, path privacy transforms, and native non-claims. Ryddi does not upload receipt reports or rerun cleanup/native tools while creating them.
-
-Recovery Center reads local holding-area metadata and saved execution receipts to show what needs Finder Trash, native-tool, backup, or manual review. Recovery output can include original paths, held paths, receipt IDs, action statuses, and guidance. Holding records remain manual Finder recovery only; Ryddi does not upload recovery data or silently restore, move, or delete them.
-
-Growth report export reads saved scan-history snapshots to write local Markdown. Growth reports can include category, scope, safety, scan coverage, and current top finding paths. Ryddi does not upload growth reports or execute cleanup while creating them.
-
-Report exports support path privacy controls. `home-relative` reports hide your home-directory prefix, `redacted` reports replace report paths with `<path redacted>`, and user-entered policy reasons can be redacted from exports. These controls affect the generated report only; saved local audit JSON, plans, receipts, and scan snapshots can still contain original local paths.
-
-Dogfood report redaction uses the same path privacy controls. Redacted reports hide full paths in the generated Markdown, but they can still include owner names, categories, workflow labels, counts, sizes, process summaries, command labels, and other local context. Review any report before sharing it.
-
-Remote report redaction hides full remote paths in generated Markdown and redacts common target, host, object-name, deploy-fragment, command-card, command-preview, and SSH key-marker text. Reports can still reveal bucket names, filesystem names, service categories, mount classes, command labels, sizes, counts, and non-secret error context. Review remote reports before sharing them.
-
-Ryddi works without Full Disk Access, but scan coverage can be incomplete. If macOS denies access to a folder, Ryddi should show degraded coverage rather than pretending the scan was complete.
-
-## What Ryddi Writes
-
-Ryddi can write:
-
-- saved dry-run plans and receipts;
-- saved Markdown evidence reports;
-- saved Markdown reclaim plan reports;
-- saved Markdown receipt reports;
-- saved Markdown native command receipt reports;
-- saved Markdown growth reports;
-- saved Markdown dogfood reports when you choose an output path;
-- saved issue package folders when you choose an output directory;
-- saved native-tool preview reports;
-- saved native command execution receipts;
-- saved container inventory reports;
-- saved remote probe, scan, and local growth-history audit records;
-- saved remote Markdown evidence and growth reports when you choose an output path or export from the app;
-- saved active-file review reports;
-- saved report-only review reports for Downloads, browser caches, package caches, project dependencies, Xcode storage, device backups, and Trash;
-- saved user path policy for protections and exclusions;
-- saved project dependency policy for per-project review choices;
-- saved user rule packs for custom review/protection signals;
-- saved scope sets for repeatable scan roots;
-- compact local scan-history snapshots for growth comparisons, retained for review rather than automatically pruned;
-- app-managed holding-area metadata;
-- a per-user LaunchAgent plist if you install report scheduling;
-- same-process Homebrew cleanup, Docker builder prune, or npm cache clean only after an explicit confirmation and fresh bounded preview; each action has an exact allowlist and a local receipt.
-
-Core filesystem cleanup is report-first. The app can move only explicitly confirmed, current-session `autoSafe` Trash selections after a matching clean dry run and final identity, classification, policy, symlink, age-gate, containment, and recursive open-handle checks. The one-time authorization stays in memory and expires after 15 minutes. Receipts can store original paths, resulting Trash paths, file identity metadata, and skipped/error reasons locally. Ryddi does not empty Trash; moving an item there does not immediately reclaim space, and the final pathname check is not atomic. Direct cache deletion, compression, holding moves, remote cleanup, and scheduled destructive work remain disabled. Holding records are retained for manual Finder review. Native actions are still review-first: only the exact Homebrew, Docker builder, and npm cache lanes can perform, and they do not touch VM disks, Docker volumes/images/containers, project dependencies, Codex history, or arbitrary tool-owned state.
-
-## What Ryddi Should Never Touch Automatically
-
-Ryddi should never automatically remove credentials, secrets, configs, app state databases, browser profiles, user documents, Photos or Music libraries, GarageBand or Logic assets, AI-agent memories, AI-agent sessions, model state, VM/container disks, installed app bundles, app support data, or unknown app-managed state.
-
-On remote targets, Ryddi should never automatically remove databases, backups, Docker volumes, app uploads, `/etc` config, credentials, secrets, app state, unknown server data, or anything requiring sudo cleanup.
-
-## Telemetry
-
-Ryddi has no telemetry in the MVP. The app writes local macOS unified-log events for typed operation names, durations, counts, workflow stages, preset, and coarse error kinds. These events do not intentionally include paths, filenames, SSH targets, aliases, usernames, rule text, command output, or file contents. The optional **Export Diagnostic Summary** command writes the same bounded metadata to a new local JSON file; it is never uploaded automatically. macOS controls unified-log retention independently of Ryddi.
-
-If telemetry is ever proposed, it should be opt-in, documented, and unnecessary for local cleanup.
-
-## Removing Local Ryddi Data
-
-Ryddi data is expected under:
-
-```text
-~/Library/Application Support/Ryddi
-~/Library/Application Support/Ryddi/Config/user-path-policy.json
-~/Library/Application Support/Ryddi/Config/project-dependency-policy.json
-~/Library/Application Support/Ryddi/Config/user-rules.json
-~/Library/Application Support/Ryddi/ScanHistory
-~/Library/Application Support/Ryddi/Reports
-~/Library/Application Support/Ryddi/Reports/user-path-policy-*.json
-~/Library/Application Support/Ryddi/Reports/project-dependency-policy-*.json
-~/Library/LaunchAgents/com.reidar.ryddi.agent.plist
-```
-
-Ryddi does not unload or remove a LaunchAgent plist automatically. Reveal `~/Library/LaunchAgents/com.reidar.ryddi.agent.plist` in Finder and remove it manually before deleting app support data; if it is loaded, manually run `launchctl bootout gui/$(id -u)/com.reidar.ryddi.agent` first.
+Finder Trash is recoverable until emptied, but moving an item to Trash does not immediately increase free space. Files can change after any scan; Ryddi therefore fails closed when identity or classification changes. Review-only findings are information, not cleanup authorization.

@@ -13,6 +13,7 @@ final class SafetyCheckerTests: XCTestCase {
         let result = checker.check([rec], scanRoot: "/tmp/scan")
         XCTAssertEqual(result.first?.safetyScore, 0.1)
         XCTAssertEqual(result.first?.action, .reviewRequired)
+        XCTAssertTrue(result.first?.description.contains("Outside the reviewed scan root") == true)
     }
 
     func testGitPathGetsReviewRequired() {
@@ -43,7 +44,7 @@ final class SafetyCheckerTests: XCTestCase {
             description: "test", action: .moveToTrash
         )
         let result = checker.check([rec], scanRoot: "/tmp/scan")
-        XCTAssertEqual(result.first?.safetyScore, 0.8)
+        XCTAssertEqual(result.first?.safetyScore, 0.6)
         XCTAssertEqual(result.first?.effortScore, 0.6)
     }
 
@@ -62,6 +63,28 @@ final class SafetyCheckerTests: XCTestCase {
         let rec = ReclaimRecommendation(
             path: "/outside/file", category: .oldLog,
             reclaimableBytes: 100, safetyScore: 0.1, effortScore: 1.0,
+            description: "test", action: .moveToTrash
+        )
+        let result = checker.check([rec], scanRoot: "/tmp/scan")
+        XCTAssertEqual(result.first?.safetyScore, 0.1)
+        XCTAssertEqual(result.first?.action, .reviewRequired)
+    }
+
+    func testOutsideRootRemainsHardCappedForAISession() {
+        let rec = ReclaimRecommendation(
+            path: "/outside/.codex/sessions/item", category: .aiSessionCache,
+            reclaimableBytes: 100, safetyScore: 0.9, effortScore: 1.0,
+            description: "test", action: .moveToTrash
+        )
+        let result = checker.check([rec], scanRoot: "/tmp/scan")
+        XCTAssertEqual(result.first?.safetyScore, 0.1)
+        XCTAssertEqual(result.first?.action, .reviewRequired)
+    }
+
+    func testOutsideRootRemainsHardCappedForDuplicate() {
+        let rec = ReclaimRecommendation(
+            path: "/outside/duplicate", category: .duplicateFile,
+            reclaimableBytes: 100, safetyScore: 0.9, effortScore: 1.0,
             description: "test", action: .moveToTrash
         )
         let result = checker.check([rec], scanRoot: "/tmp/scan")

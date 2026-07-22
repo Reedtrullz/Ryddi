@@ -49,6 +49,8 @@ final class DeepAuditScannerTests: XCTestCase {
         let found = recs.first { $0.category == .aiSessionCache }
         XCTAssertNotNil(found)
         XCTAssertTrue(found!.path.contains(".codex"))
+        XCTAssertEqual(found!.action, .reviewRequired)
+        XCTAssertEqual(found!.safetyScore, 0.2)
     }
 
     func testDetectsDuplicateFile() throws {
@@ -63,7 +65,22 @@ final class DeepAuditScannerTests: XCTestCase {
         let recs = try DeepAuditScanner().scan(path: tempDir.path)
         let found = recs.first { $0.category == .duplicateFile }
         XCTAssertNotNil(found)
-        XCTAssertGreaterThan(found!.reclaimableBytes, 0)
+        XCTAssertEqual(found!.reclaimableBytes, 6_000_000)
+        XCTAssertEqual(found!.safetyScore, 0.6)
+        XCTAssertEqual(found!.action, .reviewRequired)
+        XCTAssertTrue(found!.description.contains("Content-verified"))
+    }
+
+    func testDifferentContentWithSameNameAndSizeIsNotDuplicate() throws {
+        let d1 = tempDir.appendingPathComponent("dir1")
+        let d2 = tempDir.appendingPathComponent("dir2")
+        try FileManager.default.createDirectory(at: d1, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: d2, withIntermediateDirectories: true)
+        try Data(repeating: 0xAA, count: 6_000_000).write(to: d1.appendingPathComponent("file.bin"))
+        try Data(repeating: 0xBB, count: 6_000_000).write(to: d2.appendingPathComponent("file.bin"))
+
+        let recs = try DeepAuditScanner().scan(path: tempDir.path)
+        XCTAssertFalse(recs.contains { $0.category == .duplicateFile })
     }
 
     func testDetectsOldInstaller() throws {
@@ -77,6 +94,40 @@ final class DeepAuditScannerTests: XCTestCase {
         let found = recs.first { $0.category == .oldInstaller }
         XCTAssertNotNil(found)
         XCTAssertTrue(found!.path.hasSuffix(".dmg"))
+    }
+
+    func testDetectsLargeTarGzOutsideDownloads() throws {
+        let archive = tempDir.appendingPathComponent("archives/source.tar.gz")
+        try FileManager.default.createDirectory(
+            at: archive.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        XCTAssertTrue(FileManager.default.createFile(atPath: archive.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: archive)
+        try handle.truncate(atOffset: 1_073_741_825)
+        try handle.close()
+
+        let recs = try DeepAuditScanner().scan(path: tempDir.path)
+        let found = try XCTUnwrap(recs.first { $0.path.hasSuffix("/source.tar.gz") })
+        XCTAssertEqual(found.category, .largeBinary)
+        XCTAssertEqual(found.action, .reviewRequired)
+    }
+
+    func testDetectsLargeDMGOutsideDownloads() throws {
+        let image = tempDir.appendingPathComponent("archives/disk.dmg")
+        try FileManager.default.createDirectory(
+            at: image.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        XCTAssertTrue(FileManager.default.createFile(atPath: image.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: image)
+        try handle.truncate(atOffset: 1_073_741_825)
+        try handle.close()
+
+        let recs = try DeepAuditScanner().scan(path: tempDir.path)
+        let found = try XCTUnwrap(recs.first { $0.path.hasSuffix("/disk.dmg") })
+        XCTAssertEqual(found.category, .largeBinary)
+        XCTAssertEqual(found.action, .reviewRequired)
     }
 
     func testSafetyCheckerProtectsRecentNodeModules() throws {
@@ -111,6 +162,43 @@ final class DeepAuditScannerTests: XCTestCase {
         if case .reviewRequired = found!.action {} else {
             XCTFail("Expected reviewRequired for recent build dir")
         }
+    }
+
+    func testReviewFindingPreventsExecutableParentRecommendation() throws {
+        let sessions = tempDir.appendingPathComponent("project/.build/.codex/sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try Data(repeating: 0xAB, count: 12_000_000)
+            .write(to: sessions.appendingPathComponent("history.jsonl"))
+        let old = Date(timeIntervalSinceNow: -3600 * 48)
+        try FileManager.default.setAttributes(
+            [.modificationDate: old],
+            ofItemAtPath: tempDir.appendingPathComponent("project/.build").path
+        )
+
+        let recs = try DeepAuditScanner().scan(path: tempDir.path)
+        let review = try XCTUnwrap(recs.first { $0.category == .aiSessionCache })
+        XCTAssertEqual(review.action, .reviewRequired)
+        XCTAssertFalse(recs.contains {
+            $0.action == .moveToTrash
+                && review.path.hasPrefix($0.path + "/")
+        })
+    }
+
+    func testDuplicateHashBudgetSkipsOversizedCandidateGroup() throws {
+        for directory in ["one", "two"] {
+            let file = tempDir.appendingPathComponent("\(directory)/huge.bin")
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            XCTAssertTrue(FileManager.default.createFile(atPath: file.path, contents: nil))
+            let handle = try FileHandle(forWritingTo: file)
+            try handle.truncate(atOffset: 3 * 1024 * 1024 * 1024)
+            try handle.close()
+        }
+
+        let recs = try DeepAuditScanner().scan(path: tempDir.path)
+        XCTAssertFalse(recs.contains { $0.category == .duplicateFile })
     }
 
     func testImpactScorer() {

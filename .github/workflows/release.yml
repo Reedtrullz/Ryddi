@@ -1,15 +1,12 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:
         description: 'Version (e.g., 0.8.1)'
         required: true
-        default: '0.8.1'
+        default: '0.8.2'
 
 jobs:
   build:
@@ -28,33 +25,46 @@ jobs:
       - name: Test
         run: swift test --scratch-path "$PWD/.build"
 
+      - name: Import release credentials
+        env:
+          APP_CERTIFICATE_P12: ${{ secrets.APP_CERTIFICATE_P12 }}
+          INSTALLER_CERTIFICATE_P12: ${{ secrets.INSTALLER_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+          NOTARY_PRIVATE_KEY_BASE64: ${{ secrets.NOTARY_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${APP_CERTIFICATE_P12:?missing APP_CERTIFICATE_P12}"
+          : "${INSTALLER_CERTIFICATE_P12:?missing INSTALLER_CERTIFICATE_P12}"
+          : "${CERTIFICATE_PASSWORD:?missing CERTIFICATE_PASSWORD}"
+          : "${NOTARY_PRIVATE_KEY_BASE64:?missing NOTARY_PRIVATE_KEY_BASE64}"
+          KEYCHAIN="$RUNNER_TEMP/ryddi-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          printf '%s' "$APP_CERTIFICATE_P12" | base64 -D > "$RUNNER_TEMP/app.p12"
+          printf '%s' "$INSTALLER_CERTIFICATE_P12" | base64 -D > "$RUNNER_TEMP/installer.p12"
+          printf '%s' "$NOTARY_PRIVATE_KEY_BASE64" | base64 -D > "$RUNNER_TEMP/notary.p8"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/app.p12" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/installer.p12" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+
       - name: Build installer
         env:
-          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+          APP_SIGNING_IDENTITY: ${{ secrets.APP_SIGNING_IDENTITY }}
+          INSTALLER_SIGNING_IDENTITY: ${{ secrets.INSTALLER_SIGNING_IDENTITY }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          NOTARY_KEY_PATH: ${{ runner.temp }}/notary.p8
         run: |
-          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          set -euo pipefail
+          VERSION="${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version }}"
           VERSION="${VERSION#v}"
           ./Scripts/build-installer.sh "$VERSION"
 
-      - name: Create Release
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ github.ref_name }}"
-          PKG="dist/Ryddi-${VERSION}.pkg"
-          SHA="${PKG}.sha256"
-          
-          gh release create "$VERSION" \
-            --title "Ryddi $VERSION" \
-            --generate-notes \
-            "$PKG" "$SHA"
-
       - name: Upload artifacts
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Ryddi-${{ github.event.inputs.version }}
           path: |

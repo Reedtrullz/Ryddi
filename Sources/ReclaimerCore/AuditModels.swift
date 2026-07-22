@@ -49,10 +49,12 @@ public struct ReclaimRecommendation: Identifiable, Hashable, Sendable, Codable {
     }
     public let description: String
     public let action: ReclaimAction
+    public let identity: FileIdentity?
 
     public init(path: String, category: BloatCategory, reclaimableBytes: Int64,
                 safetyScore: Double, effortScore: Double,
-                description: String, action: ReclaimAction) {
+                description: String, action: ReclaimAction,
+                identity: FileIdentity? = nil) {
         self.id = UUID()
         self.path = path
         self.category = category
@@ -61,10 +63,11 @@ public struct ReclaimRecommendation: Identifiable, Hashable, Sendable, Codable {
         self.effortScore = effortScore
         self.description = description
         self.action = action
+        self.identity = identity
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, path, category, reclaimableBytes, safetyScore, effortScore, description, action
+        case id, path, category, reclaimableBytes, safetyScore, effortScore, description, action, identity
     }
 }
 
@@ -84,9 +87,9 @@ public struct AuditReport: Codable, Sendable {
         self.bloatBytes = bloatBytes
         self.reclaimableBytes = reclaimableBytes
         self.recommendations = recommendations
-        self.safeToReclaimBytes = recommendations.filter { $0.safetyScore >= 0.8 }
+        self.safeToReclaimBytes = recommendations.filter { $0.safetyScore >= 0.8 && $0.action == .moveToTrash }
             .reduce(0) { $0 + $1.reclaimableBytes }
-        self.needsReviewBytes = recommendations.filter { $0.safetyScore < 0.8 }
+        self.needsReviewBytes = recommendations.filter { $0.safetyScore < 0.8 || $0.action != .moveToTrash }
             .reduce(0) { $0 + $1.reclaimableBytes }
     }
 }

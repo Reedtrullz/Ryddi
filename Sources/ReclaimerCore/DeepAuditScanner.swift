@@ -1,10 +1,12 @@
 import Foundation
+import CryptoKit
 
-func canonicalPath(_ path: String) -> String {
+func canonicalizedPath(_ path: String) -> String {
     let maxLen = 4096
     var buf = [CChar](repeating: 0, count: maxLen)
     guard realpath(path, &buf) != nil else { return (path as NSString).standardizingPath }
-    return String(cString: buf)
+    let bytes = buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+    return String(decoding: bytes, as: UTF8.self)
 }
 
 public enum DeepAuditError: Error, Sendable {
@@ -19,12 +21,12 @@ public final class DeepAuditScanner: @unchecked Sendable {
     }
 
     public func scan(path: String) throws -> [ReclaimRecommendation] {
-        let root = canonicalPath(path)
+        let root = canonicalizedPath(path)
         let rootURL = URL(fileURLWithPath: root)
         let rootComps = rootURL.pathComponents
         var recs: [ReclaimRecommendation] = []
         var dirSize: [String: Int64] = [:]
-        var duplicateMap: [String: [(path: String, size: Int64)]] = [:]
+        var duplicateMap: [String: [(url: URL, size: Int64)]] = [:]
         var seenPaths: Set<String> = []
         var dirMeta: [(path: String, mtime: Date)] = []
         var fileCount = 0
@@ -32,7 +34,11 @@ public final class DeepAuditScanner: @unchecked Sendable {
         let now = Date()
         let calendar = Calendar.current
 
-        guard let enumerator = FileManager.default.enumerator(at: rootURL, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey]) else {
+        guard let enumerator = FileManager.default.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsPackageDescendants]
+        ) else {
             return []
         }
 
@@ -53,14 +59,18 @@ public final class DeepAuditScanner: @unchecked Sendable {
                 throw DeepAuditError.tooManyFiles(limit: maxFiles)
             }
 
-            let vals = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey])
+            let vals = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey])
+            if vals?.isSymbolicLink == true {
+                enumerator.skipDescendants()
+                continue
+            }
             let size = Int64(vals?.fileSize ?? 0)
             let mtime = vals?.contentModificationDate ?? Date.distantPast
             let isDir = vals?.isDirectory ?? false
             let p = url.path
 
             if size > 0 {
-                var cursor = url
+                var cursor = url.deletingLastPathComponent()
                 while cursor.path != root && isUnderRoot(cursor) {
                     dirSize[cursor.path, default: 0] += size
                     cursor.deleteLastPathComponent()
@@ -70,7 +80,7 @@ public final class DeepAuditScanner: @unchecked Sendable {
 
             if size > 0 {
                 let key = "\(url.lastPathComponent)|\(size)"
-                duplicateMap[key, default: []].append((p, size))
+                duplicateMap[key, default: []].append((url, size))
             }
 
             if !seenPaths.contains(p) {
@@ -95,17 +105,17 @@ public final class DeepAuditScanner: @unchecked Sendable {
                             category = .aiSessionCache
                             desc = "AI agent session cache."
                         }
-                    } else if ext == "dmg" || ext == "pkg" || ext == "zip" {
-                        if lower.contains("downloads/"), size > 10 * 1024 * 1024, calendar.dateComponents([.day], from: mtime, to: now).day ?? 0 > 90 {
-                            category = .oldInstaller
-                            desc = "Old installer/package in Downloads."
-                        }
-                    } else if ext == "iso" || ext == "vmdk" || ext == "tar.gz" || ext == "dmg" || ext == "pkg" {
-                        if size > 1 * 1024 * 1024 * 1024 {
-                            category = .largeBinary
-                            desc = "Large binary file."
-                            action = .reviewRequired
-                        }
+                    } else if (ext == "dmg" || ext == "pkg" || ext == "zip"),
+                              lower.contains("downloads/"),
+                              size > 10 * 1024 * 1024,
+                              calendar.dateComponents([.day], from: mtime, to: now).day ?? 0 > 90 {
+                        category = .oldInstaller
+                        desc = "Old installer/package in Downloads."
+                    } else if (ext == "iso" || ext == "vmdk" || ext == "dmg" || ext == "pkg" || lower.hasSuffix(".tar.gz")),
+                              size > 1 * 1024 * 1024 * 1024 {
+                        category = .largeBinary
+                        desc = "Large binary file."
+                        action = .reviewRequired
                     }
                 }
 
@@ -122,7 +132,8 @@ public final class DeepAuditScanner: @unchecked Sendable {
                     recs.append(ReclaimRecommendation(
                         path: p, category: cat, reclaimableBytes: reclaimSize,
                         safetyScore: 0.5, effortScore: 1.0,
-                        description: desc, action: action
+                        description: desc, action: action,
+                        identity: FileIdentity.capture(path: p)
                     ))
                     seenPaths.insert(p)
                 }
@@ -136,12 +147,18 @@ public final class DeepAuditScanner: @unchecked Sendable {
             var category: BloatCategory?
             var desc = ""
             var action: ReclaimAction = .moveToTrash
-            var reclaimSize = ds
+            let reclaimSize = ds
 
-            if pathContains(p, ".build") || pathContains(p, "target") || pathContains(p, "deriveddata") || pathContains(p, "node_modules/.cache") || pathContains(p, "__pycache__") || pathContains(p, ".gradle/build") || pathContains(p, ".swiftpm/debug") || pathContains(p, ".spm-build") || pathContains(p, "build") {
+            if pathContains(p, ".build") || pathContains(p, "target") || pathContains(p, "deriveddata") || pathContains(p, "node_modules/.cache") || pathContains(p, "__pycache__") || pathContains(p, ".gradle/build") || pathContains(p, ".swiftpm/debug") || pathContains(p, ".spm-build") {
                 if ds > 10 * 1024 * 1024 {
                     category = .buildArtifact
                     desc = "Build artifacts are regenerable from source."
+                }
+            } else if pathContains(p, "build") {
+                if ds > 10 * 1024 * 1024 {
+                    category = .buildArtifact
+                    desc = "Generic build-named folder; confirm that it is generated output."
+                    action = .reviewRequired
                 }
             } else if pathContains(p, "node_modules") || pathContains(p, "vendor") || pathContains(p, ".gradle") || pathContains(p, "pods") || pathContains(p, ".swiftpm/cache") || pathContains(p, ".pub-cache") || pathContains(p, "carthage/build") || pathContains(p, "go/pkg/mod") {
                 if ds > 10 * 1024 * 1024 {
@@ -176,27 +193,100 @@ public final class DeepAuditScanner: @unchecked Sendable {
                 recs.append(ReclaimRecommendation(
                     path: p, category: cat, reclaimableBytes: reclaimSize,
                     safetyScore: 0.5, effortScore: 1.0,
-                    description: desc, action: action
+                    description: desc, action: action,
+                    identity: FileIdentity.capture(path: p)
                 ))
                 seenPaths.insert(p)
             }
         }
 
-        for (_, dups) in duplicateMap where dups.count > 1 {
-            let totalDupSize = dups.reduce(0) { $0 + $1.size } * Int64(dups.count - 1)
-            if totalDupSize > 10 * 1024 * 1024 {
-                let first = dups.first!
-                recs.append(ReclaimRecommendation(
-                    path: first.path, category: .duplicateFile,
-                    reclaimableBytes: totalDupSize,
-                    safetyScore: 0.8, effortScore: 0.6,
-                    description: "Duplicate file found in \(dups.count) locations (same name and size).",
-                    action: .moveToTrash
-                ))
+        let duplicateHashBudget: Int64 = 4 * 1024 * 1024 * 1024
+        for (_, candidates) in duplicateMap where candidates.count > 1 {
+            let candidateBytes = candidates.reduce(Int64(0)) { partial, candidate in
+                let (sum, overflow) = partial.addingReportingOverflow(candidate.size)
+                return overflow ? Int64.max : sum
+            }
+            guard candidateBytes <= duplicateHashBudget else { continue }
+            var byDigest: [String: [(url: URL, size: Int64)]] = [:]
+            for candidate in candidates {
+                try Task.checkCancellation()
+                guard let digest = try contentDigest(of: candidate.url) else { continue }
+                byDigest[digest, default: []].append(candidate)
+            }
+            for matches in byDigest.values where matches.count > 1 {
+                let ordered = matches.sorted { $0.url.path < $1.url.path }
+                let preserved = ordered[0].url.path
+                for duplicate in ordered.dropFirst() where duplicate.size > 5 * 1024 * 1024 {
+                    recs.append(ReclaimRecommendation(
+                        path: duplicate.url.path,
+                        category: .duplicateFile,
+                        reclaimableBytes: duplicate.size,
+                        safetyScore: 0.6,
+                        effortScore: 0.6,
+                        description: "Content-verified duplicate. Preserving \(preserved) by default.",
+                        action: .reviewRequired,
+                        identity: FileIdentity.capture(path: duplicate.url.path)
+                    ))
+                }
             }
         }
 
         let checker = SafetyChecker()
-        return checker.check(recs, scanRoot: root)
+        let checked = checker.check(recs, scanRoot: root)
+        return collapseOverlappingActions(removingParentsThatContainReviewFindings(checked))
+    }
+
+    private func contentDigest(of url: URL) throws -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        do {
+            while true {
+                try Task.checkCancellation()
+                guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { break }
+                hasher.update(data: data)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return nil
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func collapseOverlappingActions(_ recommendations: [ReclaimRecommendation]) -> [ReclaimRecommendation] {
+        let ordered = recommendations.sorted {
+            let lhsDepth = URL(fileURLWithPath: $0.path).pathComponents.count
+            let rhsDepth = URL(fileURLWithPath: $1.path).pathComponents.count
+            return lhsDepth == rhsDepth ? $0.path < $1.path : lhsDepth < rhsDepth
+        }
+        var retained: [ReclaimRecommendation] = []
+        for recommendation in ordered {
+            let covered = retained.contains { parent in
+                guard parent.action == .moveToTrash, parent.safetyScore >= 0.8 else { return false }
+                let parentComponents = URL(fileURLWithPath: parent.path).pathComponents
+                let childComponents = URL(fileURLWithPath: recommendation.path).pathComponents
+                return childComponents.count > parentComponents.count
+                    && Array(childComponents.prefix(parentComponents.count)) == parentComponents
+            }
+            if !covered { retained.append(recommendation) }
+        }
+        return retained
+    }
+
+    private func removingParentsThatContainReviewFindings(
+        _ recommendations: [ReclaimRecommendation]
+    ) -> [ReclaimRecommendation] {
+        recommendations.filter { parent in
+            guard parent.action == .moveToTrash, parent.safetyScore >= 0.8 else { return true }
+            let parentComponents = URL(fileURLWithPath: parent.path).pathComponents
+            return !recommendations.contains { child in
+                guard child.id != parent.id,
+                      child.action == .reviewRequired || child.safetyScore < 0.8 else { return false }
+                let childComponents = URL(fileURLWithPath: child.path).pathComponents
+                return childComponents.count > parentComponents.count
+                    && Array(childComponents.prefix(parentComponents.count)) == parentComponents
+            }
+        }
     }
 }
