@@ -18,17 +18,21 @@ public struct SafetyChecker {
 
         return recommendations.map { rec in
             var r = rec
+            var modified = false
             let p = canonicalPath(rec.path)
             if !isUnderRoot(p) {
                 r = copy(r, safetyScore: 0.1, action: .reviewRequired)
+                modified = true
             }
 
             if p.contains(".git/") {
                 r = copy(r, description: "Git repository detected. Run `git gc` to reduce pack size instead of deleting.", action: .reviewRequired)
+                modified = true
             }
 
             if p.hasPrefix(appBundle) {
                 r = copy(r, safetyScore: 0.0, action: .reviewRequired)
+                modified = true
             }
 
             if p.contains("node_modules/") || p.hasSuffix("/node_modules") {
@@ -40,6 +44,7 @@ public struct SafetyChecker {
                            let mtime = attrs[.modificationDate] as? Date,
                            calendar.dateComponents([.day], from: mtime, to: now).day ?? 8 < 8 {
                             r = copy(r, safetyScore: 0.3, description: "Active project (package.json modified within 7 days).", action: .reviewRequired)
+                            modified = true
                         }
                         break
                     }
@@ -61,10 +66,11 @@ public struct SafetyChecker {
                    let mtime = attrs[.modificationDate] as? Date,
                    calendar.dateComponents([.hour], from: mtime, to: now).hour ?? 25 < 25 {
                     r = copy(r, safetyScore: 0.3, description: "Build directory modified within last 24 hours.", action: .reviewRequired)
+                    modified = true
                 }
             }
 
-            if r.safetyScore == rec.safetyScore {
+            if !modified {
                 r = copy(r, safetyScore: defaultSafety(for: rec.category), effortScore: defaultEffort(for: rec.category))
             }
 

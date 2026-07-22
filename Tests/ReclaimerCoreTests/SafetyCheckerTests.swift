@@ -66,5 +66,6 @@ final class SafetyCheckerTests: XCTestCase {
         )
         let result = checker.check([rec], scanRoot: "/tmp/scan")
         XCTAssertEqual(result.first?.safetyScore, 0.95)
+        XCTAssertEqual(result.first?.effortScore, 1.0)
     }
 }
