@@ -41,7 +41,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ github.ref_name }}"
-          PKG="dist/Ryddi-${VERSION#v}.pkg"
+          PKG="dist/Ryddi-${VERSION}.pkg"
           SHA="${PKG}.sha256"
           
           gh release create "$VERSION" \
