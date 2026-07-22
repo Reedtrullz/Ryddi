@@ -26,6 +26,7 @@ public final class DeepAuditScanner: @unchecked Sendable {
         var dirSize: [String: Int64] = [:]
         var duplicateMap: [String: [(path: String, size: Int64)]] = [:]
         var seenPaths: Set<String> = []
+        var dirMeta: [(path: String, mtime: Date)] = []
         var fileCount = 0
         let maxFiles = 500_000
         let now = Date()
@@ -81,46 +82,7 @@ public final class DeepAuditScanner: @unchecked Sendable {
                 var reclaimSize = size
 
                 if isDir {
-                    let ds = dirSize[p, default: 0]
-                    if pathContains(p, ".build") || pathContains(p, "target") || pathContains(p, "deriveddata") || pathContains(p, "node_modules/.cache") || pathContains(p, "__pycache__") || pathContains(p, ".gradle/build") || pathContains(p, ".swiftpm/debug") || pathContains(p, ".spm-build") || pathContains(p, "build") {
-                        if ds > 10 * 1024 * 1024 {
-                            category = .buildArtifact
-                            desc = "Build artifacts are regenerable from source."
-                            reclaimSize = ds
-                        }
-                    } else if pathContains(p, "node_modules") || pathContains(p, "vendor") || pathContains(p, ".gradle") || pathContains(p, "pods") || pathContains(p, ".swiftpm/cache") || pathContains(p, ".pub-cache") || pathContains(p, "carthage/build") || pathContains(p, "go/pkg/mod") {
-                        if ds > 10 * 1024 * 1024 {
-                            category = .dependencyCache
-                            desc = "Dependency cache can be rebuilt from manifest."
-                            reclaimSize = ds
-                        }
-                    } else if pathContains(p, "xcode/archives") || pathContains(p, "devicesupport") || pathContains(p, "ios device logs") || pathContains(p, "coresimulator/devices") {
-                        if ds > 50 * 1024 * 1024, calendar.dateComponents([.day], from: mtime, to: now).day ?? 0 > 90 {
-                            category = .xcodeCruft
-                            desc = "Old Xcode archives or device support data."
-                            reclaimSize = ds
-                        }
-                    } else if pathContains(p, ".docker") || pathContains(p, ".colima") || lower.contains("library/containers/com.docker.docker") {
-                        if ds > 100 * 1024 * 1024 {
-                            category = .dockerLayer
-                            desc = "Docker/Colima runtime data. Use docker prune."
-                            action = .reviewRequired
-                            reclaimSize = ds
-                        }
-                    } else if pathContains(p, ".trash") {
-                        if ds > 1 * 1024 * 1024, calendar.dateComponents([.day], from: mtime, to: now).day ?? 0 > 30 {
-                            category = .trashOld
-                            desc = "Files in Trash older than 30 days."
-                            reclaimSize = ds
-                        }
-                    } else if lower.contains(".git/") && lower.contains("/objects/pack") {
-                        if ds > 100 * 1024 * 1024 {
-                            category = .gitBloat
-                            desc = "Git pack files are large. Run `git gc` instead of deleting."
-                            action = .reviewRequired
-                            reclaimSize = ds
-                        }
-                    }
+                    dirMeta.append((p, mtime))
                 } else {
                     if ext == "log" || ext == "crash" {
                         let threshold = ext == "crash" ? 90 : 30
@@ -167,7 +129,59 @@ public final class DeepAuditScanner: @unchecked Sendable {
             }
         }
 
-        // Process duplicates after enumeration
+        for (p, mtime) in dirMeta {
+            if seenPaths.contains(p) { continue }
+            let ds = dirSize[p, default: 0]
+            let lower = p.lowercased()
+            var category: BloatCategory?
+            var desc = ""
+            var action: ReclaimAction = .moveToTrash
+            var reclaimSize = ds
+
+            if pathContains(p, ".build") || pathContains(p, "target") || pathContains(p, "deriveddata") || pathContains(p, "node_modules/.cache") || pathContains(p, "__pycache__") || pathContains(p, ".gradle/build") || pathContains(p, ".swiftpm/debug") || pathContains(p, ".spm-build") || pathContains(p, "build") {
+                if ds > 10 * 1024 * 1024 {
+                    category = .buildArtifact
+                    desc = "Build artifacts are regenerable from source."
+                }
+            } else if pathContains(p, "node_modules") || pathContains(p, "vendor") || pathContains(p, ".gradle") || pathContains(p, "pods") || pathContains(p, ".swiftpm/cache") || pathContains(p, ".pub-cache") || pathContains(p, "carthage/build") || pathContains(p, "go/pkg/mod") {
+                if ds > 10 * 1024 * 1024 {
+                    category = .dependencyCache
+                    desc = "Dependency cache can be rebuilt from manifest."
+                }
+            } else if pathContains(p, "xcode/archives") || pathContains(p, "devicesupport") || pathContains(p, "ios device logs") || pathContains(p, "coresimulator/devices") {
+                if ds > 50 * 1024 * 1024, calendar.dateComponents([.day], from: mtime, to: now).day ?? 0 > 90 {
+                    category = .xcodeCruft
+                    desc = "Old Xcode archives or device support data."
+                }
+            } else if pathContains(p, ".docker") || pathContains(p, ".colima") || lower.contains("library/containers/com.docker.docker") {
+                if ds > 100 * 1024 * 1024 {
+                    category = .dockerLayer
+                    desc = "Docker/Colima runtime data. Use docker prune."
+                    action = .reviewRequired
+                }
+            } else if pathContains(p, ".trash") {
+                if ds > 1 * 1024 * 1024, calendar.dateComponents([.day], from: mtime, to: now).day ?? 0 > 30 {
+                    category = .trashOld
+                    desc = "Files in Trash older than 30 days."
+                }
+            } else if lower.contains(".git/") && lower.contains("/objects/pack") {
+                if ds > 100 * 1024 * 1024 {
+                    category = .gitBloat
+                    desc = "Git pack files are large. Run `git gc` instead of deleting."
+                    action = .reviewRequired
+                }
+            }
+
+            if let cat = category {
+                recs.append(ReclaimRecommendation(
+                    path: p, category: cat, reclaimableBytes: reclaimSize,
+                    safetyScore: 0.5, effortScore: 1.0,
+                    description: desc, action: action
+                ))
+                seenPaths.insert(p)
+            }
+        }
+
         for (_, dups) in duplicateMap where dups.count > 1 {
             let totalDupSize = dups.reduce(0) { $0 + $1.size } * Int64(dups.count - 1)
             if totalDupSize > 10 * 1024 * 1024 {
