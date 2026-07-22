@@ -21,13 +21,22 @@ chmod +x "${DIST_DIR}/${APP_NAME}/Contents/MacOS/RyddiApp"
 cp Assets/Info.plist "${DIST_DIR}/${APP_NAME}/Contents/"
 cp Assets/Ryddi.icns "${DIST_DIR}/${APP_NAME}/Contents/Resources/"
 
+xattr -cr "${DIST_DIR}/${APP_NAME}"
+
 echo "=== Building .pkg installer ==="
+
+STAGE="${DIST_DIR}/pkg-root"
+rm -rf "${STAGE}"
+mkdir -p "${STAGE}/Applications"
+cp -R "${DIST_DIR}/${APP_NAME}" "${STAGE}/Applications/"
+
 pkgbuild \
-    --root "${DIST_DIR}/${APP_NAME}" \
+    --root "${STAGE}" \
     --identifier com.reedtrullz.ryddi \
     --version "${VERSION}" \
-    --install-location "/Applications/${APP_NAME}" \
+    --install-location "/" \
     "${DIST_DIR}/${PKG_NAME}"
 
+rm -rf "${STAGE}"
 echo "=== Done ==="
 echo "Installer: ${DIST_DIR}/${PKG_NAME}"
