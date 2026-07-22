@@ -16,12 +16,14 @@ final class ReleaseAndProductContractTests: XCTestCase {
         for required in [
             "APP_SIGNING_IDENTITY is required",
             "INSTALLER_SIGNING_IDENTITY is required",
-            "NOTARY_KEY_PATH is required",
+            "NOTARY_PROFILE is required",
             "codesign --verify --deep --strict",
             "pkgutil --check-signature",
+            "--keychain-profile \"$NOTARY_PROFILE_NAME\"",
             "xcrun stapler validate",
             "spctl --assess --type install",
             "Ryddi_ReclaimerCore.bundle",
+            "shasum -a 256 \"$PKG_BASENAME\"",
         ] {
             XCTAssertTrue(script.contains(required), "Missing release gate: \(required)")
         }
