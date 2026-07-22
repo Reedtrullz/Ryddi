@@ -14,7 +14,21 @@ struct RyddiApp {
     }
 }
 
+class RyddiAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            for window in sender.windows where window.isMiniaturized {
+                window.deminiaturize(nil)
+                return true
+            }
+            NotificationCenter.default.post(name: .init("RyddiOpenWindow"), object: nil)
+        }
+        return true
+    }
+}
+
 struct RyddiGUIApp: App {
+    @NSApplicationDelegateAdaptor(RyddiAppDelegate.self) private var appDelegate
     @StateObject private var engine = ScanEngine()
 
     var body: some Scene {
@@ -30,6 +44,7 @@ struct RyddiGUIApp: App {
                     }
                 } message: { Text(engine.confirmationMessage) }
         }
+        .windowResizability(.contentSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About Ryddi") {
@@ -58,6 +73,11 @@ struct RyddiGUIApp: App {
                 Divider()
                 Button("Scan for Space") { engine.scanAll() }
                     .keyboardShortcut("r", modifiers: .command)
+                Divider()
+                Button("Enter Full Screen") {
+                    NSApp.keyWindow?.toggleFullScreen(nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .control])
             }
             CommandGroup(replacing: .windowList) {
                 Button("Minimize") { NSApp.keyWindow?.miniaturize(nil) }
