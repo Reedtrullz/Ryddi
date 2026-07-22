@@ -15,6 +15,7 @@ STAGE_DIR="${DIST_DIR}/archive-staging"
 APP_PATH="${STAGE_DIR}/Ryddi.app"
 SUBMISSION_ZIP="${DIST_DIR}/Ryddi-v${VERSION}-submission.zip"
 RELEASE_ZIP="${DIST_DIR}/Ryddi-v${VERSION}.zip"
+RELEASE_BASENAME="$(basename "$RELEASE_ZIP")"
 NOTARY_RESULT="${DIST_DIR}/Ryddi-v${VERSION}-notary.json"
 SOURCE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Assets/Info.plist)"
 SOURCE_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Assets/Info.plist)"
@@ -60,7 +61,10 @@ codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 spctl --assess --type execute --verbose=2 "$APP_PATH"
 
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$RELEASE_ZIP"
-shasum -a 256 "$RELEASE_ZIP" > "${RELEASE_ZIP}.sha256"
+(
+    cd "$DIST_DIR"
+    shasum -a 256 "$RELEASE_BASENAME" > "${RELEASE_BASENAME}.sha256"
+)
 RELEASE_COMPLETE=1
 
 echo "Archive: ${RELEASE_ZIP}"

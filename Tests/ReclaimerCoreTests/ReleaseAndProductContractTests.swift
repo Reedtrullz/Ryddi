@@ -42,6 +42,7 @@ final class ReleaseAndProductContractTests: XCTestCase {
             "Ryddi_ReclaimerCore.bundle",
             "status\") == \"Accepted\"",
             "RELEASE_COMPLETE=1",
+            "shasum -a 256 \"$RELEASE_BASENAME\"",
         ] {
             XCTAssertTrue(archiveScript.contains(required), "Missing archive release gate: \(required)")
         }
