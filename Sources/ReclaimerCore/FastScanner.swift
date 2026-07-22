@@ -6,18 +6,37 @@ public final class FastScanner: Sendable {
     public init(ruleEngine: RuleEngine) { self.ruleEngine = ruleEngine }
 
     public func scan(roots: [ScanRoot]) async throws -> [ScanItem] {
-        let items = try await withThrowingTaskGroup(of: [ScanItem].self) { group in
-            for root in roots {
-                group.addTask { try await self.scanOne(root: root) }
+        let uniqueRoots = Dictionary(grouping: roots) {
+            canonicalizedPath($0.path)
+        }.compactMap { _, values in values.first }
+        var items: [ScanItem] = []
+        for start in stride(from: 0, to: uniqueRoots.count, by: 4) {
+            try Task.checkCancellation()
+            let end = min(start + 4, uniqueRoots.count)
+            let rootsBatch = Array(uniqueRoots[start..<end])
+            let batchItems = try await withThrowingTaskGroup(of: [ScanItem].self) { group in
+                for root in rootsBatch {
+                    group.addTask { try await self.scanOne(root: root) }
+                }
+                var all: [ScanItem] = []
+                for try await scanned in group {
+                    try Task.checkCancellation()
+                    all.append(contentsOf: scanned)
+                }
+                return all
             }
-            var all: [ScanItem] = []
-            for try await batch in group {
-                try Task.checkCancellation()
-                all.append(contentsOf: batch)
-            }
-            return all
+            items.append(contentsOf: batchItems)
         }
-        return items.sorted { $0.sizeBytes > $1.sizeBytes }
+        var byPath: [String: ScanItem] = [:]
+        for item in items {
+            let key = item.identity?.canonicalPath ?? canonicalizedPath(item.path)
+            if let existing = byPath[key] {
+                byPath[key] = moreCautious(existing, item)
+            } else {
+                byPath[key] = item
+            }
+        }
+        return byPath.values.sorted { $0.sizeBytes > $1.sizeBytes }
     }
 
     private func scanOne(root: ScanRoot) async throws -> [ScanItem] {
@@ -25,44 +44,59 @@ public final class FastScanner: Sendable {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
         process.arguments = ["-k", "-d", "1", root.path]
         let pipe = Pipe(); process.standardOutput = pipe
-        try process.run(); process.waitUntilExit()
+        try Task.checkCancellation()
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        try Task.checkCancellation()
         guard process.terminationStatus == 0,
-              let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+              let output = String(data: data, encoding: .utf8)
         else { return [] }
 
+        let rootPath = canonicalizedPath(root.path)
         return output.split(separator: "\n").compactMap { line in
             let parts = line.split(separator: "\t", maxSplits: 1)
             guard parts.count >= 2, let kb = Int64(parts[0]) else { return nil }
             let childPath = String(parts[1])
-            let c = ruleEngine.classify(path: childPath, isDirectory: true, isSymbolicLink: false)
-            var bucket: Bucket = switch c.safetyClass {
-            case .autoSafe, .safeAfterCondition: .safe
+            guard let identity = FileIdentity.capture(path: childPath),
+                  identity.canonicalPath != rootPath,
+                  !identity.isSymbolicLink else { return nil }
+            let c = ruleEngine.classify(
+                path: childPath,
+                isDirectory: identity.isDirectory,
+                isSymbolicLink: identity.isSymbolicLink
+            )
+            let bucket: Bucket = switch c.safetyClass {
+            case .autoSafe: .safe
+            case .safeAfterCondition: .review
             case .preserveByDefault, .reviewRequired: .review
             case .neverTouch: .blocked
-            }
-            // ponytail: unmatched paths under known cache/log/trash dirs are safe
-            if bucket == .review && isUnderSafeParent(childPath) {
-                bucket = .safe
             }
             return ScanItem(
                 name: URL(fileURLWithPath: childPath).lastPathComponent,
                 path: childPath, sizeBytes: kb * 1024,
                 bucket: bucket,
-                ruleTitle: c.matches.first?.title ?? "Unclassified"
+                ruleTitle: c.matches.first?.title ?? "Unclassified",
+                safetyClass: c.safetyClass,
+                actionKind: c.actionKind,
+                scanRoot: rootPath,
+                identity: identity
             )
         }
     }
 
-    private func isUnderSafeParent(_ path: String) -> Bool {
-        let lower = path.lowercased()
-        let safeParents = [
-            "/library/caches/", "/.npm", "/.cargo", "/.gradle/caches",
-            "/library/developer/xcode/deriveddata", "/library/developer/xcode/archives",
-            "/.pub-cache", "/library/caches/ms-playwright", "/.bun/install/cache",
-            "/library/pnpm/store", "/.local/share/fnm", "/.cache/lm-studio",
-            "/library/logs/", "/.trash",
-        ]
-        return safeParents.contains(where: { lower.contains($0) })
+    private func moreCautious(_ lhs: ScanItem, _ rhs: ScanItem) -> ScanItem {
+        func rank(_ bucket: Bucket) -> Int {
+            switch bucket {
+            case .safe: 0
+            case .review: 1
+            case .blocked: 2
+            }
+        }
+        if rank(rhs.bucket) != rank(lhs.bucket) {
+            return rank(rhs.bucket) > rank(lhs.bucket) ? rhs : lhs
+        }
+        return rhs.safetyClass.riskRank > lhs.safetyClass.riskRank ? rhs : lhs
     }
 
     public static func defaultRoots(

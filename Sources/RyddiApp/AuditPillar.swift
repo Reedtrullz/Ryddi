@@ -30,15 +30,15 @@ private struct AuditSummaryView: View {
     var body: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Safe to reclaim").font(.headline)
-                Text(ByteCountFormatter().string(fromByteCount: report.safeToReclaimBytes))
+                Text("Selected to reclaim").font(.headline)
+                Text(ByteCountFormatter().string(fromByteCount: engine.selectedAuditBytes))
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .foregroundStyle(.green)
             }
             Spacer()
-            if report.safeToReclaimBytes > 0 {
+            if engine.selectedAuditBytes > 0 {
                 Button(action: {
-                    engine.confirmationTitle = "Reclaim \(ByteCountFormatter().string(fromByteCount: report.safeToReclaimBytes))?"
+                    engine.confirmationTitle = "Reclaim \(ByteCountFormatter().string(fromByteCount: engine.selectedAuditBytes))?"
                     engine.confirmationMessage = "\(engine.auditSelectedIDs.count) safe items will be moved to Trash."
                     engine.confirmationIsDestructive = true
                     engine.pendingAction = { engine.reclaimAuditSelection() }
@@ -49,6 +49,7 @@ private struct AuditSummaryView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.green)
                 .controlSize(.large)
+                .disabled(engine.isCleaning || engine.isAuditing)
             }
         }
         .padding(16)
@@ -122,14 +123,18 @@ private struct AuditListView: View {
         let sorted = report.recommendations.sorted { $0.impactScore > $1.impactScore }
         let dict = Dictionary(grouping: sorted) { $0.category }
         return dict.map { RecGroup(category: $0.key, items: $0.value) }
-            .sorted { $0.items.first?.impactScore ?? 0 > $1.items.first?.impactScore ?? 0 }
+            .sorted {
+                let lhs = $0.items.first?.impactScore ?? 0
+                let rhs = $1.items.first?.impactScore ?? 0
+                return lhs == rhs ? $0.category.rawValue < $1.category.rawValue : lhs > rhs
+            }
     }
 }
 
 private struct RecGroup: Identifiable {
-    let id = UUID()
     let category: BloatCategory
     let items: [ReclaimRecommendation]
+    var id: BloatCategory { category }
 }
 
 private struct AuditRow: View {
@@ -138,7 +143,7 @@ private struct AuditRow: View {
 
     var body: some View {
         HStack {
-            if rec.safetyScore >= 0.8 {
+            if rec.safetyScore >= 0.8 && rec.action == .moveToTrash {
                 let binding = Binding(
                     get: { engine.auditSelectedIDs.contains(rec.id) },
                     set: { s in
@@ -169,13 +174,13 @@ private struct AuditRow: View {
     }
 
     private var safetyLabel: String {
-        if rec.safetyScore >= 0.8 { return "Safe" }
+        if rec.safetyScore >= 0.8 && rec.action == .moveToTrash { return "Safe" }
         if rec.safetyScore >= 0.5 { return "Review" }
         return "Caution"
     }
 
     private var safetyColor: Color {
-        if rec.safetyScore >= 0.8 { return .green }
+        if rec.safetyScore >= 0.8 && rec.action == .moveToTrash { return .green }
         if rec.safetyScore >= 0.5 { return .orange }
         return .red
     }

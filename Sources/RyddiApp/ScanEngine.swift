@@ -1,24 +1,26 @@
 import Foundation
 import AppKit
 import ReclaimerCore
+import Darwin
 
 // MARK: - Cloud offload models
 
-struct CloudProvider: Identifiable, Hashable {
-    let id = UUID()
+struct CloudProvider: Identifiable, Hashable, Sendable {
     let name: String
     let syncFolderPath: String
     let icon: String
+    var id: String { syncFolderPath }
 }
 
-struct Grower: Identifiable, Hashable {
-    let id = UUID()
+struct Grower: Identifiable, Hashable, Sendable {
     let name: String
     let path: String
     let sizeBytes: Int64
     let action: String
     let command: String
     let isSafe: Bool
+    let identity: FileIdentity
+    var id: String { path }
 }
 
 // MARK: - Scan engine
@@ -35,7 +37,7 @@ final class ScanEngine: ObservableObject {
     @Published var selectedIDs: Set<UUID> = []
     @Published var cleanViewMode: CleanViewMode = .list
 
-    private var expandedGroups: Set<String> = []
+    @Published private var expandedGroups: Set<String> = []
 
     // Offload pillar
     @Published var cloudProviders: [CloudProvider] = []
@@ -44,7 +46,7 @@ final class ScanEngine: ObservableObject {
     @Published var lastCopiedSource: String?
     @Published var lastCopiedDest: String?
     @Published var lastCopiedBytes: Int64 = 0
-    @Published var showDeleteOriginalsPrompt = false
+    @Published var showCopyComplete = false
 
     // Control pillar
     @Published var growers: [Grower] = []
@@ -59,6 +61,7 @@ final class ScanEngine: ObservableObject {
     // Shared
     @Published var activePillar = 0
     @Published var isScanning = false
+    @Published var isCleaning = false
     @Published var hasEverScanned = false
     @Published var errorMessage: String?
     @Published var showConfirmation = false
@@ -69,6 +72,7 @@ final class ScanEngine: ObservableObject {
     @Published var reclaimReportText: String?
 
     private var scanTask: Task<Void, Never>?
+    private var scanGeneration = UUID()
 
     var safeItems: [ScanItem] { items.filter { $0.bucket == .safe } }
     var reviewItems: [ScanItem] { items.filter { $0.bucket == .review } }
@@ -81,6 +85,13 @@ final class ScanEngine: ObservableObject {
 
     var safeTotalBytes: Int64 { safeItems.reduce(0) { $0 + $1.sizeBytes } }
 
+    var selectedAuditBytes: Int64 {
+        guard let report = auditReport else { return 0 }
+        return report.recommendations
+            .filter { auditSelectedIDs.contains($0.id) && $0.safetyScore >= 0.8 && $0.action == .moveToTrash }
+            .reduce(0) { $0 + $1.reclaimableBytes }
+    }
+
     func groupedItems(_ bucketItems: [ScanItem]) -> [ScanItemGroup] {
         let dict = Dictionary(grouping: bucketItems) { $0.groupKey }
         return dict.map { ScanItemGroup(baseName: $0.key, items: $0.value) }
@@ -91,13 +102,12 @@ final class ScanEngine: ObservableObject {
         expandedGroups.contains(baseName)
     }
 
-    func toggleGroup(_ baseName: String) {
-        if expandedGroups.contains(baseName) {
-            expandedGroups.remove(baseName)
-        } else {
+    func setGroupExpanded(_ baseName: String, expanded: Bool) {
+        if expanded {
             expandedGroups.insert(baseName)
+        } else {
+            expandedGroups.remove(baseName)
         }
-        objectWillChange.send()
     }
 
     func selectGroup(_ group: ScanItemGroup, selected: Bool) {
@@ -123,12 +133,18 @@ final class ScanEngine: ObservableObject {
 
     // MARK: - Full scan
 
-    func scanAll() {
+    func scanAll(preservingError: Bool = false) {
         cancelScan()
+        let generation = UUID()
+        scanGeneration = generation
         isScanning = true
-        errorMessage = nil
+        selectedIDs = []
+        auditSelectedIDs = []
+        if !preservingError { errorMessage = nil }
         scanTask = Task {
-            defer { isScanning = false }
+            defer {
+                if scanGeneration == generation { isScanning = false }
+            }
             do {
                 let engine = try RuleEngine.bundled()
                 let scanner = FastScanner(ruleEngine: engine)
@@ -137,17 +153,26 @@ final class ScanEngine: ObservableObject {
                 for path in customPaths {
                     roots.append(ScanRoot(name: URL(fileURLWithPath: path).lastPathComponent, path: path))
                 }
-                items = try await scanner.scan(roots: roots)
-                selectedIDs = Set(safeItems.map(\.id))
+                let scannedItems = try await scanner.scan(roots: roots)
+                guard scanGeneration == generation else { return }
+                items = scannedItems
                 hasEverScanned = true
 
-                cloudProviders = detectCloudProviders()
-                largeLocalFolders = detectLargeLocalFolders()
-                growers = try await detectGrowers()
+                let support = await Task.detached(priority: .utility) {
+                    let providers = Self.detectCloudProviders()
+                    let folders = Self.detectLargeLocalFolders()
+                    let growers = (try? Self.detectGrowers()) ?? []
+                    return (providers, folders, growers)
+                }.value
+                try Task.checkCancellation()
+                guard scanGeneration == generation else { return }
+                cloudProviders = support.0
+                largeLocalFolders = support.1
+                growers = support.2
             } catch is CancellationError {
-                errorMessage = "Scan cancelled."
+                if scanGeneration == generation { errorMessage = "Scan cancelled." }
             } catch {
-                errorMessage = error.localizedDescription
+                if scanGeneration == generation { errorMessage = error.localizedDescription }
             }
         }
     }
@@ -155,35 +180,53 @@ final class ScanEngine: ObservableObject {
     func cancelScan() {
         scanTask?.cancel()
         scanTask = nil
+        scanGeneration = UUID()
+        isScanning = false
     }
 
     // MARK: - Clean
 
     func reclaim() {
+        guard !isCleaning, !isScanning else { return }
         let toTrash = items.filter { selectedIDs.contains($0.id) && $0.bucket == .safe }
-        var failed: [String] = []
-        for item in toTrash {
-            do {
-                try FileManager.default.trashItem(at: URL(fileURLWithPath: item.path), resultingItemURL: nil)
-            } catch {
-                failed.append(item.name)
+        guard !toTrash.isEmpty else { return }
+        isCleaning = true
+        Task {
+            let failed = await Task.detached(priority: .userInitiated) {
+                var failures: [String] = []
+                do {
+                    let ruleEngine = try RuleEngine.bundled()
+                    let validator = CleanupValidator()
+                    for item in toTrash {
+                        try Task.checkCancellation()
+                        do {
+                            let url = try validator.validate(item, ruleEngine: ruleEngine)
+                            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                        } catch {
+                            failures.append("\(item.name): \(error.localizedDescription)")
+                        }
+                    }
+                } catch {
+                    failures.append(error.localizedDescription)
+                }
+                return failures
+            }.value
+            isCleaning = false
+            if !failed.isEmpty {
+                errorMessage = "Some items were not cleaned:\n" + failed.joined(separator: "\n")
             }
+            scanAll(preservingError: !failed.isEmpty)
         }
-        if !failed.isEmpty {
-            errorMessage = "Failed to move \(failed.joined(separator: ", ")) to Trash. Check permissions."
-        }
-        scanAll()
     }
 
-    func emergencyReclaim() {
+    func selectAllSafe() {
         selectedIDs = Set(safeItems.map(\.id))
-        reclaim()
     }
 
     func generateReclaimReport() -> String {
         let fmt = ByteCountFormatter()
         var report = "🧹 Ryddi reclaim report\n"
-        report += "Reclaimed: \(fmt.string(fromByteCount: safeTotalBytes))\n"
+        report += "Safe opportunities found: \(fmt.string(fromByteCount: safeTotalBytes))\n"
 
         if !safeItems.isEmpty {
             report += "\nClean:\n"
@@ -195,20 +238,9 @@ final class ScanEngine: ObservableObject {
             }
         }
 
-        let copiedItems = largeLocalFolders.filter { $0.sizeBytes > 0 }
-        if !copiedItems.isEmpty {
-            report += "\nOffloaded to cloud:\n"
-            for item in copiedItems {
-                report += "  \(fmt.string(fromByteCount: item.sizeBytes).padding(toLength: 8, withPad: " ", startingAt: 0)) \(item.name)\n"
-            }
-        }
-
-        let shrunkGrowers = growers.filter { $0.isSafe && $0.sizeBytes > 0 }
-        if !shrunkGrowers.isEmpty {
-            report += "\nShrunk:\n"
-            for g in shrunkGrowers {
-                report += "  \(fmt.string(fromByteCount: g.sizeBytes).padding(toLength: 8, withPad: " ", startingAt: 0)) \(g.name)\n"
-            }
+        if let copied = lastCopiedDest, lastCopiedBytes > 0 {
+            report += "\nCopied to a provider-managed folder (original kept):\n"
+            report += "  \(fmt.string(fromByteCount: lastCopiedBytes)) \(URL(fileURLWithPath: copied).lastPathComponent)\n"
         }
 
         if !blockedItems.isEmpty {
@@ -247,7 +279,7 @@ final class ScanEngine: ObservableObject {
 
     // MARK: - Offload
 
-    func detectCloudProviders() -> [CloudProvider] {
+    nonisolated static func detectCloudProviders() -> [CloudProvider] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates: [(String, URL, String)] = [
             ("Dropbox", home.appendingPathComponent("Dropbox"), "shippingbox.fill"),
@@ -263,13 +295,17 @@ final class ScanEngine: ObservableObject {
                 extra.append((entry.lastPathComponent, entry, "externaldrive.fill"))
             }
         }
+        var seen: Set<String> = []
         return (candidates + extra).compactMap { name, url, icon in
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-            return CloudProvider(name: name, syncFolderPath: url.path, icon: icon)
+            guard let identity = FileIdentity.capture(path: url.path),
+                  identity.isDirectory,
+                  !identity.isSymbolicLink,
+                  seen.insert(identity.canonicalPath).inserted else { return nil }
+            return CloudProvider(name: name, syncFolderPath: identity.canonicalPath, icon: icon)
         }
     }
 
-    func detectLargeLocalFolders() -> [ScanItem] {
+    nonisolated static func detectLargeLocalFolders() -> [ScanItem] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates: [(String, URL)] = [
             ("Downloads", home.appendingPathComponent("Downloads")),
@@ -280,171 +316,143 @@ final class ScanEngine: ObservableObject {
             ("Music", home.appendingPathComponent("Music")),
         ]
         return candidates.compactMap { name, url in
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-            let task = Process(); task.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-            task.arguments = ["-sk", url.path]
-            let pipe = Pipe(); task.standardOutput = pipe
-            try? task.run(); task.waitUntilExit()
-            guard let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
-                  let kb = Int64(out.split(separator: "\t").first ?? "0"), kb > 100_000
-            else { return nil }
-            return ScanItem(name: name, path: url.path, sizeBytes: kb * 1024, bucket: .review, ruleTitle: "Large local folder")
+            guard let identity = FileIdentity.capture(path: url.path),
+                  identity.isDirectory,
+                  !identity.isSymbolicLink,
+                  let kb = measuredKilobytes(at: identity.canonicalPath),
+                  kb > 100_000 else { return nil }
+            return ScanItem(
+                name: name,
+                path: identity.canonicalPath,
+                sizeBytes: kb * 1024,
+                bucket: .review,
+                ruleTitle: "Large local folder",
+                scanRoot: identity.canonicalPath,
+                identity: identity
+            )
         }
     }
 
     func copyToCloud(sourcePath: String, provider: CloudProvider) {
+        guard !isCopying else { return }
         isCopying = true
-        defer { isCopying = false }
-
-        let source = URL(fileURLWithPath: sourcePath)
-        let dest = URL(fileURLWithPath: provider.syncFolderPath).appendingPathComponent(source.lastPathComponent)
-        let task = Process(); task.executableURL = URL(fileURLWithPath: "/bin/cp")
-        task.arguments = ["-R", source.path, dest.path]
-        do {
-            try task.run()
-            task.waitUntilExit()
-        } catch {
-            errorMessage = "Copy failed: \(error.localizedDescription)"
-            return
-        }
-
-        guard task.terminationStatus == 0,
-              FileManager.default.fileExists(atPath: dest.path) else {
-            errorMessage = "Copy failed. Check permissions and disk space."
-            return
-        }
-
-        let du = Process(); du.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-        du.arguments = ["-sk", dest.path]
-        let pipe = Pipe(); du.standardOutput = pipe
-        var destKB: Int64 = 0
-        do {
-            try du.run()
-            du.waitUntilExit()
-            if let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
-               let kb = Int64(out.split(separator: "\t").first ?? "0") {
-                destKB = kb
-                lastCopiedBytes = kb * 1024
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.performCopy(sourcePath: sourcePath, provider: provider)
+            }.value
+            isCopying = false
+            switch result {
+            case .success(let destination, let bytes, let warning):
+                lastCopiedSource = sourcePath
+                lastCopiedDest = destination
+                lastCopiedBytes = bytes
+                showCopyComplete = true
+                errorMessage = warning
+            case .failure(let message):
+                errorMessage = message
             }
-        } catch {
-            lastCopiedBytes = 0
         }
-
-        let sourceDU = Process(); sourceDU.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-        sourceDU.arguments = ["-sk", source.path]
-        let sourcePipe = Pipe(); sourceDU.standardOutput = sourcePipe
-        var sourceKB: Int64 = 0
-        do {
-            try sourceDU.run()
-            sourceDU.waitUntilExit()
-            if let out = String(data: sourcePipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
-               let kb = Int64(out.split(separator: "\t").first ?? "0") {
-                sourceKB = kb
-            }
-        } catch { }
-
-        let sizeDiff = abs(destKB - sourceKB)
-        if sizeDiff > sourceKB / 10 {
-            errorMessage = "Warning: cloud copy size differs from source by more than 10%. Verify before deleting original."
-        }
-
-        lastCopiedSource = sourcePath
-        lastCopiedDest = dest.path
-        showDeleteOriginalsPrompt = true
-    }
-
-    func deleteOriginalAfterCopy() {
-        guard let source = lastCopiedSource else { return }
-        do {
-            try FileManager.default.trashItem(at: URL(fileURLWithPath: source), resultingItemURL: nil)
-        } catch {
-            errorMessage = "Failed to move original to Trash: \(error.localizedDescription)"
-            return
-        }
-        lastCopiedSource = nil
-        lastCopiedDest = nil
-        lastCopiedBytes = 0
-        showDeleteOriginalsPrompt = false
-        scanAll()
     }
 
     func dismissCopyPrompt() {
         lastCopiedSource = nil
         lastCopiedDest = nil
         lastCopiedBytes = 0
-        showDeleteOriginalsPrompt = false
+        showCopyComplete = false
     }
 
     // MARK: - Control
 
-    func detectGrowers() async throws -> [Grower] {
+    nonisolated static func detectGrowers() throws -> [Grower] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         var results: [Grower] = []
 
         let defs: [(String, URL, String, String, Bool)] = [
-            ("Colima VM disk", home.appendingPathComponent(".colima/default"), "Shrink disk",
-             "colima stop default && rm ~/.colima/default/diffdisk && colima start default --disk 20", false),
+            ("Colima VM disk", home.appendingPathComponent(".colima/default"), "Review Colima storage",
+             "Inspect with colima list and back up workloads before changing the VM", false),
             ("Xcode simulators", home.appendingPathComponent("Library/Developer/CoreSimulator/Devices"),
-             "Remove unavailable", "xcrun simctl delete unavailable", true),
+             "Review unavailable simulators", "Use Xcode → Settings → Platforms", false),
             ("Xcode DerivedData", home.appendingPathComponent("Library/Developer/Xcode/DerivedData"),
-             "Delete DerivedData", "rm -rf ~/Library/Developer/Xcode/DerivedData", true),
+             "Move DerivedData to Trash", "Finder Trash (recoverable)", true),
             ("Trash", home.appendingPathComponent(".Trash"),
-             "Empty Trash", "Finder → Empty Trash", true),
+             "Review Trash", "Finder → Trash", false),
             ("Docker disk image", home.appendingPathComponent("Library/Containers/com.docker.docker/Data/vms/0/data"),
-             "Prune unused images", "docker system prune -a", false),
+             "Review Docker storage", "Inspect with docker system df; no cleanup runs from Ryddi", false),
         ]
 
         for (name, path, action, command, isSafe) in defs {
-            guard FileManager.default.fileExists(atPath: path.path) else { continue }
-            let task = Process(); task.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-            task.arguments = ["-sk", path.path]
-            let pipe = Pipe(); task.standardOutput = pipe
-            try task.run(); task.waitUntilExit()
-            guard let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
-                  let kb = Int64(out.split(separator: "\t").first ?? "0"), kb > 5000
-            else { continue }
-            results.append(Grower(name: name, path: path.path, sizeBytes: kb * 1024,
-                                  action: action, command: command, isSafe: isSafe))
+            guard let identity = FileIdentity.capture(path: path.path),
+                  !identity.isSymbolicLink,
+                  let kb = measuredKilobytes(at: identity.canonicalPath),
+                  kb > 5000 else { continue }
+            results.append(Grower(name: name, path: identity.canonicalPath, sizeBytes: kb * 1024,
+                                  action: action, command: command, isSafe: isSafe, identity: identity))
         }
         return results.sorted { $0.sizeBytes > $1.sizeBytes }
     }
 
     func shrinkGrower(_ grower: Grower) {
-        if grower.isSafe {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/bin/bash")
-            task.arguments = ["-c", grower.command]
-            do {
-                try task.run()
-                task.waitUntilExit()
-                if task.terminationStatus != 0 {
-                    errorMessage = "\(grower.action) failed with exit code \(task.terminationStatus)."
+        guard grower.isSafe, !isCleaning, !isScanning else { return }
+        let expected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Developer/Xcode/DerivedData")
+            .standardizedFileURL.path
+        guard let expectedIdentity = FileIdentity.capture(path: expected),
+              grower.identity.canonicalPath == expectedIdentity.canonicalPath,
+              NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dt.Xcode").isEmpty,
+              grower.identity.isDirectory,
+              !grower.identity.isSymbolicLink else {
+            errorMessage = "Close Xcode and scan again before moving DerivedData to Trash."
+            return
+        }
+        isCleaning = true
+        Task {
+            let failure = await Task.detached(priority: .userInitiated) { () -> String? in
+                do {
+                    let url = try CleanupValidator().validateRecoverableDirectory(
+                        path: grower.path,
+                        expectedPath: expected,
+                        scannedIdentity: grower.identity
+                    )
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    return nil
+                } catch {
+                    return error.localizedDescription
                 }
-            } catch {
-                errorMessage = "\(grower.action) failed: \(error.localizedDescription)"
+            }.value
+            isCleaning = false
+            if let failure {
+                errorMessage = "\(grower.action) failed: \(failure)"
+            } else {
+                scanAll()
             }
-            scanAll()
         }
     }
 
-    func runAudit(path: String) {
-        isAuditing = true; errorMessage = nil
-        defer { isAuditing = false }
-        do {
-            let scanner = DeepAuditScanner()
-            let recs = try scanner.scan(path: path)
-            let total = recs.reduce(0) { $0 + $1.reclaimableBytes }
-            let report = AuditReport(
-                scannedPaths: [path],
-                totalBytes: total,
-                bloatBytes: total,
-                reclaimableBytes: total,
-                recommendations: recs
-            )
-            auditReport = report
-            auditSelectedIDs = Set(recs.filter { $0.safetyScore >= 0.8 }.map(\.id))
-        } catch {
-            errorMessage = error.localizedDescription
+    func runAudit(path: String, preservingError: Bool = false) {
+        guard !isAuditing else { return }
+        isAuditing = true
+        if !preservingError { errorMessage = nil }
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<AuditReport, Error> in
+                do {
+                    let recs = try DeepAuditScanner().scan(path: path)
+                    let total = recs.reduce(0) { $0 + $1.reclaimableBytes }
+                    return .success(AuditReport(
+                        scannedPaths: [path], totalBytes: total, bloatBytes: total,
+                        reclaimableBytes: total, recommendations: recs
+                    ))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            isAuditing = false
+            switch result {
+            case .success(let report):
+                auditReport = report
+                auditSelectedIDs = []
+            case .failure(let error):
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -457,20 +465,123 @@ final class ScanEngine: ObservableObject {
 
     func reclaimAuditSelection() {
         guard let report = auditReport else { return }
-        let toTrash = report.recommendations.filter { auditSelectedIDs.contains($0.id) && $0.safetyScore >= 0.8 }
-        var failed: [String] = []
-        for rec in toTrash {
-            do {
-                try FileManager.default.trashItem(at: URL(fileURLWithPath: rec.path), resultingItemURL: nil)
-            } catch {
-                failed.append(URL(fileURLWithPath: rec.path).lastPathComponent)
-            }
+        let toTrash = report.recommendations.filter {
+            auditSelectedIDs.contains($0.id) && $0.safetyScore >= 0.8 && $0.action == .moveToTrash
         }
-        if !failed.isEmpty {
-            errorMessage = "Failed to move \(failed.joined(separator: ", ")) to Trash."
-        }
-        if let path = report.scannedPaths.first {
-            runAudit(path: path)
+        guard let root = report.scannedPaths.first, !toTrash.isEmpty else { return }
+        isCleaning = true
+        Task {
+            let failed = await Task.detached(priority: .userInitiated) {
+                let validator = CleanupValidator()
+                var failures: [String] = []
+                for recommendation in toTrash {
+                    do {
+                        try Task.checkCancellation()
+                    } catch {
+                        failures.append("Cleanup cancelled.")
+                        break
+                    }
+                    do {
+                        let url = try validator.validate(recommendation, scanRoot: root)
+                        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    } catch {
+                        failures.append("\(urlName(recommendation.path)): \(error.localizedDescription)")
+                    }
+                }
+                return failures
+            }.value
+            isCleaning = false
+            if !failed.isEmpty { errorMessage = "Some items were not cleaned:\n" + failed.joined(separator: "\n") }
+            runAudit(path: root, preservingError: !failed.isEmpty)
         }
     }
+}
+
+private enum CopyResult: Sendable {
+    case success(destination: String, bytes: Int64, warning: String?)
+    case failure(String)
+}
+
+private extension ScanEngine {
+    nonisolated static func performCopy(sourcePath: String, provider: CloudProvider) -> CopyResult {
+        let fm = FileManager.default
+        let source = URL(fileURLWithPath: sourcePath).standardizedFileURL
+        guard let identity = FileIdentity.capture(path: source.path), !identity.isSymbolicLink else {
+            return .failure("Copy refused: the source is missing or is a symbolic link.")
+        }
+        let home = fm.homeDirectoryForCurrentUser
+        let allowedSourceNames = ["Downloads", "Desktop", "Documents", "Movies", "Pictures", "Music"]
+        let allowedSources = Set(allowedSourceNames.compactMap {
+            FileIdentity.capture(path: home.appendingPathComponent($0).path)?.canonicalPath
+        })
+        guard allowedSources.contains(identity.canonicalPath) else {
+            return .failure("Copy refused because the source is outside Ryddi's reviewed Offload folders.")
+        }
+        guard let providerIdentity = FileIdentity.capture(path: provider.syncFolderPath),
+              providerIdentity.isDirectory,
+              !providerIdentity.isSymbolicLink else {
+            return .failure("Copy refused because the provider folder is missing or is a symbolic link.")
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        let copyName = "\(source.lastPathComponent) — Ryddi Copy \(formatter.string(from: Date()))"
+        let destination = URL(fileURLWithPath: provider.syncFolderPath).appendingPathComponent(copyName)
+        guard !fm.fileExists(atPath: destination.path) else {
+            return .failure("Copy refused because the destination already exists.")
+        }
+        do {
+            guard identity.matchesCurrent(path: source.path),
+                  providerIdentity.matchesCurrent(path: provider.syncFolderPath) else {
+                return .failure("Copy refused because the source changed after review.")
+            }
+            try fm.copyItem(at: source, to: destination)
+            guard identity.matchesCurrent(path: source.path),
+                  providerIdentity.matchesCurrent(path: provider.syncFolderPath),
+                  fm.fileExists(atPath: destination.path) else {
+                try? fm.removeItem(at: destination)
+                return .failure("Copy could not be verified. The partial copy was removed.")
+            }
+            let sourceBytes = allocatedBytes(at: source)
+            let destinationBytes = allocatedBytes(at: destination)
+            let warning: String? = sourceBytes == destinationBytes
+                ? nil
+                : "Copy completed, but local allocated sizes differ. Keep the original and review the copy in Finder."
+            return .success(destination: destination.path, bytes: destinationBytes, warning: warning)
+        } catch {
+            try? fm.removeItem(at: destination)
+            return .failure("Copy failed: \(error.localizedDescription)")
+        }
+    }
+
+    nonisolated static func allocatedBytes(at url: URL) -> Int64 {
+        (measuredKilobytes(at: url.path) ?? 0) * 1024
+    }
+
+    nonisolated static func measuredKilobytes(at path: String, timeout: TimeInterval = 10) -> Int64? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
+        process.arguments = ["-sk", path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning {
+            if Task.isCancelled || Date() >= deadline {
+                process.terminate()
+                process.waitUntilExit()
+                return nil
+            }
+            usleep(20_000)
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0,
+              let output = String(data: data, encoding: .utf8),
+              let kilobytes = Int64(output.split(separator: "\t").first ?? "0") else { return nil }
+        return kilobytes
+    }
+}
+
+private func urlName(_ path: String) -> String {
+    URL(fileURLWithPath: path).lastPathComponent
 }

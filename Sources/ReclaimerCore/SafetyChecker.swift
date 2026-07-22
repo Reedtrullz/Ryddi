@@ -4,7 +4,7 @@ public struct SafetyChecker {
     public init() {}
 
     public func check(_ recommendations: [ReclaimRecommendation], scanRoot: String) -> [ReclaimRecommendation] {
-        let root = canonicalPath(scanRoot)
+        let root = canonicalizedPath(scanRoot)
         let rootComps = URL(fileURLWithPath: root).pathComponents
         let appBundle = (Bundle.main.bundlePath as NSString).standardizingPath
         let fm = FileManager.default
@@ -12,15 +12,16 @@ public struct SafetyChecker {
         let calendar = Calendar.current
 
         func isUnderRoot(_ path: String) -> Bool {
-            let comps = URL(fileURLWithPath: canonicalPath(path)).pathComponents
+            let comps = URL(fileURLWithPath: canonicalizedPath(path)).pathComponents
             return comps.count >= rootComps.count && Array(comps.prefix(rootComps.count)) == rootComps
         }
 
         return recommendations.map { rec in
             var r = rec
             var modified = false
-            let p = canonicalPath(rec.path)
-            if !isUnderRoot(p) {
+            let p = canonicalizedPath(rec.path)
+            let isOutsideRoot = !isUnderRoot(p)
+            if isOutsideRoot {
                 r = copy(r, safetyScore: 0.1, action: .reviewRequired)
                 modified = true
             }
@@ -32,6 +33,26 @@ public struct SafetyChecker {
 
             if p.hasPrefix(appBundle) {
                 r = copy(r, safetyScore: 0.0, action: .reviewRequired)
+                modified = true
+            }
+
+            if rec.category == .aiSessionCache {
+                r = copy(
+                    r,
+                    safetyScore: 0.2,
+                    description: "AI session history is preserve-by-default; review retention manually.",
+                    action: .reviewRequired
+                )
+                modified = true
+            }
+
+            if rec.category == .duplicateFile || rec.category == .trashOld {
+                r = copy(
+                    r,
+                    safetyScore: defaultSafety(for: rec.category),
+                    effortScore: defaultEffort(for: rec.category),
+                    action: .reviewRequired
+                )
                 modified = true
             }
 
@@ -52,14 +73,13 @@ public struct SafetyChecker {
                 }
             }
 
-            if p.contains("target/") || p.contains(".build/") || p.hasSuffix("/target") || p.hasSuffix("/.build") {
+            if rec.category == .buildArtifact || p.contains("target/") || p.contains(".build/") || p.hasSuffix("/target") || p.hasSuffix("/.build") {
                 let comps = URL(fileURLWithPath: p).pathComponents
                 var buildPath: String?
                 for (i, comp) in comps.enumerated() {
                     let lower = comp.lowercased()
                     if lower == "target" || lower == ".build" {
-                        buildPath = comps.prefix(i + 1).joined(separator: "/")
-                        if buildPath?.hasPrefix("/") == false { buildPath = "/" + buildPath! }
+                        buildPath = NSString.path(withComponents: Array(comps.prefix(i + 1)))
                     }
                 }
                 if let bp = buildPath, let attrs = try? fm.attributesOfItem(atPath: bp),
@@ -71,7 +91,18 @@ public struct SafetyChecker {
             }
 
             if !modified {
-                r = copy(r, safetyScore: defaultSafety(for: rec.category), effortScore: defaultEffort(for: rec.category))
+                let defaultScore = defaultSafety(for: rec.category)
+                let score = rec.action == .reviewRequired ? min(defaultScore, 0.6) : defaultScore
+                r = copy(r, safetyScore: score, effortScore: defaultEffort(for: rec.category))
+            }
+
+            if isOutsideRoot {
+                r = copy(
+                    r,
+                    safetyScore: min(r.safetyScore, 0.1),
+                    description: "Outside the reviewed scan root; no cleanup action is allowed.",
+                    action: .reviewRequired
+                )
             }
 
             return r
@@ -88,19 +119,20 @@ public struct SafetyChecker {
             safetyScore: safetyScore ?? rec.safetyScore,
             effortScore: effortScore ?? rec.effortScore,
             description: description ?? rec.description,
-            action: action ?? rec.action
+            action: action ?? rec.action,
+            identity: rec.identity
         )
     }
 
     private func defaultSafety(for category: BloatCategory) -> Double {
         switch category {
-        case .buildArtifact, .oldLog, .aiSessionCache, .trashOld:
+        case .buildArtifact, .oldLog:
             return 0.9
         case .duplicateFile:
-            return 0.8
-        case .dependencyCache, .oldInstaller, .xcodeCruft, .dockerLayer:
             return 0.6
-        case .largeBinary, .gitBloat:
+        case .dependencyCache, .oldInstaller, .xcodeCruft, .dockerLayer, .trashOld:
+            return 0.6
+        case .largeBinary, .gitBloat, .aiSessionCache:
             return 0.2
         }
     }

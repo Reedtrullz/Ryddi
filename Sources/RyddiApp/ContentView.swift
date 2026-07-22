@@ -28,8 +28,8 @@ struct ContentView: View {
                         .padding(.top, 8)
                 }
 
-                if engine.isScanning || engine.isAuditing {
-                    ProgressView(engine.isAuditing ? "Auditing..." : "Scanning...")
+                if engine.isScanning || engine.isAuditing || engine.isCleaning {
+                    ProgressView(engine.isCleaning ? "Moving selected items to Trash..." : engine.isAuditing ? "Auditing..." : "Scanning...")
                         .controlSize(.small).padding(.vertical, 4)
                 }
 
@@ -45,7 +45,6 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 550)
-        .onAppear { engine.scanAll() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if !engine.items.isEmpty {
@@ -95,9 +94,9 @@ struct EmptyStateView: View {
                 }
                 .buttonStyle(.borderedProminent).controlSize(.large)
 
-                if !engine.customPaths.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Custom Paths", systemImage: "folder.badge.plus").font(.headline)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Custom Paths", systemImage: "folder.badge.plus").font(.headline)
+                    if !engine.customPaths.isEmpty {
                         ForEach(engine.customPaths, id: \.self) { path in
                             HStack {
                                 Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -109,22 +108,22 @@ struct EmptyStateView: View {
                                 .accessibilityLabel("Remove \(path)")
                             }
                         }
-                        Button(action: {
-                            let panel = NSOpenPanel()
-                            panel.canChooseDirectories = true
-                            panel.canChooseFiles = false
-                            panel.begin { response in
-                                if response == .OK, let url = panel.url {
-                                    engine.addCustomPath(url.path)
-                                }
-                            }
-                        }) {
-                            Label("Add Path", systemImage: "plus.circle")
-                        }.buttonStyle(.borderless)
                     }
-                    .padding()
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    Button(action: {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.begin { response in
+                            if response == .OK, let url = panel.url {
+                                engine.addCustomPath(url.path)
+                            }
+                        }
+                    }) {
+                        Label("Add Path", systemImage: "plus.circle")
+                    }.buttonStyle(.borderless)
                 }
+                .padding()
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             }
 
             if let error = engine.errorMessage {
@@ -145,9 +144,9 @@ struct CleanPillar: View {
         VStack(alignment: .leading, spacing: 16) {
             if engine.items.isEmpty && engine.hasEverScanned {
                 ContentUnavailableView {
-                    Label("Nothing to Clean", systemImage: "checkmark.circle.fill")
+                    Label("No Selectable Safe Items", systemImage: "checkmark.circle")
                 } description: {
-                    Text("No safe-to-clean items found. Your Mac looks tidy.")
+                    Text("Ryddi found no unconditional cleanup actions. Review permissions and any Review First results; an empty scan is not proof that the disk is tidy.")
                 }
                 .padding(.vertical, 20)
             } else if engine.isEmergency {
@@ -155,17 +154,11 @@ struct CleanPillar: View {
                     Label("Low Disk Space", systemImage: "exclamationmark.triangle.fill")
                         .font(.headline)
                         .foregroundStyle(.orange)
-                    Text("Less than 10 GB free. Use Emergency Clean to quickly reclaim space.")
+                    Text("Less than 10 GB free. Select the reviewed Safe items, then confirm what moves to Trash.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                    Button(action: {
-                        engine.confirmationTitle = "Emergency Clean?"
-                        engine.confirmationMessage = "All safe items (\(ByteCountFormatter().string(fromByteCount: engine.safeTotalBytes))) will be moved to Trash."
-                        engine.confirmationIsDestructive = true
-                        engine.pendingAction = { engine.emergencyReclaim() }
-                        engine.showConfirmation = true
-                    }) {
-                        Label("Emergency Clean — reclaim \(ByteCountFormatter().string(fromByteCount: engine.safeTotalBytes))", systemImage: "bolt.fill")
+                    Button(action: { engine.selectAllSafe() }) {
+                        Label("Select Safe Items — \(ByteCountFormatter().string(fromByteCount: engine.safeTotalBytes))", systemImage: "checkmark.circle")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.orange)
@@ -183,6 +176,13 @@ struct CleanPillar: View {
                         .foregroundStyle(.green)
                 }
                 Spacer()
+                if !engine.safeItems.isEmpty {
+                    if engine.selectedIDs.isEmpty {
+                        Button("Select All Safe") { engine.selectAllSafe() }
+                    } else {
+                        Button("Clear Selection") { engine.selectedIDs = [] }
+                    }
+                }
                 if engine.selectedReclaimBytes > 0 {
                     Button(action: {
                         engine.confirmationTitle = "Reclaim \(ByteCountFormatter().string(fromByteCount: engine.selectedReclaimBytes))?"
@@ -196,6 +196,7 @@ struct CleanPillar: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
                     .controlSize(.large)
+                    .disabled(engine.isCleaning || engine.isScanning)
                 }
             }
             .padding(16)
@@ -228,63 +229,6 @@ struct CleanPillar: View {
     }
 }
 
-struct BucketSectionView: View {
-    let bucket: Bucket
-    let items: [ScanItem]
-    @ObservedObject var engine: ScanEngine
-
-    var body: some View {
-        List {
-            Section {
-                ForEach(items) { item in
-                    HStack(spacing: 12) {
-                        if bucket == .safe {
-                            Toggle(isOn: Binding(
-                                get: { engine.selectedIDs.contains(item.id) },
-                                set: { s in if s { engine.selectedIDs.insert(item.id) } else { engine.selectedIDs.remove(item.id) } }
-                            )) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.name)
-                                        .font(.body)
-                                    Text(item.ruleTitle)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .toggleStyle(.checkbox)
-                            .accessibilityLabel("Select \(item.name) for reclaim")
-                        } else {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.name)
-                                    .font(.body)
-                                Text(item.ruleTitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        Text(ByteCountFormatter().string(fromByteCount: item.sizeBytes))
-                            .font(.body.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 2)
-                }
-            } header: {
-                Label("\(bucket.rawValue) (\(items.count) items)",
-                      systemImage: bucket == .safe ? "checkmark.circle.fill"
-                      : bucket == .review ? "eye.circle.fill" : "lock.circle.fill")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(bucket == .safe ? .green : bucket == .review ? .yellow : .red)
-            }
-            .headerProminence(.increased)
-        }
-        .listStyle(.inset)
-        .frame(minHeight: min(CGFloat(items.count * 36 + 40), 340))
-    }
-}
-
 struct GroupedBucketSectionView: View {
     let bucket: Bucket
     let items: [ScanItem]
@@ -292,6 +236,7 @@ struct GroupedBucketSectionView: View {
 
     var body: some View {
         let groups = engine.groupedItems(items)
+        let formatter = ByteCountFormatter()
         VStack(alignment: .leading, spacing: 8) {
             Label("\(bucket.rawValue) (\(items.count) items, \(groups.count) groups)",
                   systemImage: bucket == .safe ? "checkmark.circle.fill"
@@ -301,9 +246,8 @@ struct GroupedBucketSectionView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
 
-            List {
-                Section {
-                    ForEach(groups) { group in
+            LazyVStack(spacing: 0) {
+                ForEach(groups) { group in
                         if group.count == 1, let item = group.items.first {
                             HStack(spacing: 12) {
                                 if bucket == .safe {
@@ -324,7 +268,7 @@ struct GroupedBucketSectionView: View {
                                     }
                                 }
                                 Spacer()
-                                Text(ByteCountFormatter().string(fromByteCount: item.sizeBytes))
+                                Text(formatter.string(fromByteCount: item.sizeBytes))
                                     .font(.body.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
@@ -332,7 +276,7 @@ struct GroupedBucketSectionView: View {
                         } else {
                             DisclosureGroup(isExpanded: Binding(
                                 get: { engine.isGroupExpanded(group.baseName) },
-                                set: { _ in engine.toggleGroup(group.baseName) }
+                                set: { engine.setGroupExpanded(group.baseName, expanded: $0) }
                             )) {
                                 ForEach(group.items) { item in
                                     HStack(spacing: 12) {
@@ -356,7 +300,7 @@ struct GroupedBucketSectionView: View {
                                             .padding(.leading, 20)
                                         }
                                         Spacer()
-                                        Text(ByteCountFormatter().string(fromByteCount: item.sizeBytes))
+                                        Text(formatter.string(fromByteCount: item.sizeBytes))
                                             .font(.body.monospacedDigit())
                                             .foregroundStyle(.secondary)
                                     }
@@ -367,14 +311,24 @@ struct GroupedBucketSectionView: View {
                                     if bucket == .safe {
                                         let allSelected = group.items.allSatisfy { engine.selectedIDs.contains($0.id) }
                                         let someSelected = group.items.contains { engine.selectedIDs.contains($0.id) }
-                                        Toggle(isOn: Binding(
-                                            get: { someSelected },
-                                            set: { engine.selectGroup(group, selected: $0) }
-                                        )) {
-                                            Text(group.baseName).font(.body)
+                                        Button {
+                                            engine.selectGroup(group, selected: !allSelected)
+                                        } label: {
+                                            Label(
+                                                group.baseName,
+                                                systemImage: allSelected
+                                                    ? "checkmark.square.fill"
+                                                    : someSelected ? "minus.square.fill" : "square"
+                                            )
+                                            .font(.body)
                                         }
-                                        .toggleStyle(.checkbox)
-                                        .tint(allSelected ? .green : someSelected ? .yellow : .gray)
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(allSelected ? .green : someSelected ? .yellow : .primary)
+                                        .accessibilityLabel(
+                                            allSelected
+                                                ? "Clear all versions of \(group.baseName)"
+                                                : "Select all versions of \(group.baseName)"
+                                        )
                                     } else {
                                         Text(group.baseName).font(.body)
                                     }
@@ -382,17 +336,17 @@ struct GroupedBucketSectionView: View {
                                     Text("\(group.count) versions")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
-                                    Text(ByteCountFormatter().string(fromByteCount: group.totalSizeBytes))
+                                    Text(formatter.string(fromByteCount: group.totalSizeBytes))
                                         .font(.body.monospacedDigit())
                                         .foregroundStyle(.secondary)
                                 }
                             }
                         }
-                    }
+                    if group.id != groups.last?.id { Divider() }
                 }
             }
-            .listStyle(.inset)
-            .frame(minHeight: min(CGFloat(groups.count * 40 + 40), 340))
+            .padding(.horizontal, 12)
+            .background(.quaternary.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
         }
     }
 }
@@ -404,7 +358,7 @@ struct CleanChartSection: View {
 
     var body: some View {
         let groups = engine.groupedItems(items)
-        let maxSize = groups.first?.totalSizeBytes ?? 1
+        let maxSize = max(groups.first?.totalSizeBytes ?? 1, 1)
         let fmt = ByteCountFormatter()
 
         VStack(alignment: .leading, spacing: 12) {
@@ -450,14 +404,14 @@ struct OffloadPillar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if engine.showDeleteOriginalsPrompt, let source = engine.lastCopiedSource {
+            if engine.showCopyComplete, let source = engine.lastCopiedSource {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Copy Complete", systemImage: "checkmark.circle.fill")
                         .font(.headline)
                         .foregroundStyle(.green)
-                    Text("\"\(URL(fileURLWithPath: source).lastPathComponent)\" copied to cloud.")
+                    Text("\"\(URL(fileURLWithPath: source).lastPathComponent)\" was copied into the provider-managed folder.")
                         .font(.body)
-                    Text("\(ByteCountFormatter().string(fromByteCount: engine.lastCopiedBytes)) copied.")
+                    Text("The original remains in place. Ryddi does not claim that the provider has uploaded the copy.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 12) {
@@ -466,14 +420,7 @@ struct OffloadPillar: View {
                                 NSWorkspace.shared.selectFile(dest, inFileViewerRootedAtPath: "")
                             }
                         }
-                        Button("Keep Local Copy") { engine.dismissCopyPrompt() }
-                        Button("Delete Local Original", role: .destructive) {
-                            engine.confirmationTitle = "Delete local original?"
-                            engine.confirmationMessage = "The cloud copy will remain. The local original moves to Trash."
-                            engine.confirmationIsDestructive = true
-                            engine.pendingAction = { engine.deleteOriginalAfterCopy() }
-                            engine.showConfirmation = true
-                        }
+                        Button("Done") { engine.dismissCopyPrompt() }
                     }
                 }
                 .padding(16)
@@ -523,7 +470,7 @@ struct OffloadPillar: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Offload to Cloud", systemImage: "arrow.up.to.line")
                         .font(.headline)
-                    Text("Select a folder and a cloud provider to copy files, then delete originals.")
+                    Text("Copy a folder into a provider-managed location. Originals always remain in place.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
 
@@ -545,7 +492,7 @@ struct OffloadPillar: View {
                                     ForEach(engine.cloudProviders) { provider in
                                         Button("Copy to \(provider.name)") {
                                             engine.confirmationTitle = "Copy to \(provider.name)?"
-                                            engine.confirmationMessage = "\"\(folder.name)\" will be copied to \(provider.name). After verifying, delete the local original."
+                                            engine.confirmationMessage = "\"\(folder.name)\" will be copied to a new folder inside \(provider.name). The original will remain in place."
                                             engine.confirmationIsDestructive = false
                                             engine.pendingAction = { engine.copyToCloud(sourcePath: folder.path, provider: provider) }
                                             engine.showConfirmation = true
@@ -613,13 +560,14 @@ struct ControlPillar: View {
                         if grower.isSafe {
                             Button(grower.action) {
                                 engine.confirmationTitle = "\(grower.action)?"
-                                engine.confirmationMessage = "This will run: \(grower.command)"
+                                engine.confirmationMessage = "Ryddi will verify that Xcode is closed, then move this exact DerivedData folder to Finder Trash."
                                 engine.confirmationIsDestructive = true
                                 engine.pendingAction = { engine.shrinkGrower(grower) }
                                 engine.showConfirmation = true
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
+                            .disabled(engine.isCleaning || engine.isScanning)
                         } else {
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text(grower.action)

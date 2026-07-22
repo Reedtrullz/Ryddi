@@ -51,7 +51,7 @@ struct RyddiGUIApp: App {
                     NSApp.orderFrontStandardAboutPanel(
                         options: [
                             .applicationName: "Ryddi",
-                            .applicationVersion: "0.8.0",
+                            .applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Developer Build",
                             .credits: NSAttributedString(string: "Local-first disk space manager. MIT License."),
                         ]
                     )

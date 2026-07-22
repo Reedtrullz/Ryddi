@@ -38,7 +38,7 @@ struct AuditCLI {
             print(AuditReportFormatter.plainText(report: report))
 
             if isAuto {
-                let safe = recs.filter { $0.safetyScore >= 0.8 }
+                let safe = recs.filter { $0.safetyScore >= 0.8 && $0.action == .moveToTrash }
                 if safe.isEmpty {
                     print("No high-safety items to reclaim.")
                     return
@@ -50,9 +50,11 @@ struct AuditCLI {
                     return
                 }
                 var failed: [String] = []
+                let validator = CleanupValidator()
                 for rec in safe {
                     do {
-                        try FileManager.default.trashItem(at: URL(fileURLWithPath: rec.path), resultingItemURL: nil)
+                        let url = try validator.validate(rec, scanRoot: path)
+                        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
                     } catch {
                         failed.append(rec.path)
                     }

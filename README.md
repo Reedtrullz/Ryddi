@@ -1,48 +1,67 @@
 # Ryddi
 
-Local-first macOS disk space manager. Free, open source, zero dependencies.
+Ryddi is a fast, local-first disk-space cleaner for macOS. It keeps the common path short: scan, select, confirm, Trash.
 
-- **Clean** — Find and delete caches, logs, and junk in one click
-- **Offload** — Move large folders to cloud storage, free local space
-- **Control** — Keep bloated programs (Colima, Xcode, Docker) from eating your disk
+## Four focused tools
+
+| Tool | What it does |
+|---|---|
+| Clean | Quickly measures known cache, log, package, and developer-storage roots and groups results by safety. |
+| Offload | Copies a large local folder into a provider-managed folder while always preserving the original. |
+| Control | Shows large tool-owned storage and offers one recoverable DerivedData action; uncertain operations remain guidance-only. |
+| Audit | Inspects a chosen folder for build output, old logs/installers, dependency storage, and content-verified duplicates. |
+
+## Safety model
+
+- Scans start only when you ask.
+- Nothing is preselected.
+- Only unconditional `autoSafe` Trash/cache rules are directly selectable in Clean.
+- Conditional, native-tool, unknown, duplicate, and protected findings remain review-only.
+- Cleanup revalidates containment, filesystem identity, symbolic-link state, open-file state, classification, and action immediately before Finder Trash.
+- Overlapping scan results are deduplicated.
+- Offload never deletes originals or claims cloud upload completion.
 
 ## Install
 
-**[Download Ryddi-v0.8.1.pkg](https://github.com/Reedtrullz/Ryddi/releases/latest)** — double-click and follow the installer. Copies Ryddi to `/Applications`.
+Trusted releases provide a signed, notarized, stapled, Gatekeeper-accepted ZIP. Expand it, move `Ryddi.app` to `/Applications`, then open it. Keep the downloaded checksum beside the archive if you want to verify it with `shasum -a 256 -c`.
 
-Requires macOS 14+. Signed and notarized.
+Building from source remains available for development. It does not produce public-release trust proof:
 
-Or build from source:
-
-## Features
-
-| Pillar | What it does |
-|--------|-------------|
-| Clean | Scans 23 cache/log/junk directories. Classifies with 34 rules. One-click move to Trash. Auto-selects safe items. |
-| Offload | Detects Dropbox, Google Drive, iCloud, MEGA, OneDrive. Copies large local folders. Offers to delete originals after verification. |
-| Control | Detects Colima, Xcode simulators, DerivedData, Docker, Trash. One-click shrink for safe ops. |
-| Audit | Deep directory audit with 11 bloat categories, safety scoring, and impact ranking. |
-
-**Also:** auto-scan on launch, emergency mode (<10 GB free), copy-to-clipboard reclaim report, custom scan paths, menu bar status, Full Disk Access guidance, keyboard shortcuts (⌘1/2/3/4), VoiceOver labels.
-
-## Build
+Requires macOS 14+ and Swift 6:
 
 ```bash
-swift build --scratch-path .build
-swift test --scratch-path .build
+swift build --scratch-path "$PWD/.build"
+swift test --scratch-path "$PWD/.build"
+swift run --scratch-path "$PWD/.build" RyddiApp
 ```
 
-### Signed Release Build
+## Signed release build
+
+The archive release path fails closed unless a Developer ID Application identity and Apple notary keychain profile are available:
 
 ```bash
-export SIGNING_IDENTITY="Developer ID Application: Your Name"
-export NOTARY_KEY_ID="your-key-id"
-export NOTARY_ISSUER_ID="your-issuer-id"
-./Scripts/build-installer.sh 0.8.1
+export APP_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export NOTARY_PROFILE="ryddi-notary"
+./Scripts/build-release-archive.sh 0.8.2
 ```
 
-No dependencies. MIT license. No telemetry.
+The script signs the app with hardened runtime, submits it to Apple, requires an accepted result, staples and validates the ticket, runs strict signature and Gatekeeper checks, then creates the public ZIP and checksum.
+
+An installer package can additionally be built when a separate Developer ID Installer identity and API-key notarization credentials are available:
+
+```bash
+export APP_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export INSTALLER_SIGNING_IDENTITY="Developer ID Installer: Your Name (TEAMID)"
+export NOTARY_KEY_ID="KEYID"
+export NOTARY_ISSUER_ID="ISSUER-UUID"
+export NOTARY_KEY_PATH="/secure/path/AuthKey_KEYID.p8"
+./Scripts/build-installer.sh 0.8.2
+```
+
+The installer script independently verifies strict app signing, Installer signing, notarization, stapling, and Gatekeeper acceptance before producing its checksum. The installer workflow is manual and fails closed when its credentials are absent.
 
 ## Privacy
 
-Everything stays on your Mac. No uploads, no analytics, no remote analysis.
+No telemetry and no remote analysis. See [PRIVACY.md](PRIVACY.md) for exact reads, writes, and limits.
+
+MIT licensed. No third-party runtime dependencies.
