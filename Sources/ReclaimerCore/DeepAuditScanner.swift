@@ -77,34 +77,37 @@ public final class DeepAuditScanner: @unchecked Sendable {
             var action: ReclaimAction = .moveToTrash
             var reclaimSize = size
 
+            func pathContains(_ name: String) -> Bool {
+                lower.contains("/\(name)/") || lower.hasSuffix("/\(name)")
+            }
             if isDir {
                 let ds = dirSize[p, default: 0]
-                if lower.contains(".build/") || lower.contains("target/") || lower.contains("deriveddata/") || lower.contains("node_modules/.cache/") || lower.contains("__pycache__/") || lower.contains(".gradle/build") || lower.contains(".swiftpm/debug") || lower.contains(".spm-build") || lower.contains("/build/") {
+                if pathContains(".build") || pathContains("target") || pathContains("deriveddata") || pathContains("node_modules/.cache") || pathContains("__pycache__") || pathContains(".gradle/build") || pathContains(".swiftpm/debug") || pathContains(".spm-build") || pathContains("build") {
                     if ds > 10 * 1024 * 1024 {
                         category = .buildArtifact
                         desc = "Build artifacts are regenerable from source."
                         reclaimSize = ds
                     }
-                } else if lower.contains("node_modules/") || lower.contains("vendor/") || lower.contains(".gradle/") || lower.contains("pods/") || lower.contains(".swiftpm/cache") || lower.contains(".pub-cache") || lower.contains("carthage/build") || lower.contains("go/pkg/mod") {
+                } else if pathContains("node_modules") || pathContains("vendor") || pathContains(".gradle") || pathContains("pods") || pathContains(".swiftpm/cache") || pathContains(".pub-cache") || pathContains("carthage/build") || pathContains("go/pkg/mod") {
                     if ds > 10 * 1024 * 1024 {
                         category = .dependencyCache
                         desc = "Dependency cache can be rebuilt from manifest."
                         reclaimSize = ds
                     }
-                } else if lower.contains("xcode/archives/") || lower.contains("devicesupport/") || lower.contains("ios device logs/") || lower.contains("coresimulator/devices/") {
+                } else if pathContains("xcode/archives") || pathContains("devicesupport") || pathContains("ios device logs") || pathContains("coresimulator/devices") {
                     if ds > 50 * 1024 * 1024, calendar.dateComponents([.day], from: mtime, to: now).day ?? 0 > 90 {
                         category = .xcodeCruft
                         desc = "Old Xcode archives or device support data."
                         reclaimSize = ds
                     }
-                } else if lower.contains(".docker/") || lower.contains(".colima/") || lower.contains("library/containers/com.docker.docker") {
+                } else if pathContains(".docker") || pathContains(".colima") || lower.contains("library/containers/com.docker.docker") {
                     if ds > 100 * 1024 * 1024 {
                         category = .dockerLayer
                         desc = "Docker/Colima runtime data. Use docker prune."
                         action = .reviewRequired
                         reclaimSize = ds
                     }
-                } else if lower.contains(".trash/") {
+                } else if pathContains(".trash") {
                     if ds > 1 * 1024 * 1024, calendar.dateComponents([.day], from: mtime, to: now).day ?? 0 > 30 {
                         category = .trashOld
                         desc = "Files in Trash older than 30 days."

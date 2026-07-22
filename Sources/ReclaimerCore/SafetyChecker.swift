@@ -33,7 +33,7 @@ public struct SafetyChecker {
                 r = copy(r, safetyScore: 0.0, action: .reviewRequired)
             }
 
-            if p.contains("node_modules/") {
+            if p.contains("node_modules/") || p.hasSuffix("/node_modules") {
                 var cursor = URL(fileURLWithPath: p)
                 while cursor.path != root && isUnderRoot(cursor.path) {
                     let pkg = cursor.appendingPathComponent("package.json").path
@@ -49,7 +49,7 @@ public struct SafetyChecker {
                 }
             }
 
-            if p.contains("target/") || p.contains(".build/") {
+            if p.contains("target/") || p.contains(".build/") || p.hasSuffix("/target") || p.hasSuffix("/.build") {
                 let comps = URL(fileURLWithPath: p).pathComponents
                 var buildPath: String?
                 for (i, comp) in comps.enumerated() {
