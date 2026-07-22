@@ -119,7 +119,7 @@ final class DeepAuditScannerTests: XCTestCase {
             reclaimableBytes: 1000, safetyScore: 0.9, effortScore: 1.0,
             description: "test", action: .moveToTrash
         )
-        let expected = Double(1000) * 0.9 / (1.0 - 1.0 * 0.5 + 0.5)
+        let expected = Double(1000) * 0.9 / 1.0
         XCTAssertEqual(ImpactScorer.score(rec), expected, accuracy: 0.001)
     }
 

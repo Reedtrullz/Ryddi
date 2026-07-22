@@ -20,6 +20,14 @@ struct ContentView: View {
                 .padding(.horizontal)
                 .padding(.top, 12)
 
+                if let error = engine.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                }
+
                 if engine.isScanning || engine.isAuditing {
                     ProgressView(engine.isAuditing ? "Auditing..." : "Scanning...")
                         .controlSize(.small).padding(.vertical, 4)
@@ -135,7 +143,14 @@ struct CleanPillar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if engine.isEmergency {
+            if engine.items.isEmpty && engine.hasEverScanned {
+                ContentUnavailableView {
+                    Label("Nothing to Clean", systemImage: "checkmark.circle.fill")
+                } description: {
+                    Text("No safe-to-clean items found. Your Mac looks tidy.")
+                }
+                .padding(.vertical, 20)
+            } else if engine.isEmergency {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Low Disk Space", systemImage: "exclamationmark.triangle.fill")
                         .font(.headline)

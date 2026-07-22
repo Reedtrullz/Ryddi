@@ -31,6 +31,21 @@ struct RyddiGUIApp: App {
                 } message: { Text(engine.confirmationMessage) }
         }
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Ryddi") {
+                    NSApp.orderFrontStandardAboutPanel(
+                        options: [
+                            .applicationName: "Ryddi",
+                            .applicationVersion: "0.8.0",
+                            .credits: NSAttributedString(string: "Local-first disk space manager. MIT License."),
+                        ]
+                    )
+                }
+            }
+            CommandGroup(after: .appTermination) {
+                Button("Preferences…") { }
+                    .disabled(true)
+            }
             CommandMenu("View") {
                 Button("Clean") { engine.activePillar = 0 }
                     .keyboardShortcut("1", modifiers: .command)
@@ -40,10 +55,23 @@ struct RyddiGUIApp: App {
                     .keyboardShortcut("3", modifiers: .command)
                 Button("Audit") { engine.activePillar = 3 }
                     .keyboardShortcut("4", modifiers: .command)
-            }
-            CommandGroup(after: .newItem) {
+                Divider()
                 Button("Scan for Space") { Task { await engine.scanAll() } }
                     .keyboardShortcut("r", modifiers: .command)
+            }
+            CommandGroup(replacing: .windowList) {
+                Button("Minimize") { NSApp.keyWindow?.miniaturize(nil) }
+                    .keyboardShortcut("m", modifiers: .command)
+                Button("Zoom") { NSApp.keyWindow?.zoom(nil) }
+                Divider()
+                Button("Bring All to Front") { NSApp.arrangeInFront(nil) }
+            }
+            CommandGroup(replacing: .help) {
+                Button("Ryddi Help") {
+                    if let url = URL(string: "https://github.com/Reedtrullz/Ryddi/blob/main/README.md") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
             }
         }
 

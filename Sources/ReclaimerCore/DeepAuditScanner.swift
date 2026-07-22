@@ -7,6 +7,10 @@ func canonicalPath(_ path: String) -> String {
     return String(cString: buf)
 }
 
+public enum DeepAuditError: Error, Sendable {
+    case tooManyFiles(limit: Int)
+}
+
 public final class DeepAuditScanner: @unchecked Sendable {
     private let fileManager: FileManager
     private let ruleEngine: RuleEngine?
@@ -23,12 +27,18 @@ public final class DeepAuditScanner: @unchecked Sendable {
         var recs: [ReclaimRecommendation] = []
         var fileList: [(url: URL, size: Int64, mtime: Date, isDir: Bool)] = []
         var totalBytes: Int64 = 0
+        var fileCount = 0
+        let maxFiles = 500_000
 
         guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey]) else {
             return []
         }
 
         while let url = enumerator.nextObject() as? URL {
+            fileCount += 1
+            if fileCount > maxFiles {
+                throw DeepAuditError.tooManyFiles(limit: maxFiles)
+            }
             do {
                 let vals = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey])
                 let size = Int64(vals.fileSize ?? 0)

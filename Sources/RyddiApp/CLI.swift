@@ -49,8 +49,16 @@ struct AuditCLI {
                     print("Cancelled.")
                     return
                 }
+                var failed: [String] = []
                 for rec in safe {
-                    try? FileManager.default.trashItem(at: URL(fileURLWithPath: rec.path), resultingItemURL: nil)
+                    do {
+                        try FileManager.default.trashItem(at: URL(fileURLWithPath: rec.path), resultingItemURL: nil)
+                    } catch {
+                        failed.append(rec.path)
+                    }
+                }
+                if !failed.isEmpty {
+                    print("Warning: failed to move \(failed.count) item(s) to Trash.")
                 }
                 print("Done.")
             }
