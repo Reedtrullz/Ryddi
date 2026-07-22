@@ -41,6 +41,24 @@ public struct ScanItem: Identifiable, Hashable, Sendable {
     public init(name: String, path: String, sizeBytes: Int64, bucket: Bucket, ruleTitle: String) {
         self.name = name; self.path = path; self.sizeBytes = sizeBytes; self.bucket = bucket; self.ruleTitle = ruleTitle
     }
+
+    public var groupKey: String {
+        if let at = name.firstIndex(of: "@") {
+            return String(name[..<at])
+        }
+        return name
+    }
+}
+
+public struct ScanItemGroup: Identifiable, Sendable {
+    public let id = UUID()
+    public let baseName: String
+    public let items: [ScanItem]
+    public var totalSizeBytes: Int64 { items.reduce(0) { $0 + $1.sizeBytes } }
+    public var count: Int { items.count }
+    public init(baseName: String, items: [ScanItem]) {
+        self.baseName = baseName; self.items = items
+    }
 }
 
 public struct ScanRoot: Hashable, Sendable {

@@ -201,10 +201,27 @@ struct CleanPillar: View {
             .padding(16)
             .background(.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-            ForEach(Bucket.allCases, id: \.self) { bucket in
-                let bucketItems = engine.items.filter { $0.bucket == bucket }
-                if !bucketItems.isEmpty {
-                    BucketSectionView(bucket: bucket, items: bucketItems, engine: engine)
+            Picker("View", selection: $engine.cleanViewMode) {
+                ForEach(CleanViewMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 180)
+
+            if engine.cleanViewMode == .chart {
+                ForEach(Bucket.allCases, id: \.self) { bucket in
+                    let bucketItems = engine.items.filter { $0.bucket == bucket }
+                    if !bucketItems.isEmpty {
+                        CleanChartSection(bucket: bucket, items: bucketItems, engine: engine)
+                    }
+                }
+            } else {
+                ForEach(Bucket.allCases, id: \.self) { bucket in
+                    let bucketItems = engine.items.filter { $0.bucket == bucket }
+                    if !bucketItems.isEmpty {
+                        GroupedBucketSectionView(bucket: bucket, items: bucketItems, engine: engine)
+                    }
                 }
             }
         }.padding()
@@ -265,6 +282,164 @@ struct BucketSectionView: View {
         }
         .listStyle(.inset)
         .frame(minHeight: min(CGFloat(items.count * 36 + 40), 340))
+    }
+}
+
+struct GroupedBucketSectionView: View {
+    let bucket: Bucket
+    let items: [ScanItem]
+    @ObservedObject var engine: ScanEngine
+
+    var body: some View {
+        let groups = engine.groupedItems(items)
+        VStack(alignment: .leading, spacing: 8) {
+            Label("\(bucket.rawValue) (\(items.count) items, \(groups.count) groups)",
+                  systemImage: bucket == .safe ? "checkmark.circle.fill"
+                  : bucket == .review ? "eye.circle.fill" : "lock.circle.fill")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(bucket == .safe ? .green : bucket == .review ? .yellow : .red)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+
+            List {
+                Section {
+                    ForEach(groups) { group in
+                        if group.count == 1, let item = group.items.first {
+                            HStack(spacing: 12) {
+                                if bucket == .safe {
+                                    Toggle(isOn: Binding(
+                                        get: { engine.selectedIDs.contains(item.id) },
+                                        set: { s in if s { engine.selectedIDs.insert(item.id) } else { engine.selectedIDs.remove(item.id) } }
+                                    )) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.name).font(.body)
+                                            Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        }
+                                    }
+                                    .toggleStyle(.checkbox)
+                                } else {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.name).font(.body)
+                                        Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                                Text(ByteCountFormatter().string(fromByteCount: item.sizeBytes))
+                                    .font(.body.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 2)
+                        } else {
+                            DisclosureGroup(isExpanded: Binding(
+                                get: { engine.isGroupExpanded(group.baseName) },
+                                set: { _ in engine.toggleGroup(group.baseName) }
+                            )) {
+                                ForEach(group.items) { item in
+                                    HStack(spacing: 12) {
+                                        if bucket == .safe {
+                                            Toggle(isOn: Binding(
+                                                get: { engine.selectedIDs.contains(item.id) },
+                                                set: { s in if s { engine.selectedIDs.insert(item.id) } else { engine.selectedIDs.remove(item.id) } }
+                                            )) {
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(item.name).font(.body)
+                                                    Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                                }
+                                            }
+                                            .toggleStyle(.checkbox)
+                                            .padding(.leading, 20)
+                                        } else {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(item.name).font(.body)
+                                                Text(item.ruleTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                            }
+                                            .padding(.leading, 20)
+                                        }
+                                        Spacer()
+                                        Text(ByteCountFormatter().string(fromByteCount: item.sizeBytes))
+                                            .font(.body.monospacedDigit())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.vertical, 2)
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    if bucket == .safe {
+                                        let allSelected = group.items.allSatisfy { engine.selectedIDs.contains($0.id) }
+                                        let someSelected = group.items.contains { engine.selectedIDs.contains($0.id) }
+                                        Toggle(isOn: Binding(
+                                            get: { someSelected },
+                                            set: { engine.selectGroup(group, selected: $0) }
+                                        )) {
+                                            Text(group.baseName).font(.body)
+                                        }
+                                        .toggleStyle(.checkbox)
+                                        .tint(allSelected ? .green : someSelected ? .yellow : .gray)
+                                    } else {
+                                        Text(group.baseName).font(.body)
+                                    }
+                                    Spacer()
+                                    Text("\(group.count) versions")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(ByteCountFormatter().string(fromByteCount: group.totalSizeBytes))
+                                        .font(.body.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.inset)
+            .frame(minHeight: min(CGFloat(groups.count * 40 + 40), 340))
+        }
+    }
+}
+
+struct CleanChartSection: View {
+    let bucket: Bucket
+    let items: [ScanItem]
+    @ObservedObject var engine: ScanEngine
+
+    var body: some View {
+        let groups = engine.groupedItems(items)
+        let maxSize = groups.first?.totalSizeBytes ?? 1
+        let fmt = ByteCountFormatter()
+
+        VStack(alignment: .leading, spacing: 12) {
+            Label("\(bucket.rawValue) (\(items.count) items, \(groups.count) groups)",
+                  systemImage: bucket == .safe ? "checkmark.circle.fill"
+                  : bucket == .review ? "eye.circle.fill" : "lock.circle.fill")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(bucket == .safe ? .green : bucket == .review ? .yellow : .red)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(groups.prefix(20)) { group in
+                    let fraction = Double(group.totalSizeBytes) / Double(maxSize)
+                    HStack(spacing: 8) {
+                        Text(group.baseName)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .frame(width: 120, alignment: .leading)
+                        GeometryReader { geo in
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(bucket == .safe ? Color.green : bucket == .review ? Color.yellow : Color.red)
+                                .frame(width: max(geo.size.width * fraction, 4), height: 14)
+                        }
+                        .frame(height: 14)
+                        Text(fmt.string(fromByteCount: group.totalSizeBytes))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 70, alignment: .trailing)
+                    }
+                    .frame(height: 18)
+                }
+            }
+            .padding(12)
+            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .padding(.horizontal, 12)
     }
 }
 

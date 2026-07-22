@@ -23,11 +23,19 @@ struct Grower: Identifiable, Hashable {
 
 // MARK: - Scan engine
 
+public enum CleanViewMode: String, CaseIterable, Sendable {
+    case list = "List"
+    case chart = "Chart"
+}
+
 @MainActor
 final class ScanEngine: ObservableObject {
     // Clean pillar
     @Published var items: [ScanItem] = []
     @Published var selectedIDs: Set<UUID> = []
+    @Published var cleanViewMode: CleanViewMode = .list
+
+    private var expandedGroups: Set<String> = []
 
     // Offload pillar
     @Published var cloudProviders: [CloudProvider] = []
@@ -72,6 +80,34 @@ final class ScanEngine: ObservableObject {
     }
 
     var safeTotalBytes: Int64 { safeItems.reduce(0) { $0 + $1.sizeBytes } }
+
+    func groupedItems(_ bucketItems: [ScanItem]) -> [ScanItemGroup] {
+        let dict = Dictionary(grouping: bucketItems) { $0.groupKey }
+        return dict.map { ScanItemGroup(baseName: $0.key, items: $0.value) }
+            .sorted { $0.totalSizeBytes > $1.totalSizeBytes }
+    }
+
+    func isGroupExpanded(_ baseName: String) -> Bool {
+        expandedGroups.contains(baseName)
+    }
+
+    func toggleGroup(_ baseName: String) {
+        if expandedGroups.contains(baseName) {
+            expandedGroups.remove(baseName)
+        } else {
+            expandedGroups.insert(baseName)
+        }
+        objectWillChange.send()
+    }
+
+    func selectGroup(_ group: ScanItemGroup, selected: Bool) {
+        let ids = Set(group.items.map(\.id))
+        if selected {
+            selectedIDs.formUnion(ids)
+        } else {
+            selectedIDs.subtract(ids)
+        }
+    }
 
     var needsFullDiskAccess: Bool {
         let test = FileManager.default.homeDirectoryForCurrentUser
