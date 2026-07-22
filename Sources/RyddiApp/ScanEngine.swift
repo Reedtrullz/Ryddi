@@ -10,6 +10,12 @@ struct CloudProvider: Identifiable, Hashable, Sendable {
     let syncFolderPath: String
     let icon: String
     var id: String { syncFolderPath }
+
+    var displayName: String {
+        if name.hasPrefix("GoogleDrive-") { return "Google Drive" }
+        if name.hasPrefix("OneDrive-") { return "OneDrive" }
+        return name
+    }
 }
 
 struct Grower: Identifiable, Hashable, Sendable {
@@ -45,6 +51,7 @@ final class ScanEngine: ObservableObject {
     @Published var isCopying = false
     @Published var lastCopiedSource: String?
     @Published var lastCopiedDest: String?
+    @Published var lastCopiedProviderName: String?
     @Published var lastCopiedBytes: Int64 = 0
     @Published var showCopyComplete = false
 
@@ -330,7 +337,7 @@ final class ScanEngine: ObservableObject {
                 scanRoot: identity.canonicalPath,
                 identity: identity
             )
-        }
+        }.sorted { $0.sizeBytes > $1.sizeBytes }
     }
 
     func copyToCloud(sourcePath: String, provider: CloudProvider) {
@@ -345,6 +352,7 @@ final class ScanEngine: ObservableObject {
             case .success(let destination, let bytes, let warning):
                 lastCopiedSource = sourcePath
                 lastCopiedDest = destination
+                lastCopiedProviderName = provider.displayName
                 lastCopiedBytes = bytes
                 showCopyComplete = true
                 errorMessage = warning
@@ -357,6 +365,7 @@ final class ScanEngine: ObservableObject {
     func dismissCopyPrompt() {
         lastCopiedSource = nil
         lastCopiedDest = nil
+        lastCopiedProviderName = nil
         lastCopiedBytes = 0
         showCopyComplete = false
     }
