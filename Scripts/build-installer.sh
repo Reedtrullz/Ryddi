@@ -10,13 +10,11 @@ BUILD_DIR=".build/release"
 APP_NAME="Ryddi.app"
 PKG_NAME="Ryddi-v${VERSION}.pkg"
 DIST_DIR="dist"
+PKG_BASENAME="$(basename "${DIST_DIR}/${PKG_NAME}")"
 
 APP_SIGN_ID="${APP_SIGNING_IDENTITY:?APP_SIGNING_IDENTITY is required}"
 INSTALLER_SIGN_ID="${INSTALLER_SIGNING_IDENTITY:?INSTALLER_SIGNING_IDENTITY is required}"
-NOTARY_KEY="${NOTARY_KEY_ID:?NOTARY_KEY_ID is required}"
-NOTARY_ISSUER="${NOTARY_ISSUER_ID:?NOTARY_ISSUER_ID is required}"
-NOTARY_KEY_PATH="${NOTARY_KEY_PATH:?NOTARY_KEY_PATH is required}"
-[[ -f "$NOTARY_KEY_PATH" ]] || { echo "NOTARY_KEY_PATH does not exist" >&2; exit 2; }
+NOTARY_PROFILE_NAME="${NOTARY_PROFILE:?NOTARY_PROFILE is required}"
 SOURCE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Assets/Info.plist)"
 SOURCE_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Assets/Info.plist)"
 [[ "$SOURCE_VERSION" == "$VERSION" ]] || { echo "Assets/Info.plist version is ${SOURCE_VERSION}, expected ${VERSION}" >&2; exit 2; }
@@ -75,9 +73,7 @@ pkgutil --check-signature "${DIST_DIR}/${PKG_NAME}" | grep -q "Developer ID Inst
 
 echo "=== Notarizing .pkg ==="
 xcrun notarytool submit "${DIST_DIR}/${PKG_NAME}" \
-    --key "$NOTARY_KEY_PATH" \
-    --key-id "$NOTARY_KEY" \
-    --issuer "$NOTARY_ISSUER" \
+    --keychain-profile "$NOTARY_PROFILE_NAME" \
     --wait
 
 echo "=== Stapling and Gatekeeper verification ==="
@@ -86,7 +82,10 @@ xcrun stapler validate "${DIST_DIR}/${PKG_NAME}"
 spctl --assess --type install --verbose=2 "${DIST_DIR}/${PKG_NAME}"
 
 echo "=== Generating checksum ==="
-shasum -a 256 "${DIST_DIR}/${PKG_NAME}" > "${DIST_DIR}/${PKG_NAME}.sha256"
+(
+    cd "$DIST_DIR"
+    shasum -a 256 "$PKG_BASENAME" > "${PKG_BASENAME}.sha256"
+)
 
 echo "=== Done ==="
 echo "Installer: ${DIST_DIR}/${PKG_NAME}"
