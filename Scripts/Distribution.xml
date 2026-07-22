@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>Ryddi</title>
+    <organization>com.reedtrullz</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="false" rootVolumeOnly="true" allow-external-scripts="no"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.reedtrullz.ryddi"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="com.reedtrullz.ryddi" visible="false">
+        <pkg-ref id="com.reedtrullz.ryddi"/>
+    </choice>
+    <pkg-ref id="com.reedtrullz.ryddi" version="0" onConclusion="none">RyddiComponent.pkg</pkg-ref>
+</installer-gui-script>

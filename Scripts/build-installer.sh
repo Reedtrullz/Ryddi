@@ -15,17 +15,18 @@ echo "=== Building Ryddi v${VERSION} ==="
 
 swift build -c release --scratch-path .build
 
-rm -rf "${DIST_DIR}/${APP_NAME}"
-mkdir -p "${DIST_DIR}/${APP_NAME}/Contents/MacOS"
-mkdir -p "${DIST_DIR}/${APP_NAME}/Contents/Resources"
+BUILD_STAGE="${DIST_DIR}/build-staging"
+rm -rf "${BUILD_STAGE}"
+mkdir -p "${BUILD_STAGE}/${APP_NAME}/Contents/MacOS"
+mkdir -p "${BUILD_STAGE}/${APP_NAME}/Contents/Resources"
 
-cp "${BUILD_DIR}/RyddiApp" "${DIST_DIR}/${APP_NAME}/Contents/MacOS/"
-chmod +x "${DIST_DIR}/${APP_NAME}/Contents/MacOS/RyddiApp"
+cp "${BUILD_DIR}/RyddiApp" "${BUILD_STAGE}/${APP_NAME}/Contents/MacOS/"
+chmod +x "${BUILD_STAGE}/${APP_NAME}/Contents/MacOS/RyddiApp"
 
-cp Assets/Info.plist "${DIST_DIR}/${APP_NAME}/Contents/"
-cp Assets/Ryddi.icns "${DIST_DIR}/${APP_NAME}/Contents/Resources/"
+cp Assets/Info.plist "${BUILD_STAGE}/${APP_NAME}/Contents/"
+cp Assets/Ryddi.icns "${BUILD_STAGE}/${APP_NAME}/Contents/Resources/"
 
-xattr -cr "${DIST_DIR}/${APP_NAME}"
+xattr -cr "${BUILD_STAGE}/${APP_NAME}"
 
 if [[ -n "$SIGN_ID" ]]; then
     echo "=== Signing .app bundle ==="
@@ -33,7 +34,7 @@ if [[ -n "$SIGN_ID" ]]; then
         --entitlements Assets/Ryddi.entitlements \
         --options runtime \
         --timestamp \
-        "${DIST_DIR}/${APP_NAME}"
+        "${BUILD_STAGE}/${APP_NAME}"
 else
     echo "⚠️  No SIGNING_IDENTITY set. Skipping code signing."
     echo "   Set with: export SIGNING_IDENTITY='Developer ID Application: Your Name'"
@@ -41,19 +42,20 @@ fi
 
 echo "=== Building .pkg installer ==="
 
-STAGE="${DIST_DIR}/pkg-root"
-rm -rf "${STAGE}"
-mkdir -p "${STAGE}/Applications"
-cp -R "${DIST_DIR}/${APP_NAME}" "${STAGE}/Applications/"
-
 pkgbuild \
-    --root "${STAGE}" \
+    --component "${BUILD_STAGE}/${APP_NAME}" \
     --identifier com.reedtrullz.ryddi \
     --version "${VERSION}" \
-    --install-location "/" \
+    --install-location "/Applications" \
+    "${DIST_DIR}/RyddiComponent.pkg"
+
+productbuild \
+    --distribution Scripts/Distribution.xml \
+    --package-path "${DIST_DIR}" \
+    --version "${VERSION}" \
     "${DIST_DIR}/${PKG_NAME}"
 
-rm -rf "${STAGE}"
+rm -rf "${BUILD_STAGE}" "${DIST_DIR}/RyddiComponent.pkg"
 
 if [[ -n "$SIGN_ID" ]]; then
     echo "=== Signing .pkg ==="
