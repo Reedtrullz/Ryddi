@@ -16,7 +16,7 @@ final class DeepAuditScannerTests: XCTestCase {
     func testDetectsBuildArtifact() throws {
         let buildDir = tempDir.appendingPathComponent("myapp/.build/debug")
         try FileManager.default.createDirectory(at: buildDir, withIntermediateDirectories: true)
-        try Data(repeating: 0, count: 2_000_000).write(to: buildDir.appendingPathComponent("blob"))
+        try Data(repeating: 0, count: 20_000_000).write(to: buildDir.appendingPathComponent("blob"))
         let old = Date(timeIntervalSinceNow: -3600 * 48)
         try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: buildDir.path)
 
@@ -56,7 +56,7 @@ final class DeepAuditScannerTests: XCTestCase {
         let d2 = tempDir.appendingPathComponent("dir2")
         try FileManager.default.createDirectory(at: d1, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: d2, withIntermediateDirectories: true)
-        let data = Data(repeating: 0xAB, count: 5_000_000)
+        let data = Data(repeating: 0xAB, count: 6_000_000)
         try data.write(to: d1.appendingPathComponent("file.bin"))
         try data.write(to: d2.appendingPathComponent("file.bin"))
 
