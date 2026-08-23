@@ -401,24 +401,52 @@ struct CleanChartSection: View {
 
 struct OffloadPillar: View {
     @ObservedObject var engine: ScanEngine
+    @State private var selectedProviderID: String?
+
+    private let providerColumns = [
+        GridItem(.adaptive(minimum: 190, maximum: 280), spacing: 10)
+    ]
+
+    private var selectedProvider: CloudProvider? {
+        engine.cloudProviders.first { $0.id == selectedProviderID }
+    }
+
+    private var suggestedFolderTotal: Int64 {
+        engine.largeLocalFolders.reduce(0) { $0 + $1.sizeBytes }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Make a cloud copy")
+                    .font(.title2.bold())
+                Text("Choose one destination, then copy a suggested folder. Ryddi always leaves the original where it is.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Label("Nothing is moved or deleted", systemImage: "lock.shield.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.green)
+                    .padding(.top, 2)
+            }
+
             if engine.showCopyComplete, let source = engine.lastCopiedSource {
                 VStack(alignment: .leading, spacing: 12) {
-                    Label("Copy Complete", systemImage: "checkmark.circle.fill")
+                    Label("Copy ready", systemImage: "checkmark.circle.fill")
                         .font(.headline)
                         .foregroundStyle(.green)
-                    Text("\"\(URL(fileURLWithPath: source).lastPathComponent)\" was copied into the provider-managed folder.")
+                    Text("\"\(URL(fileURLWithPath: source).lastPathComponent)\" was copied to \(engine.lastCopiedProviderName ?? "the selected destination").")
                         .font(.body)
-                    Text("The original remains in place. Ryddi does not claim that the provider has uploaded the copy.")
+                    Text("\(ByteCountFormatter().string(fromByteCount: engine.lastCopiedBytes)) copied locally. The provider handles upload; the original remains in place.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 12) {
-                        Button("Show in Finder") {
+                        Button("Show Copy") {
                             if let dest = engine.lastCopiedDest {
                                 NSWorkspace.shared.selectFile(dest, inFileViewerRootedAtPath: "")
                             }
+                        }
+                        Button("Show Original") {
+                            NSWorkspace.shared.selectFile(source, inFileViewerRootedAtPath: "")
                         }
                         Button("Done") { engine.dismissCopyPrompt() }
                     }
@@ -431,96 +459,192 @@ struct OffloadPillar: View {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Copying to cloud...")
+                    Text("Creating the copy… Keep Ryddi open until it finishes.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 8)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
 
             if !engine.cloudProviders.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Cloud Sync Folders", systemImage: "externaldrive.fill.badge.icloud")
-                        .font(.headline)
-                    ForEach(engine.cloudProviders) { provider in
-                        HStack(spacing: 12) {
-                            Image(systemName: provider.icon)
-                                .foregroundStyle(.blue)
-                                .font(.title3)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(provider.name)
-                                    .font(.body)
-                                Text(provider.syncFolderPath)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label("1. Choose a destination", systemImage: "externaldrive.fill.badge.icloud")
+                            .font(.headline)
+                        Spacer()
+                        if let provider = selectedProvider {
                             Button("Show in Finder") {
                                 NSWorkspace.shared.open(URL(fileURLWithPath: provider.syncFolderPath))
                             }
                             .buttonStyle(.borderless)
                         }
-                        .padding(.vertical, 4)
+                    }
+
+                    LazyVGrid(columns: providerColumns, alignment: .leading, spacing: 10) {
+                        ForEach(engine.cloudProviders) { provider in
+                            OffloadProviderCard(
+                                provider: provider,
+                                isSelected: selectedProviderID == provider.id,
+                                isDisabled: engine.isCopying
+                            ) {
+                                selectedProviderID = provider.id
+                            }
+                        }
                     }
                 }
             }
 
             if !engine.largeLocalFolders.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Offload to Cloud", systemImage: "arrow.up.to.line")
-                        .font(.headline)
-                    Text("Copy a folder into a provider-managed location. Originals always remain in place.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Label("2. Choose a folder", systemImage: "folder.fill")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(ByteCountFormatter().string(fromByteCount: suggestedFolderTotal)) across \(engine.largeLocalFolders.count) folders")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     ForEach(engine.largeLocalFolders) { folder in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(folder.name)
-                                    .font(.body)
-                                Text(folder.path)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Text(ByteCountFormatter().string(fromByteCount: folder.sizeBytes))
-                                .font(.body.monospacedDigit())
-                            if !engine.cloudProviders.isEmpty {
-                                Menu {
-                                    ForEach(engine.cloudProviders) { provider in
-                                        Button("Copy to \(provider.name)") {
-                                            engine.confirmationTitle = "Copy to \(provider.name)?"
-                                            engine.confirmationMessage = "\"\(folder.name)\" will be copied to a new folder inside \(provider.name). The original will remain in place."
-                                            engine.confirmationIsDestructive = false
-                                            engine.pendingAction = { engine.copyToCloud(sourcePath: folder.path, provider: provider) }
-                                            engine.showConfirmation = true
-                                        }
-                                    }
-                                } label: {
-                                    Image(systemName: "ellipsis.circle")
-                                }
-                                .menuStyle(.borderlessButton)
-                                .frame(width: 32)
-                                .disabled(engine.isCopying)
-                            }
+                        OffloadFolderRow(
+                            folder: folder,
+                            provider: selectedProvider,
+                            isCopying: engine.isCopying
+                        ) { provider in
+                            confirmCopy(folder: folder, to: provider)
                         }
-                        .padding(.vertical, 6)
                     }
                 }
             }
 
-            if engine.cloudProviders.isEmpty && engine.largeLocalFolders.isEmpty {
+            if !engine.cloudProviders.isEmpty, selectedProvider == nil {
+                Label("Choose a destination above to enable copying.", systemImage: "arrow.up")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 4)
+            }
+
+            if engine.cloudProviders.isEmpty {
                 ContentUnavailableView {
-                    Label("No Cloud Folders", systemImage: "externaldrive.badge.icloud")
+                    Label("No Cloud Destination", systemImage: "externaldrive.badge.icloud")
                 } description: {
-                    Text("No cloud sync folders or large local folders detected.")
+                    Text("Set up iCloud Drive, Dropbox, Google Drive, MEGA, or OneDrive, then scan again.")
+                }
+                .padding(.vertical, 20)
+            } else if engine.largeLocalFolders.isEmpty {
+                ContentUnavailableView {
+                    Label("No Large Folders", systemImage: "folder.badge.checkmark")
+                } description: {
+                    Text("Ryddi did not find a standard home folder larger than 100 MB to suggest.")
                 }
                 .padding(.vertical, 20)
             }
         }
         .padding()
+        .onChange(of: engine.cloudProviders.map(\.id)) { _, providerIDs in
+            if let selectedProviderID, !providerIDs.contains(selectedProviderID) {
+                self.selectedProviderID = nil
+            }
+        }
+    }
+
+    private func confirmCopy(folder: ScanItem, to provider: CloudProvider) {
+        engine.confirmationTitle = "Copy \(folder.name) to \(provider.displayName)?"
+        engine.confirmationMessage = "Ryddi will create a new, uniquely named copy inside \(provider.displayName). The original stays at \(folder.path)."
+        engine.confirmationIsDestructive = false
+        engine.pendingAction = { engine.copyToCloud(sourcePath: folder.path, provider: provider) }
+        engine.showConfirmation = true
+    }
+}
+
+private struct OffloadProviderCard: View {
+    let provider: CloudProvider
+    let isSelected: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: provider.icon)
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? .white : .blue)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(provider.displayName)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(isSelected ? .white : .primary)
+                        .lineLimit(1)
+                    Text(provider.syncFolderPath)
+                        .font(.caption)
+                        .foregroundStyle(isSelected ? .white.opacity(0.82) : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.white : Color.secondary.opacity(0.55))
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+            .background(
+                isSelected ? Color.accentColor : Color.secondary.opacity(0.08),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor : Color.secondary.opacity(0.14))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .accessibilityLabel("\(provider.displayName), \(isSelected ? "selected destination" : "choose as destination")")
+        .help(provider.syncFolderPath)
+    }
+}
+
+private struct OffloadFolderRow: View {
+    let folder: ScanItem
+    let provider: CloudProvider?
+    let isCopying: Bool
+    let copy: (CloudProvider) -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "folder.fill")
+                .font(.title3)
+                .foregroundStyle(.blue)
+                .frame(width: 30, height: 30)
+                .background(.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(folder.name)
+                    .font(.body.weight(.medium))
+                Text(folder.path)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 16)
+            Text(ByteCountFormatter().string(fromByteCount: folder.sizeBytes))
+                .font(.body.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 76, alignment: .trailing)
+            Button(provider.map { "Copy to \($0.displayName)" } ?? "Choose destination") {
+                if let provider { copy(provider) }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(provider == nil || isCopying)
+            .frame(minWidth: 142, alignment: .trailing)
+        }
+        .padding(12)
+        .background(.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .help(folder.path)
     }
 }
 

@@ -105,6 +105,31 @@ final class ReleaseAndProductContractTests: XCTestCase {
         XCTAssertFalse(contentView.contains("if !engine.customPaths.isEmpty {\n                    VStack"))
     }
 
+    func testOffloadIsDestinationFirstAndNeverOffersDeletion() throws {
+        let contentView = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiApp/ContentView.swift"),
+            encoding: .utf8
+        )
+        let scanEngine = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiApp/ScanEngine.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(contentView.contains("1. Choose a destination"))
+        XCTAssertTrue(contentView.contains("2. Choose a folder"))
+        XCTAssertTrue(contentView.contains("Nothing is moved or deleted"))
+        XCTAssertTrue(contentView.contains("struct OffloadProviderCard"))
+        XCTAssertTrue(contentView.contains("struct OffloadFolderRow"))
+        XCTAssertTrue(contentView.contains("Show Copy"))
+        XCTAssertTrue(contentView.contains("Show Original"))
+        XCTAssertFalse(contentView.contains("Delete Local Original"))
+        XCTAssertFalse(contentView.contains("deleteOriginalAfterCopy"))
+        XCTAssertTrue(scanEngine.contains("name.hasPrefix(\"GoogleDrive-\") { return \"Google Drive\" }"))
+        XCTAssertTrue(scanEngine.contains("sorted { $0.sizeBytes > $1.sizeBytes }"))
+        XCTAssertTrue(scanEngine.contains("allowedSources.contains(identity.canonicalPath)"))
+        XCTAssertTrue(scanEngine.contains("lastCopiedProviderName = provider.displayName"))
+    }
+
     func testSourceVersionMatchesNextRelease() throws {
         let plistURL = repositoryRoot.appendingPathComponent("Assets/Info.plist")
         let data = try Data(contentsOf: plistURL)
