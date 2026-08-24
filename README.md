@@ -11,6 +11,8 @@ Ryddi is a fast, local-first disk-space cleaner for macOS. It keeps the common p
 | Control | Shows large tool-owned storage and offers one recoverable DerivedData action; uncertain operations remain guidance-only. |
 | Audit | Inspects a chosen folder for build output, old logs/installers, dependency storage, and content-verified duplicates. |
 
+Review First session groups expose an on-demand Session Review. It ranks local Codex and Hermes transcripts by size, reads Codex task titles from the local state index without scanning message contents, and protects open sessions. Codex transcripts offer per-file Reveal, verified private Archive, or recoverable Finder Trash actions. Hermes transcripts are reveal-only because Hermes owns their maintenance metadata; prune them through Hermes session maintenance.
+
 ## Safety model
 
 - Scans start only when you ask.
@@ -20,6 +22,7 @@ Ryddi is a fast, local-first disk-space cleaner for macOS. It keeps the common p
 - Cleanup revalidates containment, filesystem identity, symbolic-link state, open-file state, classification, and action immediately before Finder Trash.
 - Overlapping scan results are deduplicated.
 - Offload never deletes originals or claims cloud upload completion.
+- Session Review selects nothing, bounds inventory at 5,000 files, and revalidates identity, modification state, allowed roots, and open handles before a Codex Archive or Trash action. Hermes entries are reveal-only.
 
 ## Install
 

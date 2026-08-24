@@ -45,6 +45,16 @@ final class ScanEngine: ObservableObject {
 
     @Published private var expandedGroups: Set<String> = []
 
+    // Session Review
+    @Published var showSessionReview = false
+    @Published var sessionReviewItems: [SessionReviewItem] = []
+    @Published var isLoadingSessions = false
+    @Published var isMaintainingSessions = false
+    @Published var sessionReviewWasTruncated = false
+    @Published var sessionReviewMessage: String?
+    @Published var sessionReviewMessageIsError = false
+    var sessionReviewGeneration = UUID()
+
     // Offload pillar
     @Published var cloudProviders: [CloudProvider] = []
     @Published var largeLocalFolders: [ScanItem] = []

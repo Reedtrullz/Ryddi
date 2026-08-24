@@ -5,7 +5,9 @@ final class CleanupValidatorTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
+        let temporaryPath = FileManager.default.temporaryDirectory.path
+        let canonicalTemporaryPath = try XCTUnwrap(FileIdentity.capture(path: temporaryPath)?.canonicalPath)
+        root = URL(fileURLWithPath: canonicalTemporaryPath)
             .appendingPathComponent("ryddi-validator-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
@@ -82,6 +84,192 @@ final class CleanupValidatorTests: XCTestCase {
         }
     }
 
+    func testAcceptsReviewedSessionFile() throws {
+        let sessions = root.appendingPathComponent(".codex/sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let session = sessions.appendingPathComponent("session.jsonl")
+        try Data("{}\n".utf8).write(to: session)
+        let identity = try XCTUnwrap(FileIdentity.capture(path: session.path))
+
+        XCTAssertEqual(
+            try CleanupValidator().validateSessionFile(
+                path: session.path,
+                allowedRoots: [sessions.path],
+                scannedIdentity: identity
+            ).path,
+            identity.canonicalPath
+        )
+    }
+
+    func testRejectsSessionOutsideReviewedRoot() throws {
+        let sessions = root.appendingPathComponent(".codex/sessions")
+        let outside = root.appendingPathComponent("outside/session.jsonl")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: outside)
+        let identity = try XCTUnwrap(FileIdentity.capture(path: outside.path))
+
+        XCTAssertThrowsError(
+            try CleanupValidator().validateSessionFile(
+                path: outside.path,
+                allowedRoots: [sessions.path],
+                scannedIdentity: identity
+            )
+        ) { XCTAssertEqual($0 as? CleanupValidationError, .outsideReviewedRoot) }
+    }
+
+    func testRejectsUnsupportedSessionExtension() throws {
+        let sessions = root.appendingPathComponent(".codex/sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let session = sessions.appendingPathComponent("session.sqlite")
+        try Data("not a transcript".utf8).write(to: session)
+        let identity = try XCTUnwrap(FileIdentity.capture(path: session.path))
+
+        XCTAssertThrowsError(
+            try CleanupValidator().validateSessionFile(
+                path: session.path,
+                allowedRoots: [sessions.path],
+                scannedIdentity: identity
+            )
+        ) { XCTAssertEqual($0 as? CleanupValidationError, .unsupportedSessionFile) }
+    }
+
+    func testRejectsOpenSessionFile() throws {
+        let sessions = root.appendingPathComponent(".codex/sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let session = sessions.appendingPathComponent("active.jsonl")
+        try Data("{}\n".utf8).write(to: session)
+        let handle = try FileHandle(forWritingTo: session)
+        defer { try? handle.close() }
+        let identity = try XCTUnwrap(FileIdentity.capture(path: session.path))
+
+        XCTAssertThrowsError(
+            try CleanupValidator().validateSessionFile(
+                path: session.path,
+                allowedRoots: [sessions.path],
+                scannedIdentity: identity
+            )
+        ) { XCTAssertEqual($0 as? CleanupValidationError, .openFiles) }
+    }
+
+    func testSessionArchiveIsVerifiedAndKeepsOriginal() throws {
+        let session = root.appendingPathComponent("session.jsonl")
+        try Data(repeating: 65, count: 1_000_000).write(to: session)
+        let archives = root.appendingPathComponent("archives")
+
+        let archive = try SessionArchiveWriter().writeVerifiedArchive(
+            source: session,
+            destinationDirectory: archives
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: session.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: archive.path))
+        XCTAssertLessThan(
+            try archive.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? .max,
+            1_000_000
+        )
+        let verifier = Process()
+        verifier.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        verifier.arguments = ["-t", "--", archive.path]
+        try verifier.run()
+        verifier.waitUntilExit()
+        XCTAssertEqual(verifier.terminationStatus, 0)
+    }
+
+    func testSessionArchiveRejectsRedirectedDestination() throws {
+        let session = root.appendingPathComponent("session.jsonl")
+        try Data("{}\n".utf8).write(to: session)
+        let outside = root.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let redirected = root.appendingPathComponent("redirected")
+        try FileManager.default.createSymbolicLink(at: redirected, withDestinationURL: outside)
+
+        XCTAssertThrowsError(
+            try SessionArchiveWriter().writeVerifiedArchive(
+                source: session,
+                destinationDirectory: redirected.appendingPathComponent("archives")
+            )
+        ) { XCTAssertEqual($0 as? SessionArchiveError, .invalidDestination) }
+    }
+
+    func testSessionArchiveRejectsSymbolicSource() throws {
+        let actual = root.appendingPathComponent("actual.jsonl")
+        try Data("{}\n".utf8).write(to: actual)
+        let linked = root.appendingPathComponent("linked.jsonl")
+        try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: actual)
+
+        XCTAssertThrowsError(
+            try SessionArchiveWriter().writeVerifiedArchive(
+                source: linked,
+                destinationDirectory: root.appendingPathComponent("archives")
+            )
+        ) { XCTAssertEqual($0 as? SessionArchiveError, .invalidSource) }
+    }
+
+    func testSessionArchiveRefusesExistingFinalName() throws {
+        let session = root.appendingPathComponent("session.jsonl")
+        try Data("{}\n".utf8).write(to: session)
+        let archives = root.appendingPathComponent("archives")
+        let first = try SessionArchiveWriter().writeVerifiedArchive(
+            source: session,
+            destinationDirectory: archives
+        )
+
+        XCTAssertThrowsError(
+            try SessionArchiveWriter().writeVerifiedArchive(
+                source: session,
+                destinationDirectory: archives
+            )
+        ) { XCTAssertEqual($0 as? SessionArchiveError, .archiveAlreadyExists) }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path))
+    }
+
+    func testSessionTrashMoverStagesExactReviewedIdentity() throws {
+        let session = root.appendingPathComponent("session.jsonl")
+        try Data("{}\n".utf8).write(to: session)
+        let identity = try XCTUnwrap(FileIdentity.capture(path: session.path))
+        let capture = TrashCapture()
+        let mover = SessionTrashMover { staged in
+            capture.url = staged
+            capture.identity = FileIdentity.capture(path: staged.path)
+            try FileManager.default.removeItem(at: staged)
+        }
+
+        try mover.moveValidatedFileToTrash(source: session, scannedIdentity: identity)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: session.path))
+        XCTAssertTrue(capture.url?.lastPathComponent.contains(".ryddi-trash-") == true)
+        XCTAssertEqual(capture.identity?.device, identity.device)
+        XCTAssertEqual(capture.identity?.inode, identity.inode)
+    }
+
+    func testSessionTrashMoverRejectsReplacedIdentity() throws {
+        let session = root.appendingPathComponent("session.jsonl")
+        try Data("original\n".utf8).write(to: session)
+        let identity = try XCTUnwrap(FileIdentity.capture(path: session.path))
+        try FileManager.default.removeItem(at: session)
+        try Data("replacement\n".utf8).write(to: session)
+
+        XCTAssertThrowsError(
+            try SessionTrashMover { _ in XCTFail("Trash must not run") }
+                .moveValidatedFileToTrash(source: session, scannedIdentity: identity)
+        ) { XCTAssertEqual($0 as? SessionTrashError, .sourceChanged) }
+        XCTAssertEqual(try String(contentsOf: session, encoding: .utf8), "replacement\n")
+    }
+
+    func testSessionTrashMoverRestoresNameWhenTrashFails() throws {
+        struct ExpectedFailure: Error {}
+        let session = root.appendingPathComponent("session.jsonl")
+        try Data("original\n".utf8).write(to: session)
+        let identity = try XCTUnwrap(FileIdentity.capture(path: session.path))
+
+        XCTAssertThrowsError(
+            try SessionTrashMover { _ in throw ExpectedFailure() }
+                .moveValidatedFileToTrash(source: session, scannedIdentity: identity)
+        ) { XCTAssertEqual($0 as? SessionTrashError, .trashFailed) }
+        XCTAssertEqual(FileIdentity.capture(path: session.path)?.inode, identity.inode)
+    }
+
     private func testRuleEngine(safety: SafetyClass, action: ActionKind) -> RuleEngine {
         RuleEngine(version: "test", rules: [
             ReclaimerRule(
@@ -92,4 +280,9 @@ final class CleanupValidatorTests: XCTestCase {
             )
         ])
     }
+}
+
+private final class TrashCapture: @unchecked Sendable {
+    var url: URL?
+    var identity: FileIdentity?
 }
