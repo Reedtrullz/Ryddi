@@ -11,6 +11,7 @@ public enum CleanupValidationError: LocalizedError, Equatable, Sendable {
     case outsideReviewedRoot
     case classificationChanged
     case unsupportedAction
+    case unsupportedSessionFile
 
     public var errorDescription: String? {
         switch self {
@@ -23,6 +24,7 @@ public enum CleanupValidationError: LocalizedError, Equatable, Sendable {
         case .outsideReviewedRoot: "The item is outside the reviewed scan root."
         case .classificationChanged: "The item's safety classification changed. Scan again."
         case .unsupportedAction: "This action is guidance-only and cannot run directly."
+        case .unsupportedSessionFile: "Only reviewed JSON or JSONL session files can be maintained."
         }
     }
 }
@@ -111,6 +113,31 @@ public struct CleanupValidator: Sendable {
             throw CleanupValidationError.changedIdentity
         }
         try requireNoOpenFiles(path: path, isDirectory: true)
+        guard scannedIdentity.matchesCurrent(path: path) else {
+            throw CleanupValidationError.changedIdentity
+        }
+        return URL(fileURLWithPath: scannedIdentity.canonicalPath)
+    }
+
+    public func validateSessionFile(
+        path: String,
+        allowedRoots: [String],
+        scannedIdentity: FileIdentity
+    ) throws -> URL {
+        guard !scannedIdentity.isDirectory, !scannedIdentity.isSymbolicLink else {
+            throw CleanupValidationError.unsupportedSessionFile
+        }
+        let fileExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
+        guard fileExtension == "jsonl" || fileExtension == "json" else {
+            throw CleanupValidationError.unsupportedSessionFile
+        }
+        guard allowedRoots.contains(where: { isDescendant(scannedIdentity.canonicalPath, of: $0) }) else {
+            throw CleanupValidationError.outsideReviewedRoot
+        }
+        guard scannedIdentity.matchesCurrent(path: path) else {
+            throw CleanupValidationError.changedIdentity
+        }
+        try requireNoOpenFiles(path: path, isDirectory: false)
         guard scannedIdentity.matchesCurrent(path: path) else {
             throw CleanupValidationError.changedIdentity
         }

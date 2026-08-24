@@ -8,6 +8,8 @@ Ryddi reads local filesystem metadata such as paths, file types, allocated sizes
 
 Deep Audit reads file contents only when two large files have the same name and size. It computes SHA-256 locally to rule out false duplicate matches. Hashes and contents are not saved or uploaded. Content-verified duplicates remain review-only and are not automatically selected for cleanup.
 
+Session Review runs only when opened. It reads transcript file paths, sizes, modification dates, filesystem identity, and open-handle state from the supported Codex and Hermes session folders. For Codex sessions it reads the local Codex state index to display the existing task title associated with a transcript path. It does not read transcript message contents to build the inventory, and nothing is selected automatically.
+
 Ryddi checks standard local folders to detect provider-managed Dropbox, Google Drive, iCloud Drive, MEGA, and OneDrive locations. It does not sign into providers, call provider APIs, or prove remote upload completion.
 
 Full Disk Access can improve scan coverage. Ryddi can detect that a known folder is unreadable, but it cannot grant Full Disk Access itself.
@@ -21,6 +23,8 @@ Clean and eligible Deep Audit actions move explicitly selected, freshly revalida
 The Control action for Xcode DerivedData is available only for the exact standard DerivedData folder while Xcode is closed, and moves that folder to Finder Trash. Other Control suggestions are guidance-only.
 
 Offload creates a new, uniquely named copy inside a provider-managed local folder. It never deletes or moves the original and does not claim that the provider uploaded the copy. Failed partial copies created by Ryddi are removed.
+
+Session Review can reveal any listed transcript in Finder. For Codex transcripts only, it can move one explicitly confirmed inactive transcript to Finder Trash or create a private gzip archive under `~/Library/Application Support/Ryddi/Session Archives`. Hermes transcripts are reveal-only and must be pruned through Hermes session maintenance. Archive reads the reviewed source through a no-follow file descriptor, writes and commits through a verified destination-directory descriptor, verifies gzip integrity, and revalidates the unchanged source before staging the exact filesystem identity for Finder Trash. If validation or open-file checks fail, the original remains. Archive files contain the original private transcript content and are readable only by the current user; Ryddi does not upload them.
 
 Ryddi can copy a plain-text opportunity report to the macOS clipboard at your request. Review it before sharing because filenames and local context can be private.
 

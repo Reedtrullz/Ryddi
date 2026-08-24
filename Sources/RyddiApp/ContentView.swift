@@ -45,6 +45,9 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 550)
+        .sheet(isPresented: $engine.showSessionReview) {
+            SessionReviewView(engine: engine)
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if !engine.items.isEmpty {
@@ -271,6 +274,10 @@ struct GroupedBucketSectionView: View {
                                 Text(formatter.string(fromByteCount: item.sizeBytes))
                                     .font(.body.monospacedDigit())
                                     .foregroundStyle(.secondary)
+                                if bucket == .review, engine.canReviewSessions([item]) {
+                                    Button("Review Sessions") { engine.openSessionReview() }
+                                        .controlSize(.small)
+                                }
                             }
                             .padding(.vertical, 2)
                         } else {
@@ -333,6 +340,10 @@ struct GroupedBucketSectionView: View {
                                         Text(group.baseName).font(.body)
                                     }
                                     Spacer()
+                                    if bucket == .review, engine.canReviewSessions(group.items) {
+                                        Button("Review Sessions") { engine.openSessionReview() }
+                                            .controlSize(.small)
+                                    }
                                     Text("\(group.count) versions")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
