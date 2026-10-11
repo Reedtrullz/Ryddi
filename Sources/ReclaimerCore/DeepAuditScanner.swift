@@ -149,15 +149,10 @@ public final class DeepAuditScanner: @unchecked Sendable {
             var action: ReclaimAction = .moveToTrash
             let reclaimSize = ds
 
-            if pathContains(p, ".build") || pathContains(p, "target") || pathContains(p, "deriveddata") || pathContains(p, "node_modules/.cache") || pathContains(p, "__pycache__") || pathContains(p, ".gradle/build") || pathContains(p, ".swiftpm/debug") || pathContains(p, ".spm-build") {
+            if isBuildArtifactPath(p) {
                 if ds > 10 * 1024 * 1024 {
                     category = .buildArtifact
-                    desc = "Build artifacts are regenerable from source."
-                }
-            } else if pathContains(p, "build") {
-                if ds > 10 * 1024 * 1024 {
-                    category = .buildArtifact
-                    desc = "Generic build-named folder; confirm that it is generated output."
+                    desc = "Build-looking directory; producer and descendant evidence is unverified."
                     action = .reviewRequired
                 }
             } else if pathContains(p, "node_modules") || pathContains(p, "vendor") || pathContains(p, ".gradle") || pathContains(p, "pods") || pathContains(p, ".swiftpm/cache") || pathContains(p, ".pub-cache") || pathContains(p, "carthage/build") || pathContains(p, "go/pkg/mod") {
