@@ -28,30 +28,6 @@ enum SessionUseStatus: Sendable, Hashable {
     case unknown
 }
 
-struct SessionFileFingerprint: Sendable, Hashable {
-    let identity: FileIdentity
-    let sizeBytes: Int64
-    let modifiedSeconds: Int
-    let modifiedNanoseconds: Int
-
-    static func capture(path: String) -> SessionFileFingerprint? {
-        var info = stat()
-        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
-              let identity = FileIdentity.capture(path: path), !identity.isSymbolicLink else { return nil }
-        return SessionFileFingerprint(
-            identity: identity,
-            sizeBytes: Int64(info.st_size),
-            modifiedSeconds: info.st_mtimespec.tv_sec,
-            modifiedNanoseconds: info.st_mtimespec.tv_nsec
-        )
-    }
-
-    func matchesCurrent(path: String) -> Bool {
-        guard let current = Self.capture(path: path) else { return false }
-        return current == self
-    }
-}
-
 struct SessionReviewItem: Identifiable, Sendable, Hashable {
     let path: String
     let title: String
@@ -691,7 +667,8 @@ extension ScanEngine {
             }
             try SessionTrashMover().moveValidatedFileToTrash(
                 source: url,
-                scannedIdentity: item.fingerprint.identity
+                scannedIdentity: item.fingerprint.identity,
+                reviewedFingerprint: item.fingerprint
             )
             return .success("Moved \(item.title) to Finder Trash. It remains recoverable until Trash is emptied.")
         } catch {
@@ -731,7 +708,8 @@ extension ScanEngine {
                 )
                 try SessionTrashMover().moveValidatedFileToTrash(
                     source: revalidated,
-                    scannedIdentity: item.fingerprint.identity
+                    scannedIdentity: item.fingerprint.identity,
+                    reviewedFingerprint: item.fingerprint
                 )
                 return .success("Archive verified at \(archive.path). The original moved to Finder Trash.")
             } catch {
