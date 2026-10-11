@@ -1,5 +1,19 @@
 import Foundation
 
+func isBuildArtifactPath(_ path: String) -> Bool {
+    let components = URL(fileURLWithPath: path).pathComponents.map { $0.lowercased() }
+    let patterns = [
+        [".build"], ["target"], ["deriveddata"], ["__pycache__"], [".spm-build"], ["build"],
+        ["node_modules", ".cache"], [".gradle", "build"], [".swiftpm", "debug"],
+    ]
+    return patterns.contains { pattern in
+        guard components.count >= pattern.count else { return false }
+        return (0...(components.count - pattern.count)).contains { start in
+            Array(components[start..<(start + pattern.count)]) == pattern
+        }
+    }
+}
+
 public struct SafetyChecker {
     public init() {}
 
@@ -51,6 +65,17 @@ public struct SafetyChecker {
                     r,
                     safetyScore: defaultSafety(for: rec.category),
                     effortScore: defaultEffort(for: rec.category),
+                    action: .reviewRequired
+                )
+                modified = true
+            }
+
+            if rec.category == .buildArtifact || isBuildArtifactPath(p) {
+                // Names and manifests do not prove that every descendant is regenerable.
+                r = copy(
+                    r,
+                    safetyScore: min(r.safetyScore, 0.6),
+                    description: "Build-looking path; producer and descendant evidence is unverified. Review manually.",
                     action: .reviewRequired
                 )
                 modified = true
@@ -126,11 +151,11 @@ public struct SafetyChecker {
 
     private func defaultSafety(for category: BloatCategory) -> Double {
         switch category {
-        case .buildArtifact, .oldLog:
+        case .oldLog:
             return 0.9
         case .duplicateFile:
             return 0.6
-        case .dependencyCache, .oldInstaller, .xcodeCruft, .dockerLayer, .trashOld:
+        case .buildArtifact, .dependencyCache, .oldInstaller, .xcodeCruft, .dockerLayer, .trashOld:
             return 0.6
         case .largeBinary, .gitBloat, .aiSessionCache:
             return 0.2

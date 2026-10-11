@@ -27,14 +27,15 @@ final class SafetyCheckerTests: XCTestCase {
         XCTAssertTrue(result.first?.description.contains("git gc") == true)
     }
 
-    func testDefaultSafetyBuildArtifact() {
+    func testBuildArtifactRequiresProducerEvidence() {
         let rec = ReclaimRecommendation(
             path: "/tmp/scan/build", category: .buildArtifact,
             reclaimableBytes: 100, safetyScore: 0.5, effortScore: 1.0,
             description: "test", action: .moveToTrash
         )
         let result = checker.check([rec], scanRoot: "/tmp/scan")
-        XCTAssertEqual(result.first?.safetyScore, 0.9)
+        XCTAssertEqual(result.first?.action, .reviewRequired)
+        XCTAssertLessThan(result.first!.safetyScore, 0.8)
     }
 
     func testDefaultSafetyDuplicateFile() {
