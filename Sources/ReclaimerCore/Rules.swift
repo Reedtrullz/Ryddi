@@ -160,17 +160,20 @@ public struct ReclaimerRule: Codable, Identifiable, Hashable, Sendable {
 }
 
 public struct RuleMatchSpec: Codable, Hashable, Sendable {
+    public let rootAny: [String]?
     public let containsAny: [String]
     public let suffixAny: [String]
     public let basenameAny: [String]
     public let pathExtensionAny: [String]
 
     public init(
+        rootAny: [String]? = nil,
         containsAny: [String] = [],
         suffixAny: [String] = [],
         basenameAny: [String] = [],
         pathExtensionAny: [String] = []
     ) {
+        self.rootAny = rootAny
         self.containsAny = containsAny
         self.suffixAny = suffixAny
         self.basenameAny = basenameAny
@@ -189,10 +192,12 @@ public final class RuleEngine: Sendable {
     public let version: String
     public let rules: [ReclaimerRule]
     public let userRuleIDs: Set<String>
+    private let homeDirectory: URL
 
-    public init(version: String, rules: [ReclaimerRule], userRuleIDs: Set<String> = []) {
+    public init(version: String, rules: [ReclaimerRule], userRuleIDs: Set<String> = [], homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.version = version
         self.userRuleIDs = userRuleIDs
+        self.homeDirectory = URL(fileURLWithPath: FileIdentity.capture(path: homeDirectory.path)?.canonicalPath ?? homeDirectory.path)
         self.rules = rules.sorted { lhs, rhs in
             if lhs.priority == rhs.priority {
                 return lhs.id < rhs.id
@@ -201,14 +206,14 @@ public final class RuleEngine: Sendable {
         }
     }
 
-    public static func bundled() throws -> RuleEngine {
+    public static func bundled(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> RuleEngine {
         let url = bundledRulesURL()
         guard let url else {
-            return RuleEngine(version: "fallback-1", rules: BuiltInRules.fallback)
+            return RuleEngine(version: "fallback-1", rules: BuiltInRules.fallback, homeDirectory: homeDirectory)
         }
         let data = try Data(contentsOf: url)
         let file = try JSONDecoder().decode(ReclaimerRuleFile.self, from: data)
-        return RuleEngine(version: file.version, rules: file.rules)
+        return RuleEngine(version: file.version, rules: file.rules, homeDirectory: homeDirectory)
     }
 
     static func bundledRulesURL(fileManager: FileManager = .default) -> URL? {
@@ -290,7 +295,7 @@ public final class RuleEngine: Sendable {
 
     public func classify(path: String, isDirectory: Bool, isSymbolicLink: Bool) -> Classification {
         var matches: [RuleMatch] = []
-        for rule in rules where rule.matches(path: path) {
+        for rule in rules where rule.matches(path: path, homeDirectory: homeDirectory) {
             matches.append(
                 RuleMatch(
                     ruleID: rule.id,
@@ -371,7 +376,28 @@ public final class RuleEngine: Sendable {
 }
 
 private extension ReclaimerRule {
-    func matches(path: String) -> Bool {
+    func matches(path: String, homeDirectory: URL) -> Bool {
+        if let roots = match.rootAny {
+            guard let identity = FileIdentity.capture(path: path),
+                  !identity.isSymbolicLink,
+                  identity.canonicalPath == path else { return false }
+            let components = URL(fileURLWithPath: identity.canonicalPath).pathComponents
+            return roots.contains { pattern in
+                let url: URL
+                if pattern.hasPrefix("~/") {
+                    url = homeDirectory.appendingPathComponent(String(pattern.dropFirst(2)))
+                } else if pattern.hasPrefix("/") {
+                    url = URL(fileURLWithPath: pattern)
+                } else {
+                    return false
+                }
+                guard let root = FileIdentity.capture(path: url.path),
+                      root.isDirectory, !root.isSymbolicLink,
+                      root.canonicalPath == url.path else { return false }
+                return components.starts(with: URL(fileURLWithPath: root.canonicalPath).pathComponents)
+            }
+        }
+        guard safetyClass != .autoSafe else { return false }
         let normalized = (path as NSString).standardizingPath.lowercased()
         let basename = URL(fileURLWithPath: path).lastPathComponent.lowercased()
         let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
