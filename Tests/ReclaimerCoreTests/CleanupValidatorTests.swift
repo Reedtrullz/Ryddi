@@ -275,7 +275,7 @@ final class CleanupValidatorTests: XCTestCase {
             ReclaimerRule(
                 id: "test.cache", title: "Test cache", category: "Cache", priority: 100,
                 safetyClass: safety, actionKind: action,
-                match: RuleMatchSpec(containsAny: ["/cache/"]),
+                match: RuleMatchSpec(rootAny: [root.appendingPathComponent("cache").path]),
                 evidence: ["Fixture rule"]
             )
         ])

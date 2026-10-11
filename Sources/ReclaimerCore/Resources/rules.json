@@ -1,5 +1,5 @@
 {
-  "version": "2026.07.19-v0.5",
+  "version": "2026.10.11-v0.6",
   "rules": [
     {
       "id": "system.app-bundles.never",
@@ -226,11 +226,12 @@
       "safetyClass": "autoSafe",
       "actionKind": "trash",
       "match": {
-        "containsAny": [
-          "/library/caches/codex",
-          "/.codex/.tmp",
-          "/.codex/cache"
+        "rootAny": [
+          "~/Library/Caches/Codex",
+          "~/.codex/.tmp",
+          "~/.codex/cache"
         ],
+        "containsAny": [],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
@@ -344,9 +345,10 @@
       "safetyClass": "autoSafe",
       "actionKind": "deleteCache",
       "match": {
-        "containsAny": [
-          "/library/developer/xcode/deriveddata"
+        "rootAny": [
+          "~/Library/Developer/Xcode/DerivedData"
         ],
+        "containsAny": [],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
@@ -767,18 +769,19 @@
       "safetyClass": "autoSafe",
       "actionKind": "trash",
       "match": {
-        "containsAny": [
+        "rootAny": [
           "/private/tmp/vifty",
           "/private/tmp/codex",
           "/private/tmp/swift-package",
           "/private/tmp/xcode"
         ],
+        "containsAny": [],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []
       },
       "evidence": [
-        "Known temporary build/scratch prefix under /private/tmp."
+        "Known temporary build/scratch root under /private/tmp; similarly named siblings require review."
       ],
       "conditions": [
         "Only delete stale paths with no open handles."
@@ -1003,11 +1006,12 @@
       "safetyClass": "autoSafe",
       "actionKind": "trash",
       "match": {
-        "containsAny": [
-          "/.hermes/cache",
-          "/.hermes/tmp",
-          "/.hermes/hermes-agent/.build"
+        "rootAny": [
+          "~/.hermes/cache",
+          "~/.hermes/tmp",
+          "~/.hermes/hermes-agent/.build"
         ],
+        "containsAny": [],
         "suffixAny": [],
         "basenameAny": [],
         "pathExtensionAny": []

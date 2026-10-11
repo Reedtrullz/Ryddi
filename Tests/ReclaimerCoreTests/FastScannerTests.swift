@@ -39,10 +39,10 @@ final class FastScannerTests: XCTestCase {
     }
 
     func testFastScannerClassifiesUnconditionalCacheAsSafe() async throws {
-        let engine = try RuleEngine.bundled()
-        let scanner = FastScanner(ruleEngine: engine)
-        let root = FileManager.default.temporaryDirectory
+        let root = URL(fileURLWithPath: canonicalizedPath(FileManager.default.temporaryDirectory.path))
             .appendingPathComponent("ryddi-test-\(UUID().uuidString)")
+        let engine = try RuleEngine.bundled(homeDirectory: root)
+        let scanner = FastScanner(ruleEngine: engine)
 
         let cacheDir = root.appendingPathComponent(".codex/cache")
         let child = cacheDir.appendingPathComponent("Cache_Data")
@@ -90,9 +90,14 @@ final class FastScannerTests: XCTestCase {
     }
 
     func testRuleEngineClassifiesAutoSafe() throws {
-        let engine = try RuleEngine.bundled()
+        let home = URL(fileURLWithPath: canonicalizedPath(FileManager.default.temporaryDirectory.path))
+            .appendingPathComponent("ryddi-home-\(UUID().uuidString)")
+        let cache = home.appendingPathComponent("Library/Caches/Codex/Cache_Data/blob")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let engine = try RuleEngine.bundled(homeDirectory: home)
         let classification = engine.classify(
-            path: "/Users/test/Library/Caches/Codex/Cache_Data/blob",
+            path: cache.path,
             isDirectory: false,
             isSymbolicLink: false
         )
