@@ -229,8 +229,8 @@ public struct SessionTrashMover: Sendable {
     private let checkpoint: @Sendable (String, URL) throws -> Void
 
     public init() {
-        self.trashDirectory = { source in
-            try FileManager.default.url(for: .trashDirectory, in: .userDomainMask, appropriateFor: source, create: true)
+        self.trashDirectory = { _ in
+            try FileManager.default.url(for: .trashDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         }
         self.checkpoint = { _, _ in }
     }
