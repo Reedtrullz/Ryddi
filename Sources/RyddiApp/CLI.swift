@@ -54,13 +54,15 @@ struct AuditCLI {
                 for rec in safe {
                     do {
                         let url = try validator.validate(rec, scanRoot: path)
-                        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                        guard let identity = rec.identity else { throw CleanupValidationError.missingIdentity }
+                        try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: identity)
                     } catch {
-                        failed.append(rec.path)
+                        failed.append("\(rec.path): \(error.localizedDescription)")
                     }
                 }
                 if !failed.isEmpty {
                     print("Warning: failed to move \(failed.count) item(s) to Trash.")
+                    for failure in failed { print(failure) }
                 }
                 print("Done.")
             }

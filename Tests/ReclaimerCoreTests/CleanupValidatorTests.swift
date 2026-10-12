@@ -228,19 +228,16 @@ final class CleanupValidatorTests: XCTestCase {
         let session = root.appendingPathComponent("session.jsonl")
         try Data("{}\n".utf8).write(to: session)
         let identity = try XCTUnwrap(FileIdentity.capture(path: session.path))
-        let capture = TrashCapture()
-        let mover = SessionTrashMover { staged in
-            capture.url = staged
-            capture.identity = FileIdentity.capture(path: staged.path)
-            try FileManager.default.removeItem(at: staged)
-        }
+        let trash = root.appendingPathComponent("fixture-trash")
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: false)
+        let mover = SessionTrashMover(trashDirectory: { _ in trash })
 
         try mover.moveValidatedFileToTrash(source: session, scannedIdentity: identity)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: session.path))
-        XCTAssertTrue(capture.url?.lastPathComponent.contains(".ryddi-trash-") == true)
-        XCTAssertEqual(capture.identity?.device, identity.device)
-        XCTAssertEqual(capture.identity?.inode, identity.inode)
+        let received = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: trash, includingPropertiesForKeys: nil).first)
+        XCTAssertEqual(FileIdentity.capture(path: received.path)?.device, identity.device)
+        XCTAssertEqual(FileIdentity.capture(path: received.path)?.inode, identity.inode)
     }
 
     func testSessionTrashMoverRejectsReplacedIdentity() throws {
@@ -251,7 +248,7 @@ final class CleanupValidatorTests: XCTestCase {
         try Data("replacement\n".utf8).write(to: session)
 
         XCTAssertThrowsError(
-            try SessionTrashMover { _ in XCTFail("Trash must not run") }
+            try SessionTrashMover(trashDirectory: { _ in XCTFail("Trash must not run"); return session })
                 .moveValidatedFileToTrash(source: session, scannedIdentity: identity)
         ) { XCTAssertEqual($0 as? SessionTrashError, .sourceChanged) }
         XCTAssertEqual(try String(contentsOf: session, encoding: .utf8), "replacement\n")
@@ -263,10 +260,14 @@ final class CleanupValidatorTests: XCTestCase {
         try Data("original\n".utf8).write(to: session)
         let identity = try XCTUnwrap(FileIdentity.capture(path: session.path))
 
+        let trash = root.appendingPathComponent("fixture-trash")
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: false)
         XCTAssertThrowsError(
-            try SessionTrashMover { _ in throw ExpectedFailure() }
+            try SessionTrashMover(trashDirectory: { _ in trash }, checkpoint: { point, _ in
+                if point == "staged" { throw ExpectedFailure() }
+            })
                 .moveValidatedFileToTrash(source: session, scannedIdentity: identity)
-        ) { XCTAssertEqual($0 as? SessionTrashError, .trashFailed) }
+        ) { XCTAssertTrue($0.localizedDescription.contains("Retained item:")) }
         XCTAssertEqual(FileIdentity.capture(path: session.path)?.inode, identity.inode)
     }
 
@@ -280,9 +281,4 @@ final class CleanupValidatorTests: XCTestCase {
             )
         ])
     }
-}
-
-private final class TrashCapture: @unchecked Sendable {
-    var url: URL?
-    var identity: FileIdentity?
 }

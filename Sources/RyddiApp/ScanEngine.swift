@@ -218,7 +218,8 @@ final class ScanEngine: ObservableObject {
                         try Task.checkCancellation()
                         do {
                             let url = try validator.validate(item, ruleEngine: ruleEngine)
-                            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                            guard let identity = item.identity else { throw CleanupValidationError.missingIdentity }
+                            try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: identity)
                         } catch {
                             failures.append("\(item.name): \(error.localizedDescription)")
                         }
@@ -432,7 +433,7 @@ final class ScanEngine: ObservableObject {
                         expectedPath: expected,
                         scannedIdentity: grower.identity
                     )
-                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: grower.identity)
                     return nil
                 } catch {
                     return error.localizedDescription
@@ -502,7 +503,8 @@ final class ScanEngine: ObservableObject {
                     }
                     do {
                         let url = try validator.validate(recommendation, scanRoot: root)
-                        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                        guard let identity = recommendation.identity else { throw CleanupValidationError.missingIdentity }
+                        try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: identity)
                     } catch {
                         failures.append("\(urlName(recommendation.path)): \(error.localizedDescription)")
                     }

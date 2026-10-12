@@ -23,18 +23,22 @@ public enum SessionArchiveError: LocalizedError, Sendable {
     }
 }
 
-public enum SessionTrashError: LocalizedError, Sendable {
+public enum SessionTrashError: LocalizedError, Equatable, Sendable {
     case invalidSource
     case sourceChanged
     case stagingFailed
     case trashFailed
+    case retained(String)
+    case locationUnknown
 
     public var errorDescription: String? {
         switch self {
-        case .invalidSource: "The reviewed session is no longer a regular file."
-        case .sourceChanged: "The session changed before it could be moved."
-        case .stagingFailed: "Ryddi could not stage the exact reviewed session safely."
-        case .trashFailed: "Finder Trash did not accept the staged session; the original name was restored."
+        case .invalidSource: "The reviewed item is no longer a regular file or directory."
+        case .sourceChanged: "The reviewed item changed before it could be moved."
+        case .stagingFailed: "Ryddi could not stage the exact reviewed item safely."
+        case .trashFailed: "The Trash handoff could not be verified."
+        case .retained(let path): "The Trash handoff was refused. Retained item: \(path). Review this location before acting again."
+        case .locationUnknown: "An external change prevented locating the reviewed item. Ryddi did not permanently delete it; review the source and Trash manually."
         }
     }
 }
@@ -221,19 +225,24 @@ public struct SessionArchiveWriter: Sendable {
 }
 
 public struct SessionTrashMover: Sendable {
-    private let trashOperation: @Sendable (URL) throws -> Void
+    private let trashDirectory: @Sendable (URL) throws -> URL
+    private let checkpoint: @Sendable (String, URL) throws -> Void
 
     public init() {
-        self.trashOperation = { url in
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        self.trashDirectory = { _ in
+            try FileManager.default.url(for: .trashDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         }
+        self.checkpoint = { _, _ in }
     }
 
-    public init(trashOperation: @escaping @Sendable (URL) throws -> Void) {
-        self.trashOperation = trashOperation
+    init(trashDirectory: @escaping @Sendable (URL) throws -> URL,
+         checkpoint: @escaping @Sendable (String, URL) throws -> Void = { _, _ in }) {
+        self.trashDirectory = trashDirectory
+        self.checkpoint = checkpoint
     }
 
-    public func moveValidatedFileToTrash(source: URL, scannedIdentity: FileIdentity) throws {
+    public func moveValidatedFileToTrash(source: URL, scannedIdentity: FileIdentity,
+                                        reviewedFingerprint: SessionFileFingerprint? = nil) throws {
         let source = source.standardizedFileURL
         let parent = source.deletingLastPathComponent()
         let sourceName = source.lastPathComponent
@@ -241,60 +250,151 @@ public struct SessionTrashMover: Sendable {
             throw SessionTrashError.invalidSource
         }
 
+        guard let parentIdentity = FileIdentity.capture(path: parent.path), !parentIdentity.isSymbolicLink else {
+            throw SessionTrashError.stagingFailed
+        }
         let parentDescriptor = open(parent.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
         guard parentDescriptor >= 0,
               let parentSnapshot = FileSnapshot.capture(descriptor: parentDescriptor),
               parentSnapshot.isDirectory,
-              parentSnapshot.matchesCurrentIdentity(parent) else {
+              parentSnapshot.matchesCurrentIdentity(parent), parentIdentity.matchesCurrent(path: parent.path) else {
             if parentDescriptor >= 0 { close(parentDescriptor) }
             throw SessionTrashError.stagingFailed
         }
         defer { close(parentDescriptor) }
 
-        let sourceDescriptor = openat(parentDescriptor, sourceName, O_RDONLY | O_NOFOLLOW)
+        let sourceDescriptor = openat(parentDescriptor, sourceName, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard sourceDescriptor >= 0 else { throw SessionTrashError.invalidSource }
         defer { close(sourceDescriptor) }
         guard let openedSource = FileSnapshot.capture(descriptor: sourceDescriptor),
-              openedSource.isRegularFile,
+              openedSource.isRegularFile || openedSource.isDirectory,
               openedSource.matches(identity: scannedIdentity),
-              scannedIdentity.matchesCurrent(path: source.path) else {
+              scannedIdentity.matchesCurrent(path: source.path),
+              reviewedFingerprint.map({ $0.matches(openedSource) }) ?? true else {
             throw SessionTrashError.sourceChanged
         }
 
-        let stagedName = ".\(sourceName).ryddi-trash-\(UUID().uuidString)"
-        let stagedURL = parent.appendingPathComponent(stagedName)
+        let trash = try trashDirectory(source).standardizedFileURL
+        guard let trashIdentity = FileIdentity.capture(path: trash.path), !trashIdentity.isSymbolicLink else {
+            throw SessionTrashError.stagingFailed
+        }
+        let trashDescriptor = open(trash.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard trashDescriptor >= 0,
+              let trashSnapshot = FileSnapshot.capture(descriptor: trashDescriptor),
+              trashSnapshot.isDirectory, trashSnapshot.matchesCurrentIdentity(trash),
+              trashSnapshot.device == openedSource.device else {
+            if trashDescriptor >= 0 { close(trashDescriptor) }
+            throw SessionTrashError.stagingFailed
+        }
+        defer { close(trashDescriptor) }
+        let stagingName = ".ryddi-trash-\(UUID().uuidString)"
+        guard mkdirat(parentDescriptor, stagingName, mode_t(0o700)) == 0 else {
+            throw SessionTrashError.stagingFailed
+        }
+        let stagingDescriptor = openat(parentDescriptor, stagingName, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard stagingDescriptor >= 0 else { throw SessionTrashError.stagingFailed }
+        defer {
+            let current = openat(parentDescriptor, stagingName, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            if current >= 0 {
+                if let staged = FileSnapshot.capture(descriptor: stagingDescriptor), staged.matchesDescriptorIdentity(current) {
+                    unlinkat(parentDescriptor, stagingName, AT_REMOVEDIR)
+                }
+                close(current)
+            }
+            close(stagingDescriptor)
+        }
+        let stagedURL = parent.appendingPathComponent(stagingName).appendingPathComponent(sourceName)
+        try checkpoint("opened", source)
         guard parentSnapshot.matchesDescriptorIdentity(parentDescriptor),
               parentSnapshot.matchesCurrentIdentity(parent),
-              renameatx_np(parentDescriptor, sourceName, parentDescriptor, stagedName, UInt32(RENAME_EXCL)) == 0 else {
+              parentIdentity.matchesCurrent(path: parent.path),
+              openedSource.matchesDescriptor(sourceDescriptor),
+              openedSource.matchesCurrent(source),
+              renameatx_np(parentDescriptor, sourceName, stagingDescriptor, sourceName, UInt32(RENAME_EXCL)) == 0 else {
             throw SessionTrashError.stagingFailed
         }
 
-        func restoreStagedFile() {
-            _ = renameatx_np(parentDescriptor, stagedName, parentDescriptor, sourceName, UInt32(RENAME_EXCL))
-        }
-
-        guard openedSource.matchesDescriptor(sourceDescriptor),
-              openedSource.matchesCurrent(stagedURL),
-              parentSnapshot.matchesDescriptorIdentity(parentDescriptor),
-              parentSnapshot.matchesCurrentIdentity(parent) else {
-            restoreStagedFile()
-            throw SessionTrashError.sourceChanged
+        func retain(_ descriptor: Int32, _ name: String) -> SessionTrashError {
+            func location(_ fd: Int32, _ child: String? = nil) -> SessionTrashError {
+                guard let url = descriptorPath(fd) else { return .locationUnknown }
+                return .retained(child.map { url.appendingPathComponent($0).path } ?? url.path)
+            }
+            let current = openat(descriptor, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+            guard current >= 0 else { return location(sourceDescriptor) }
+            defer { close(current) }
+            guard openedSource.matchesDescriptorIdentity(current) else {
+                return location(sourceDescriptor)
+            }
+            if renameatx_np(descriptor, name, parentDescriptor, sourceName, UInt32(RENAME_EXCL)) == 0 {
+                return location(parentDescriptor, sourceName)
+            }
+            return location(descriptor, name)
         }
 
         do {
-            try trashOperation(stagedURL)
+            try checkpoint("staged", stagedURL)
+            guard openedSource.matchesDescriptor(sourceDescriptor),
+                  openedSource.matchesCurrent(stagedURL),
+                  parentSnapshot.matchesCurrentIdentity(parent),
+                  parentIdentity.matchesCurrent(path: parent.path),
+                  trashSnapshot.matchesCurrentIdentity(trash), trashIdentity.matchesCurrent(path: trash.path) else {
+                throw SessionTrashError.sourceChanged
+            }
+            try Task.checkCancellation()
         } catch {
-            restoreStagedFile()
-            throw SessionTrashError.trashFailed
+            throw retain(stagingDescriptor, sourceName)
         }
-        guard FileSnapshot.capture(stagedURL) == nil else {
-            restoreStagedFile()
-            throw SessionTrashError.trashFailed
+        let trashName = sourceName + ".ryddi-" + UUID().uuidString
+        guard renameatx_np(stagingDescriptor, sourceName, trashDescriptor, trashName, UInt32(RENAME_EXCL)) == 0 else {
+            throw retain(stagingDescriptor, sourceName)
+        }
+        do {
+            try checkpoint("trashed", trash.appendingPathComponent(trashName))
+            let received = openat(trashDescriptor, trashName, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+            guard received >= 0 else { throw SessionTrashError.trashFailed }
+            defer { close(received) }
+            guard openedSource.matchesDescriptor(received),
+                  parentSnapshot.matchesCurrentIdentity(parent),
+                  parentIdentity.matchesCurrent(path: parent.path),
+                  trashSnapshot.matchesCurrentIdentity(trash), trashIdentity.matchesCurrent(path: trash.path) else {
+                throw SessionTrashError.sourceChanged
+            }
+        } catch {
+            throw retain(trashDescriptor, trashName)
         }
     }
 }
 
-private struct FileSnapshot {
+public struct SessionFileFingerprint: Sendable, Hashable {
+    public let identity: FileIdentity
+    public let sizeBytes: Int64
+    public let modifiedSeconds: Int
+    public let modifiedNanoseconds: Int
+
+    public static func capture(path: String) -> Self? {
+        guard let snapshot = FileSnapshot.capture(URL(fileURLWithPath: path)), snapshot.isRegularFile,
+              let identity = FileIdentity.capture(path: path), snapshot.matches(identity: identity) else { return nil }
+        return Self(identity: identity, sizeBytes: snapshot.sizeBytes,
+                    modifiedSeconds: snapshot.modifiedSeconds, modifiedNanoseconds: snapshot.modifiedNanoseconds)
+    }
+
+    public func matchesCurrent(path: String) -> Bool { Self.capture(path: path) == self }
+
+    fileprivate func matches(_ snapshot: FileSnapshot) -> Bool {
+        snapshot.matches(identity: identity) && snapshot.sizeBytes == sizeBytes
+            && snapshot.modifiedSeconds == modifiedSeconds && snapshot.modifiedNanoseconds == modifiedNanoseconds
+    }
+}
+
+private func descriptorPath(_ descriptor: Int32) -> URL? {
+    var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+    guard fcntl(descriptor, F_GETPATH, &path) == 0 else {
+        return nil
+    }
+    return URL(fileURLWithPath: String(cString: path))
+}
+
+fileprivate struct FileSnapshot {
     let device: UInt64
     let inode: UInt64
     let sizeBytes: Int64
@@ -378,6 +478,6 @@ private struct FileSnapshot {
     }
 
     func matches(identity: FileIdentity) -> Bool {
-        device == identity.device && inode == identity.inode && isRegularFile && !isSymbolicLink
+        device == identity.device && inode == identity.inode && isDirectory == identity.isDirectory && !isSymbolicLink
     }
 }
