@@ -128,14 +128,22 @@ public final class DeepAuditScanner: @unchecked Sendable {
                 enumerator.skipDescendants()
                 continue
             }
-            guard let rawSize = vals.fileSize, rawSize >= 0, let mtime = vals.contentModificationDate,
-                  let isDir = vals.isDirectory, let isRegular = vals.isRegularFile,
-                  vals.isSymbolicLink == false, isDir || isRegular else {
+            guard let mtime = vals.contentModificationDate, let isDir = vals.isDirectory,
+                  vals.isSymbolicLink == false else {
                 record("Incomplete metadata or unsupported entry skipped: \(url.path)")
                 enumerator.skipDescendants()
                 continue
             }
-            let size = Int64(rawSize)
+            let size: Int64
+            if isDir {
+                size = 0
+            } else {
+                guard vals.isRegularFile == true, let rawSize = vals.fileSize, rawSize >= 0 else {
+                    record("File size/type unavailable or unsupported entry skipped: \(url.path)")
+                    continue
+                }
+                size = Int64(rawSize)
+            }
             let p = url.path
 
             if size > 0 {
@@ -147,7 +155,7 @@ public final class DeepAuditScanner: @unchecked Sendable {
                 dirSize[root, default: 0] += size
             }
 
-            if size > 0 && isRegular {
+            if size > 0 && !isDir {
                 let key = "\(url.lastPathComponent)|\(size)"
                 duplicateMap[key, default: []].append((url, size))
             }
