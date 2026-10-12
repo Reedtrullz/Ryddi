@@ -108,9 +108,7 @@ final class ScanEngine: ObservableObject {
 
     var selectedAuditBytes: Int64 {
         guard let report = auditReport, report.hasCompleteCoverage else { return 0 }
-        return report.recommendations
-            .filter { auditSelectedIDs.contains($0.id) && $0.safetyScore >= 0.8 && $0.action == .moveToTrash }
-            .reduce(0) { $0 + $1.reclaimableBytes }
+        return report.selectedLogicalBytes(ids: auditSelectedIDs)
     }
 
     func groupedItems(_ bucketItems: [ScanItem]) -> [ScanItemGroup] {
@@ -480,10 +478,8 @@ final class ScanEngine: ObservableObject {
                 let report = try await runCancellableScan {
                     let result = try DeepAuditScanner().scanWithCoverage(path: path)
                     let recs = result.recommendations
-                    let total = recs.reduce(0) { $0 + $1.reclaimableBytes }
                     return AuditReport(
-                        scannedPaths: [path], totalBytes: total, bloatBytes: total,
-                        reclaimableBytes: total, recommendations: recs, coverage: [result.coverage]
+                        scannedPaths: [path], recommendations: recs, coverage: [result.coverage]
                     )
                 }
                 guard auditGeneration == generation else { return }

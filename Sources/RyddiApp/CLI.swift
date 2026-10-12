@@ -22,12 +22,8 @@ struct AuditCLI {
             let scanner = DeepAuditScanner()
             let result = try scanner.scanWithCoverage(path: path)
             let recs = result.recommendations
-            let total = recs.reduce(0) { $0 + $1.reclaimableBytes }
             let report = AuditReport(
                 scannedPaths: [path],
-                totalBytes: total,
-                bloatBytes: total,
-                reclaimableBytes: total,
                 recommendations: recs,
                 coverage: [result.coverage]
             )
@@ -50,7 +46,7 @@ struct AuditCLI {
                     print("No high-safety items to reclaim.")
                     return
                 }
-                print("\nAuto-reclaim \(safe.count) high-safety items (\(ByteCountFormatter().string(fromByteCount: safe.reduce(0) { $0 + $1.reclaimableBytes })))")
+                print("\nMove \(safe.count) eligible items to Trash (logical estimate: \(ByteCountFormatter().string(fromByteCount: report.safeToReclaimBytes)); physical reclaim unverified)")
                 print("Confirm (y/N): ", terminator: "")
                 guard let line = readLine()?.lowercased(), line == "y" || line == "yes" else {
                     print("Cancelled.")
