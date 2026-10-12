@@ -21,7 +21,8 @@ final class CleanupReceiptTests: XCTestCase {
         }
         let entry = try XCTUnwrap(receipt.entries.first), recovery = try XCTUnwrap(entry.recoveryPath)
         XCTAssertEqual(entry.outcome, .moved)
-        XCTAssertEqual(URL(fileURLWithPath: recovery).deletingLastPathComponent(), trash)
+        XCTAssertEqual(URL(fileURLWithPath: recovery).deletingLastPathComponent().resolvingSymlinksInPath().path,
+                       trash.resolvingSymlinksInPath().path)
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: recovery)), data)
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
         XCTAssertEqual(receipt.summary, "1 moved, 0 retained, 0 failed")

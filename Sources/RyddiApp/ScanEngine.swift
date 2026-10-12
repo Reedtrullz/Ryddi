@@ -95,14 +95,20 @@ final class ScanEngine: ObservableObject {
 
     func presentCleanupReceipt(_ receipt: CleanupReceipt) {
         dismissCleanupReceipt()
+        guard !receipt.isExpired() else { return }
         cleanupReceipt = receipt
         showCleanupReceipt = true
         cleanupReceiptExpiryTask = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(CleanupReceipt.lifetime)) }
+            let remaining = max(0, receipt.completedAt.addingTimeInterval(CleanupReceipt.lifetime).timeIntervalSinceNow)
+            do { try await Task.sleep(for: .seconds(remaining)) }
             catch { return }
-            guard let self, self.cleanupReceipt?.id == receipt.id else { return }
-            self.dismissCleanupReceipt()
+            self?.expireCleanupReceipt(id: receipt.id)
         }
+    }
+
+    func expireCleanupReceipt(id: UUID, at date: Date = Date()) {
+        guard let receipt = cleanupReceipt, receipt.id == id, receipt.isExpired(at: date) else { return }
+        dismissCleanupReceipt()
     }
 
     func dismissCleanupReceipt() {

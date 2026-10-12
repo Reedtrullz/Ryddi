@@ -25,7 +25,7 @@ final class ReviewedTrashTests: XCTestCase {
         let recovery = try SessionTrashMover(trashDirectory: { _ in destination }).moveValidatedFileToTrash(
             source: source, scannedIdentity: try XCTUnwrap(FileIdentity.capture(path: source.path)))
         let received = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: trash, includingPropertiesForKeys: nil).first)
-        XCTAssertEqual(recovery, received)
+        XCTAssertEqual(recovery.resolvingSymlinksInPath().path, received.resolvingSymlinksInPath().path)
         XCTAssertEqual(try String(contentsOf: received.appendingPathComponent("child"), encoding: .utf8), "retained")
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
     }
