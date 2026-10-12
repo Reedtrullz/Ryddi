@@ -59,11 +59,15 @@ public struct ScanBudget: Sendable {
     }
 
     public mutating func hash(_ count: Int) throws {
+        try requireHashCapacity(Int64(count))
+        hashBytes += Int64(count)
+    }
+
+    public func requireHashCapacity(_ count: Int64) throws {
         try check()
-        guard count >= 0, Int64(count) <= maximumHashBytes - hashBytes else {
+        guard count >= 0, count <= maximumHashBytes - hashBytes else {
             throw ScanWorkError.hashLimit
         }
-        hashBytes += Int64(count)
     }
 }
 

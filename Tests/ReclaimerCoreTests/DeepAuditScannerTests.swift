@@ -184,7 +184,7 @@ final class DeepAuditScannerTests: XCTestCase {
         })
     }
 
-    func testDuplicateHashBudgetSkipsOversizedCandidateGroup() throws {
+    func testDuplicateHashBudgetReportsOversizedCandidateGroup() throws {
         for directory in ["one", "two"] {
             let file = tempDir.appendingPathComponent("\(directory)/huge.bin")
             try FileManager.default.createDirectory(
@@ -197,8 +197,9 @@ final class DeepAuditScannerTests: XCTestCase {
             try handle.close()
         }
 
-        let recs = try DeepAuditScanner().scan(path: tempDir.path)
-        XCTAssertFalse(recs.contains { $0.category == .duplicateFile })
+        XCTAssertThrowsError(try DeepAuditScanner().scan(path: tempDir.path)) {
+            XCTAssertEqual($0 as? ScanWorkError, .hashLimit)
+        }
     }
 
     func testImpactScorer() {

@@ -204,6 +204,11 @@ public final class DeepAuditScanner: @unchecked Sendable {
 
         for (_, candidates) in duplicateMap where candidates.count > 1 {
             try budget.check()
+            let candidateBytes = candidates.reduce(Int64(0)) { total, candidate in
+                let (sum, overflow) = total.addingReportingOverflow(candidate.size)
+                return overflow ? Int64.max : sum
+            }
+            try budget.requireHashCapacity(candidateBytes)
             var byDigest: [String: [(url: URL, size: Int64)]] = [:]
             for candidate in candidates {
                 try Task.checkCancellation()
