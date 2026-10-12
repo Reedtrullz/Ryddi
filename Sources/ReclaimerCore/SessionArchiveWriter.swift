@@ -234,8 +234,9 @@ public struct SessionTrashMover: Sendable {
         self.checkpoint = checkpoint
     }
 
+    @discardableResult
     public func moveValidatedFileToTrash(source: URL, scannedIdentity: FileIdentity,
-                                        reviewedFingerprint: SessionFileFingerprint? = nil) throws {
+                                        reviewedFingerprint: SessionFileFingerprint? = nil) throws -> URL {
         let source = source.standardizedFileURL
         let parent = source.deletingLastPathComponent()
         let sourceName = source.lastPathComponent
@@ -355,6 +356,7 @@ public struct SessionTrashMover: Sendable {
         } catch {
             throw retain(trashDescriptor, trashName)
         }
+        return trash.appendingPathComponent(trashName)
     }
 }
 

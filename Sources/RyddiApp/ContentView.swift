@@ -48,6 +48,12 @@ struct ContentView: View {
         .sheet(isPresented: $engine.showSessionReview, onDismiss: { engine.cancelSessionReview() }) {
             SessionReviewView(engine: engine)
         }
+        .sheet(isPresented: $engine.showCleanupReceipt, onDismiss: { engine.dismissCleanupReceipt() }) {
+            if let receipt = engine.cleanupReceipt {
+                CleanupReceiptView(receipt: receipt, dismiss: { engine.dismissCleanupReceipt() })
+                    .id(receipt.id)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if !engine.items.isEmpty {

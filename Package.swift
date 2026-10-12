@@ -30,6 +30,10 @@ let package = Package(
         .testTarget(
             name: "ReclaimerCoreTests",
             dependencies: ["ReclaimerCore"]
+        ),
+        .testTarget(
+            name: "RyddiAppTests",
+            dependencies: ["RyddiApp", "ReclaimerCore"]
         )
     ]
 )
