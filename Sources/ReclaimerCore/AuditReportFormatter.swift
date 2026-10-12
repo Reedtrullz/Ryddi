@@ -10,7 +10,9 @@ public struct AuditReportFormatter {
         if report.coverage.isEmpty { lines.append("Coverage: unverified (legacy report)") }
         for coverage in report.coverage { lines.append("Coverage: \(coverage.summary)") }
         if !report.hasCompleteCoverage { lines.append("Warning: coverage is incomplete or unverified. Automatic cleanup is unavailable.") }
-        lines.append("Total bloat found: \(fmt.string(fromByteCount: report.bloatBytes))")
+        lines.append("Unique logical candidate estimate: \(fmt.string(fromByteCount: report.storageEstimate.logicalBytes))")
+        lines.append(LogicalStorageEstimate.uncertainty)
+        if report.storageEstimate.saturated { lines.append("Estimate exceeded the supported byte range; total is capped.") }
         lines.append("")
         lines.append("| Rank | Category          | Location                           | Size    | Safety | Action           |")
         lines.append("|------|-------------------|------------------------------------|---------|--------|------------------|")
@@ -25,8 +27,9 @@ public struct AuditReportFormatter {
             lines.append("| \(rank) | \(cat) | \(loc) | \(sz) | \(safe) | \(act) |")
         }
         lines.append("")
-        lines.append("Safe to reclaim now: \(fmt.string(fromByteCount: report.safeToReclaimBytes)) (items marked High safety)")
-        lines.append("Requires review: \(fmt.string(fromByteCount: report.needsReviewBytes))")
+        lines.append("Eligible to move to Trash (logical): \(fmt.string(fromByteCount: report.safeToReclaimBytes))")
+        lines.append("Requires review (logical): \(fmt.string(fromByteCount: report.needsReviewBytes))")
+        lines.append("Eligible and review subtotals can overlap; do not add them. Each finding's size is logical.")
         return lines.joined(separator: "\n")
     }
 
