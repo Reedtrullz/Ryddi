@@ -179,4 +179,19 @@ final class ReleaseAndProductContractTests: XCTestCase {
         XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "0.8.2")
         XCTAssertEqual(plist["CFBundleVersion"] as? String, "82")
     }
+
+    func testScanOwnersRetainCancellationAndPublicationFences() throws {
+        let engine = try String(contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiApp/ScanEngine.swift"), encoding: .utf8)
+        let sessions = try String(contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiApp/SessionReview.swift"), encoding: .utf8)
+        let content = try String(contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiApp/ContentView.swift"), encoding: .utf8)
+        let audit = try String(contentsOf: repositoryRoot.appendingPathComponent("Sources/RyddiApp/AuditPillar.swift"), encoding: .utf8)
+        XCTAssertTrue(engine.contains("auditTask?.cancel()"))
+        XCTAssertTrue(engine.contains("guard auditGeneration == generation else { return }"))
+        XCTAssertTrue(sessions.contains("sessionReviewTask?.cancel()"))
+        XCTAssertTrue(sessions.contains("guard sessionReviewGeneration == generation else { return }"))
+        XCTAssertTrue(sessions.contains("maximumEntries: 100_000"))
+        XCTAssertTrue(sessions.contains("try budget.visitEntry()"))
+        XCTAssertTrue(content.contains("onDismiss: { engine.cancelSessionReview() }"))
+        XCTAssertTrue(audit.contains("engine.cancelAudit()"))
+    }
 }

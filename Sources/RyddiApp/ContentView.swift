@@ -45,7 +45,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 550)
-        .sheet(isPresented: $engine.showSessionReview) {
+        .sheet(isPresented: $engine.showSessionReview, onDismiss: { engine.cancelSessionReview() }) {
             SessionReviewView(engine: engine)
         }
         .toolbar {

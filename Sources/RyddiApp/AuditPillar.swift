@@ -8,7 +8,11 @@ struct AuditPillar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if engine.isAuditing {
-                HStack { ProgressView().controlSize(.small); Text("Auditing...") }
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text("Auditing...")
+                    Button("Cancel") { engine.cancelAudit() }
+                }
                     .padding(.vertical, 4)
             }
 

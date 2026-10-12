@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Darwin
 
 func canonicalizedPath(_ path: String) -> String {
     let maxLen = 4096
@@ -15,12 +16,21 @@ public enum DeepAuditError: Error, Sendable {
 
 public final class DeepAuditScanner: @unchecked Sendable {
     private let ruleEngine: RuleEngine?
+    private let timeout: TimeInterval
+    private let maximumEntries: Int
+    private let maximumHashBytes: Int64
 
-    public init(ruleEngine: RuleEngine? = nil) {
+    public init(ruleEngine: RuleEngine? = nil, timeout: TimeInterval = 60,
+                maximumEntries: Int = 500_000, maximumHashBytes: Int64 = 256 * 1024 * 1024) {
         self.ruleEngine = ruleEngine
+        self.timeout = timeout
+        self.maximumEntries = maximumEntries
+        self.maximumHashBytes = maximumHashBytes
     }
 
     public func scan(path: String) throws -> [ReclaimRecommendation] {
+        var budget = ScanBudget(timeout: timeout, maximumEntries: maximumEntries, maximumHashBytes: maximumHashBytes)
+        try budget.check()
         let root = canonicalizedPath(path)
         let rootURL = URL(fileURLWithPath: root)
         let rootComps = rootURL.pathComponents
@@ -29,8 +39,6 @@ public final class DeepAuditScanner: @unchecked Sendable {
         var duplicateMap: [String: [(url: URL, size: Int64)]] = [:]
         var seenPaths: Set<String> = []
         var dirMeta: [(path: String, mtime: Date)] = []
-        var fileCount = 0
-        let maxFiles = 500_000
         let now = Date()
         let calendar = Calendar.current
 
@@ -52,12 +60,10 @@ public final class DeepAuditScanner: @unchecked Sendable {
             return lower.contains("/\(name)/") || lower.hasSuffix("/\(name)")
         }
 
-        while let url = enumerator.nextObject() as? URL {
-            try Task.checkCancellation()
-            fileCount += 1
-            if fileCount > maxFiles {
-                throw DeepAuditError.tooManyFiles(limit: maxFiles)
-            }
+        while true {
+            try budget.check()
+            guard let url = enumerator.nextObject() as? URL else { break }
+            try budget.visitEntry()
 
             let vals = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey])
             if vals?.isSymbolicLink == true {
@@ -141,6 +147,7 @@ public final class DeepAuditScanner: @unchecked Sendable {
         }
 
         for (p, mtime) in dirMeta {
+            try budget.check()
             if seenPaths.contains(p) { continue }
             let ds = dirSize[p, default: 0]
             let lower = p.lowercased()
@@ -195,17 +202,12 @@ public final class DeepAuditScanner: @unchecked Sendable {
             }
         }
 
-        let duplicateHashBudget: Int64 = 4 * 1024 * 1024 * 1024
         for (_, candidates) in duplicateMap where candidates.count > 1 {
-            let candidateBytes = candidates.reduce(Int64(0)) { partial, candidate in
-                let (sum, overflow) = partial.addingReportingOverflow(candidate.size)
-                return overflow ? Int64.max : sum
-            }
-            guard candidateBytes <= duplicateHashBudget else { continue }
+            try budget.check()
             var byDigest: [String: [(url: URL, size: Int64)]] = [:]
             for candidate in candidates {
                 try Task.checkCancellation()
-                guard let digest = try contentDigest(of: candidate.url) else { continue }
+                guard let digest = try contentDigest(of: candidate.url, budget: &budget) else { continue }
                 byDigest[digest, default: []].append(candidate)
             }
             for matches in byDigest.values where matches.count > 1 {
@@ -226,30 +228,45 @@ public final class DeepAuditScanner: @unchecked Sendable {
             }
         }
 
+        try budget.check()
         let checker = SafetyChecker()
-        let checked = checker.check(recs, scanRoot: root)
-        return collapseOverlappingActions(removingParentsThatContainReviewFindings(checked))
+        var checked: [ReclaimRecommendation] = []
+        for recommendation in recs {
+            try budget.check()
+            checked.append(contentsOf: checker.check([recommendation], scanRoot: root))
+        }
+        let withoutParents = try removingParentsThatContainReviewFindings(checked, budget: budget)
+        let result = try collapseOverlappingActions(withoutParents, budget: budget)
+        try budget.check()
+        return result
     }
 
-    private func contentDigest(of url: URL) throws -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+    private func contentDigest(of url: URL, budget: inout ScanBudget) throws -> String? {
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard descriptor >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
         var hasher = SHA256()
         do {
             while true {
-                try Task.checkCancellation()
+                try budget.check()
                 guard let data = try handle.read(upToCount: 1_048_576), !data.isEmpty else { break }
+                try budget.hash(data.count)
                 hasher.update(data: data)
             }
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as ScanWorkError {
+            throw error
         } catch {
             return nil
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    private func collapseOverlappingActions(_ recommendations: [ReclaimRecommendation]) -> [ReclaimRecommendation] {
+    private func collapseOverlappingActions(_ recommendations: [ReclaimRecommendation], budget: ScanBudget) throws -> [ReclaimRecommendation] {
         let ordered = recommendations.sorted {
             let lhsDepth = URL(fileURLWithPath: $0.path).pathComponents.count
             let rhsDepth = URL(fileURLWithPath: $1.path).pathComponents.count
@@ -257,7 +274,9 @@ public final class DeepAuditScanner: @unchecked Sendable {
         }
         var retained: [ReclaimRecommendation] = []
         for recommendation in ordered {
-            let covered = retained.contains { parent in
+            try budget.check()
+            let covered = try retained.contains { parent in
+                try budget.check()
                 guard parent.action == .moveToTrash, parent.safetyScore >= 0.8 else { return false }
                 let parentComponents = URL(fileURLWithPath: parent.path).pathComponents
                 let childComponents = URL(fileURLWithPath: recommendation.path).pathComponents
@@ -270,12 +289,14 @@ public final class DeepAuditScanner: @unchecked Sendable {
     }
 
     private func removingParentsThatContainReviewFindings(
-        _ recommendations: [ReclaimRecommendation]
-    ) -> [ReclaimRecommendation] {
-        recommendations.filter { parent in
+        _ recommendations: [ReclaimRecommendation], budget: ScanBudget
+    ) throws -> [ReclaimRecommendation] {
+        try recommendations.filter { parent in
+            try budget.check()
             guard parent.action == .moveToTrash, parent.safetyScore >= 0.8 else { return true }
             let parentComponents = URL(fileURLWithPath: parent.path).pathComponents
-            return !recommendations.contains { child in
+            return try !recommendations.contains { child in
+                try budget.check()
                 guard child.id != parent.id,
                       child.action == .reviewRequired || child.safetyScore < 0.8 else { return false }
                 let childComponents = URL(fileURLWithPath: child.path).pathComponents

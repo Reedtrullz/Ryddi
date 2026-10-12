@@ -6,6 +6,7 @@ public final class FastScanner: Sendable {
     public init(ruleEngine: RuleEngine) { self.ruleEngine = ruleEngine }
 
     public func scan(roots: [ScanRoot]) async throws -> [ScanItem] {
+        guard roots.count <= 128 else { throw ScanWorkError.entryLimit }
         let uniqueRoots = Dictionary(grouping: roots) {
             canonicalizedPath($0.path)
         }.compactMap { _, values in values.first }
@@ -40,23 +41,22 @@ public final class FastScanner: Sendable {
     }
 
     private func scanOne(root: ScanRoot) async throws -> [ScanItem] {
+        try await runCancellableScan { try self.scanOneSynchronously(root: root) }
+    }
+
+    private func scanOneSynchronously(root: ScanRoot) throws -> [ScanItem] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
         process.arguments = ["-k", "-d", "1", root.path]
-        let pipe = Pipe(); process.standardOutput = pipe
-        try Task.checkCancellation()
-        try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        try Task.checkCancellation()
-        guard process.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8)
+        let result = try BoundedScanProcess.run(process, timeout: 30, maximumOutputBytes: 8 * 1024 * 1024)
+        guard result.status == 0,
+              let output = String(data: result.data, encoding: .utf8)
         else { return [] }
 
         let rootPath = canonicalizedPath(root.path)
         return output.split(separator: "\n").compactMap { line in
             let parts = line.split(separator: "\t", maxSplits: 1)
-            guard parts.count >= 2, let kb = Int64(parts[0]) else { return nil }
+            guard parts.count >= 2, let kb = Int64(parts[0]), kb >= 0, kb <= Int64.max / 1024 else { return nil }
             let childPath = String(parts[1])
             guard let identity = FileIdentity.capture(path: childPath),
                   identity.canonicalPath != rootPath,

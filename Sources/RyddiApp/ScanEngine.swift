@@ -54,6 +54,7 @@ final class ScanEngine: ObservableObject {
     @Published var sessionReviewMessage: String?
     @Published var sessionReviewMessageIsError = false
     var sessionReviewGeneration = UUID()
+    var sessionReviewTask: Task<Void, Never>?
 
     // Offload pillar
     @Published var cloudProviders: [CloudProvider] = []
@@ -90,6 +91,8 @@ final class ScanEngine: ObservableObject {
 
     private var scanTask: Task<Void, Never>?
     private var scanGeneration = UUID()
+    private var auditTask: Task<Void, Never>?
+    private var auditGeneration = UUID()
 
     var safeItems: [ScanItem] { items.filter { $0.bucket == .safe } }
     var reviewItems: [ScanItem] { items.filter { $0.bucket == .review } }
@@ -175,12 +178,15 @@ final class ScanEngine: ObservableObject {
                 items = scannedItems
                 hasEverScanned = true
 
-                let support = await Task.detached(priority: .utility) {
+                let support = try await runCancellableScan {
+                    try Task.checkCancellation()
                     let providers = Self.detectCloudProviders()
+                    try Task.checkCancellation()
                     let folders = Self.detectLargeLocalFolders()
+                    try Task.checkCancellation()
                     let growers = (try? Self.detectGrowers()) ?? []
                     return (providers, folders, growers)
-                }.value
+                }
                 try Task.checkCancellation()
                 guard scanGeneration == generation else { return }
                 cloudProviders = support.0
@@ -334,7 +340,8 @@ final class ScanEngine: ObservableObject {
             ("Music", home.appendingPathComponent("Music")),
         ]
         return candidates.compactMap { name, url in
-            guard let identity = FileIdentity.capture(path: url.path),
+            guard !Task.isCancelled,
+                  let identity = FileIdentity.capture(path: url.path),
                   identity.isDirectory,
                   !identity.isSymbolicLink,
                   let kb = measuredKilobytes(at: identity.canonicalPath),
@@ -401,6 +408,7 @@ final class ScanEngine: ObservableObject {
         ]
 
         for (name, path, action, command, isSafe) in defs {
+            try Task.checkCancellation()
             guard let identity = FileIdentity.capture(path: path.path),
                   !identity.isSymbolicLink,
                   let kb = measuredKilobytes(at: identity.canonicalPath),
@@ -449,31 +457,38 @@ final class ScanEngine: ObservableObject {
     }
 
     func runAudit(path: String, preservingError: Bool = false) {
-        guard !isAuditing else { return }
+        cancelAudit()
+        let generation = UUID()
+        auditGeneration = generation
         isAuditing = true
+        auditReport = nil
+        auditSelectedIDs = []
         if !preservingError { errorMessage = nil }
-        Task {
-            let result = await Task.detached(priority: .userInitiated) { () -> Result<AuditReport, Error> in
-                do {
+        auditTask = Task {
+            defer { if auditGeneration == generation { isAuditing = false } }
+            do {
+                let report = try await runCancellableScan {
                     let recs = try DeepAuditScanner().scan(path: path)
                     let total = recs.reduce(0) { $0 + $1.reclaimableBytes }
-                    return .success(AuditReport(
+                    return AuditReport(
                         scannedPaths: [path], totalBytes: total, bloatBytes: total,
                         reclaimableBytes: total, recommendations: recs
-                    ))
-                } catch {
-                    return .failure(error)
+                    )
                 }
-            }.value
-            isAuditing = false
-            switch result {
-            case .success(let report):
+                guard auditGeneration == generation else { return }
                 auditReport = report
                 auditSelectedIDs = []
-            case .failure(let error):
-                errorMessage = error.localizedDescription
+            } catch {
+                if auditGeneration == generation { errorMessage = error.localizedDescription }
             }
         }
+    }
+
+    func cancelAudit() {
+        auditTask?.cancel()
+        auditTask = nil
+        auditGeneration = UUID()
+        isAuditing = false
     }
 
     func copyAuditReport() {
@@ -571,22 +586,10 @@ private extension ScanEngine {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
         process.arguments = ["-sk", path]
-        let pipe = Pipe()
-        process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return nil }
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning {
-            if Task.isCancelled || Date() >= deadline {
-                process.terminate()
-                process.waitUntilExit()
-                return nil
-            }
-            usleep(20_000)
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8),
+        guard let result = try? BoundedScanProcess.run(process, timeout: timeout, maximumOutputBytes: 1_048_576),
+              result.status == 0,
+              let output = String(data: result.data, encoding: .utf8),
               let kilobytes = Int64(output.split(separator: "\t").first ?? "0") else { return nil }
         return kilobytes
     }
