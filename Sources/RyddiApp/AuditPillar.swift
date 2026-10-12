@@ -41,7 +41,7 @@ private struct AuditSummaryView: View {
     var body: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Selected to reclaim").font(.headline)
+                Text("Selected to move to Trash (logical)").font(.headline)
                 Text(ByteCountFormatter().string(fromByteCount: engine.selectedAuditBytes))
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .foregroundStyle(.green)
@@ -49,13 +49,13 @@ private struct AuditSummaryView: View {
             Spacer()
             if engine.selectedAuditBytes > 0 {
                 Button(action: {
-                    engine.confirmationTitle = "Reclaim \(ByteCountFormatter().string(fromByteCount: engine.selectedAuditBytes))?"
-                    engine.confirmationMessage = "\(engine.auditSelectedIDs.count) safe items will be moved to Trash."
+                    engine.confirmationTitle = "Move selected items to Trash?"
+                    engine.confirmationMessage = "Selected logical estimate: \(ByteCountFormatter().string(fromByteCount: engine.selectedAuditBytes)). Trash retains data; physically reclaimed space is unverified."
                     engine.confirmationIsDestructive = true
                     engine.pendingAction = { engine.reclaimAuditSelection() }
                     engine.showConfirmation = true
                 }) {
-                    Label("Reclaim", systemImage: "trash")
+                    Label("Move to Trash", systemImage: "trash")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.green)
@@ -66,8 +66,15 @@ private struct AuditSummaryView: View {
         .padding(16)
         .background(.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
+        Text("Unique logical candidate estimate: \(ByteCountFormatter().string(fromByteCount: report.storageEstimate.logicalBytes))")
+            .font(.callout)
+        Text(LogicalStorageEstimate.uncertainty)
+            .font(.caption).foregroundStyle(.secondary)
+        if report.storageEstimate.saturated {
+            Text("Total is capped because the estimate exceeded the supported byte range.").font(.caption)
+        }
         HStack {
-            Text("Requires review: \(ByteCountFormatter().string(fromByteCount: report.needsReviewBytes))")
+            Text("Review candidates (logical): \(ByteCountFormatter().string(fromByteCount: report.needsReviewBytes)). May overlap selected items; do not add totals.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer()

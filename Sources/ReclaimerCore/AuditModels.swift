@@ -81,6 +81,17 @@ public struct AuditReport: Codable, Sendable {
     public let needsReviewBytes: Int64
     public let coverage: [ScanCoverage]
 
+    public var storageEstimate: LogicalStorageEstimate {
+        LogicalStorageEstimate(recommendations: recommendations)
+    }
+
+    public func selectedLogicalBytes(ids: Set<UUID>) -> Int64 {
+        guard hasCompleteCoverage else { return 0 }
+        return LogicalStorageEstimate(recommendations: recommendations.filter {
+            ids.contains($0.id) && $0.safetyScore >= 0.8 && $0.action == .moveToTrash
+        }).logicalBytes
+    }
+
     public var hasCompleteCoverage: Bool {
         !coverage.isEmpty && coverage.allSatisfy { $0.status == .complete }
     }
@@ -89,21 +100,44 @@ public struct AuditReport: Codable, Sendable {
                 reclaimableBytes: Int64, recommendations: [ReclaimRecommendation],
                 coverage: [ScanCoverage] = []) {
         self.scannedPaths = scannedPaths
-        self.totalBytes = totalBytes
-        self.bloatBytes = bloatBytes
-        self.reclaimableBytes = reclaimableBytes
+        // Keep the legacy initializer/JSON keys readable, but never trust additive totals.
+        let unique = LogicalStorageEstimate(recommendations: recommendations).logicalBytes
+        self.totalBytes = unique
+        self.bloatBytes = unique
         self.recommendations = recommendations
         self.coverage = coverage
         let complete = !coverage.isEmpty && coverage.allSatisfy { $0.status == .complete }
-        self.safeToReclaimBytes = complete ? recommendations.filter { $0.safetyScore >= 0.8 && $0.action == .moveToTrash }
-            .reduce(0) { $0 + $1.reclaimableBytes } : 0
-        self.needsReviewBytes = recommendations.filter { !complete || $0.safetyScore < 0.8 || $0.action != .moveToTrash }
-            .reduce(0) { $0 + $1.reclaimableBytes }
+        self.safeToReclaimBytes = complete ? LogicalStorageEstimate(recommendations: recommendations.filter {
+            $0.safetyScore >= 0.8 && $0.action == .moveToTrash
+        }).logicalBytes : 0
+        self.reclaimableBytes = safeToReclaimBytes
+        self.needsReviewBytes = LogicalStorageEstimate(recommendations: recommendations.filter {
+            !complete || $0.safetyScore < 0.8 || $0.action != .moveToTrash
+        }).logicalBytes
+    }
+
+    public init(scannedPaths: [String], recommendations: [ReclaimRecommendation], coverage: [ScanCoverage]) {
+        self.init(scannedPaths: scannedPaths, totalBytes: 0, bloatBytes: 0, reclaimableBytes: 0,
+                  recommendations: recommendations, coverage: coverage)
     }
 
     enum CodingKeys: String, CodingKey {
         case scannedPaths, totalBytes, bloatBytes, reclaimableBytes, recommendations
         case safeToReclaimBytes, needsReviewBytes, coverage
+        case storageEstimate
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(scannedPaths, forKey: .scannedPaths)
+        try container.encode(totalBytes, forKey: .totalBytes)
+        try container.encode(bloatBytes, forKey: .bloatBytes)
+        try container.encode(reclaimableBytes, forKey: .reclaimableBytes)
+        try container.encode(recommendations, forKey: .recommendations)
+        try container.encode(safeToReclaimBytes, forKey: .safeToReclaimBytes)
+        try container.encode(needsReviewBytes, forKey: .needsReviewBytes)
+        try container.encode(coverage, forKey: .coverage)
+        try container.encode(storageEstimate, forKey: .storageEstimate)
     }
 
     public init(from decoder: Decoder) throws {
