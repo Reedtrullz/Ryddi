@@ -546,22 +546,12 @@ private extension ScanEngine {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         let copyName = "\(source.lastPathComponent) — Ryddi Copy \(formatter.string(from: Date()))"
-        let destination = URL(fileURLWithPath: provider.syncFolderPath).appendingPathComponent(copyName)
-        guard !fm.fileExists(atPath: destination.path) else {
-            return .failure("Copy refused because the destination already exists.")
-        }
         do {
-            guard identity.matchesCurrent(path: source.path),
-                  providerIdentity.matchesCurrent(path: provider.syncFolderPath) else {
-                return .failure("Copy refused because the source changed after review.")
-            }
-            try fm.copyItem(at: source, to: destination)
-            guard identity.matchesCurrent(path: source.path),
-                  providerIdentity.matchesCurrent(path: provider.syncFolderPath),
-                  fm.fileExists(atPath: destination.path) else {
-                try? fm.removeItem(at: destination)
-                return .failure("Copy could not be verified. The partial copy was removed.")
-            }
+            let destination = try OffloadCopyWriter().copy(
+                source: source, sourceIdentity: identity,
+                provider: URL(fileURLWithPath: provider.syncFolderPath),
+                providerIdentity: providerIdentity, name: copyName
+            )
             let sourceBytes = allocatedBytes(at: source)
             let destinationBytes = allocatedBytes(at: destination)
             let warning: String? = sourceBytes == destinationBytes
@@ -569,7 +559,6 @@ private extension ScanEngine {
                 : "Copy completed, but local allocated sizes differ. Keep the original and review the copy in Finder."
             return .success(destination: destination.path, bytes: destinationBytes, warning: warning)
         } catch {
-            try? fm.removeItem(at: destination)
             return .failure("Copy failed: \(error.localizedDescription)")
         }
     }
