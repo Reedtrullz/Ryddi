@@ -17,6 +17,13 @@ struct AuditPillar: View {
             }
 
             if let report = engine.auditReport {
+                if !report.hasCompleteCoverage {
+                    Label("Incomplete coverage — available findings require review", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    ForEach(report.coverage.filter { $0.status != .complete }, id: \.path) { coverage in
+                        Text(coverage.summary).font(.caption).textSelection(.enabled)
+                    }
+                }
                 AuditSummaryView(report: report, engine: engine)
                 AuditListView(report: report, engine: engine)
             } else {
@@ -147,7 +154,7 @@ private struct AuditRow: View {
 
     var body: some View {
         HStack {
-            if rec.safetyScore >= 0.8 && rec.action == .moveToTrash {
+            if engine.auditReport?.hasCompleteCoverage == true && rec.safetyScore >= 0.8 && rec.action == .moveToTrash {
                 let binding = Binding(
                     get: { engine.auditSelectedIDs.contains(rec.id) },
                     set: { s in
@@ -178,6 +185,7 @@ private struct AuditRow: View {
     }
 
     private var safetyLabel: String {
+        if engine.auditReport?.hasCompleteCoverage != true { return "Review" }
         if rec.safetyScore >= 0.8 && rec.action == .moveToTrash { return "Safe" }
         if rec.safetyScore >= 0.5 { return "Review" }
         return "Caution"

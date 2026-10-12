@@ -86,6 +86,8 @@ struct EmptyStateView: View {
                             .foregroundStyle(.orange)
                         Text("Grant in System Settings → Privacy & Security → Full Disk Access")
                             .font(.caption).foregroundStyle(.secondary)
+                        Text("Other folders may still be inaccessible; review the scan coverage warnings.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding()
                     .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
