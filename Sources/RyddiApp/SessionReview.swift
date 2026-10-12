@@ -105,8 +105,8 @@ struct SessionReviewLoader: Sendable {
         try budget.check()
         let roots = SessionReviewPaths.existingRoots()
         guard !roots.isEmpty else { throw SessionReviewLoadError.noSessionFolders }
-        let titles = loadCodexTitles()
-        let openPaths = loadOpenPaths(inside: roots.map(\.path))
+        let titles = try loadCodexTitles(budget: budget)
+        let openPaths = try loadOpenPaths(inside: roots.map(\.path), budget: budget)
         var records: [(path: String, source: SessionSource, fingerprint: SessionFileFingerprint, modifiedAt: Date)] = []
         var truncated = false
 
@@ -159,7 +159,7 @@ struct SessionReviewLoader: Sendable {
         return SessionReviewSnapshot(items: items, wasTruncated: truncated)
     }
 
-    private func loadCodexTitles() -> [String: String] {
+    private func loadCodexTitles(budget: ScanBudget) throws -> [String: String] {
         let database = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/state_5.sqlite")
         guard FileManager.default.fileExists(atPath: database.path),
               let data = runForData(
@@ -169,14 +169,18 @@ struct SessionReviewLoader: Sendable {
                 acceptedStatuses: [0]
               ),
               let rows = try? JSONDecoder().decode([ThreadIndexRow].self, from: data) else { return [:] }
-        return rows.reduce(into: [:]) { titles, row in
+        var titles: [String: String] = [:]
+        for row in rows {
+            try budget.check()
             titles[normalizedSessionPath(row.rolloutPath)] = row.title
         }
+        return titles
     }
 
-    private func loadOpenPaths(inside roots: [String]) -> Set<String>? {
+    private func loadOpenPaths(inside roots: [String], budget: ScanBudget) throws -> Set<String>? {
         var openPaths: Set<String> = []
         for root in roots {
+            try budget.check()
             guard let data = runForData(
                 executable: "/usr/sbin/lsof",
                 arguments: ["-Fn", "+D", root],
@@ -184,6 +188,7 @@ struct SessionReviewLoader: Sendable {
                 acceptedStatuses: [0, 1]
             ), let output = String(data: data, encoding: .utf8) else { return nil }
             for line in output.split(separator: "\n") where line.first == "n" {
+                try budget.check()
                 let path = normalizedSessionPath(String(line.dropFirst()))
                 if path.hasPrefix(normalizedSessionPath(root) + "/") {
                     openPaths.insert(path)

@@ -30,6 +30,7 @@ public final class FastScanner: Sendable {
         }
         var byPath: [String: ScanItem] = [:]
         for item in items {
+            try Task.checkCancellation()
             let key = item.identity?.canonicalPath ?? canonicalizedPath(item.path)
             if let existing = byPath[key] {
                 byPath[key] = moreCautious(existing, item)
@@ -45,6 +46,7 @@ public final class FastScanner: Sendable {
     }
 
     private func scanOneSynchronously(root: ScanRoot) throws -> [ScanItem] {
+        var budget = ScanBudget(timeout: 30, maximumEntries: 100_000)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
         process.arguments = ["-k", "-d", "1", root.path]
@@ -54,13 +56,15 @@ public final class FastScanner: Sendable {
         else { return [] }
 
         let rootPath = canonicalizedPath(root.path)
-        return output.split(separator: "\n").compactMap { line in
+        var items: [ScanItem] = []
+        for line in output.split(separator: "\n") {
+            try budget.visitEntry()
             let parts = line.split(separator: "\t", maxSplits: 1)
-            guard parts.count >= 2, let kb = Int64(parts[0]), kb >= 0, kb <= Int64.max / 1024 else { return nil }
+            guard parts.count >= 2, let kb = Int64(parts[0]), kb >= 0, kb <= Int64.max / 1024 else { continue }
             let childPath = String(parts[1])
             guard let identity = FileIdentity.capture(path: childPath),
                   identity.canonicalPath != rootPath,
-                  !identity.isSymbolicLink else { return nil }
+                  !identity.isSymbolicLink else { continue }
             let c = ruleEngine.classify(
                 path: childPath,
                 isDirectory: identity.isDirectory,
@@ -72,7 +76,7 @@ public final class FastScanner: Sendable {
             case .preserveByDefault, .reviewRequired: .review
             case .neverTouch: .blocked
             }
-            return ScanItem(
+            items.append(ScanItem(
                 name: URL(fileURLWithPath: childPath).lastPathComponent,
                 path: childPath, sizeBytes: kb * 1024,
                 bucket: bucket,
@@ -81,8 +85,10 @@ public final class FastScanner: Sendable {
                 actionKind: c.actionKind,
                 scanRoot: rootPath,
                 identity: identity
-            )
+            ))
         }
+        try budget.check()
+        return items
     }
 
     private func moreCautious(_ lhs: ScanItem, _ rhs: ScanItem) -> ScanItem {
