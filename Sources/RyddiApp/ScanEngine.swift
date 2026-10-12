@@ -40,6 +40,7 @@ public enum CleanViewMode: String, CaseIterable, Sendable {
 final class ScanEngine: ObservableObject {
     // Clean pillar
     @Published var items: [ScanItem] = []
+    @Published var scanCoverage: [ScanCoverage] = []
     @Published var selectedIDs: Set<UUID> = []
     @Published var cleanViewMode: CleanViewMode = .list
 
@@ -106,7 +107,7 @@ final class ScanEngine: ObservableObject {
     var safeTotalBytes: Int64 { safeItems.reduce(0) { $0 + $1.sizeBytes } }
 
     var selectedAuditBytes: Int64 {
-        guard let report = auditReport else { return 0 }
+        guard let report = auditReport, report.hasCompleteCoverage else { return 0 }
         return report.recommendations
             .filter { auditSelectedIDs.contains($0.id) && $0.safetyScore >= 0.8 && $0.action == .moveToTrash }
             .reduce(0) { $0 + $1.reclaimableBytes }
@@ -158,6 +159,9 @@ final class ScanEngine: ObservableObject {
         let generation = UUID()
         scanGeneration = generation
         isScanning = true
+        scanCoverage = []
+        items = []
+        hasEverScanned = false
         selectedIDs = []
         auditSelectedIDs = []
         if !preservingError { errorMessage = nil }
@@ -173,10 +177,16 @@ final class ScanEngine: ObservableObject {
                 for path in customPaths {
                     roots.append(ScanRoot(name: URL(fileURLWithPath: path).lastPathComponent, path: path))
                 }
-                let scannedItems = try await scanner.scan(roots: roots)
+                let result = try await scanner.scanWithCoverage(roots: roots)
                 guard scanGeneration == generation else { return }
-                items = scannedItems
-                hasEverScanned = true
+                items = result.items
+                scanCoverage = result.coverage
+                hasEverScanned = result.coverage.contains { $0.status == .complete || $0.status == .partial }
+                let incomplete = result.coverage.filter { $0.status != .complete }
+                if !incomplete.isEmpty {
+                    let warning = "Incomplete scan coverage:\n" + incomplete.map(\.summary).joined(separator: "\n")
+                    errorMessage = [errorMessage, warning].compactMap { $0 }.joined(separator: "\n")
+                }
 
                 let support = try await runCancellableScan {
                     try Task.checkCancellation()
@@ -468,16 +478,20 @@ final class ScanEngine: ObservableObject {
             defer { if auditGeneration == generation { isAuditing = false } }
             do {
                 let report = try await runCancellableScan {
-                    let recs = try DeepAuditScanner().scan(path: path)
+                    let result = try DeepAuditScanner().scanWithCoverage(path: path)
+                    let recs = result.recommendations
                     let total = recs.reduce(0) { $0 + $1.reclaimableBytes }
                     return AuditReport(
                         scannedPaths: [path], totalBytes: total, bloatBytes: total,
-                        reclaimableBytes: total, recommendations: recs
+                        reclaimableBytes: total, recommendations: recs, coverage: [result.coverage]
                     )
                 }
                 guard auditGeneration == generation else { return }
                 auditReport = report
                 auditSelectedIDs = []
+                if !report.hasCompleteCoverage {
+                    errorMessage = "Incomplete audit coverage:\n" + report.coverage.map(\.summary).joined(separator: "\n")
+                }
             } catch {
                 if auditGeneration == generation { errorMessage = error.localizedDescription }
             }
@@ -499,7 +513,7 @@ final class ScanEngine: ObservableObject {
     }
 
     func reclaimAuditSelection() {
-        guard let report = auditReport else { return }
+        guard let report = auditReport, report.hasCompleteCoverage else { return }
         let toTrash = report.recommendations.filter {
             auditSelectedIDs.contains($0.id) && $0.safetyScore >= 0.8 && $0.action == .moveToTrash
         }

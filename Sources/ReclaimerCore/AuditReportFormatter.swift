@@ -7,6 +7,9 @@ public struct AuditReportFormatter {
         let root = report.scannedPaths.first ?? "Unknown"
         lines.append("=== Ryddi Deep Audit: \(root) ===")
         lines.append("Scanned: \(report.scannedPaths.count) paths")
+        if report.coverage.isEmpty { lines.append("Coverage: unverified (legacy report)") }
+        for coverage in report.coverage { lines.append("Coverage: \(coverage.summary)") }
+        if !report.hasCompleteCoverage { lines.append("Warning: coverage is incomplete or unverified. Automatic cleanup is unavailable.") }
         lines.append("Total bloat found: \(fmt.string(fromByteCount: report.bloatBytes))")
         lines.append("")
         lines.append("| Rank | Category          | Location                           | Size    | Safety | Action           |")

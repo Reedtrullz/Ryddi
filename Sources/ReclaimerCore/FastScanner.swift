@@ -2,31 +2,52 @@ import Foundation
 
 public final class FastScanner: Sendable {
     private let ruleEngine: RuleEngine
+    private let measure: @Sendable (ScanRoot) throws -> ScanProcessOutput
 
-    public init(ruleEngine: RuleEngine) { self.ruleEngine = ruleEngine }
+    public init(ruleEngine: RuleEngine) {
+        self.ruleEngine = ruleEngine
+        self.measure = Self.measureRoot
+    }
+
+    init(ruleEngine: RuleEngine, measure: @escaping @Sendable (ScanRoot) throws -> ScanProcessOutput) {
+        self.ruleEngine = ruleEngine
+        self.measure = measure
+    }
 
     public func scan(roots: [ScanRoot]) async throws -> [ScanItem] {
+        let result = try await scanWithCoverage(roots: roots)
+        guard result.coverage.allSatisfy({ $0.status == .complete }) else {
+            throw ScanCoverageError.incomplete(result.coverage)
+        }
+        return result.items
+    }
+
+    public func scanWithCoverage(roots: [ScanRoot]) async throws -> FastScanResult {
         guard roots.count <= 128 else { throw ScanWorkError.entryLimit }
         let uniqueRoots = Dictionary(grouping: roots) {
             canonicalizedPath($0.path)
         }.compactMap { _, values in values.first }
         var items: [ScanItem] = []
+        var coverage: [ScanCoverage] = []
         for start in stride(from: 0, to: uniqueRoots.count, by: 4) {
             try Task.checkCancellation()
             let end = min(start + 4, uniqueRoots.count)
             let rootsBatch = Array(uniqueRoots[start..<end])
-            let batchItems = try await withThrowingTaskGroup(of: [ScanItem].self) { group in
+            let batch = try await withThrowingTaskGroup(of: FastScanResult.self) { group in
                 for root in rootsBatch {
                     group.addTask { try await self.scanOne(root: root) }
                 }
                 var all: [ScanItem] = []
+                var covered: [ScanCoverage] = []
                 for try await scanned in group {
                     try Task.checkCancellation()
-                    all.append(contentsOf: scanned)
+                    all.append(contentsOf: scanned.items)
+                    covered.append(contentsOf: scanned.coverage)
                 }
-                return all
+                return FastScanResult(items: all, coverage: covered)
             }
-            items.append(contentsOf: batchItems)
+            items.append(contentsOf: batch.items)
+            coverage.append(contentsOf: batch.coverage)
         }
         var byPath: [String: ScanItem] = [:]
         for item in items {
@@ -38,33 +59,64 @@ public final class FastScanner: Sendable {
                 byPath[key] = item
             }
         }
-        return byPath.values.sorted { $0.sizeBytes > $1.sizeBytes }
+        return FastScanResult(items: byPath.values.sorted { $0.sizeBytes > $1.sizeBytes },
+                              coverage: coverage.sorted { $0.path < $1.path })
     }
 
-    private func scanOne(root: ScanRoot) async throws -> [ScanItem] {
-        try await runCancellableScan { try self.scanOneSynchronously(root: root) }
+    private func scanOne(root: ScanRoot) async throws -> FastScanResult {
+        do { return try await runCancellableScan { try self.scanOneSynchronously(root: root) } }
+        catch is CancellationError { throw CancellationError() }
+        catch {
+            return FastScanResult(items: [], coverage: [ScanCoverage(path: root.path, status: .failed, reasons: [error.localizedDescription])])
+        }
     }
 
-    private func scanOneSynchronously(root: ScanRoot) throws -> [ScanItem] {
-        var budget = ScanBudget(timeout: 30, maximumEntries: 100_000)
+    private static func measureRoot(_ root: ScanRoot) throws -> ScanProcessOutput {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
         process.arguments = ["-k", "-d", "1", root.path]
-        let result = try BoundedScanProcess.run(process, timeout: 30, maximumOutputBytes: 8 * 1024 * 1024)
-        guard result.status == 0,
-              let output = String(data: result.data, encoding: .utf8)
-        else { return [] }
+        return try BoundedScanProcess.run(process, timeout: 30, maximumOutputBytes: 8 * 1024 * 1024)
+    }
 
-        let rootPath = canonicalizedPath(root.path)
+    private func scanOneSynchronously(root: ScanRoot) throws -> FastScanResult {
+        var budget = ScanBudget(timeout: 30, maximumEntries: 100_000)
+        guard let rootIdentity = FileIdentity.capture(path: root.path) else {
+            return FastScanResult(items: [], coverage: [ScanCoverage(path: root.path, status: .failed, reasons: ["Root identity/access unavailable."])])
+        }
+        guard rootIdentity.isDirectory, !rootIdentity.isSymbolicLink else {
+            return FastScanResult(items: [], coverage: [ScanCoverage(path: root.path, status: .skipped, reasons: ["Only non-symlink directory roots are scanned."])])
+        }
+        guard FileManager.default.isReadableFile(atPath: root.path) else {
+            return FastScanResult(items: [], coverage: [ScanCoverage(path: root.path, status: .failed, reasons: ["Root is not readable."])])
+        }
+        let result = try measure(root)
+        guard let output = String(data: result.data, encoding: .utf8) else {
+            return FastScanResult(items: [], coverage: [ScanCoverage(path: root.path, status: .failed, reasons: ["Measurement output is not UTF-8."])])
+        }
+        var reasons: [String] = result.status == 0 ? [] : ["du exited with status \(result.status); totals may be incomplete."]
+
+        let rootPath = rootIdentity.canonicalPath
+        let rootComponents = URL(fileURLWithPath: rootPath).pathComponents
         var items: [ScanItem] = []
         for line in output.split(separator: "\n") {
             try budget.visitEntry()
             let parts = line.split(separator: "\t", maxSplits: 1)
-            guard parts.count >= 2, let kb = Int64(parts[0]), kb >= 0, kb <= Int64.max / 1024 else { continue }
+            guard parts.count >= 2, let kb = Int64(parts[0]), kb >= 0, kb <= Int64.max / 1024 else {
+                if reasons.count < 32 { reasons.append("Invalid measurement row skipped.") }
+                continue
+            }
             let childPath = String(parts[1])
-            guard let identity = FileIdentity.capture(path: childPath),
-                  identity.canonicalPath != rootPath,
-                  !identity.isSymbolicLink else { continue }
+            if canonicalizedPath(childPath) == rootPath { continue }
+            guard let identity = FileIdentity.capture(path: childPath), !identity.isSymbolicLink else {
+                if reasons.count < 32 { reasons.append("Measured child identity unavailable or changed: \(childPath)") }
+                continue
+            }
+            let components = URL(fileURLWithPath: identity.canonicalPath).pathComponents
+            guard components.count > rootComponents.count,
+                  Array(components.prefix(rootComponents.count)) == rootComponents else {
+                if reasons.count < 32 { reasons.append("Measurement outside requested root skipped.") }
+                continue
+            }
             let c = ruleEngine.classify(
                 path: childPath,
                 isDirectory: identity.isDirectory,
@@ -88,7 +140,19 @@ public final class FastScanner: Sendable {
             ))
         }
         try budget.check()
-        return items
+        let incomplete = !reasons.isEmpty
+        if incomplete {
+            items = items.map {
+                ScanItem(name: $0.name, path: $0.path, sizeBytes: $0.sizeBytes,
+                         bucket: $0.bucket == .blocked ? .blocked : .review,
+                         ruleTitle: $0.ruleTitle + " (incomplete coverage)",
+                         safetyClass: $0.safetyClass == .neverTouch ? .neverTouch : .reviewRequired,
+                         actionKind: $0.actionKind, scanRoot: $0.scanRoot, identity: $0.identity)
+            }
+        }
+        return FastScanResult(items: items, coverage: [ScanCoverage(path: rootPath,
+                              status: incomplete ? (items.isEmpty ? .failed : .partial) : .complete,
+                              reasons: reasons)])
     }
 
     private func moreCautious(_ lhs: ScanItem, _ rhs: ScanItem) -> ScanItem {

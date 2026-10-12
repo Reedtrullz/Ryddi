@@ -79,17 +79,40 @@ public struct AuditReport: Codable, Sendable {
     public let recommendations: [ReclaimRecommendation]
     public let safeToReclaimBytes: Int64
     public let needsReviewBytes: Int64
+    public let coverage: [ScanCoverage]
+
+    public var hasCompleteCoverage: Bool {
+        !coverage.isEmpty && coverage.allSatisfy { $0.status == .complete }
+    }
 
     public init(scannedPaths: [String], totalBytes: Int64, bloatBytes: Int64,
-                reclaimableBytes: Int64, recommendations: [ReclaimRecommendation]) {
+                reclaimableBytes: Int64, recommendations: [ReclaimRecommendation],
+                coverage: [ScanCoverage] = []) {
         self.scannedPaths = scannedPaths
         self.totalBytes = totalBytes
         self.bloatBytes = bloatBytes
         self.reclaimableBytes = reclaimableBytes
         self.recommendations = recommendations
-        self.safeToReclaimBytes = recommendations.filter { $0.safetyScore >= 0.8 && $0.action == .moveToTrash }
+        self.coverage = coverage
+        let complete = !coverage.isEmpty && coverage.allSatisfy { $0.status == .complete }
+        self.safeToReclaimBytes = complete ? recommendations.filter { $0.safetyScore >= 0.8 && $0.action == .moveToTrash }
+            .reduce(0) { $0 + $1.reclaimableBytes } : 0
+        self.needsReviewBytes = recommendations.filter { !complete || $0.safetyScore < 0.8 || $0.action != .moveToTrash }
             .reduce(0) { $0 + $1.reclaimableBytes }
-        self.needsReviewBytes = recommendations.filter { $0.safetyScore < 0.8 || $0.action != .moveToTrash }
-            .reduce(0) { $0 + $1.reclaimableBytes }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case scannedPaths, totalBytes, bloatBytes, reclaimableBytes, recommendations
+        case safeToReclaimBytes, needsReviewBytes, coverage
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(scannedPaths: try container.decode([String].self, forKey: .scannedPaths),
+                  totalBytes: try container.decode(Int64.self, forKey: .totalBytes),
+                  bloatBytes: try container.decode(Int64.self, forKey: .bloatBytes),
+                  reclaimableBytes: try container.decode(Int64.self, forKey: .reclaimableBytes),
+                  recommendations: try container.decode([ReclaimRecommendation].self, forKey: .recommendations),
+                  coverage: try container.decodeIfPresent([ScanCoverage].self, forKey: .coverage) ?? [])
     }
 }

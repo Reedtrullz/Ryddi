@@ -19,6 +19,7 @@ public final class DeepAuditScanner: @unchecked Sendable {
     private let timeout: TimeInterval
     private let maximumEntries: Int
     private let maximumHashBytes: Int64
+    private let readMetadata: @Sendable (URL) throws -> URLResourceValues
 
     public init(ruleEngine: RuleEngine? = nil, timeout: TimeInterval = 60,
                 maximumEntries: Int = 500_000, maximumHashBytes: Int64 = 256 * 1024 * 1024) {
@@ -26,9 +27,32 @@ public final class DeepAuditScanner: @unchecked Sendable {
         self.timeout = timeout
         self.maximumEntries = maximumEntries
         self.maximumHashBytes = maximumHashBytes
+        self.readMetadata = Self.metadata
+    }
+
+    init(readMetadata: @escaping @Sendable (URL) throws -> URLResourceValues) {
+        self.ruleEngine = nil
+        self.timeout = 60
+        self.maximumEntries = 500_000
+        self.maximumHashBytes = 256 * 1024 * 1024
+        self.readMetadata = readMetadata
+    }
+
+    static func metadata(_ url: URL) throws -> URLResourceValues {
+        try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey])
     }
 
     public func scan(path: String) throws -> [ReclaimRecommendation] {
+        let result = try performScan(path: path, allowPartial: false)
+        guard result.coverage.status == .complete else { throw ScanCoverageError.incomplete([result.coverage]) }
+        return result.recommendations
+    }
+
+    public func scanWithCoverage(path: String) throws -> DeepAuditResult {
+        try performScan(path: path, allowPartial: true)
+    }
+
+    private func performScan(path: String, allowPartial: Bool) throws -> DeepAuditResult {
         var budget = ScanBudget(timeout: timeout, maximumEntries: maximumEntries, maximumHashBytes: maximumHashBytes)
         try budget.check()
         let root = canonicalizedPath(path)
@@ -41,13 +65,39 @@ public final class DeepAuditScanner: @unchecked Sendable {
         var dirMeta: [(path: String, mtime: Date)] = []
         let now = Date()
         let calendar = Calendar.current
+        var reasons: [String] = []
+        var visited = 0
+        func record(_ reason: String) {
+            if reasons.count < 32 { reasons.append(reason) }
+        }
+        func finish(_ recommendations: [ReclaimRecommendation]) -> DeepAuditResult {
+            let incomplete = !reasons.isEmpty
+            return DeepAuditResult(recommendations: incomplete ? reviewOnly(recommendations) : recommendations,
+                                   coverage: ScanCoverage(path: root, status: incomplete ? (visited == 0 ? .failed : .partial) : .complete,
+                                                          reasons: reasons))
+        }
+        guard let rootIdentity = FileIdentity.capture(path: path) else {
+            return DeepAuditResult(recommendations: [], coverage: ScanCoverage(path: root, status: .failed, reasons: ["Root directory identity/access unavailable."]))
+        }
+        guard rootIdentity.isDirectory, !rootIdentity.isSymbolicLink else {
+            return DeepAuditResult(recommendations: [], coverage: ScanCoverage(path: path, status: .skipped, reasons: ["Only non-symlink directory roots are scanned."]))
+        }
+        guard FileManager.default.isReadableFile(atPath: root) else {
+            return DeepAuditResult(recommendations: [], coverage: ScanCoverage(path: root, status: .failed, reasons: ["Root is not readable."]))
+        }
 
+        do {
         guard let enumerator = FileManager.default.enumerator(
             at: rootURL,
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey],
-            options: [.skipsPackageDescendants]
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey],
+            options: [.skipsPackageDescendants],
+            errorHandler: { url, error in
+                record("Enumeration failed at \(url.path): \(error.localizedDescription)")
+                return true
+            }
         ) else {
-            return []
+            record("Directory enumeration could not start.")
+            return finish([])
         }
 
         func isUnderRoot(_ url: URL) -> Bool {
@@ -64,15 +114,36 @@ public final class DeepAuditScanner: @unchecked Sendable {
             try budget.check()
             guard let url = enumerator.nextObject() as? URL else { break }
             try budget.visitEntry()
+            visited += 1
 
-            let vals = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey, .isSymbolicLinkKey])
-            if vals?.isSymbolicLink == true {
+            let vals: URLResourceValues
+            do { vals = try readMetadata(url) }
+            catch is CancellationError { throw CancellationError() }
+            catch {
+                record("Metadata unavailable at \(url.path): \(error.localizedDescription)")
                 enumerator.skipDescendants()
                 continue
             }
-            let size = Int64(vals?.fileSize ?? 0)
-            let mtime = vals?.contentModificationDate ?? Date.distantPast
-            let isDir = vals?.isDirectory ?? false
+            if vals.isSymbolicLink == true {
+                enumerator.skipDescendants()
+                continue
+            }
+            guard let mtime = vals.contentModificationDate, let isDir = vals.isDirectory,
+                  vals.isSymbolicLink == false else {
+                record("Incomplete metadata or unsupported entry skipped: \(url.path)")
+                enumerator.skipDescendants()
+                continue
+            }
+            let size: Int64
+            if isDir {
+                size = 0
+            } else {
+                guard vals.isRegularFile == true, let rawSize = vals.fileSize, rawSize >= 0 else {
+                    record("File size/type unavailable or unsupported entry skipped: \(url.path)")
+                    continue
+                }
+                size = Int64(rawSize)
+            }
             let p = url.path
 
             if size > 0 {
@@ -84,7 +155,7 @@ public final class DeepAuditScanner: @unchecked Sendable {
                 dirSize[root, default: 0] += size
             }
 
-            if size > 0 {
+            if size > 0 && !isDir {
                 let key = "\(url.lastPathComponent)|\(size)"
                 duplicateMap[key, default: []].append((url, size))
             }
@@ -212,7 +283,10 @@ public final class DeepAuditScanner: @unchecked Sendable {
             var byDigest: [String: [(url: URL, size: Int64)]] = [:]
             for candidate in candidates {
                 try Task.checkCancellation()
-                guard let digest = try contentDigest(of: candidate.url, budget: &budget) else { continue }
+                guard let digest = try contentDigest(of: candidate.url, budget: &budget) else {
+                    record("Duplicate content could not be verified: \(candidate.url.path)")
+                    continue
+                }
                 byDigest[digest, default: []].append(candidate)
             }
             for matches in byDigest.values where matches.count > 1 {
@@ -243,7 +317,13 @@ public final class DeepAuditScanner: @unchecked Sendable {
         let withoutParents = try removingParentsThatContainReviewFindings(checked, budget: budget)
         let result = try collapseOverlappingActions(withoutParents, budget: budget)
         try budget.check()
-        return result
+        return finish(result)
+        } catch let error as ScanWorkError {
+            if !allowPartial { throw error }
+            try Task.checkCancellation()
+            record(error.localizedDescription)
+            return finish(recs)
+        }
     }
 
     private func contentDigest(of url: URL, budget: inout ScanBudget) throws -> String? {
