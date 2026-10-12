@@ -101,14 +101,17 @@ struct SessionReviewLoader: Sendable {
     private let maximumFiles = 5_000
 
     func load() throws -> SessionReviewSnapshot {
+        var budget = ScanBudget(timeout: 30, maximumEntries: 100_000)
+        try budget.check()
         let roots = SessionReviewPaths.existingRoots()
         guard !roots.isEmpty else { throw SessionReviewLoadError.noSessionFolders }
-        let titles = loadCodexTitles()
-        let openPaths = loadOpenPaths(inside: roots.map(\.path))
+        let titles = try loadCodexTitles(budget: budget)
+        let openPaths = try loadOpenPaths(inside: roots.map(\.path), budget: budget)
         var records: [(path: String, source: SessionSource, fingerprint: SessionFileFingerprint, modifiedAt: Date)] = []
         var truncated = false
 
         for root in roots {
+            try budget.check()
             let rootURL = URL(fileURLWithPath: root.path)
             guard let enumerator = FileManager.default.enumerator(
                 at: rootURL,
@@ -117,6 +120,7 @@ struct SessionReviewLoader: Sendable {
             ) else { continue }
 
             for case let url as URL in enumerator {
+                try budget.visitEntry()
                 if records.count >= maximumFiles {
                     truncated = true
                     break
@@ -134,6 +138,7 @@ struct SessionReviewLoader: Sendable {
         }
 
         guard !records.isEmpty else { throw SessionReviewLoadError.inventoryFailed }
+        try budget.check()
         let now = Date()
         let items = records.map { record in
             let title = titles[record.path]?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -150,10 +155,11 @@ struct SessionReviewLoader: Sendable {
             if lhs.sizeBytes == rhs.sizeBytes { return lhs.modifiedAt > rhs.modifiedAt }
             return lhs.sizeBytes > rhs.sizeBytes
         }
+        try budget.check()
         return SessionReviewSnapshot(items: items, wasTruncated: truncated)
     }
 
-    private func loadCodexTitles() -> [String: String] {
+    private func loadCodexTitles(budget: ScanBudget) throws -> [String: String] {
         let database = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/state_5.sqlite")
         guard FileManager.default.fileExists(atPath: database.path),
               let data = runForData(
@@ -163,14 +169,18 @@ struct SessionReviewLoader: Sendable {
                 acceptedStatuses: [0]
               ),
               let rows = try? JSONDecoder().decode([ThreadIndexRow].self, from: data) else { return [:] }
-        return rows.reduce(into: [:]) { titles, row in
+        var titles: [String: String] = [:]
+        for row in rows {
+            try budget.check()
             titles[normalizedSessionPath(row.rolloutPath)] = row.title
         }
+        return titles
     }
 
-    private func loadOpenPaths(inside roots: [String]) -> Set<String>? {
+    private func loadOpenPaths(inside roots: [String], budget: ScanBudget) throws -> Set<String>? {
         var openPaths: Set<String> = []
         for root in roots {
+            try budget.check()
             guard let data = runForData(
                 executable: "/usr/sbin/lsof",
                 arguments: ["-Fn", "+D", root],
@@ -178,6 +188,7 @@ struct SessionReviewLoader: Sendable {
                 acceptedStatuses: [0, 1]
             ), let output = String(data: data, encoding: .utf8) else { return nil }
             for line in output.split(separator: "\n") where line.first == "n" {
+                try budget.check()
                 let path = normalizedSessionPath(String(line.dropFirst()))
                 if path.hasPrefix(normalizedSessionPath(root) + "/") {
                     openPaths.insert(path)
@@ -193,45 +204,13 @@ struct SessionReviewLoader: Sendable {
         timeout: TimeInterval,
         acceptedStatuses: Set<Int32>
     ) -> Data? {
-        var template = Array((NSTemporaryDirectory() + "ryddi-session-review.XXXXXX").utf8CString)
-        let descriptor = mkstemp(&template)
-        guard descriptor >= 0 else { return nil }
-        let outputPath = String(
-            decoding: template.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
-            as: UTF8.self
-        )
-        let output = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        defer {
-            try? output.close()
-            unlink(outputPath)
-        }
-
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return nil }
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            if Task.isCancelled {
-                process.terminate()
-                process.waitUntilExit()
-                return nil
-            }
-            usleep(20_000)
-        }
-        if process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
-            return nil
-        }
-        guard acceptedStatuses.contains(process.terminationStatus),
-              (try? output.synchronize()) != nil else { return nil }
-        var info = stat()
-        guard fstat(descriptor, &info) == 0, info.st_size <= 10_485_760,
-              lseek(descriptor, 0, SEEK_SET) == 0 else { return nil }
-        return try? output.readToEnd() ?? Data()
+        guard let result = try? BoundedScanProcess.run(process, timeout: timeout, maximumOutputBytes: 10_485_760),
+              acceptedStatuses.contains(result.status) else { return nil }
+        return result.data
     }
 }
 
@@ -315,7 +294,10 @@ struct SessionReviewView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Done") { dismiss() }
+                Button(engine.isLoadingSessions ? "Cancel" : "Done") {
+                    engine.cancelSessionReview()
+                    dismiss()
+                }
                     .keyboardShortcut(.cancelAction)
             }
             .padding(20)
@@ -583,7 +565,8 @@ extension ScanEngine {
     }
 
     func loadSessionReview(preservingMessage: Bool = false) {
-        guard !isLoadingSessions, !isMaintainingSessions else { return }
+        guard !isMaintainingSessions else { return }
+        cancelSessionReview()
         isLoadingSessions = true
         if !preservingMessage {
             sessionReviewMessage = nil
@@ -591,24 +574,28 @@ extension ScanEngine {
         }
         let generation = UUID()
         sessionReviewGeneration = generation
-        Task {
-            let result = await Task.detached(priority: .userInitiated) { () -> Result<SessionReviewSnapshot, Error> in
-                do { return .success(try SessionReviewLoader().load()) }
-                catch { return .failure(error) }
-            }.value
-            guard sessionReviewGeneration == generation else { return }
-            isLoadingSessions = false
-            switch result {
-            case .success(let snapshot):
+        sessionReviewTask = Task {
+            defer { if sessionReviewGeneration == generation { isLoadingSessions = false } }
+            do {
+                let snapshot = try await runCancellableScan { try SessionReviewLoader().load() }
+                guard sessionReviewGeneration == generation else { return }
                 sessionReviewItems = snapshot.items
                 sessionReviewWasTruncated = snapshot.wasTruncated
-            case .failure(let error):
+            } catch {
+                guard sessionReviewGeneration == generation else { return }
                 sessionReviewItems = []
                 sessionReviewWasTruncated = false
                 sessionReviewMessage = error.localizedDescription
                 sessionReviewMessageIsError = true
             }
         }
+    }
+
+    func cancelSessionReview() {
+        sessionReviewTask?.cancel()
+        sessionReviewTask = nil
+        sessionReviewGeneration = UUID()
+        isLoadingSessions = false
     }
 
     func revealSession(_ item: SessionReviewItem) {

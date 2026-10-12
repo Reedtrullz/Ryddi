@@ -154,46 +154,19 @@ public struct CleanupValidator: Sendable {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         process.arguments = isDirectory ? ["-Fn", "+D", path] : ["-Fn", "--", path]
-        var outputTemplate = Array((NSTemporaryDirectory() + "ryddi-lsof.XXXXXX").utf8CString)
-        let outputDescriptor = mkstemp(&outputTemplate)
-        guard outputDescriptor >= 0 else {
-            throw CleanupValidationError.openFileCheckFailed
-        }
-        let outputPath = String(
-            decoding: outputTemplate.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
-            as: UTF8.self
-        )
-        let output = FileHandle(fileDescriptor: outputDescriptor, closeOnDealloc: true)
-        defer {
-            try? output.close()
-            unlink(outputPath)
-        }
-        process.standardOutput = output
         process.standardError = FileHandle.nullDevice
+        let result: ScanProcessOutput
         do {
-            try process.run()
+            result = try BoundedScanProcess.run(process, timeout: 2, maximumOutputBytes: 10_485_760)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw CleanupValidationError.openFileCheckFailed
         }
-
-        let deadline = Date().addingTimeInterval(2)
-        while process.isRunning && Date() < deadline {
-            usleep(20_000)
-        }
-        if process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
-            throw CleanupValidationError.openFileCheckFailed
-        }
-        try? output.synchronize()
-        var outputInfo = stat()
-        guard fstat(outputDescriptor, &outputInfo) == 0 else {
-            throw CleanupValidationError.openFileCheckFailed
-        }
-        if outputInfo.st_size > 0 {
+        if !result.data.isEmpty {
             throw CleanupValidationError.openFiles
         }
-        switch process.terminationStatus {
+        switch result.status {
         case 0: return
         case 1: return
         default: throw CleanupValidationError.openFileCheckFailed

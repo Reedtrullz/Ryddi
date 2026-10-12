@@ -193,20 +193,13 @@ public struct SessionArchiveWriter: Sendable {
 
     private func run(_ process: Process, timeout: TimeInterval, failure: SessionArchiveError) throws {
         do {
-            try process.run()
+            let result = try BoundedScanProcess.run(process, timeout: timeout)
+            guard result.status == 0 else { throw failure }
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw failure
         }
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning {
-            if Task.isCancelled || Date() >= deadline {
-                process.terminate()
-                process.waitUntilExit()
-                throw failure
-            }
-            usleep(20_000)
-        }
-        guard process.terminationStatus == 0 else { throw failure }
     }
 
     private func isDescendantOrSame(_ path: String, as root: String) -> Bool {
