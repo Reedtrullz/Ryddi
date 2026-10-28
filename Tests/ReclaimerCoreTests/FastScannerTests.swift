@@ -33,9 +33,30 @@ final class FastScannerTests: XCTestCase {
         XCTAssertEqual(retinaAsset.groupKey, retinaAsset.name)
     }
 
-    func testDefaultRootsDoesNotCrash() {
-        let roots = FastScanner.defaultRoots()
-        XCTAssertFalse(roots.isEmpty, "Should find at least some roots on any real Mac")
+    func testDefaultRootsOnlyIncludesExistingRootsUnderExplicitHome() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ryddi-home-\(UUID().uuidString)")
+        let npm = home.appendingPathComponent(".npm")
+        let downloads = home.appendingPathComponent("Downloads")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        for directory in [npm, downloads, home.appendingPathComponent("unlisted")] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let roots = FastScanner.defaultRoots(home: home)
+
+        XCTAssertEqual(roots.map(\.name), ["npm cache", "Downloads"])
+        XCTAssertEqual(roots.map(\.path), [npm.path, downloads.path])
+    }
+
+    func testDefaultRootsAllowsAnEmptyExplicitHome() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ryddi-home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        XCTAssertTrue(FastScanner.defaultRoots(home: home).isEmpty)
     }
 
     func testFastScannerClassifiesUnconditionalCacheAsSafe() async throws {
