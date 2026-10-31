@@ -294,8 +294,13 @@ public final class RuleEngine: Sendable {
     }
 
     public func classify(path: String, isDirectory: Bool, isSymbolicLink: Bool) -> Classification {
+        let normalized = (path as NSString).standardizingPath.lowercased()
+        let url = URL(fileURLWithPath: path)
+        let basename = url.lastPathComponent.lowercased()
+        let ext = url.pathExtension.lowercased()
         var matches: [RuleMatch] = []
-        for rule in rules where rule.matches(path: path, homeDirectory: homeDirectory) {
+        for rule in rules where rule.matches(path: path, homeDirectory: homeDirectory,
+                                             normalized: normalized, basename: basename, ext: ext) {
             matches.append(
                 RuleMatch(
                     ruleID: rule.id,
@@ -376,7 +381,7 @@ public final class RuleEngine: Sendable {
 }
 
 private extension ReclaimerRule {
-    func matches(path: String, homeDirectory: URL) -> Bool {
+    func matches(path: String, homeDirectory: URL, normalized: String, basename: String, ext: String) -> Bool {
         if let roots = match.rootAny {
             guard let identity = FileIdentity.capture(path: path),
                   !identity.isSymbolicLink,
@@ -398,9 +403,6 @@ private extension ReclaimerRule {
             }
         }
         guard safetyClass != .autoSafe else { return false }
-        let normalized = (path as NSString).standardizingPath.lowercased()
-        let basename = URL(fileURLWithPath: path).lastPathComponent.lowercased()
-        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
 
         if !match.containsAny.isEmpty, match.containsAny.contains(where: { normalized.contains($0.lowercased()) }) {
             return true
