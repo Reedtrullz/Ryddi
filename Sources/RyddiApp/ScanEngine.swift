@@ -89,6 +89,34 @@ final class ScanEngine: ObservableObject {
     @Published var confirmationIsDestructive = false
     @Published var pendingAction: (() -> Void)?
     @Published var reclaimReportText: String?
+    @Published private(set) var cleanupReceipt: CleanupReceipt?
+    @Published var showCleanupReceipt = false
+    private var cleanupReceiptExpiryTask: Task<Void, Never>?
+
+    func presentCleanupReceipt(_ receipt: CleanupReceipt) {
+        dismissCleanupReceipt()
+        guard !receipt.isExpired() else { return }
+        cleanupReceipt = receipt
+        showCleanupReceipt = true
+        cleanupReceiptExpiryTask = Task { [weak self] in
+            let remaining = max(0, receipt.completedAt.addingTimeInterval(CleanupReceipt.lifetime).timeIntervalSinceNow)
+            do { try await Task.sleep(for: .seconds(remaining)) }
+            catch { return }
+            self?.expireCleanupReceipt(id: receipt.id)
+        }
+    }
+
+    func expireCleanupReceipt(id: UUID, at date: Date = Date()) {
+        guard let receipt = cleanupReceipt, receipt.id == id, receipt.isExpired(at: date) else { return }
+        dismissCleanupReceipt()
+    }
+
+    func dismissCleanupReceipt() {
+        cleanupReceiptExpiryTask?.cancel()
+        cleanupReceiptExpiryTask = nil
+        showCleanupReceipt = false
+        cleanupReceipt = nil
+    }
 
     private var scanTask: Task<Void, Never>?
     private var scanGeneration = UUID()
@@ -223,31 +251,22 @@ final class ScanEngine: ObservableObject {
         guard !toTrash.isEmpty else { return }
         isCleaning = true
         Task {
-            let failed = await Task.detached(priority: .userInitiated) {
-                var failures: [String] = []
-                do {
-                    let ruleEngine = try RuleEngine.bundled()
-                    let validator = CleanupValidator()
-                    for item in toTrash {
-                        try Task.checkCancellation()
-                        do {
-                            let url = try validator.validate(item, ruleEngine: ruleEngine)
-                            guard let identity = item.identity else { throw CleanupValidationError.missingIdentity }
-                            try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: identity)
-                        } catch {
-                            failures.append("\(item.name): \(error.localizedDescription)")
-                        }
-                    }
-                } catch {
-                    failures.append(error.localizedDescription)
+            let receipt = await Task.detached(priority: .userInitiated) {
+                let ruleEngine = Result { try RuleEngine.bundled() }
+                let validator = CleanupValidator()
+                return CleanupReceipt.perform(paths: toTrash.map(\.path)) { path in
+                    guard let item = toTrash.first(where: { $0.path == path }),
+                          let identity = item.identity else { throw CleanupValidationError.missingIdentity }
+                    let url = try validator.validate(item, ruleEngine: ruleEngine.get())
+                    return try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: identity)
                 }
-                return failures
             }.value
             isCleaning = false
-            if !failed.isEmpty {
-                errorMessage = "Some items were not cleaned:\n" + failed.joined(separator: "\n")
+            presentCleanupReceipt(receipt)
+            if receipt.hasUnmovedItems {
+                errorMessage = "Some items were not moved. Review the action receipt for outcomes and recovery locations."
             }
-            scanAll(preservingError: !failed.isEmpty)
+            scanAll(preservingError: receipt.hasUnmovedItems)
         }
     }
 
@@ -438,26 +457,27 @@ final class ScanEngine: ObservableObject {
               grower.identity.isDirectory,
               !grower.identity.isSymbolicLink else {
             errorMessage = "Close Xcode and scan again before moving DerivedData to Trash."
+            presentCleanupReceipt(CleanupReceipt(entries: [CleanupReceiptEntry(
+                sourcePath: grower.path, outcome: .failed, recoveryPath: nil,
+                detail: "Preflight refused the action. Nothing was attempted by Ryddi; rescan and verify the source location.")]))
             return
         }
         isCleaning = true
         Task {
-            let failure = await Task.detached(priority: .userInitiated) { () -> String? in
-                do {
+            let receipt = await Task.detached(priority: .userInitiated) {
+                CleanupReceipt.perform(paths: [grower.path]) { _ in
                     let url = try CleanupValidator().validateRecoverableDirectory(
                         path: grower.path,
                         expectedPath: expected,
                         scannedIdentity: grower.identity
                     )
-                    try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: grower.identity)
-                    return nil
-                } catch {
-                    return error.localizedDescription
+                    return try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: grower.identity)
                 }
             }.value
             isCleaning = false
-            if let failure {
-                errorMessage = "\(grower.action) failed: \(failure)"
+            presentCleanupReceipt(receipt)
+            if receipt.hasUnmovedItems {
+                errorMessage = "\(grower.action) was not completed. Review the action receipt."
             } else {
                 scanAll()
             }
@@ -509,6 +529,7 @@ final class ScanEngine: ObservableObject {
     }
 
     func reclaimAuditSelection() {
+        guard !isCleaning, !isAuditing, !isScanning else { return }
         guard let report = auditReport, report.hasCompleteCoverage else { return }
         let toTrash = report.recommendations.filter {
             auditSelectedIDs.contains($0.id) && $0.safetyScore >= 0.8 && $0.action == .moveToTrash
@@ -516,29 +537,19 @@ final class ScanEngine: ObservableObject {
         guard let root = report.scannedPaths.first, !toTrash.isEmpty else { return }
         isCleaning = true
         Task {
-            let failed = await Task.detached(priority: .userInitiated) {
+            let receipt = await Task.detached(priority: .userInitiated) {
                 let validator = CleanupValidator()
-                var failures: [String] = []
-                for recommendation in toTrash {
-                    do {
-                        try Task.checkCancellation()
-                    } catch {
-                        failures.append("Cleanup cancelled.")
-                        break
-                    }
-                    do {
-                        let url = try validator.validate(recommendation, scanRoot: root)
-                        guard let identity = recommendation.identity else { throw CleanupValidationError.missingIdentity }
-                        try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: identity)
-                    } catch {
-                        failures.append("\(urlName(recommendation.path)): \(error.localizedDescription)")
-                    }
+                return CleanupReceipt.perform(paths: toTrash.map(\.path)) { path in
+                    guard let recommendation = toTrash.first(where: { $0.path == path }),
+                          let identity = recommendation.identity else { throw CleanupValidationError.missingIdentity }
+                    let url = try validator.validate(recommendation, scanRoot: root)
+                    return try SessionTrashMover().moveValidatedFileToTrash(source: url, scannedIdentity: identity)
                 }
-                return failures
             }.value
             isCleaning = false
-            if !failed.isEmpty { errorMessage = "Some items were not cleaned:\n" + failed.joined(separator: "\n") }
-            runAudit(path: root, preservingError: !failed.isEmpty)
+            presentCleanupReceipt(receipt)
+            if receipt.hasUnmovedItems { errorMessage = "Some items were not moved. Review the action receipt." }
+            runAudit(path: root, preservingError: receipt.hasUnmovedItems)
         }
     }
 }
